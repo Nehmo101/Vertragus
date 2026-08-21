@@ -202,6 +202,17 @@
   gap: 6px;
 }
 
+/* A3: the automation band — same rhythm as the slot band above it. */
+.pe-automation {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pe-automation .pe-section-label {
+  color: var(--text-3);
+}
+
 .pe-slots .pe-section-label {
   color: var(--text-3);
 }

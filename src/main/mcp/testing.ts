@@ -13,6 +13,7 @@ import type {
   AgentSummary,
   InspectAgentOptions,
   InspectAgentResult,
+  RunPullRequest,
   StartAgentInput,
   StartLeadInput,
   StartingAgent,
@@ -24,6 +25,7 @@ import type {
   WorkspaceRuntime
 } from './types'
 import type { SuccessionRequest } from '@shared/schema/handoff'
+import type { AgentDoneStatus } from '@shared/schema/events'
 
 export interface CapturedTool {
   name: string
@@ -112,6 +114,13 @@ export class FakeAgentHost implements AgentHost {
   askWindows = new Map<string, number>()
   /** Live root id the fake succession reports as predecessor. */
   orchestratorId = 'orch-live'
+  /** A3: every `adoptOnDone` the tool layer made — the adoption hook. */
+  readonly adopted: Array<{ agentId: string; status: AgentDoneStatus }> = []
+  /** A3: what the auto-PR hook answers with; undefined = the profile asked for none. */
+  pullRequest: RunPullRequest | undefined
+  readonly pullRequestCalls: Array<{ summary?: string }> = []
+  /** A3: set to make the auto-PR hook throw — the retro must survive it. */
+  pullRequestError: string | undefined
   private counter = 0
   private hostBoard: TaskBoard | undefined
   private successionHeld = false
@@ -121,6 +130,16 @@ export class FakeAgentHost implements AgentHost {
 
   reportingMode(role: string): AgentSummary['reporting'] {
     return this.options.reportingMode?.(role) ?? 'mcp'
+  }
+
+  async adoptOnDone(agentId: string, status: AgentDoneStatus): Promise<void> {
+    this.adopted.push({ agentId, status })
+  }
+
+  async openRunPullRequest(options: { summary?: string } = {}): Promise<RunPullRequest | undefined> {
+    this.pullRequestCalls.push(options)
+    if (this.pullRequestError) throw new Error(this.pullRequestError)
+    return this.pullRequest
   }
 
   askTimeoutMsFor(agentId: string): number | undefined {

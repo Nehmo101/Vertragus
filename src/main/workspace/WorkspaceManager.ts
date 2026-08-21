@@ -330,6 +330,16 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     const workspace = workspaces.get(workspaceId)
     if (!workspace) return false
     workspaces.delete(workspaceId)
+    // A3: the user pressing Stop is the other "the work is done" — open the
+    // pull request the profile asked for if record_retro never got around to
+    // it. Before close(), because the event queue dies in there; at most one
+    // pull request per run, so a retro that already opened it wins. A failure
+    // here must never keep a workspace running.
+    try {
+      await workspace.openRunPullRequest?.({ summary: workspace.pendingRetroSummary })
+    } catch (error) {
+      console.warn('[automation] failed to open the run pull request:', error)
+    }
     // Agents first (subagents, then the orchestrator), then the registration —
     // unregisterWorkspace closes the EventQueue, and a push after that throws.
     await workspace.close(options)

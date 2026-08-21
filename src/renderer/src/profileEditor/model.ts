@@ -12,6 +12,7 @@
 import { z } from 'zod'
 import {
   createLocalId,
+  DEFAULT_PR_REMOTE,
   profileSchema,
   type Profile,
   type RoleTemplate
@@ -46,6 +47,15 @@ export interface ProfileDraft {
   maxSubagents: string
   /** Press Enter for the agent after an assignment was typed in. */
   autoSubmitTasks: boolean
+  /** A3: end-of-work automation — merges without a click, and the auto-PR. */
+  automation: {
+    autoIntegrate: boolean
+    autoPromote: boolean
+    autoPr: boolean
+    prRemote: string
+    prBaseBranch: string
+    prDraft: boolean
+  }
   /** Carried through untouched — the zone editor owns it (M4). */
   zones?: Profile['zones']
 }
@@ -61,7 +71,20 @@ export function emptyDraft(defaultProviderId: string, id = createLocalId('profil
     orchestrator: { providerId: defaultProviderId, model: '', effort: '' },
     slots: [],
     maxSubagents: '',
-    autoSubmitTasks: true
+    autoSubmitTasks: true,
+    automation: emptyAutomationDraft()
+  }
+}
+
+/** Every automation switch off — the default a new profile starts from. */
+export function emptyAutomationDraft(): ProfileDraft['automation'] {
+  return {
+    autoIntegrate: false,
+    autoPromote: false,
+    autoPr: false,
+    prRemote: '',
+    prBaseBranch: '',
+    prDraft: false
   }
 }
 
@@ -85,6 +108,17 @@ export function draftFromProfile(profile: Profile): ProfileDraft {
     })),
     maxSubagents: profile.maxSubagents === undefined ? '' : String(profile.maxSubagents),
     autoSubmitTasks: profile.autoSubmitTasks,
+    automation: {
+      autoIntegrate: profile.automation.autoIntegrate,
+      autoPromote: profile.automation.autoPromote,
+      autoPr: profile.automation.autoPr,
+      // The schema's own default is shown as an empty field: the placeholder
+      // says "origin", and persisting it as typed text would freeze today's
+      // default into every profile that never touched the field.
+      prRemote: profile.automation.prRemote === DEFAULT_PR_REMOTE ? '' : profile.automation.prRemote,
+      prBaseBranch: profile.automation.prBaseBranch ?? '',
+      prDraft: profile.automation.prDraft
+    },
     zones: profile.zones
   }
 }
@@ -139,6 +173,18 @@ export function toProfileInput(draft: ProfileDraft): unknown {
       ? {}
       : { maxSubagents: optionalNumber(draft.maxSubagents) }),
     autoSubmitTasks: draft.autoSubmitTasks,
+    automation: {
+      autoIntegrate: draft.automation.autoIntegrate,
+      autoPromote: draft.automation.autoPromote,
+      autoPr: draft.automation.autoPr,
+      ...(optionalText(draft.automation.prRemote)
+        ? { prRemote: draft.automation.prRemote.trim() }
+        : {}),
+      ...(optionalText(draft.automation.prBaseBranch)
+        ? { prBaseBranch: draft.automation.prBaseBranch.trim() }
+        : {}),
+      prDraft: draft.automation.prDraft
+    },
     ...(draft.zones ? { zones: draft.zones } : {})
   }
 }
@@ -164,6 +210,8 @@ export function messageForPath(t: Translate, path: string): string {
   if (path.endsWith('providerId')) return t('profileEditor.errors.provider')
   if (path.endsWith('roleId')) return t('profileEditor.errors.role')
   if (path.endsWith('maxCount')) return t('profileEditor.errors.maxCount')
+  if (path === 'automation.prRemote') return t('profileEditor.errors.prRemote')
+  if (path === 'automation.prBaseBranch') return t('profileEditor.errors.prBaseBranch')
   return t('profileEditor.errors.generic')
 }
 

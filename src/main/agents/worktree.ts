@@ -176,7 +176,8 @@ export interface CreateWorktreeOptions extends WorktreeDeps {
   startPoint?: string
 }
 
-function gitErrorMessage(error: unknown): string {
+/** git's own stderr is the best sentence we have — never a generic wrapper. */
+export function gitErrorMessage(error: unknown): string {
   if (error && typeof error === 'object') {
     const shaped = error as { stderr?: string; message?: string }
     const stderr = shaped.stderr?.trim()

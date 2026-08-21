@@ -37,6 +37,7 @@ import {
   USER_QUESTION_AGENT_ID,
   type LeadRuntime,
   type StartingAgent,
+  type RunPullRequest,
   type ToolText,
   type WorkspaceRuntime
 } from './types'
@@ -1023,11 +1024,26 @@ export function registerOrchestratorTools(
       retro.recordSummary(summary)
       const { applied } = retro.recordLearnings(learnings)
       const appliedNotes = repoNotes.length > 0 ? retro.recordRepoNotes?.(repoNotes)?.applied ?? 0 : 0
+      // A3: the retro is the run's "work is done" — so it is where the
+      // profile's auto-PR is opened. Never able to fail the retro: a pull
+      // request that could not be opened is a line in the answer, not a lost
+      // retrospective.
+      let pullRequest: RunPullRequest | undefined
+      try {
+        pullRequest = await ctx.host.openRunPullRequest?.({ summary })
+      } catch (error) {
+        pullRequest = { ok: false, branch: '', base: '', message: errorMessage(error) }
+      }
       return toolJson({
         ok: true,
         appliedLearnings: applied,
         appliedRepoNotes: appliedNotes,
-        note: 'Retro recorded. Now give the user your final summary.'
+        ...(pullRequest ? { pullRequest } : {}),
+        note: pullRequest
+          ? pullRequest.ok
+            ? `Retro recorded and the pull request is open: ${pullRequest.url}. Name that link in your final summary to the user.`
+            : `Retro recorded. No pull request was opened: ${pullRequest.message ?? 'unknown reason'}. Say so in your final summary — do not open one yourself.`
+          : 'Retro recorded. Now give the user your final summary.'
       })
     }
   )

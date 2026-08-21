@@ -280,6 +280,8 @@ export interface WorkspaceSummary {
    */
   taskTotal?: number
   taskDone?: number
+  /** A3: the run's pull request (or why there is none) once auto-PR has run. */
+  pullRequest?: { ok: boolean; url?: string; message?: string }
 }
 
 /** One stale worktree the panel's cleanup view offers for removal. */

@@ -358,6 +358,8 @@ Gate: Worker-Snapshot + Reviewer ohne Blocker + Tester `success`, dann
 warnen wenn ohne Gate „fertig“. Promote nach `<base>` ist **User-Klick**
 (Desktop; Remote-Allow-List bewusst ohne Worktree-Löschung — Promote
 gehört analog nicht nach Handy-v1, zu nah an „mein Repo überschreiben“).
+Seit A3 lässt sich dieser Klick einmal im Profil statt einmal pro Branch
+machen — gleicher Host-Merge, gleiche Ablehnungen, siehe Phase A3.
 
 ### E2 Briefing + Repo-Notes
 
@@ -725,6 +727,45 @@ Offen aus dem Plan: Loop-Eval-Szenarien für G3/G4 (Schema-Tester,
 Zwei-Task-Board mit Succession) — Unit-/Integrationstests decken die
 Pfade, das End-to-End-Szenario ist Folgearbeit.
 
+## Phase A3 — Automatisierung: Übernahme ohne Klick und der Pull Request des Laufs
+
+Standardmäßig aus, pro Profil (`automation` in
+`shared/schema/profile.ts`), und bewusst auf den bereits vorhandenen
+Merge-Pfaden gebaut — eine automatische Übernahme ist ein **fehlender
+Klick, nie ein zweiter Merge-Pfad**.
+
+### A3.1 Auto-Integrate / Auto-Promote
+
+`autoIntegrate` mergt jeden Branch, den ein direktes Kind als sauberen
+`success` meldet, in den Worktree des **Orchestrators**; `autoPromote`
+mergt ihn in das **Checkout des Repositories** — das Promote aus E1 ohne
+den Klick, inklusive seiner Ablehnung bei schmutzigem Checkout. Beide
+laufen über `mergeBranchIntoWorktree` / `Workspace.promoteAgentBranch`,
+beide schieben die bestehenden Events `integrate_ok` /
+`integrate_conflict` (neues optionales Feld
+`target: worktree | checkout`), und keines wirft je in den Melde-Pfad:
+`report_done` und das Sentinel-Done übergeben an
+`Workspace.adoptOnDone` und sind fertig. Absichtlich eng: nur ein
+`success`, nie der eigene Branch des Orchestrators, und nur Agenten, die
+in die Root-Queue melden — die Worker eines Leads sind Sache des Leads.
+
+### A3.2 Auto-PR
+
+`autoPr` öffnet den Pull Request des Laufs, wenn die Arbeit fertig ist:
+bei `record_retro` (dem eigenen Abschlussaufruf des Orchestrators, der die
+URL in seiner Antwort zurückbekommt) oder wenn der Nutzer den Workspace
+stoppt — was zuerst kommt, höchstens einmal pro Lauf. Head ist der
+Integrations-Branch des Laufs (der des Orchestrators, sonst der des
+Checkouts, wenn dieser vorn liegt), Base ist `prBaseBranch` oder der
+Branch, auf dem das Checkout steht. `agents/pullRequest.ts` pusht mit
+`git push -u` (nie `--force`) und öffnet den PR mit `gh`; ein fehlendes
+oder ausgeloggtes `gh` ist kein gescheiterter Lauf, sondern ein
+`pull_request`-Event mit der fertigen GitHub-Compare-URL, die die
+Panel-Karte als Link zeigt. Der Orchestrator-Prompt rendert genau für die
+eingeschalteten Schalter einen Automatisierungsblock — damit er dem Nutzer
+nicht länger sagt, er solle einen Branch mergen, den der Host längst
+gemergt hat.
+
 ## Anhang: Code-Anker
 
 | Thema | Wo | Stand |
@@ -744,3 +785,4 @@ Pfade, das End-to-End-Szenario ist Folgearbeit.
 | MCP-Fragen vom Handy/Panel | `answer_question` Gateway-Verb + `workspaces:answerQuestion`, ein Pfad in `mcp/answerQuestion.ts` | **Track 0** |
 | Worker „nie committen” + Host-Snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, Handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` „Cursor hat kein agent_done“ | veraltet (`none` = Ollama) | ignorieren |
+| Automatisierung: Übernahme ohne Klick, Pull Request des Laufs | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest`, `agents/pullRequest.ts` | **A3** |

@@ -71,7 +71,7 @@ MCP support (e.g. Ollama) speak a **sentinel dialect** instead — echo-safe
 marker lines parsed from the PTY, same events, same question registry.
 
 Lifecycle, questions, progress, integration and budget all arrive as typed
-**events** (eighteen kinds) on a per-workspace queue with cursors; the ring
+**events** (nineteen kinds) on a per-workspace queue with cursors; the ring
 keeps the last 1000 and the on-disk journal keeps everything.
 
 ## Git isolation — and how work comes back
@@ -91,6 +91,15 @@ keeps the last 1000 and the on-disk journal keeps everything.
   repository's own branch happens from the panel (and refuses a dirty main
   checkout); the orchestrator never runs git itself, and the remote
   allow-list deliberately has no promote verb.
+- **…unless you decide once instead of every time.** A profile's
+  **Automation** band turns that click into a setting: adopt every cleanly
+  finished agent branch into the orchestrator's worktree and/or into the
+  repository checkout, and open the run's **pull request** automatically
+  when the work is done (`record_retro`, or when you stop the workspace).
+  Everything is off by default and runs through the same host merges, with
+  the same refusals; the PR is pushed with `git push -u` (never `--force`)
+  and opened with the GitHub CLI — no `gh`, no problem: the card then shows
+  the ready-made compare link instead.
 
 ## The human stays in the loop
 

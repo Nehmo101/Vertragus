@@ -1077,6 +1077,44 @@ describe('record_retro', () => {
     ])
   })
 
+  it('A3: opens the run’s pull request and hands the orchestrator its link', async () => {
+    const { port } = retroPort()
+    const { runtime, tools } = setup({ retro: port })
+    runtime.host.pullRequest = {
+      ok: true,
+      branch: 'vertragus/arsenale/orch',
+      base: 'main',
+      url: 'https://github.com/o/r/pull/12'
+    }
+
+    const result = await callTool(tools, 'record_retro', { summary: 'Fertig.' })
+
+    expect(runtime.host.pullRequestCalls).toEqual([{ summary: 'Fertig.' }])
+    expect(result.json.pullRequest).toMatchObject({ ok: true, url: 'https://github.com/o/r/pull/12' })
+    expect(String(result.json.note)).toContain('https://github.com/o/r/pull/12')
+  })
+
+  it('A3: a pull request that could not be opened is a line in the answer, not a lost retro', async () => {
+    const { port } = retroPort()
+    const { runtime, tools } = setup({ retro: port })
+    runtime.host.pullRequestError = 'gh exploded'
+
+    const result = await callTool(tools, 'record_retro', { summary: 'Fertig.' })
+
+    expect(result.isError).toBe(false)
+    expect(port.recordSummary).toHaveBeenCalledWith('Fertig.')
+    expect(result.json.pullRequest).toMatchObject({ ok: false, message: 'gh exploded' })
+    expect(String(result.json.note)).toContain('No pull request')
+  })
+
+  it('A3: says nothing about pull requests when the profile asked for none', async () => {
+    const { port } = retroPort()
+    const { tools } = setup({ retro: port })
+    const result = await callTool(tools, 'record_retro', { summary: 'Fertig.' })
+    expect(result.json.pullRequest).toBeUndefined()
+    expect(result.json.note).toBe('Retro recorded. Now give the user your final summary.')
+  })
+
   it('accepts a summary without any learnings — empty slots are allowed', async () => {
     const { port } = retroPort()
     const { tools } = setup({ retro: port })

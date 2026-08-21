@@ -12,6 +12,21 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **Automation band in the profile (all switches off by default):**
+  - Adopt a finished agent branch without the panel click — into the
+    orchestrator's worktree (`autoIntegrate`) and/or into the repository's
+    own checkout (`autoPromote`). Same host merges as before, same
+    refusals: only a clean `success` is adopted, a dirty checkout is still
+    refused, and a conflict aborts and is reported as
+    `integrate_conflict` (both integrate events gained an optional
+    `target`).
+  - Open the run's pull request automatically (`autoPr`) when the work is
+    done — at `record_retro`, which gets the URL back in its answer, or
+    when the workspace is stopped, at most once per run. Pushes with
+    `git push -u` (never `--force`) and opens the PR with the GitHub CLI;
+    without `gh` the new `pull_request` event carries the ready-made
+    compare URL, which the workspace card shows as a link. Base branch,
+    remote and draft mode are configurable.
 - **Phase G (dsh adoption), all five patterns:**
   - Spill instead of truncation — oversized `read_output` and
     `inspect_agent` results are stored verbatim under

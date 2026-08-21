@@ -23,6 +23,19 @@ export interface RoleWithLimit {
   slots?: Array<{ id: string; providerId: string; model?: string }>
 }
 
+/**
+ * A3: the profile's end-of-work automation, as the prompt has to know it.
+ *
+ * Structural on purpose (not the profile's own type): the prompt only cares
+ * which of the three host behaviours are ON, because each of them removes a
+ * step the orchestrator would otherwise be told to do — or to ask the user for.
+ */
+export interface AutomationBriefing {
+  autoIntegrate: boolean
+  autoPromote: boolean
+  autoPr: boolean
+}
+
 export interface OrchestratorPromptInput {
   workspaceName: string
   repoPath: string
@@ -36,6 +49,40 @@ export interface OrchestratorPromptInput {
    * notes). Absent = no block rendered.
    */
   briefing?: string
+  /** A3: absent, or every switch off, renders no automation block at all. */
+  automation?: AutomationBriefing
+}
+
+/**
+ * The automation block. Each line states a step the HOST now takes, and what
+ * the orchestrator must therefore stop doing — an orchestrator that re-merges
+ * an already merged branch, or that ends its summary with "merge it in the
+ * panel" while the panel already did, is worse than one that was never told.
+ */
+function renderAutomation(automation: AutomationBriefing | undefined): string[] {
+  if (!automation) return []
+  const lines: string[] = []
+  if (automation.autoIntegrate) {
+    lines.push(
+      '- Every branch a subagent reports as a clean success is merged into YOUR worktree by the host, right after the report. You see it as integrate_ok (or integrate_conflict). Do not call integrate_branch for work that was already integrated; a reported conflict is real work — task an agent with resolving it.'
+    )
+  }
+  if (automation.autoPromote) {
+    lines.push(
+      '- Every branch a subagent reports as a clean success is also merged into the repository’s own checkout by the host. The user asked for that: never tell them to merge the branch in the panel, and never treat a promote as your decision.'
+    )
+  }
+  if (automation.autoPr) {
+    lines.push(
+      '- A pull request for this run is opened by the host when you call record_retro (its URL comes back in the record_retro result — name it in your final summary). You never push and never open a pull request yourself.'
+    )
+  }
+  if (lines.length === 0) return []
+  return [
+    'Automation the user switched on for this run (the HOST does these — they are not your work):',
+    ...lines,
+    ''
+  ]
 }
 
 function renderRole(role: RoleWithLimit): string {
@@ -67,7 +114,8 @@ export function buildOrchestratorSystemPrompt({
   rolesWithLimits,
   maxSubagents,
   knowledge = [],
-  briefing
+  briefing,
+  automation
 }: OrchestratorPromptInput): string {
   const roleLines =
     rolesWithLimits.length > 0
@@ -100,6 +148,7 @@ export function buildOrchestratorSystemPrompt({
     '',
     'Isolation: you and every agent you start each work in a separate git worktree of this repository, on a separate vertragus/* branch. Agents therefore never see each other’s uncommitted files. When an agent reports done, Vertragus itself commits its work onto its branch (a snapshot commit — agents do not commit themselves). To hand work from one agent to the next, start the next one with baseBranch set to the first agent’s branch (start_agent reports every agent’s branch back to you); the new agent’s task automatically carries a handoff block with the first agent’s report, files and HEAD. To combine several results, start an agent with baseBranch on one of the branches and task it with merging the other branches into its own — the branches merge like any other git branches.',
     '',
+    ...renderAutomation(automation),
     'Available roles:',
     roleLines,
     totalLine,

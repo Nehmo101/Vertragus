@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   ASK_TIMEOUT_DEFAULT_MS,
   registerSubagentTools,
@@ -48,6 +48,13 @@ describe('report_done', () => {
     const { runtime, tools } = await setup()
     await callTool(tools, 'report_done', { summary: 'need credentials', status: 'blocked' })
     expect(runtime.events.all().at(-1)).toMatchObject({ status: 'blocked' })
+  })
+
+  it('A3: hands the report to the host’s adoption automation, with its status', async () => {
+    const { runtime, tools, agentId } = await setup()
+    await callTool(tools, 'report_done', { summary: 'parser fixed', status: 'blocked' })
+    await vi.waitFor(() => expect(runtime.host.adopted).toHaveLength(1))
+    expect(runtime.host.adopted[0]).toEqual({ agentId, status: 'blocked' })
   })
 
   it('rejects an invented status at the schema', async () => {

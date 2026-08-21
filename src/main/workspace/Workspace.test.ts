@@ -2443,3 +2443,216 @@ describe('listTasks — the board as the panel reads it', () => {
     expect(workspace.listTasks()).toEqual([])
   })
 })
+
+
+/**
+ * A3: the automation band of the profile — adoption without a click, and the
+ * run's pull request. Every test drives the real host methods over a scripted
+ * git runner: nothing here may reach a remote, and nothing may merge for a
+ * profile that never asked for it.
+ */
+describe('automation', () => {
+  interface GitCall {
+    args: string[]
+    cwd: string
+  }
+
+  function automationGit(options: { dirtyCheckout?: boolean; ahead?: string } = {}): {
+    git: NonNullable<NonNullable<WorkspaceDeps['worktreeDeps']>['git']>
+    calls: GitCall[]
+  } {
+    const calls: GitCall[] = []
+    const git: NonNullable<NonNullable<WorkspaceDeps['worktreeDeps']>['git']> = async (
+      args,
+      cwd
+    ) => {
+      calls.push({ args, cwd })
+      if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return { stdout: 'main\n', stderr: '' }
+      if (args[0] === 'rev-parse') return { stdout: `${'b'.repeat(40)}\n`, stderr: '' }
+      if (args[0] === 'rev-list') return { stdout: `${options.ahead ?? '2'}\n`, stderr: '' }
+      if (args[0] === 'status') {
+        return { stdout: options.dirtyCheckout && cwd === '/repo' ? ' M src/a.ts\n' : '', stderr: '' }
+      }
+      return { stdout: '', stderr: '' }
+    }
+    return { git, calls }
+  }
+
+  function automationProfile(automation: Record<string, unknown>): ReturnType<typeof testProfile> {
+    return testProfile({ automation } as never)
+  }
+
+  const merges = (calls: GitCall[]): GitCall[] => calls.filter((call) => call.args.includes('merge'))
+
+  it('adopts nothing for a profile that switched nothing on', async () => {
+    const { git, calls } = automationGit()
+    const { workspace } = harness({ deps: { worktreeDeps: { git } } })
+    await workspace.startOrchestrator()
+    const agent = await workspace.startAgent({ role: 'worker', task: 'Fix it.' })
+
+    await workspace.adoptOnDone(agent.agentId, 'success')
+
+    expect(merges(calls)).toEqual([])
+    expect(workspace.events.all().filter((event) => event.type === 'integrate_ok')).toEqual([])
+  })
+
+  it('merges a clean success into the orchestrator’s worktree and says where it landed', async () => {
+    const { git, calls } = automationGit()
+    const { workspace } = harness({
+      profile: automationProfile({ autoIntegrate: true }),
+      deps: { worktreeDeps: { git } }
+    })
+    const orchestrator = await workspace.startOrchestrator()
+    const agent = await workspace.startAgent({ role: 'worker', task: 'Fix it.' })
+
+    await workspace.adoptOnDone(agent.agentId, 'success')
+
+    const merge = merges(calls)[0]!
+    expect(merge.cwd).toBe(orchestrator.worktreePath)
+    expect(merge.args).toContain(agent.branch)
+    const event = workspace.events.all().find((entry) => entry.type === 'integrate_ok')
+    expect(event).toMatchObject({ target: 'worktree', branch: agent.branch })
+  })
+
+  it('promotes a clean success into the repository checkout — the panel click, automated', async () => {
+    const { git, calls } = automationGit()
+    const { workspace } = harness({
+      profile: automationProfile({ autoPromote: true }),
+      deps: { worktreeDeps: { git } }
+    })
+    await workspace.startOrchestrator()
+    const agent = await workspace.startAgent({ role: 'worker', task: 'Fix it.' })
+
+    await workspace.adoptOnDone(agent.agentId, 'success')
+
+    expect(merges(calls)[0]!.cwd).toBe('/repo')
+    expect(workspace.events.all().find((entry) => entry.type === 'integrate_ok')).toMatchObject({
+      target: 'checkout'
+    })
+  })
+
+  it('never promotes over uncommitted work in the checkout — it reports instead', async () => {
+    const { git, calls } = automationGit({ dirtyCheckout: true })
+    const { workspace } = harness({
+      profile: automationProfile({ autoPromote: true }),
+      deps: { worktreeDeps: { git } }
+    })
+    await workspace.startOrchestrator()
+    const agent = await workspace.startAgent({ role: 'worker', task: 'Fix it.' })
+
+    await workspace.adoptOnDone(agent.agentId, 'success')
+
+    expect(merges(calls)).toEqual([])
+    expect(workspace.events.all().find((entry) => entry.type === 'integrate_conflict')).toMatchObject(
+      { target: 'checkout', message: expect.stringContaining('uncommitted') }
+    )
+  })
+
+  it('adopts only a success — blocked and failed reports stay a human’s business', async () => {
+    const { git, calls } = automationGit()
+    const { workspace } = harness({
+      profile: automationProfile({ autoIntegrate: true, autoPromote: true }),
+      deps: { worktreeDeps: { git } }
+    })
+    await workspace.startOrchestrator()
+    const agent = await workspace.startAgent({ role: 'worker', task: 'Fix it.' })
+
+    await workspace.adoptOnDone(agent.agentId, 'blocked')
+    await workspace.adoptOnDone(agent.agentId, 'failed')
+
+    expect(merges(calls)).toEqual([])
+  })
+
+  it('opens no pull request when the profile never asked for one', async () => {
+    const openPullRequest = vi.fn()
+    const { workspace } = harness({
+      deps: { worktreeDeps: { git: automationGit().git }, openPullRequest }
+    })
+    await workspace.startOrchestrator()
+
+    await expect(workspace.openRunPullRequest()).resolves.toBeUndefined()
+    expect(openPullRequest).not.toHaveBeenCalled()
+  })
+
+  it('pushes the orchestrator’s branch, records the URL and reports it once', async () => {
+    const openPullRequest = vi
+      .fn()
+      .mockResolvedValue({ ok: true, url: 'https://github.com/o/r/pull/3', created: true })
+    const { workspace } = harness({
+      profile: automationProfile({ autoPr: true, prDraft: true }),
+      deps: { worktreeDeps: { git: automationGit().git }, openPullRequest }
+    })
+    const orchestrator = await workspace.startOrchestrator()
+
+    const result = await workspace.openRunPullRequest({ summary: 'One fix, tests green.' })
+
+    expect(result).toMatchObject({ ok: true, url: 'https://github.com/o/r/pull/3', base: 'main' })
+    expect(openPullRequest.mock.calls[0]![0]).toMatchObject({
+      repoPath: '/repo',
+      head: orchestrator.branch,
+      base: 'main',
+      remote: 'origin',
+      draft: true
+    })
+    expect(workspace.events.all().find((event) => event.type === 'pull_request')).toMatchObject({
+      ok: true,
+      url: 'https://github.com/o/r/pull/3'
+    })
+
+    // Second asker (record_retro and Stop both ask) gets the same answer —
+    // never a second pull request.
+    await expect(workspace.openRunPullRequest()).resolves.toMatchObject({ ok: true })
+    expect(openPullRequest).toHaveBeenCalledTimes(1)
+    expect(workspace.runPullRequest).toMatchObject({ ok: true })
+  })
+
+  it('says so instead of opening an empty pull request when no branch is ahead', async () => {
+    const openPullRequest = vi.fn()
+    const { workspace } = harness({
+      profile: automationProfile({ autoPr: true }),
+      deps: { worktreeDeps: { git: automationGit({ ahead: '0' }).git }, openPullRequest }
+    })
+    await workspace.startOrchestrator()
+
+    const result = await workspace.openRunPullRequest()
+
+    expect(result).toMatchObject({ ok: false, message: expect.stringContaining('ahead of main') })
+    expect(openPullRequest).not.toHaveBeenCalled()
+    expect(workspace.events.all().find((event) => event.type === 'pull_request')).toMatchObject({
+      ok: false
+    })
+  })
+
+  it('keeps the compare link of a failed attempt — the user is one click from the PR', async () => {
+    const openPullRequest = vi.fn().mockResolvedValue({
+      ok: false,
+      reason: 'gh_missing',
+      message: 'The GitHub CLI (gh) is not installed',
+      compareUrl: 'https://github.com/o/r/compare/main...feature?expand=1'
+    })
+    const { workspace } = harness({
+      profile: automationProfile({ autoPr: true }),
+      deps: { worktreeDeps: { git: automationGit().git }, openPullRequest }
+    })
+    await workspace.startOrchestrator()
+
+    await expect(workspace.openRunPullRequest()).resolves.toMatchObject({
+      ok: false,
+      url: 'https://github.com/o/r/compare/main...feature?expand=1'
+    })
+  })
+
+  it('tells the orchestrator what the host now does for it', async () => {
+    const { workspace, spawns } = harness({
+      profile: automationProfile({ autoIntegrate: true, autoPromote: true, autoPr: true }),
+      deps: { worktreeDeps: { git: automationGit().git } }
+    })
+    await workspace.startOrchestrator()
+
+    const prompt = spawns[0]!.input.systemPrompt!
+    expect(prompt).toContain('Automation the user switched on for this run')
+    expect(prompt).toContain('merged into YOUR worktree')
+    expect(prompt).toContain('never tell them to merge the branch in the panel')
+    expect(prompt).toContain('record_retro')
+  })
+})
