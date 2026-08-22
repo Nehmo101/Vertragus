@@ -17,6 +17,10 @@
  * settings writes and profile/provider editing are intentionally absent.
  */
 import { z } from 'zod'
+import { MAX_RESUME_TAIL_CHARS } from './limits'
+
+// Re-exported so a host-side reader finds it beside the schema that uses it.
+export { MAX_RESUME_TAIL_CHARS }
 
 /** Commands a remote client may invoke — the whole surface, nothing implicit. */
 export const REMOTE_COMMANDS = [
@@ -41,11 +45,23 @@ export const REMOTE_COMMANDS = [
 ] as const
 export type RemoteCommand = (typeof REMOTE_COMMANDS)[number]
 
+
 // --- inbound (client → server) ------------------------------------------
 
 export const clientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('auth'), session: z.string().min(1).max(512) }),
-  z.object({ type: z.literal('attach'), agentId: z.string().min(1).max(200) }),
+  z.object({
+    type: z.literal('attach'),
+    agentId: z.string().min(1).max(200),
+    /**
+     * The tail of this agent's output the client already holds, offered so the
+     * bridge can answer with the part that is new instead of the whole
+     * scrollback. See {@link MAX_RESUME_TAIL_CHARS}; omitted on a first attach,
+     * and ignorable — a bridge that does not understand it simply replays
+     * everything, which is what every attach did before this field existed.
+     */
+    resume: z.string().max(MAX_RESUME_TAIL_CHARS).optional()
+  }),
   z.object({ type: z.literal('detach'), agentId: z.string().min(1).max(200) }),
   z.object({
     type: z.literal('input'),
@@ -158,6 +174,20 @@ export type ServerMessage =
   | { type: 'workspaces'; workspaces: RemoteWorkspaceSummary[] }
   | {
       type: 'snapshot'
+      /**
+       * The agent's output as the bridge holds it. Normally the whole
+       * scrollback; when the `attach` carried a resume marker the bridge could
+       * place, this is the stream from that marker on — still a view of the
+       * same stream, still containing the client's own tail, so a client that
+       * aligns on its tail and appends what follows behaves identically.
+       *
+       * Lossless in practice rather than by construction: the bridge resumes
+       * from the LAST place the marker occurs, so a marker that recurs after
+       * the client's true position would drop the output in between. It takes
+       * a terminal emitting the same 16 KB twice, and the client's own 8 KB
+       * aligner has the identical shape, so this is a stated residual risk and
+       * not a new one — see `resumeSnapshot` in `terminalBridge.ts`.
+       */
       agentId: string
       snapshot: string
       cols: number
@@ -171,7 +201,39 @@ export type ServerMessage =
   | { type: 'command_result'; id: string; ok: true; result: unknown }
   | { type: 'command_result'; id: string; ok: false; error: string }
   | { type: 'error'; message: string }
-  | { type: 'session_revoked' }
+  /**
+   * The session this socket authenticated with is gone. `reason` says whether
+   * that was a DECISION about this device or merely its clock running out,
+   * because the two want opposite client behaviour: an expired session should
+   * be replaced silently from the stored pairing token (a desktop restart drops
+   * every in-memory session and must not send every phone back to the QR
+   * code), while a revoke the user performed in settings must not be undone by
+   * the revoked device re-pairing itself a second later.
+   *
+   * Optional so an older client — which ignores unknown fields and re-pairs
+   * either way — is not broken by a newer host; a client that understands it
+   * treats a missing value as `'expired'`.
+   *
+   * ## `'revoked'` is device management, not a security boundary
+   *
+   * Read the paragraph above literally: the revoke holds because the CLIENT
+   * chooses to honour it by deleting its own stored pairing token. Nothing on
+   * the host stops a device from presenting that same token to `/api/auth` a
+   * second later and being issued a fresh session, because the host has no way
+   * to tell one holder of the pairing token from another. So revoking a lost
+   * phone from settings ends its current session and drops it off the
+   * connected-clients list; it does not end its ACCESS. Regenerating the
+   * pairing token is the only revocation that holds against a client that does
+   * not cooperate, and it costs every other device a re-pair.
+   *
+   * The real fix is small and is written down here so the next person does not
+   * have to re-derive it: mint a device id at pair time, return it beside the
+   * session, have the client present it on every subsequent `/api/auth`, and
+   * keep a revoked-device set the host checks before minting. That is a
+   * protocol change on both ends plus persistence for the revoked set, which is
+   * why the shipped fix stops at making the reason honest.
+   */
+  | { type: 'session_revoked'; reason?: 'revoked' | 'expired' }
 
 /** Parse one inbound frame; returns undefined for anything malformed. */
 export function parseClientMessage(raw: string): ClientMessage | undefined {
