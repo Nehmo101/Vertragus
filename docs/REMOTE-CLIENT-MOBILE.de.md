@@ -100,3 +100,55 @@ Settings, keine CLI-Permission-TUIs auf dem Handy.
 - Zweiten MCP-Server oder Spiegel aller `APP_CHANNELS`.
 - Raw-xterm als primäre Handy-Tastatur zurückbauen.
 - Den Token in `electron-store` als Klartext legen.
+
+## Der zweite Durchgang — von 3/10 in der Hand
+
+Der erste Durchgang machte den Client lesbar. In der Hand, über Tailscale,
+blieb er bei 3/10 — mit zwei Mängeln, die derjenige benannte, der das Gerät
+hielt: durch den Terminal-Verlauf zu scrollen sei "beinahe unmöglich", und
+wer ein Terminal verlässt, landet immer wieder ganz oben in der Übersicht.
+
+### Beide Mängel hatten dieselbe Form
+
+Keiner war ein Gesten-Problem. In beiden Fällen wurde dem Benutzer der
+Zustand unter den Händen weggerissen.
+
+- **Das Terminal wurde bei fast jedem Render neu gebaut.** `useRemote()`
+  liefert ein frisches Objektliteral, `api` wechselte also bei jedem Render
+  von `App` die Identität — und `App` rendert bei jedem `workspaces`-Push
+  neu. Der Effekt, der das Terminal erzeugt und anhängt, führte `api` in
+  seinen Abhängigkeiten: jeder Push verwarf das `Terminal`, hängte neu an
+  und schrieb den Snapshot erneut. Hochscrollen funktionierte; der nächste
+  Push warf den Lesenden wieder ans Ende. `A+`/`A−` löschte den Puffer
+  durch dieselbe Tür.
+- **Der Weg zurück hängte die ganze Übersicht ab.** `App` gab vorzeitig
+  `<RemoteTerminal>` zurück und nahm dabei die Scroll-Position des
+  Dokuments, die aufgeklappten Karten und jeden halb getippten Entwurf mit.
+  Nur die Position wiederherzustellen hätte eines von drei Dingen geheilt —
+  und sich mit der `history.scrollRestoration` des Browsers angelegt.
+
+Die Korrekturen sind strukturell, nicht kosmetisch: das Terminal entsteht
+einmal pro Agent und erreicht seine Props über Refs; die Übersicht bleibt
+unter dem fixierten Terminal-Overlay montiert, versteckt statt abgehängt —
+nichts wird wiederhergestellt, weil nichts verloren geht.
+
+### Was der Client gewonnen hat
+
+| Bereich | Änderung |
+| --- | --- |
+| Terminal-Verlauf | Touch-Scroller mit Nachlauf über die tatsächliche Zellhöhe, Sprung zur neuesten Ausgabe, Seiten- und Ende-Steuerung, Suche im Verlauf, Kopieren auch über einfaches HTTP (eine Tailnet-URL ist kein sicherer Kontext, `navigator.clipboard` fehlt dort), Schriftgröße 11–24 dauerhaft. |
+| Übersicht | Fragen-Eingang über alle Workspaces mit Sprung aus dem Kopf, das Aufgabenboard, das die Leitung längst mitführte, deterministische Sortierung, Ziehen zum Aktualisieren, Alle-einklappen, lokale Darstellungswahl, Entwürfe, die jeden Wechsel überleben. |
+| Navigation | Die Zurück-Geste schließt das Terminal, statt die App zu verlassen; ein History-Eintrag, ohne URL geschoben, damit das Kopplungs-Fragment entfernt bleibt. |
+| Verbindung | Neuverbindung beim Aufwachen (Sichtbarkeit, `online`, bfcache) statt Abwarten der Backoff-Obergrenze; ein Socket, den der Browser noch `OPEN` nennt, wird per `refresh`-Umlauf als tot nachgewiesen; identische Pushes behalten ihre Array-Identität. |
+| Rahmen | Installierbar (Manifest, maskierbares und Apple-Touch-Icon), WCAG-korrigierte Palette in beiden Themes, `prefers-contrast` und dynamische Schriftgrößen beachtet, die Visual-Viewport-Geometrie als dokumentierter Drei-Variablen-Vertrag veröffentlicht. |
+
+### Was die Aufteilung gebracht hat
+
+Aus dem einen Stylesheet des Clients wurden drei — Rahmen, Übersicht,
+Terminal — jeweils der Komponente zugeordnet, die sie benutzt; und die
+Entscheidungen wanderten aus den `.tsx`-Dateien in reine Module mit Tests.
+Das ist keine Ordnungsliebe: dieses Projekt hat keinen DOM-Testlauf, Logik
+innerhalb einer Komponente ist also von Bauart her ungetestet. Der
+Scroll-Akkumulator, der Nachlauf, die Aggregation des Fragen-Eingangs, die
+Gruppierung der Aufgaben, der History-Automat und das Reveal-Prädikat
+werden jetzt in Tests verhandelt, nicht im Browser.

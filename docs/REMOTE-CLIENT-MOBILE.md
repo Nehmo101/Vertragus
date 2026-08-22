@@ -101,3 +101,53 @@ permission TUIs on the phone.
 - A second MCP server or a mirror of all `APP_CHANNELS`.
 - Rebuilding raw xterm as the primary phone keyboard.
 - Putting the token into `electron-store` as plain text.
+
+## The second pass — from 3/10 in the hand
+
+The first pass made the client readable. Held on a phone over Tailscale it
+still rated 3/10, with two defects named by the person holding it: scrolling
+the terminal history was "nearly impossible", and leaving a terminal always
+landed back at the very top of the overview.
+
+### The two named defects had one shape
+
+Neither was a gesture problem. Both were state being destroyed underneath
+the user.
+
+- **The terminal was rebuilt on nearly every render.** `useRemote()` returns
+  a fresh object literal, so `api` changed identity on every render of
+  `App` — and `App` re-renders on every `workspaces` push. The create-and-
+  attach effect listed `api` in its dependencies, so each push disposed the
+  `Terminal`, re-attached, and re-wrote the snapshot. Scrolling up worked;
+  the next push dropped the reader back at the bottom. `A+`/`A−` wiped the
+  buffer through the same door.
+- **Returning from a terminal unmounted the whole overview.** `App`
+  early-returned `<RemoteTerminal>`, which took the document scroll offset,
+  the expanded cards and every half-typed draft with it. Restoring the
+  offset alone would have fixed one of those three, and would still have
+  fought the browser's own `history.scrollRestoration`.
+
+The fixes are structural, not cosmetic: the terminal is created once per
+agent and reaches props through refs; the overview stays mounted under the
+terminal's fixed overlay, hidden rather than unmounted, so nothing is
+restored because nothing is lost.
+
+### What the client gained
+
+| Area | Change |
+| --- | --- |
+| Terminal history | A touch scroller with inertia over the rendered cell height, jump-to-latest, page and end controls, search over the scrollback, copy that works over plain HTTP (a tailnet URL is not a secure context, so `navigator.clipboard` is absent), font size 11–24 persisted. |
+| Overview | Question inbox across all workspaces with a jump from the header, the task board the wire always carried, deterministic ordering, pull-to-refresh, collapse-all, a local theme override, drafts that survive every transition. |
+| Navigation | The hardware back gesture closes the terminal instead of leaving the app; one history entry, pushed without a URL so the pairing fragment stays stripped. |
+| Connection | Reconnect on wake (visibility, `online`, bfcache) instead of waiting out the backoff ceiling; a socket the browser still calls `OPEN` is proven dead by a `refresh` round-trip; identical pushes keep their array identity. |
+| Frame | Installable (manifest, maskable and apple-touch icons), WCAG-corrected palette in both themes, `prefers-contrast` and dynamic type honoured, the visual-viewport geometry published as a documented three-variable contract. |
+
+### What the split bought
+
+The client's one stylesheet became three — shell, overview, terminal — each
+owned by the component that uses it, and the decisions came out of the
+`.tsx` files into pure modules with tests. That is not tidiness for its own
+sake: this project has no DOM test runner, so logic left inside a component
+is untested by construction. The scroll accumulator, the momentum decay, the
+inbox aggregation, the task grouping, the history state machine and the
+reveal predicate are all argued about in tests now, not in a browser.

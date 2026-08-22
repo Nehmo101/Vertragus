@@ -12,6 +12,14 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **A phone client you can actually work from.** The remote web client
+  ([`docs/REMOTE-CLIENT-MOBILE.md`](docs/REMOTE-CLIENT-MOBILE.md)) gained a
+  touch scroller with inertia over the terminal history, jump-to-latest and
+  page/end controls, search over the scrollback, copy that works over plain
+  HTTP, a question inbox that collects every open `ask_user` and agent
+  question across workspaces, the task board the wire already carried, a
+  local light/dark override, pull-to-refresh, haptics, and a PWA manifest
+  with maskable and apple-touch icons so it installs to the home screen.
 - **Phase G (dsh adoption), all five patterns:**
   - Spill instead of truncation — oversized `read_output` and
     `inspect_agent` results are stored verbatim under
@@ -78,6 +86,26 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Fixed
 
+- **The phone terminal rebuilt itself on nearly every render.** `useRemote()`
+  returns a fresh object literal, so `api` changed identity on every render
+  of `App`, and the terminal's create-and-attach effect depended on it —
+  every workspace push disposed the terminal and re-wrote its snapshot,
+  dropping the reader back at the bottom. Scrolling the history was not
+  hard; it was being undone. `A+`/`A−` wiped the buffer the same way.
+- **Leaving a phone terminal landed at the top of the overview**, because
+  `App` early-returned the terminal and unmounted the list — scroll offset,
+  expanded cards and half-typed drafts with it. The overview now stays
+  mounted under the terminal's fixed overlay.
+- Three reconnect races in the remote client: an uncancelled backoff timer
+  that built a second socket on wake, a live socket leaked on every
+  supersede, and `reset()` leaving a socket open forever. A phone that
+  sleeps now reconnects on wake instead of waiting out the backoff ceiling,
+  and a socket the browser still calls `OPEN` is proven dead by a `refresh`
+  round-trip.
+- The remote client's sticky header never resolved against a scrolling
+  scrollport (`body` was the scroll container), six colour pairs failed
+  WCAG AA on a phone in daylight, and the keyboard-reveal could scroll the
+  document out from under the fixed terminal overlay.
 - **Provider detection on macOS.** An app started from Finder or the Dock
   inherits a minimal `PATH`, so every probe — health, login status, model
   discovery — reported an installed CLI as missing, and the first-steps card
