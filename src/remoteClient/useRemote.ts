@@ -45,11 +45,11 @@
  * `connection.ts`; this file is the wiring.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  MAX_RESUME_TAIL_CHARS,
-  type RemoteCommand,
-  type RemoteWorkspaceSummary,
-  type ServerMessage
+import { MAX_RESUME_TAIL_CHARS } from '@shared/remote/limits'
+import type {
+  RemoteCommand,
+  RemoteWorkspaceSummary,
+  ServerMessage
 } from '@shared/remote/protocol'
 import {
   commandArgsWithinLimits,

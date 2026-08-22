@@ -237,6 +237,10 @@ describe('the clipboard fallback is the only path the phone ever takes', () => {
     // carrier is clipped to 1x1 instead.
     const fallback = clipboardFallback()
     expect(fallback).toContain("style.overflow = 'hidden'")
+    // Both ways of setting a property, because this file already uses
+    // `setProperty` for `user-select` — matching only the dotted form would
+    // leave the shape that is actually in front of the next author unguarded.
     expect(fallback).not.toMatch(/style\.(opacity|visibility|display)\s*=/)
+    expect(fallback).not.toMatch(/setProperty\(\s*'(opacity|visibility|display)'/)
   })
 })

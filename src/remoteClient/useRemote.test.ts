@@ -94,9 +94,23 @@ describe('a frame from a socket that has been replaced is not dispatched', () =>
   })
 
   it('closes over the socket it was installed on rather than reading the ref', () => {
-    // The guard is only a guard because `socket` is the handler's own capture.
-    // Comparing the ref with itself would be vacuously true for every frame.
-    expect(source).toContain('const socket = new WebSocket(')
-    expect(body).not.toContain('socketRef.current !== socketRef.current')
+    /*
+     * The guard is only a guard because `socket` is the handler's own capture:
+     * it is what makes "am I still the current socket?" a question with two
+     * possible answers. The previous version of this test asserted that the
+     * body did not contain `socketRef.current !== socketRef.current` — a string
+     * nobody would ever write, so it could not fail and did not check its own
+     * title. What the title claims is that `socket` is bound ONCE, in the
+     * enclosing scope, before the handler exists — so that is what is asserted.
+     */
+    const binding = /const socket = new WebSocket\(/
+    expect(source).toMatch(binding)
+    // Bound exactly once: a second binding, or one inside the handler, would
+    // mean the name no longer identifies the connection the handler belongs to.
+    expect(source.match(/const socket = new WebSocket\(/g)).toHaveLength(1)
+    expect(body).not.toMatch(binding)
+    // And the guard compares that capture against the ref, not the ref against
+    // itself — the vacuous form the original was reaching for.
+    expect(body).toContain('socketRef.current !== socket')
   })
 })

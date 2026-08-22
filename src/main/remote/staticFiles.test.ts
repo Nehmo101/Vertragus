@@ -71,6 +71,29 @@ describe('the CSP names the page\'s own WebSocket origin', () => {
     'utf8'
   )
 
+  /**
+   * The BUILT page, when there is one. Everything above asserts against the
+   * source, which is what a fresh checkout has — but the server serves
+   * `out/remote/index.html`, and `withWebSocketConnectSrc` returns the html
+   * untouched when it cannot find its anchor. So a Vite change that rewrote
+   * that meta tag would leave every assertion above green while the
+   * substitution silently no-opped on every response. This closes that gap
+   * whenever a build exists, and says so when one does not.
+   */
+  const builtPage = ((): string | undefined => {
+    try {
+      return readFileSync(fileURLToPath(new URL('../../../out/remote/index.html', import.meta.url)), 'utf8')
+    } catch {
+      return undefined
+    }
+  })()
+
+  it.skipIf(builtPage === undefined)('templates the page the server actually serves', () => {
+    const served = withWebSocketConnectSrc(builtPage!, '100.64.1.5:9482')
+    expect(served, 'the built page lost the anchor the substitution matches on').not.toBe(builtPage)
+    expect(served).toContain("connect-src 'self' ws://100.64.1.5:9482;")
+  })
+
   it('is templating a directive the page actually contains', () => {
     // Self-check AND the reachability guard: the substitution matches on this
     // exact text, so a rewrite of the policy that drops or respells it would
@@ -111,11 +134,19 @@ describe('the CSP names the page\'s own WebSocket origin', () => {
     // is the syntactic backstop, not the security check — but a policy is text,
     // and text assembled from a header is an injection until proven otherwise.
     for (const hostile of [
+      // `URL` alone rejects these — they carry a space or an angle bracket.
       "evil; script-src 'unsafe-inline'",
       'evil.example\n<script>',
       "a' 'unsafe-eval",
       '',
-      '   '
+      '   ',
+      // These do NOT reach `URL`'s rejection: `new URL('http://evil.example;script-src')`
+      // parses, and its `.host` keeps the semicolon. Only the character
+      // allow-list stops them, so without one of these the test would pass
+      // against a `webSocketHost` that trusted `URL` and dropped the regex —
+      // which is exactly the simplification it exists to prevent.
+      'evil.example;script-src',
+      "evil.example'"
     ]) {
       expect(webSocketHost(hostile)).toBeUndefined()
       expect(withWebSocketConnectSrc(page, hostile)).toBe(page)

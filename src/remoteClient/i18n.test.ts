@@ -135,8 +135,33 @@ describe('every copy key reaches a screen', () => {
       .join('\n')
   }
 
-  function renders(sources: string, key: string): boolean {
-    return new RegExp(`\\.\\s*${key}\\b`).test(sources) || sources.includes(`'${key}'`)
+  /**
+   * Only the seven keys that genuinely cannot be found by a property read: the
+   * two `RemoteError` causes rendered as `copy[api.error]`, and the five
+   * connection states rendered through `connectionLabel`'s `copy[state]`.
+   * Narrow, because the literal branch is the loose one — `'goal'` and
+   * `'retry'` are ordinary words that appear all over the client for reasons
+   * having nothing to do with copy.
+   */
+  const COMPUTED_KEYS = new Set<keyof RemoteCopy>([
+    'pairingFailed',
+    'unreachable',
+    'connected',
+    'connecting',
+    'reconnecting',
+    'checking',
+    'offline'
+  ])
+
+  /**
+   * A property read on the copy object specifically — not on anything that
+   * happens to share the name. `history.back()` must not count as proof that
+   * `copy.back` reaches a screen, and `api.refresh` must not vouch for
+   * `copy.refresh`; both did under a bare `\.key` scan, along with 22 others.
+   */
+  function renders(sources: string, key: keyof RemoteCopy): boolean {
+    if (COMPUTED_KEYS.has(key)) return sources.includes(`'${key}'`)
+    return new RegExp(`\\bcopy(Ref\\.current)?\\.${key}\\b`).test(sources)
   }
 
   it('leaves no key unreferenced', () => {
@@ -151,6 +176,14 @@ describe('every copy key reaches a screen', () => {
     const sources = consumerSources()
     expect(sources).toContain('copy.')
     expect(renders(sources, 'stop')).toBe(true)
-    expect(renders(sources, 'aKeyNoScreenCouldPossiblyRender')).toBe(false)
+    // The ref form is the one a bare `copy.` scan would miss.
+    expect(renders(sources, 'terminalExit')).toBe(true)
+    // And the narrowing itself: `back` is a key AND a DOM method this client
+    // calls. Strip only the copy reads and the key must read as dead, even
+    // though `history.back()` is still there vouching for the bare name. A
+    // looser matcher passes this line and fails the point of it.
+    const withoutCopyBack = sources.replace(/\bcopy(Ref\.current)?\.back\b/g, 'x.y')
+    expect(withoutCopyBack).toContain('history.back()')
+    expect(renders(withoutCopyBack, 'back')).toBe(false)
   })
 })

@@ -26,7 +26,7 @@ export default defineConfig({
        * Ratchet thresholds: set ~2 points below the measured status quo so
        * coverage can only move up. Raise them deliberately, never lower.
        *
-       * Measured after the phone client's second pass (2291 tests):
+       * Measured after the phone client's second pass (2350 tests):
        * statements/lines 64.5, branches 90.5, functions 86.3. The function
        * figure moved most because that pass pulled the client's decisions —
        * scroll accumulation, re-attach alignment, resize policy, inbox

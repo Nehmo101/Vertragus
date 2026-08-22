@@ -12,7 +12,7 @@
  * new protocol verb — an unknown `type` would simply be dropped by the
  * gateway's zod validator, which is exactly why no heartbeat frame was added.
  */
-import { MAX_RESUME_TAIL_CHARS } from '@shared/remote/protocol'
+import { MAX_RESUME_TAIL_CHARS } from '@shared/remote/limits'
 
 /** First backoff step; the socket usually comes back on this one. */
 export const RECONNECT_BASE_MS = 500
