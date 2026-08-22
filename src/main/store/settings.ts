@@ -108,6 +108,8 @@ export const uiSettingsSchema = z
     theme: z.enum(['dark', 'light']).default('dark'),
     locale: z.enum(['de', 'en']).default('de'),
     appearance: appearanceSchema,
+    /** When a window or zone is moved, neighbors shrink and fill the gap. */
+    reflowNeighbors: z.boolean().default(true),
     /**
      * WP-7: the user closed the first-run card. NOT the card's trigger — that
      * stays "there is no profile yet", which is true again after a reinstall

@@ -255,6 +255,7 @@ describe('app settings', () => {
         theme: 'dark',
         locale: 'de',
         appearance: DEFAULT_APPEARANCE,
+        reflowNeighbors: true,
         onboardingDismissed: false
       },
       remote: { enabled: false, bindAddress: '', port: 9482 },
@@ -266,6 +267,12 @@ describe('app settings', () => {
       voice: { enabled: false, wakePhrase: 'Hey Vertragus', apiKey: '', voiceId: 'eve' },
       mcpServers: []
     })
+  })
+
+  it('defaults reflowNeighbors to true when ui is missing', () => {
+    const { store: settings } = store({ hideAllHotkey: 'Control+Shift+H' })
+    expect(settings.getSettings().ui.reflowNeighbors).toBe(true)
+    expect(settings.getSettings().hideAllHotkey).toBe('Control+Shift+H')
   })
 
   it('keeps the voice assistant off until the user turns it on', () => {
@@ -348,6 +355,7 @@ describe('app settings', () => {
       theme: 'dark',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
+      reflowNeighbors: true,
       onboardingDismissed: false,
       panelBounds: { edge: 'right', y: 320 }
     })
@@ -355,6 +363,7 @@ describe('app settings', () => {
       theme: 'dark',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
+      reflowNeighbors: true,
       onboardingDismissed: false,
       panelBounds: { edge: 'right', y: 320 }
     })
@@ -384,6 +393,7 @@ describe('app settings', () => {
       theme: 'light',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
+      reflowNeighbors: true,
       onboardingDismissed: false
     })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid settings section'))
@@ -536,6 +546,7 @@ describe('adoptLegacyStore', () => {
       theme: 'light',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
+      reflowNeighbors: true,
       onboardingDismissed: false
     })
     expect(adopted.mcpServers).toBeUndefined()

@@ -161,7 +161,13 @@ function provider(input: ProviderConfigInput): ProviderConfig {
 }
 
 const SETTINGS: AppSettings = {
-  ui: { theme: 'dark', locale: 'de', appearance: DEFAULT_APPEARANCE, onboardingDismissed: false },
+  ui: {
+    theme: 'dark',
+    locale: 'de',
+    appearance: DEFAULT_APPEARANCE,
+    reflowNeighbors: true,
+    onboardingDismissed: false
+  },
   remote: { enabled: false, bindAddress: '', port: 9482 },
   yoloMaster: true,
   hideAllHotkey: 'Control+Alt+V',
@@ -1273,6 +1279,7 @@ describe('settings and windows', () => {
       updateChannel: 'main',
       autostartSupported: true,
       appearance: DEFAULT_APPEARANCE,
+      reflowNeighbors: true,
       voiceEnabled: false,
       voiceWakePhrase: 'Hey Vertragus',
       voiceVoiceId: 'eve',
@@ -1496,6 +1503,7 @@ describe('settings:set', () => {
       'theme',
       'locale',
       'appearance',
+      'reflowNeighbors',
       'voice',
       'agentPolicy',
       'onboardingDismissed',
@@ -1670,8 +1678,30 @@ describe('settings:set', () => {
       theme: 'light',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
+      reflowNeighbors: true,
       onboardingDismissed: false
     })
+  })
+
+  it('patches reflowNeighbors into ui and rejects a non-boolean', async () => {
+    const off = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'reflowNeighbors',
+      value: false
+    })) as PanelSettings
+    expect(off.reflowNeighbors).toBe(false)
+    expect(h.store.settings.ui.reflowNeighbors).toBe(false)
+    expect(h.store.settings.ui.theme).toBe('dark')
+
+    const on = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'reflowNeighbors',
+      value: true
+    })) as PanelSettings
+    expect(on.reflowNeighbors).toBe(true)
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'reflowNeighbors', value: 'ja' })
+    ).rejects.toThrow(/expects a boolean/)
+    expect(h.store.settings.ui.reflowNeighbors).toBe(true)
   })
 
   it('lets the panel close the first-run card for good (WP-7)', async () => {
@@ -1960,6 +1990,7 @@ describe('zones', () => {
     ])
     expect(payload.locale).toBe('de')
     expect(payload.theme).toBe('dark')
+    expect(payload.reflowNeighbors).toBe(true)
     expect(payload.selectingDisplay).toBe(false)
     expect(payload.displays.map((display) => display.id)).toEqual([11, 22])
   })
@@ -2064,6 +2095,36 @@ describe('zones', () => {
     expect(() => h.ipc.send(APP_CHANNELS.zonesDraft, OVERLAY_A_ID, { zones: 'nope' })).not.toThrow()
     h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_A_ID, { profileId: 'p1', zones: [] })
     expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones?.zones).toEqual([])
+  })
+
+  it('does not write reflowNeighbors from a draft', () => {
+    h.broadcasts.length = 0
+    h.ipc.send(APP_CHANNELS.zonesDraft, OVERLAY_A_ID, {
+      zones: [{ roleId: 'worker', rect: rel(0, 0, 0.5, 1) }],
+      reflowNeighbors: false
+    })
+    expect(h.store.settings.ui.reflowNeighbors).toBe(true)
+    expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones).toBeUndefined()
+    expect(h.broadcasts.filter((entry) => entry.channel === APP_CHANNELS.eventSettings)).toEqual([])
+  })
+
+  it('persists reflowNeighbors from a save payload', () => {
+    h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_A_ID, {
+      profileId: 'p1',
+      zones: [],
+      reflowNeighbors: false
+    })
+    expect(h.store.settings.ui.reflowNeighbors).toBe(false)
+  })
+
+  it('ignores a non-boolean reflowNeighbors on a draft', () => {
+    expect(() =>
+      h.ipc.send(APP_CHANNELS.zonesDraft, OVERLAY_A_ID, {
+        zones: [{ roleId: 'worker', rect: rel(0, 0, 0.5, 1) }],
+        reflowNeighbors: 'nope'
+      })
+    ).not.toThrow()
+    expect(h.store.settings.ui.reflowNeighbors).toBe(true)
   })
 
   it('refuses a save whose zones are not a list', () => {

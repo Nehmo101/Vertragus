@@ -360,6 +360,8 @@ export interface PanelSettings {
   theme: 'dark' | 'light'
   /** Window opacity and glass transparency; see @shared/appearance. */
   appearance: Appearance
+  /** When a window or zone is moved, neighbors shrink and fill the gap. */
+  reflowNeighbors: boolean
   /** WP-7: the first-run card was closed by hand — the panel honours it. */
   onboardingDismissed: boolean
   autostart: boolean
@@ -404,6 +406,7 @@ export type WritableSetting =
   | 'theme'
   | 'locale'
   | 'appearance'
+  | 'reflowNeighbors'
   | 'voice'
   | 'agentPolicy'
   | 'onboardingDismissed'
@@ -460,6 +463,8 @@ export interface ZoneEditorPayload {
   locale?: 'de' | 'en'
   /** Appearance — same constraint as locale. */
   theme?: 'dark' | 'light'
+  /** Neighbors fill the gap when a zone is dragged — same constraint as locale. */
+  reflowNeighbors?: boolean
 }
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
@@ -736,14 +741,17 @@ const zones = {
   /**
    * Push the current rectangles of this display without saving. Every overlay
    * does this while dragging, so whichever window hits "save" persists the
-   * whole multi-monitor layout and not just its own screen.
+   * whole multi-monitor layout and not just its own screen. Drafts store
+   * rectangles only — `reflowNeighbors` is overlay-local until save.
    */
-  draft: (list: readonly Zone[]): void => {
-    ipcRenderer.send(APP.zonesDraft, { zones: list })
+  draft: (payload: { zones: readonly Zone[] }): void => {
+    ipcRenderer.send(APP.zonesDraft, payload)
   },
   /** Persist the layout of every overlay and close the session. */
-  save: (profileId: string, list: readonly Zone[]): Promise<ZoneLayout> =>
-    ipcRenderer.invoke(APP.zonesSave, { profileId, zones: list }),
+  save: (
+    profileId: string,
+    payload: { zones: readonly Zone[]; reflowNeighbors?: boolean }
+  ): Promise<ZoneLayout> => ipcRenderer.invoke(APP.zonesSave, { profileId, ...payload }),
   /** Esc: close every overlay, save nothing. */
   cancel: (): void => {
     ipcRenderer.send(APP.zonesCancel)

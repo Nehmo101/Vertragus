@@ -5,11 +5,17 @@ import {
   applyWindowBounds,
   displaysForPlacement,
   forgetWindowPlacement,
+  flushLiveReflow,
   isMovedByUser,
+  mergeLiveReflowZones,
   placeAgentWindow,
+  planLiveReflow,
   planWindowLayout,
   PROGRAMMATIC_GRACE_MS,
+  REFLOW_DEBOUNCE_MS,
   resetPlacementStateForTesting,
+  setLiveReflowHandler,
+  setReflowNeighborsGetter,
   trackWindowMoves,
   type DisplayInfo,
   type MovableWindow,
@@ -390,5 +396,157 @@ describe('windows the user moved', () => {
     }
     applyWindowBounds('gone', win, { x: 0, y: 0, width: 100, height: 100 })
     expect(called).toBe(0)
+  })
+})
+
+describe('live neighbor reflow', () => {
+  beforeEach(() => resetPlacementStateForTesting())
+
+  it('fills the gap when a same-display neighbor is resized', () => {
+    const plan = planLiveReflow({
+      displays: [PRIMARY],
+      previousDisplayId: PRIMARY.id,
+      movedId: 'left',
+      nextRect: { x: 0, y: 0, width: 600, height: 1080 },
+      windows: [
+        { agentId: 'left', roleId: 'worker', bounds: { x: 0, y: 0, width: 960, height: 1080 } },
+        { agentId: 'right', roleId: 'reviewer', bounds: { x: 960, y: 0, width: 960, height: 1080 } }
+      ]
+    })
+
+    expect(plan).not.toBeNull()
+    expect(plan!.markMoved).toEqual([])
+    const right = plan!.placements.find((entry) => entry.agentId === 'right')!.bounds
+    expect(right.x).toBe(600)
+    expect(right.width).toBe(1320)
+    expect(plan!.zones.zones).toHaveLength(2)
+  })
+
+  it('keeps the panel rail clear of reflowed neighbors', () => {
+    const plan = planLiveReflow({
+      displays: [PRIMARY],
+      previousDisplayId: PRIMARY.id,
+      rail: { displayId: PRIMARY.id, edge: 'right', width: 292 },
+      movedId: 'left',
+      nextRect: { x: 0, y: 0, width: 600, height: 1080 },
+      windows: [
+        { agentId: 'left', roleId: 'worker', bounds: { x: 0, y: 0, width: 800, height: 1080 } },
+        { agentId: 'right', roleId: 'reviewer', bounds: { x: 800, y: 0, width: 820, height: 1080 } }
+      ]
+    })
+
+    const right = plan!.placements.find((entry) => entry.agentId === 'right')!.bounds
+    expect(right.x + right.width).toBeLessThanOrEqual(1920 - 292)
+  })
+
+  it('skips a maximized window and leaves it out of the reflow set', () => {
+    const full = PRIMARY.workArea
+    const plan = planLiveReflow({
+      displays: [PRIMARY],
+      previousDisplayId: PRIMARY.id,
+      movedId: 'left',
+      nextRect: { x: 0, y: 0, width: 600, height: 1080 },
+      windows: [
+        { agentId: 'left', roleId: 'worker', bounds: { x: 0, y: 0, width: 960, height: 1080 } },
+        {
+          agentId: 'max',
+          roleId: 'reviewer',
+          bounds: full,
+          maximized: true
+        }
+      ]
+    })
+
+    expect(plan!.placements.map((entry) => entry.agentId)).toEqual(['left'])
+    expect(plan!.placements.find((entry) => entry.agentId === 'max')).toBeUndefined()
+  })
+
+  it('keeps overlay zones that no live window occupies on the reflowed display', () => {
+    const existing = layout(
+      { roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 1 } },
+      { roleId: 'reviewer', displayId: 1, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } },
+      { roleId: 'orchestrator', displayId: 1, rect: { x: 0, y: 0, w: 0.25, h: 0.25 } },
+      { roleId: 'worker', displayId: 2, rect: { x: 0, y: 0, w: 1, h: 1 } }
+    )
+    const live = layout(
+      { roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 600 / 1920, h: 1 } },
+      { roleId: 'reviewer', displayId: 1, rect: { x: 600 / 1920, y: 0, w: 1320 / 1920, h: 1 } }
+    )
+    const merged = mergeLiveReflowZones(existing, live, [PRIMARY.id])
+
+    expect(
+      merged.zones.map((zone) => `${zone.roleId}:${zone.displayId}`)
+    ).toEqual(['orchestrator:1', 'worker:2', 'worker:1', 'reviewer:1'])
+    expect(
+      merged.zones.find((zone) => zone.roleId === 'orchestrator' && zone.displayId === 1)?.rect
+    ).toEqual({ x: 0, y: 0, w: 0.25, h: 0.25 })
+    expect(
+      merged.zones.find((zone) => zone.roleId === 'worker' && zone.displayId === 2)?.rect
+    ).toEqual({ x: 0, y: 0, w: 1, h: 1 })
+    expect(
+      merged.zones.find((zone) => zone.roleId === 'worker' && zone.displayId === 1)?.rect.w
+    ).toBeCloseTo(600 / 1920)
+
+    const plan = planLiveReflow({
+      displays: [PRIMARY, SECOND],
+      previousDisplayId: PRIMARY.id,
+      existingZones: existing,
+      movedId: 'left',
+      nextRect: { x: 0, y: 0, width: 600, height: 1080 },
+      windows: [
+        { agentId: 'left', roleId: 'worker', bounds: { x: 0, y: 0, width: 960, height: 1080 } },
+        { agentId: 'right', roleId: 'reviewer', bounds: { x: 960, y: 0, width: 960, height: 1080 } }
+      ]
+    })
+
+    expect(
+      plan!.zones.zones.map((zone) => `${zone.roleId}:${zone.displayId}`).sort()
+    ).toEqual(['orchestrator:1', 'reviewer:1', 'worker:1', 'worker:2'])
+  })
+
+  it('pins a window that crossed displays and lets the remainder fill the origin', () => {
+    const plan = planLiveReflow({
+      displays: [PRIMARY, SECOND],
+      previousDisplayId: PRIMARY.id,
+      movedId: 'gone',
+      nextRect: { x: 2000, y: 10, width: 700, height: 500 },
+      windows: [
+        { agentId: 'gone', roleId: 'worker', bounds: { x: 0, y: 0, width: 960, height: 1080 } },
+        { agentId: 'stay', roleId: 'reviewer', bounds: { x: 960, y: 0, width: 960, height: 1080 } }
+      ]
+    })
+
+    expect(plan!.markMoved).toEqual(['gone'])
+    const stay = plan!.placements.find((entry) => entry.agentId === 'stay')!.bounds
+    expect(stay).toEqual(PRIMARY.workArea)
+    expect(plan!.placements.find((entry) => entry.agentId === 'gone')).toBeUndefined()
+  })
+
+  it('does not mark movedByUser when reflow is on; debounce waits for flush', () => {
+    let clock = 1_000
+    resetPlacementStateForTesting(() => clock)
+    setReflowNeighborsGetter(() => true)
+    const seen: string[] = []
+    setLiveReflowHandler((agentId) => seen.push(agentId))
+
+    const events = new Map<string, () => void>()
+    const win: MovableWindow = {
+      on: (event, handler) => events.set(event, handler),
+      setBounds: () => undefined
+    }
+    trackWindowMoves('a', win, () => clock)
+    clock += 5_000
+    events.get('move')!()
+    expect(isMovedByUser('a')).toBe(false)
+    expect(seen).toEqual([])
+
+    clock += REFLOW_DEBOUNCE_MS - 1
+    flushLiveReflow()
+    expect(seen).toEqual([])
+
+    clock += 1
+    flushLiveReflow()
+    expect(seen).toEqual(['a'])
+    expect(isMovedByUser('a')).toBe(false)
   })
 })

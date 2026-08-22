@@ -16,12 +16,18 @@ import { glassWindowOptions, loadRoute, secureWindow } from './base'
 import { getPanelWindow } from './panel'
 import {
   applyWindowBounds,
+  displayFor,
   forgetWindowPlacement,
   isMovedByUser,
+  markMovedByUser,
+  planLiveReflow,
   planWindowLayout,
+  rectsEqual,
+  setLiveReflowHandler,
   trackWindowMoves,
   type AgentWindowInfo,
   type DisplayInfo,
+  type LiveWindowInfo,
   type PlacedWindow,
   type RailInfo,
   type Rect
@@ -38,6 +44,11 @@ export interface CliWindowPlacement {
   roleId: string
   /** The profile's zone layout, if it has one. */
   zones?: ZoneLayout
+  /**
+   * Fired once a live-reflow gesture has rewritten the zones. Workspace uses
+   * this to keep the in-memory profile (and optional disk save) in sync.
+   */
+  onZonesChange?: (zones: ZoneLayout) => void
   /**
    * Tiling group. Windows of another workspace are never re-tiled together
    * with this one; omitted ids group with each other.
@@ -70,6 +81,8 @@ interface CliWindowEntry {
    * {@link toggleCliWindowMaximized}).
    */
   restoreBounds?: Rect
+  /** Display the window last settled on — compared to the center after a drag. */
+  lastDisplayId?: number
 }
 
 const windows = new Map<string, CliWindowEntry>()
@@ -134,21 +147,11 @@ function currentDisplays(): DisplayInfo[] {
   }))
 }
 
-/**
- * The display a window sits on, by its center point. `screen.getDisplayMatching`
- * would answer the same question, but this layer already receives displays as
- * plain data and the center rule is the one both callers below want.
- */
-function displayFor(bounds: Rect, displays: readonly DisplayInfo[]): DisplayInfo | undefined {
-  const centerX = bounds.x + bounds.width / 2
-  const centerY = bounds.y + bounds.height / 2
-  return displays.find(
-    ({ workArea }) =>
-      centerX >= workArea.x &&
-      centerX < workArea.x + workArea.width &&
-      centerY >= workArea.y &&
-      centerY < workArea.y + workArea.height
-  )
+function rememberDisplay(agentId: string, bounds: Rect): void {
+  const entry = windows.get(agentId)
+  if (!entry) return
+  const host = displayFor(bounds, currentDisplays())
+  if (host) entry.lastDisplayId = host.id
 }
 
 /**
@@ -187,6 +190,15 @@ function toAgentWindowInfo(agentId: string, roleId: string): AgentWindowInfo {
  * in the same workspace. Windows with no workspaceId group with each other.
  * Windows the user dragged are not in the plan — see placement.ts.
  */
+function zonesForPlan(placement: CliWindowPlacement): ZoneLayout | undefined {
+  if (placement.zones) return placement.zones
+  for (const { agentId } of listCliWindows()) {
+    const zones = windows.get(agentId)?.options.placement?.zones
+    if (zones && zones.zones.length > 0) return zones
+  }
+  return undefined
+}
+
 function planFor(agentId: string, placement: CliWindowPlacement): PlacedWindow[] {
   const displays = currentDisplays()
   const existing: AgentWindowInfo[] = listCliWindows()
@@ -199,13 +211,91 @@ function planFor(agentId: string, placement: CliWindowPlacement): PlacedWindow[]
       )
     )
   const rail = panelRail(displays)
+  const zones = zonesForPlan(placement)
   return planWindowLayout({
-    ...(placement.zones ? { profile: { zones: placement.zones } } : {}),
+    ...(zones ? { profile: { zones } } : {}),
     displays,
     ...(rail ? { rail } : {}),
     windows: [...existing, { agentId, roleId: placement.roleId }]
   })
 }
+
+/**
+ * The live windows a reflow may touch: the gesture's own tiling group. Same
+ * rule as {@link planFor} and {@link layoutCliWindows} — a window of another
+ * workspace is never re-tiled with this one, and its rectangle must not reach
+ * this profile's zones either (omitted workspace ids group with each other).
+ */
+function liveWindowsForReflow(workspaceId: string | undefined): LiveWindowInfo[] {
+  const result: LiveWindowInfo[] = []
+  for (const { agentId, window } of listCliWindows()) {
+    if (windowWorkspaceId(agentId) !== workspaceId) continue
+    const entry = windows.get(agentId)
+    result.push({
+      agentId,
+      roleId: entry?.options.placement?.roleId ?? '',
+      bounds: window.getBounds(),
+      maximized: isCliWindowMaximized(agentId)
+    })
+  }
+  return result
+}
+
+/**
+ * Apply a settled user drag/resize: reflow neighbors on this display, rewrite
+ * each window's zones, persist once via the gesture window's callback.
+ */
+function reflowLiveNeighbors(agentId: string): void {
+  const entry = liveEntry(agentId)
+  if (!entry?.options.placement) return
+  const persist = entry.options.placement.onZonesChange
+
+  const displays = currentDisplays()
+  const nextRect = entry.window.getBounds()
+  const previousDisplayId = entry.lastDisplayId ?? displayFor(nextRect, displays)?.id
+  if (previousDisplayId === undefined) return
+
+  const rail = panelRail(displays)
+  const workspaceId = entry.options.placement.workspaceId
+  const existingZones = zonesForPlan(entry.options.placement)
+  const plan = planLiveReflow({
+    windows: liveWindowsForReflow(workspaceId),
+    movedId: agentId,
+    nextRect,
+    previousDisplayId,
+    displays,
+    ...(rail ? { rail } : {}),
+    minWidth: CLI_MIN_WIDTH,
+    minHeight: CLI_MIN_HEIGHT,
+    ...(existingZones ? { existingZones } : {})
+  })
+  if (!plan) return
+
+  for (const id of plan.markMoved) markMovedByUser(id)
+
+  for (const placed of plan.placements) {
+    // The OS already has the user's bounds. Applying a clamp would start
+    // programmatic grace and swallow the rest of the drag.
+    if (placed.agentId === agentId) continue
+    const win = getCliWindow(placed.agentId)
+    if (!win) continue
+    if (rectsEqual(win.getBounds(), placed.bounds)) continue
+    applyWindowBounds(placed.agentId, win, placed.bounds)
+    rememberDisplay(placed.agentId, placed.bounds)
+  }
+  rememberDisplay(agentId, entry.window.getBounds())
+
+  for (const { agentId: otherId } of listCliWindows()) {
+    if (windowWorkspaceId(otherId) !== workspaceId) continue
+    const other = windows.get(otherId)
+    const placement = other?.options.placement
+    if (!placement) continue
+    other.options.placement = { ...placement, zones: plan.zones }
+  }
+  persist?.(plan.zones)
+}
+
+setLiveReflowHandler(reflowLiveNeighbors)
 
 /**
  * Another live CLI already has the keyboard. The window being reused is
@@ -339,11 +429,20 @@ export function createCliWindow(agentId: string, options: CliWindowOptions): Bro
   if (options.placement) {
     // Watch for user drags BEFORE re-tiling, so our own setBounds calls are
     // inside the guard window and are not mistaken for a manual move.
-    trackWindowMoves(agentId, win)
+    setLiveReflowHandler(reflowLiveNeighbors)
+    trackWindowMoves(agentId, win, undefined, () => {
+      // Reflow-off pin path: lastDisplayId must follow the user, or a later
+      // reflow-on resize is misread as a cross-display jump.
+      rememberDisplay(agentId, win.getBounds())
+    })
+    rememberDisplay(agentId, win.getBounds())
     for (const entry of plan) {
       if (entry.agentId === agentId) continue
       const other = getCliWindow(entry.agentId)
-      if (other) applyWindowBounds(entry.agentId, other, entry.bounds)
+      if (other) {
+        applyWindowBounds(entry.agentId, other, entry.bounds)
+        rememberDisplay(entry.agentId, entry.bounds)
+      }
     }
   }
   return win

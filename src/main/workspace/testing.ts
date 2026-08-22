@@ -11,6 +11,7 @@ import { worktreePathFor } from '@main/agents/worktree'
 import { profileSchema, type Profile, type ProfileInput } from '@shared/schema/profile'
 import { providerPresets } from '@main/providers/presets'
 import type { ProviderConfig } from '@shared/schema/provider'
+import type { ZoneLayout } from '@shared/schema/zones'
 import type { WorkspaceWindows } from './Workspace'
 
 /** A PTY that records instead of spawning, and can be made to die on cue. */
@@ -175,6 +176,11 @@ export interface WindowCall {
   agentId: string
   title?: string
   roleColor?: string
+  placement?: {
+    roleId: string
+    zones?: ZoneLayout
+    onZonesChange?: (zones: ZoneLayout) => void
+  }
 }
 
 /** Records window opens and closes in call order. */
@@ -184,7 +190,14 @@ export class FakeWindows implements WorkspaceWindows {
   /** Every call in order, so "orchestrator last" is provable. */
   readonly calls: Array<{ kind: 'open' | 'close'; agentId: string }> = []
 
-  open(agentId: string, options: { title: string; roleColor: string }): void {
+  open(
+    agentId: string,
+    options: {
+      title: string
+      roleColor: string
+      placement?: WindowCall['placement']
+    }
+  ): void {
     this.opened.push({ agentId, ...options })
     this.calls.push({ kind: 'open', agentId })
   }

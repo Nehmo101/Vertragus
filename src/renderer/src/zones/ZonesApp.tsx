@@ -221,6 +221,15 @@ export function ZonesApp({
         >
           {t('zones.autoLayout')}
         </button>
+        <label className="zones-switch" title={t('zones.reflowNeighborsHint')}>
+          <input
+            type="checkbox"
+            checked={editor.reflowNeighbors}
+            disabled={!editor.ready}
+            onChange={(event) => editor.setReflowNeighbors(event.target.checked)}
+          />
+          <span>{t('zones.reflowNeighbors')}</span>
+        </label>
         <span className="zones-bar-spacer" />
         {editor.error ? <span className="zones-error">{editor.error}</span> : null}
         <button type="button" className="zones-ghost" onClick={editor.cancel}>

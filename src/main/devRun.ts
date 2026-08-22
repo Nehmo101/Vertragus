@@ -19,6 +19,7 @@ import { app } from 'electron'
 import { getAgentRegistry } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { closeCliWindow, createCliWindow } from './windows/cliWindow'
+import { setReflowNeighborsGetter } from './windows/placement'
 import { enabledExtraMcpServers } from '@shared/schema/mcpServer'
 import {
   effectiveAgentPolicy,
@@ -72,6 +73,7 @@ export function buildDevProfile(repoPath: string): Profile {
  * workspace without a restart.
  */
 export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManager {
+  setReflowNeighborsGetter(() => getSettings().ui.reflowNeighbors)
   return createWorkspaceManager({
     mcp,
     registry: getAgentRegistry(),
@@ -86,6 +88,9 @@ export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManage
     providers: () => effectiveProviders(),
     roleTemplates: () => getRoleTemplates(),
     yoloMaster: () => getSettings().yoloMaster,
+    saveProfile: (profile) => {
+      settings().saveProfile(profile)
+    },
     // D4: the tier wins over the boolean; read fresh so a settings change
     // reaches the next workspace without a restart.
     agentPolicy: () => effectiveAgentPolicy(getSettings()),

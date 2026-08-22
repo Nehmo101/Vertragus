@@ -531,6 +531,8 @@ export interface PanelSettings {
   theme: AppSettings['ui']['theme']
   /** Opacity and glass transparency; see shared/appearance.ts. */
   appearance: Appearance
+  /** When a window or zone is moved, neighbors shrink and fill the gap. */
+  reflowNeighbors: boolean
   /** WP-7: the first-run card was closed by hand — the panel honours it. */
   onboardingDismissed: boolean
   autostart: boolean
@@ -596,6 +598,7 @@ export const WRITABLE_SETTINGS = [
   'theme',
   'locale',
   'appearance',
+  'reflowNeighbors',
   'voice',
   'agentPolicy',
   'onboardingDismissed',
@@ -648,6 +651,8 @@ export interface ZoneEditorPayload {
    */
   locale?: AppSettings['ui']['locale']
   theme?: AppSettings['ui']['theme']
+  /** Same constraint as locale — overlays cannot call `settings:get`. */
+  reflowNeighbors?: boolean
 }
 
 /**
@@ -880,6 +885,7 @@ export function toPanelSettings(
     locale: value.ui.locale,
     theme: value.ui.theme,
     appearance: value.ui.appearance,
+    reflowNeighbors: value.ui.reflowNeighbors,
     onboardingDismissed: value.ui.onboardingDismissed,
     autostart: value.autostart,
     updateChannel: value.updateChannel,
@@ -1013,6 +1019,17 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     // and applying either twice in an app window is idempotent.
     ;(host.broadcastAll ?? host.broadcast)(APP_CHANNELS.eventSettings, value)
     ;(host.broadcastAll ?? host.broadcast)(APP_CHANNELS.eventAppearance, value.appearance)
+  }
+
+  /** Overlay save may carry the toggle; only a real boolean is stored. Drafts never write it. */
+  const persistReflowNeighbors = (payload: unknown): void => {
+    if (typeof payload !== 'object' || payload === null) return
+    if (!('reflowNeighbors' in payload)) return
+    const flag = payload.reflowNeighbors
+    if (typeof flag !== 'boolean') return
+    const current = host.store.getSettings().ui
+    if (current.reflowNeighbors === flag) return
+    emitSettings(panelSettings(host.store.setSetting('ui', { ...current, reflowNeighbors: flag })))
   }
 
   // --- profiles ----------------------------------------------------------
@@ -1443,6 +1460,13 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
             throw new Error(`settings:set rejected — ${message}`)
           }
         }
+        case 'reflowNeighbors': {
+          if (typeof body.value !== 'boolean') {
+            throw new Error('settings:set rejected — reflowNeighbors expects a boolean')
+          }
+          const ui = { ...host.store.getSettings().ui, reflowNeighbors: body.value }
+          return panelSettings(host.store.setSetting('ui', ui))
+        }
         default: {
           // Unreachable while WRITABLE_SETTINGS and this switch agree; the
           // `never` binding is what makes a new key a compile error here.
@@ -1596,6 +1620,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     if (!profile) throw new Error(`zones:load rejected — unknown profile ${sender.profileId}`)
     // The overlay is not an "app window" on the settings guard, so this is the
     // only channel that can tell it which language and theme to draw in at open.
+    const ui = host.store.getSettings().ui
     return {
       ...zoneEditorPayload(
         profile,
@@ -1604,19 +1629,25 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
         host.listZoneDisplays?.() ?? [],
         sender.pick
       ),
-      locale: host.store.getSettings().ui.locale,
-      theme: host.store.getSettings().ui.theme
+      locale: ui.locale,
+      theme: ui.theme,
+      reflowNeighbors: ui.reflowNeighbors
     }
   })
 
   handle(APP_CHANNELS.zonesSave, requireZoneOverlay, (event, payload) => {
     const sender = requireZoneOverlay(event, APP_CHANNELS.zonesSave)
-    const body = (payload ?? {}) as { profileId?: string; zones?: unknown }
+    const body = (payload ?? {}) as { profileId?: string; zones?: unknown; reflowNeighbors?: unknown }
     if (body.profileId && body.profileId !== sender.profileId) {
       throw new Error('zones:save rejected — profile does not belong to this overlay')
     }
     const profile = host.store.getProfiles().find((entry) => entry.id === sender.profileId)
     if (!profile) throw new Error(`zones:save rejected — unknown profile ${sender.profileId}`)
+
+    // Optional overlay toggle: a boolean writes through so the settings window
+    // follows. A missing or malformed flag is ignored — this channel's job is
+    // the layout.
+    persistReflowNeighbors(body)
 
     // The acting overlay's own rectangles are the freshest version of its
     // display; the other displays come from the drafts they pushed while the
