@@ -465,9 +465,9 @@ export class Workspace implements AgentHost {
    */
   private goal: string | undefined
   /**
-   * Latest submitted orchestrator CLI note, shortened via {@link taskNote} —
-   * the orchestrator row's current task. Follow-ups replace it; the
-   * workspace {@link goal} does not.
+   * Orchestrator row's current task, shortened via {@link taskNote}. Set with
+   * a delivered start-with-goal / {@link assignGoal}, then by later CLI
+   * submits. Follow-ups replace it; the workspace {@link goal} does not.
    */
   private orchestratorTask: string | undefined
   /** Buffers `terminal:input`; see {@link noteOrchestratorGoal}. */
@@ -522,9 +522,9 @@ export class Workspace implements AgentHost {
   }
 
   /**
-   * The orchestrator's current task: the latest submitted user message from
-   * its CLI (`terminal:input`). Undefined until the first successful submit.
-   * Independent of {@link goalText} after a follow-up.
+   * The orchestrator's current task: a delivered start-with-goal /
+   * {@link assignGoal}, then the latest submitted user CLI note. Independent
+   * of {@link goalText} after a follow-up.
    */
   get orchestratorTaskText(): string | undefined {
     return this.orchestratorTask
@@ -1325,7 +1325,7 @@ export class Workspace implements AgentHost {
     if (initialPrompt) {
       const provider = this.requireProvider(this.profile.orchestrator.providerId)
       if (buildInitialPromptArgs(provider, initialPrompt).length > 0) {
-        this.goal = initialPrompt
+        this.recordDeliveredGoal(initialPrompt)
       }
     }
     return this.startedOf(record)
@@ -1803,7 +1803,14 @@ export class Workspace implements AgentHost {
     if (!accepted) {
       throw new Error(`${record.name} did not accept the goal — type it into its terminal instead.`)
     }
+    this.recordDeliveredGoal(goal)
+  }
+
+  /** A delivered start-with-goal is both the workspace goal and the current task. */
+  private recordDeliveredGoal(goal: string): void {
     this.goal = goal
+    const note = taskNote(goal)
+    if (note) this.orchestratorTask = note
   }
 
   /**

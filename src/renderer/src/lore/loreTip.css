@@ -47,10 +47,12 @@
 .lore-tip-text {
   font: 400 11.5px/1.45 var(--font-body);
   color: var(--text);
-  /* Goal / current task append as their own paragraph; a novel must scroll. */
+  /* Goal / current task append as their own paragraph. The card cannot
+     scroll (pointer-events: none; LoreTip dismisses on window scroll), so
+     there is no scrollbar — typical goals fit, a novel is clipped. */
   white-space: pre-line;
-  max-height: 45vh;
-  overflow-y: auto;
+  max-height: 70vh;
+  overflow: hidden;
 }
 
 @keyframes lore-tip-in {
