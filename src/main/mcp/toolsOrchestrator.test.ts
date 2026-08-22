@@ -324,15 +324,18 @@ describe('start_agent', () => {
     expect(runtime.events.all()).toHaveLength(0)
     // A task that never started is not the workspace's current task.
     expect(runtime.latestTask).toBeUndefined()
+    expect(runtime.agentTasks.size).toBe(0)
   })
 
-  it('records the first task line as the workspace\'s current task, shortened', async () => {
+  it('records the first task line as the agent\'s current task, shortened', async () => {
     const { runtime, tools } = setup()
     await callTool(tools, 'start_agent', {
       role: 'worker',
       task: '  Fix the parser\nDefinition of done: tests green'
     })
     expect(runtime.latestTask).toBe('Fix the parser')
+    expect(runtime.agentTasks.get('agent-1')).toBe('Fix the parser')
+    expect(runtime.agentTasks.get('agent-1')).not.toMatch(/report_done/)
 
     await callTool(tools, 'start_agent', { role: 'worker', task: `${'x'.repeat(200)}\nrest` })
     expect(runtime.latestTask).toHaveLength(140)
@@ -352,6 +355,10 @@ describe('start_agent', () => {
     expect(runtime.agentTasks.get('agent-1')).toBe('Fix the parser')
     expect(runtime.agentTasks.get('agent-2')).toBe('Review the parser fix')
     expect(notified).toBe(2)
+    // latestTask is last delegated, not a captured user goal — this layer
+    // does not own goalText, and start_agent must not mint one.
+    expect(runtime.latestTask).toBe('Review the parser fix')
+    expect((runtime as { goalText?: string }).goalText).toBeUndefined()
   })
 })
 

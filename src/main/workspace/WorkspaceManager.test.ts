@@ -689,12 +689,14 @@ describe('onChange — the push channel that replaced the panel poll', () => {
     await Promise.resolve()
     expect(fired).toBe(1)
     expect(running.workspace.goalText).toBe('Fix the panel')
+    expect(running.workspace.orchestratorTaskText).toBe('Fix the panel')
 
     const after = fired
-    expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'later steering\r')).toBe(false)
+    expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'later steering\r')).toBe(true)
     await Promise.resolve()
-    expect(fired).toBe(after)
+    expect(fired).toBe(after + 1)
     expect(running.workspace.goalText).toBe('Fix the panel')
+    expect(running.workspace.orchestratorTaskText).toBe('later steering')
 
     off()
   })
@@ -736,6 +738,7 @@ describe('noteOrchestratorGoal — CLI capture without clobbering start-with-goa
 
     expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'Fix the panel\r')).toBe(true)
     expect(running.workspace.goalText).toBe('Fix the panel')
+    expect(running.workspace.orchestratorTaskText).toBe('Fix the panel')
   })
 
   it('does not overwrite a start-with-goal already on goalText', async () => {
@@ -743,9 +746,10 @@ describe('noteOrchestratorGoal — CLI capture without clobbering start-with-goa
     const running = await manager.startWorkspace(testProfile(), { goal: 'Fix the login bug' })
     expect(running.workspace.goalText).toBe('Fix the login bug')
     expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'later steering\r')).toBe(
-      false
+      true
     )
     expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(running.workspace.orchestratorTaskText).toBe('later steering')
   })
 
   it('does not overwrite a grok argv-delivered start-with-goal', async () => {
@@ -756,9 +760,10 @@ describe('noteOrchestratorGoal — CLI capture without clobbering start-with-goa
     )
     expect(running.workspace.goalText).toBe('Fix the login bug')
     expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'later steering\r')).toBe(
-      false
+      true
     )
     expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(running.workspace.orchestratorTaskText).toBe('later steering')
   })
 
   it('drops the assembler on stop so a reused run does not inherit', async () => {
@@ -792,6 +797,7 @@ describe('noteOrchestratorGoal — CLI capture without clobbering start-with-goa
     expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'User goal\r')).toBe(true)
     mcp.lastRuntime!.latestTask = 'handed to a worker'
     expect(running.workspace.goalText).toBe('User goal')
+    expect(running.workspace.orchestratorTaskText).toBe('User goal')
     expect(mcp.workspaceTask(running.workspace.workspaceId)).toBe('handed to a worker')
   })
 })

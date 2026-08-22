@@ -79,6 +79,7 @@ import { openProfileEditorWindow } from '@main/windows/profileEditor'
 import { settings } from '@main/store/settings'
 import {
   APP_CHANNELS,
+  agentCurrentTaskFields,
   createAppIpc,
   createStubWorkspaceDirectory,
   disposeAppIpc,
@@ -279,7 +280,8 @@ function workspace(id: string, active = true): WorkspaceSummary {
         roleLabel: 'Orchestrator',
         roleColor: '#cba35a',
         state: 'working',
-        statusText: 'plant'
+        statusText: 'plant',
+        taskText: 'Fix the parser'
       }
     ],
     // S4: present here so the preload parity check below covers the board row
@@ -2090,5 +2092,16 @@ describe('preload parity', () => {
     const toPreload: PreloadWorkspaceSummary = fromMain
     const backAgain: WorkspaceSummary = toPreload
     expect(backAgain).toBe(fromMain)
+  })
+})
+
+describe('agentCurrentTaskFields', () => {
+  it('fills taskText and statusText from one current-task note', () => {
+    expect(agentCurrentTaskFields('Fix the parser')).toEqual({
+      taskText: 'Fix the parser',
+      statusText: 'Fix the parser'
+    })
+    expect(agentCurrentTaskFields(undefined)).toEqual({})
+    expect(agentCurrentTaskFields('   ')).toEqual({})
   })
 })

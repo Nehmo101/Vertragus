@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { TASK_NOTE_MAX } from './types'
-import { createOrchestratorGoalAssembler } from './orchestratorGoal'
+import { GOAL_TEXT_MAX, createOrchestratorGoalAssembler } from './orchestratorGoal'
 
 const ESC = String.fromCharCode(27)
 const PASTE_START = `${ESC}[200~`
@@ -13,6 +12,7 @@ describe('createOrchestratorGoalAssembler', () => {
     expect(assembler.goalText).toBeUndefined()
     expect(assembler.push('\r')).toBe(true)
     expect(assembler.goalText).toBe('Fix the parser')
+    expect(assembler.latestText).toBe('Fix the parser')
   })
 
   it('commits a whole paste-then-Enter as one chunk', () => {
@@ -24,18 +24,26 @@ describe('createOrchestratorGoalAssembler', () => {
   it('strips bracketed-paste wrappers so the paste is the task text', () => {
     const assembler = createOrchestratorGoalAssembler()
     assembler.push(`${PASTE_START}Docs schreiben${PASTE_END}`)
-    expect(assembler.push('\n')).toBe(true)
+    expect(assembler.push('\r')).toBe(true)
     expect(assembler.goalText).toBe('Docs schreiben')
   })
 
-  it('does not commit CR/LF inside an open bracketed paste', () => {
+  it('keeps internal newlines in a bracketed paste and submits on the trailing CR', () => {
     const assembler = createOrchestratorGoalAssembler()
     expect(
       assembler.push(`${PASTE_START}Fix the parser\nDefinition of done${PASTE_END}`)
     ).toBe(false)
     expect(assembler.goalText).toBeUndefined()
     expect(assembler.push('\r')).toBe(true)
-    expect(assembler.goalText).toBe('Fix the parser')
+    expect(assembler.goalText).toBe('Fix the parser\nDefinition of done')
+  })
+
+  it('treats LF as a newline in the buffer, not as a submit', () => {
+    const assembler = createOrchestratorGoalAssembler()
+    expect(assembler.push('hello\nworld')).toBe(false)
+    expect(assembler.goalText).toBeUndefined()
+    expect(assembler.push('\r')).toBe(true)
+    expect(assembler.goalText).toBe('hello\nworld')
   })
 
   it('clears aborted composer text on Ctrl+U and Ctrl+C', () => {
@@ -51,7 +59,7 @@ describe('createOrchestratorGoalAssembler', () => {
     cancelled.push('also junk')
     expect(cancelled.push(String.fromCharCode(3))).toBe(false)
     cancelled.push('only this')
-    expect(cancelled.push('\n')).toBe(true)
+    expect(cancelled.push('\r')).toBe(true)
     expect(cancelled.goalText).toBe('only this')
   })
 
@@ -86,16 +94,17 @@ describe('createOrchestratorGoalAssembler', () => {
   it('does not replace the first successful note on a later submit', () => {
     const assembler = createOrchestratorGoalAssembler()
     expect(assembler.push('first assignment\r')).toBe(true)
-    expect(assembler.push('also look at X\r')).toBe(false)
+    expect(assembler.push('also look at X\r')).toBe(true)
     expect(assembler.goalText).toBe('first assignment')
+    expect(assembler.latestText).toBe('also look at X')
   })
 
-  it('shortens through taskNote and ignores a stray ESC before Enter', () => {
+  it('keeps a long goal whole, capped only as a safety bound', () => {
     const assembler = createOrchestratorGoalAssembler()
-    const long = 'x'.repeat(TASK_NOTE_MAX + 20)
+    const long = 'x'.repeat(GOAL_TEXT_MAX + 20)
     assembler.push(`${long}${ESC}`)
     expect(assembler.push('\r')).toBe(true)
-    expect(assembler.goalText).toHaveLength(TASK_NOTE_MAX)
-    expect(assembler.goalText!.endsWith('…')).toBe(true)
+    expect(assembler.goalText).toHaveLength(GOAL_TEXT_MAX)
+    expect(assembler.goalText).toBe('x'.repeat(GOAL_TEXT_MAX))
   })
 })

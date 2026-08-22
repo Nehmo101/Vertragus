@@ -77,10 +77,10 @@ export function agentCanCloseWindow(
 /**
  * Hover-card text for an agent's code-name — who is this figure in the
  * Commedia, and what is it working on? The task line comes from the agent's
- * current assignment (`statusText`); for the orchestrator, which is never
- * assigned a task through the tools, it is the last one it delegated.
- * Undefined when there is neither — a card repeating the bare name would be
- * worse than no card (see {@link workspacePlaceTooltip}).
+ * current assignment (`taskText`): a subagent's last start_agent / follow-up,
+ * the orchestrator's latest user CLI submit. Undefined when there is neither
+ * — a card repeating the bare name would be worse than no card (see
+ * {@link workspacePlaceTooltip}).
  *
  * `locale` travels next to `t` for the same reason `t` does (see
  * {@link agentStatusLine}): the blurbs are bilingual data, not i18next keys.
@@ -88,15 +88,12 @@ export function agentCanCloseWindow(
 export function agentTooltip(
   t: Translate,
   locale: Locale,
-  agent: Pick<WorkspaceAgentSummary, 'name' | 'roleId' | 'statusText'>
+  agent: Pick<WorkspaceAgentSummary, 'name' | 'taskText'>
 ): string | undefined {
   const blurb = loreBlurb(agent.name, locale)
-  const task = agent.statusText?.trim()
+  const task = agent.taskText?.trim()
   if (!task) return blurb
-  const taskLine =
-    agent.roleId === ORCHESTRATOR_ROLE_ID
-      ? t('panel.orchestratorTask', { task })
-      : t('panel.agentTask', { task })
+  const taskLine = t('panel.workspaceTask', { task })
   return blurb ? `${blurb}\n\n${taskLine}` : taskLine
 }
 
@@ -116,22 +113,22 @@ export function workspacePlaceTooltip(
 }
 
 /**
- * Hover-card text for a workspace — what kind of place is this, and what is it
- * working on? The task line only appears once the orchestrator has handed out
- * an assignment; before that the blurb stands alone. Undefined when there is
- * neither (see {@link workspacePlaceTooltip} for why an unknown bare name gets
- * no card at all).
+ * Hover-card text for a workspace — what kind of place is this, and what is
+ * the user's goal? The goal line only appears once one was captured; before
+ * that the blurb stands alone. The current delegated task does not belong
+ * here (that is the agent rows). Undefined when there is neither (see
+ * {@link workspacePlaceTooltip} for why an unknown bare name gets no card).
  */
 export function workspaceTooltip(
   t: Translate,
   locale: Locale,
-  workspace: Pick<WorkspaceSummary, 'name' | 'taskText'>
+  workspace: Pick<WorkspaceSummary, 'name' | 'goalText'>
 ): string | undefined {
   const blurb = workspacePlaceTooltip(locale, workspace)
-  const task = workspace.taskText?.trim()
-  if (!task) return blurb
-  const taskLine = t('panel.workspaceTask', { task })
-  return blurb ? `${blurb}\n\n${taskLine}` : taskLine
+  const goal = workspace.goalText?.trim()
+  if (!goal) return blurb
+  const goalLine = t('panel.workspaceGoal', { goal })
+  return blurb ? `${blurb}\n\n${goalLine}` : goalLine
 }
 
 /**

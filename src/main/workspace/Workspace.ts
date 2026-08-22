@@ -51,6 +51,7 @@ import {
 import type { PendingQuestions } from '@main/mcp/pendingQuestions'
 import {
   USER_QUESTION_AGENT_ID,
+  taskNote,
   worktreeEventFields,
   type AgentHost,
   type IntegrateOutcome,
@@ -473,7 +474,13 @@ export class Workspace implements AgentHost {
    * assignment when Play was bare.
    */
   private goal: string | undefined
-  /** Buffers `terminal:input` until the first successful submit; see {@link noteOrchestratorGoal}. */
+  /**
+   * Orchestrator row's current task, shortened via {@link taskNote}. Set with
+   * a delivered start-with-goal / {@link assignGoal}, then by later CLI
+   * submits. Follow-ups replace it; the workspace {@link goal} does not.
+   */
+  private orchestratorTask: string | undefined
+  /** Buffers `terminal:input`; see {@link noteOrchestratorGoal}. */
   private goalAssembler: OrchestratorGoalAssembler | undefined
   /** C5 idle watchdog: when the orchestrator last called one of its tools. */
   private orchestratorLastToolAt = 0
@@ -522,6 +529,15 @@ export class Workspace implements AgentHost {
    */
   get goalText(): string | undefined {
     return this.goal
+  }
+
+  /**
+   * The orchestrator's current task: a delivered start-with-goal /
+   * {@link assignGoal}, then the latest submitted user CLI note. Independent
+   * of {@link goalText} after a follow-up.
+   */
+  get orchestratorTaskText(): string | undefined {
+    return this.orchestratorTask
   }
 
   /**
@@ -1320,7 +1336,7 @@ export class Workspace implements AgentHost {
     if (initialPrompt) {
       const provider = this.requireProvider(this.profile.orchestrator.providerId)
       if (buildInitialPromptArgs(provider, initialPrompt).length > 0) {
-        this.goal = initialPrompt
+        this.recordDeliveredGoal(initialPrompt)
       }
     }
     return this.startedOf(record)
@@ -1798,24 +1814,41 @@ export class Workspace implements AgentHost {
     if (!accepted) {
       throw new Error(`${record.name} did not accept the goal — type it into its terminal instead.`)
     }
+    this.recordDeliveredGoal(goal)
+  }
+
+  /** A delivered start-with-goal is both the workspace goal and the current task. */
+  private recordDeliveredGoal(goal: string): void {
     this.goal = goal
+    const note = taskNote(goal)
+    if (note) this.orchestratorTask = note
   }
 
   /**
    * Feed a chunk of user PTY input from the orchestrator CLI. Seed writes and
    * `sendToAgent` go through `pty.write` directly and never reach this. First
-   * successful note sticks; a start-with-goal that already set {@link goalText}
-   * is a no-op. Returns true when the goal newly landed so the panel can emit
-   * without waiting for a poll.
+   * successful note becomes {@link goalText} (full text) unless a start-with-goal
+   * already set it; every successful submit updates {@link orchestratorTaskText}.
+   * Returns true when either field changed so the panel can emit without waiting
+   * for a poll.
    */
   noteOrchestratorGoal(chunk: string): boolean {
-    if (this.closed || this.goal !== undefined) return false
+    if (this.closed) return false
     if (!this.goalAssembler) this.goalAssembler = createOrchestratorGoalAssembler()
     if (!this.goalAssembler.push(chunk)) return false
-    const note = this.goalAssembler.goalText
-    if (!note) return false
-    this.goal = note
-    return true
+    const submitted = this.goalAssembler.latestText
+    if (!submitted) return false
+    let changed = false
+    if (this.goal === undefined) {
+      this.goal = submitted
+      changed = true
+    }
+    const note = taskNote(submitted)
+    if (note && note !== this.orchestratorTask) {
+      this.orchestratorTask = note
+      changed = true
+    }
+    return changed
   }
 
   /**

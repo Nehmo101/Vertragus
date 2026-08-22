@@ -1,13 +1,11 @@
 /**
- * Assemble the user's assignment to the orchestrator from `terminal:input`
- * chunks. Seed writes and `sendToAgent` go through `pty.write` directly and
- * never reach this — they are plumbing, not the user's assignment.
+ * Assemble submitted text from `terminal:input` chunks. Seed writes and
+ * `sendToAgent` go through `pty.write` directly and never reach this — they
+ * are plumbing, not the user's assignment.
  *
- * First successful submit sticks: later steering in the same CLI must not
- * replace the workspace goal.
+ * First successful submit sticks as {@link OrchestratorGoalAssembler.goalText};
+ * later submits update {@link OrchestratorGoalAssembler.latestText} only.
  */
-import { taskNote } from './types'
-
 const ESC = String.fromCharCode(27)
 const BEL = String.fromCharCode(7)
 const DEL = String.fromCharCode(127)
@@ -22,23 +20,37 @@ const CSI_COMPLETE = new RegExp(`^${ESC}\\[[0-9;?]*[ -/]*[@-~]`)
 /** Held across chunks so a split `\x1b[200~` is not half-eaten as text. */
 const CSI_INCOMPLETE = new RegExp(`^${ESC}\\[[0-9;?]*[ -/]*$`)
 
+/** Safety bound for absurd pastes — the hover still shows this many characters. */
+export const GOAL_TEXT_MAX = 8000
+
 export interface OrchestratorGoalAssembler {
-  /** Feed a raw input chunk. True only when {@link goalText} newly lands. */
+  /** Feed a raw input chunk. True when a submit landed (first or later). */
   push(chunk: string): boolean
+  /** First successful submit, full text. Never replaced. */
   readonly goalText: string | undefined
+  /** Most recent successful submit, full text. */
+  readonly latestText: string | undefined
 }
 
 export function createOrchestratorGoalAssembler(): OrchestratorGoalAssembler {
   let buffer = ''
   let hold = ''
   let goal: string | undefined
+  let latest: string | undefined
   let pasting = false
 
+  const append = (ch: string): void => {
+    if (buffer.length >= GOAL_TEXT_MAX) return
+    const room = GOAL_TEXT_MAX - buffer.length
+    buffer += ch.length <= room ? ch : ch.slice(0, room)
+  }
+
   const commit = (): boolean => {
-    const note = taskNote(buffer)
+    const text = buffer.trim()
     buffer = ''
-    if (!note || goal !== undefined) return false
-    goal = note
+    if (!text) return false
+    latest = text
+    if (goal === undefined) goal = text
     return true
   }
 
@@ -46,14 +58,16 @@ export function createOrchestratorGoalAssembler(): OrchestratorGoalAssembler {
     get goalText(): string | undefined {
       return goal
     },
+    get latestText(): string | undefined {
+      return latest
+    },
     push(chunk: string): boolean {
-      if (goal !== undefined || !chunk) return false
+      if (!chunk) return false
       const text = hold + chunk
       hold = ''
       let changed = false
       let i = 0
       while (i < text.length) {
-        if (goal !== undefined) break
         const ch = text.charAt(i)
         if (ch === ESC) {
           const consumed = consumeEscape(text.slice(i))
@@ -67,10 +81,11 @@ export function createOrchestratorGoalAssembler(): OrchestratorGoalAssembler {
           i += consumed
           continue
         }
-        if (ch === '\r' || ch === '\n') {
-          // Inside bracketed paste, CR/LF is content (taskNote takes the first
-          // line on commit). Submit only on CR/LF outside an open paste.
-          if (pasting) buffer += ch
+        if (ch === '\r') {
+          // Inside bracketed paste, CR is content. Submit only outside an
+          // open paste. LF stays in the buffer so a multi-line paste is one
+          // goal, not a one-liner.
+          if (pasting) append(ch)
           else changed = commit() || changed
           i += 1
           continue
@@ -87,11 +102,11 @@ export function createOrchestratorGoalAssembler(): OrchestratorGoalAssembler {
           i += 1
           continue
         }
-        if (ch < ' ') {
+        if (ch < ' ' && ch !== '\n') {
           i += 1
           continue
         }
-        buffer += ch
+        append(ch)
         i += 1
       }
       return changed
