@@ -15,6 +15,13 @@ export interface RemoteCopy {
   connected: string
   connecting: string
   reconnecting: string
+  /**
+   * The socket is open but the route has not answered a probe yet. Distinct
+   * from `connecting`, which is an honest absence of a connection — this is a
+   * connection the client no longer trusts and has ten seconds left to prove.
+   */
+  checking: string
+  pullNoAnswer: string
   offline: string
   connectionLost: string
   /**
@@ -146,6 +153,8 @@ const de: RemoteCopy = {
   connected: 'verbunden',
   connecting: 'verbinde …',
   reconnecting: 'verbinde neu …',
+  checking: 'Verbindung wird geprüft …',
+  pullNoAnswer: 'keine Antwort — verbinde neu …',
   offline: 'offline',
   connectionLost: 'Verbindung unterbrochen.',
   commandTooLong: 'Der Text ist zu lang für eine Übertragung — bitte kürzen.',
@@ -265,6 +274,8 @@ const en: RemoteCopy = {
   connected: 'connected',
   connecting: 'connecting …',
   reconnecting: 'reconnecting …',
+  checking: 'checking connection …',
+  pullNoAnswer: 'no answer — reconnecting …',
   offline: 'offline',
   connectionLost: 'Connection lost.',
   commandTooLong: 'That text is too long to send — please shorten it.',
