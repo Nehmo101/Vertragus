@@ -148,6 +148,8 @@ interface Props {
   onSucceedOrchestrator(workspaceId: string): void
   onFocusAgent(agentId: string): void
   onCloseAgentWindow(agentId: string): void
+  /** H2 refill: hand a run that was started bare its goal (see GoalRefill). */
+  onAssignGoal(workspaceId: string, goal: string): void
   /** H1: answer one agent's open question over the shared host path. */
   onAnswerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): void
   /** D2: steer the run — wakes the orchestrator's await_events. */
@@ -256,6 +258,72 @@ function TaskBoardSection({ workspace }: { workspace: WorkspaceSummary }): React
   )
 }
 
+/**
+ * H2 refill: a run started bare never got a first user turn — its orchestrator
+ * sits at its own prompt waiting. So the "no goal" line is a FIELD, not a note:
+ * the text typed here takes the same handshake the start-time goal takes, and
+ * the line turns into the quoted goal as soon as the CLI accepted it.
+ */
+function GoalRefill({
+  workspaceId,
+  hint,
+  onAssign
+}: {
+  workspaceId: string
+  hint: string
+  onAssign(workspaceId: string, goal: string): void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [goal, setGoal] = useState('')
+  const submit = (): void => {
+    if (!goal.trim()) return
+    onAssign(workspaceId, goal.trim())
+    setGoal('')
+    setOpen(false)
+  }
+  return (
+    <div className="panel-card-refill">
+      <button
+        type="button"
+        className="panel-card-goal is-empty is-refill"
+        aria-expanded={open}
+        title={t('panel.assignGoalTitle')}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {hint}
+      </button>
+      {open ? (
+        <div className="panel-goal-late">
+          <textarea
+            className="panel-goal-input"
+            rows={2}
+            placeholder={t('panel.goalPlaceholder')}
+            value={goal}
+            autoFocus
+            onChange={(event) => setGoal(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                submit()
+              }
+              if (event.key === 'Escape') setOpen(false)
+            }}
+          />
+          <button
+            type="button"
+            className="panel-answer-send"
+            disabled={!goal.trim()}
+            onClick={submit}
+          >
+            {t('panel.assignGoalSend')}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 /** D2: the card's composer — one line to steer the whole run. */
 function Composer({
   workspaceId,
@@ -336,6 +404,7 @@ export function WorkspaceCard({
   onSucceedOrchestrator,
   onFocusAgent,
   onCloseAgentWindow,
+  onAssignGoal,
   onAnswerQuestion,
   onUserMessage,
   onPromoteAgent,
@@ -404,12 +473,20 @@ export function WorkspaceCard({
         </button>
       </header>
       {goalLine ? (
-        <p
-          className={workspace.goalText ? 'panel-card-goal' : 'panel-card-goal is-empty'}
-          title={workspace.goalText || undefined}
-        >
-          {goalLine}
-        </p>
+        workspace.goalText ? (
+          <p className="panel-card-goal" title={workspace.goalText}>
+            {goalLine}
+          </p>
+        ) : (
+          // No goal and the run is alive — the line is the way to fix that.
+          // It sits outside the expanded block like the line it replaces: a
+          // shut card must show the goal, and offer the field that fills it.
+          <GoalRefill
+            workspaceId={workspace.workspaceId}
+            hint={goalLine}
+            onAssign={onAssignGoal}
+          />
+        )
       ) : null}
       {expanded ? (
         <>

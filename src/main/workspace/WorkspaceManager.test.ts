@@ -407,6 +407,72 @@ describe('startWorkspace', () => {
     expect(manager.list()[0]!.goalText).toBeUndefined()
   })
 
+  it('H2 refill: a bare run takes its goal later and the journal meta learns it', async () => {
+    const metas: unknown[] = []
+    const { manager, spawns } = harness({
+      journal: () => ({
+        path: '/repo/.vertragus/runs/x/events.jsonl',
+        append: () => {},
+        writeMeta: (meta) => metas.push(meta)
+      })
+    })
+    const running = await manager.startWorkspace(testProfile())
+    expect(running.workspace.goalText).toBeUndefined()
+    expect(metas).toHaveLength(1)
+    expect(metas[0]).not.toHaveProperty('goal')
+
+    await manager.assignGoal(running.workspace.workspaceId, 'Fix the login bug')
+
+    expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(spawns[0]!.pty.written).toContain('Fix the login bug')
+    // E3: the meta is rewritten, so a later Resume briefs on the goal the run
+    // really got instead of the "no goal" it was started with.
+    expect(metas).toHaveLength(2)
+    expect(metas[1]).toMatchObject({
+      workspaceId: running.workspace.workspaceId,
+      goal: 'Fix the login bug'
+    })
+  })
+
+  it('H2 refill: refuses a second goal and an unknown workspace, and journals neither', async () => {
+    const metas: unknown[] = []
+    const { manager } = harness({
+      journal: () => ({
+        path: '/repo/.vertragus/runs/x/events.jsonl',
+        append: () => {},
+        writeMeta: (meta) => metas.push(meta)
+      })
+    })
+    const running = await manager.startWorkspace(testProfile(), { goal: 'Fix the login bug' })
+
+    await expect(
+      manager.assignGoal(running.workspace.workspaceId, 'Something else entirely')
+    ).rejects.toThrow(/goal_already_set/)
+    await expect(manager.assignGoal('ws-nobody', 'Goal.')).rejects.toThrow(/unknown workspace/)
+
+    expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(metas).toHaveLength(1)
+  })
+
+  it('H2 refill: a refused delivery leaves goalText and the meta untouched', async () => {
+    const metas: unknown[] = []
+    const { manager } = harness({
+      seed: (async () => false) as unknown as WorkspaceDeps['seed'],
+      journal: () => ({
+        path: '/repo/.vertragus/runs/x/events.jsonl',
+        append: () => {},
+        writeMeta: (meta) => metas.push(meta)
+      })
+    })
+    const running = await manager.startWorkspace(testProfile())
+
+    await expect(
+      manager.assignGoal(running.workspace.workspaceId, 'Fix the login bug')
+    ).rejects.toThrow(/did not accept the goal/)
+    expect(running.workspace.goalText).toBeUndefined()
+    expect(metas).toHaveLength(1)
+  })
+
   it('passes the profile limits and roles into the MCP context', async () => {
     const { manager, mcp } = harness()
     await manager.startWorkspace(testProfile())

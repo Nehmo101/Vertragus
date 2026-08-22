@@ -306,6 +306,7 @@ interface Harness {
   broadcasts: { channel: string; payload: unknown }[]
   directory: WorkspaceDirectory & {
     started: Array<{ profileId: string; goal?: string }>
+    goalsAssigned: Array<{ workspaceId: string; goal: string }>
     resumed: string[]
     stopped: string[]
     succeeded: string[]
@@ -435,6 +436,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
 
   const directory = {
     started: [] as Array<{ profileId: string; goal?: string }>,
+    goalsAssigned: [] as Array<{ workspaceId: string; goal: string }>,
     resumed: [] as string[],
     stopped: [] as string[],
     succeeded: [] as string[],
@@ -452,6 +454,9 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     list: () => state.workspaces,
     start(profileId: string, goal?: string) {
       this.started.push({ profileId, ...(goal !== undefined ? { goal } : {}) })
+    },
+    async assignGoal(workspaceId: string, goal: string) {
+      this.goalsAssigned.push({ workspaceId, goal })
     },
     resume(profileId: string) {
       this.resumed.push(profileId)
@@ -939,6 +944,26 @@ describe('workspaces', () => {
     ])
   })
 
+  it('H2 refill: hands a running workspace its goal and refuses a blank one', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesGoal, PANEL_ID, {
+      workspaceId: 'w1',
+      goal: '  Fix the login bug  '
+    })
+    expect(h.directory.goalsAssigned).toEqual([{ workspaceId: 'w1', goal: 'Fix the login bug' }])
+    expect(h.broadcasts.at(-1)?.channel).toBe(APP_CHANNELS.eventWorkspaces)
+
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesGoal, PANEL_ID, { goal: 'Goal.' }))
+    ).rejects.toThrow(/missing workspace id/)
+    // Unlike the start goal, a blank one here is an error, not a bare start.
+    await expect(
+      Promise.resolve(
+        h.ipc.invoke(APP_CHANNELS.workspacesGoal, PANEL_ID, { workspaceId: 'w1', goal: '   ' })
+      )
+    ).rejects.toThrow(/missing goal text/)
+    expect(h.directory.goalsAssigned).toHaveLength(1)
+  })
+
   it('resumes the last run over the directory (E3) — panel only, id required', async () => {
     await h.ipc.invoke(APP_CHANNELS.workspacesResume, PANEL_ID, { profileId: 'p1' })
     expect(h.directory.resumed).toEqual(['p1'])
@@ -1072,6 +1097,7 @@ describe('workspaces', () => {
       directory: {
         list: () => [],
         start: refuse,
+        assignGoal: async () => refuse(),
         resume: refuse,
         stop() {},
         succeedOrchestrator: refuse,
@@ -1679,6 +1705,7 @@ describe('sender authorization', () => {
   const panelOnly = [
     APP_CHANNELS.workspacesList,
     APP_CHANNELS.workspacesStart,
+    APP_CHANNELS.workspacesGoal,
     APP_CHANNELS.workspacesStop,
     APP_CHANNELS.workspacesSucceedOrchestrator,
     APP_CHANNELS.workspacesFocusAgent,
@@ -1988,6 +2015,7 @@ describe('production registration', () => {
     const real: WorkspaceDirectory = {
       list: () => [workspace('w1')],
       start: vi.fn(),
+      assignGoal: vi.fn(async () => {}),
       resume: vi.fn(),
       stop: vi.fn(),
       succeedOrchestrator: vi.fn(),
@@ -2004,6 +2032,7 @@ describe('production registration', () => {
     const second: WorkspaceDirectory = {
       list: () => [],
       start: vi.fn(),
+      assignGoal: vi.fn(async () => {}),
       resume: vi.fn(),
       stop: vi.fn(),
       succeedOrchestrator: vi.fn(),

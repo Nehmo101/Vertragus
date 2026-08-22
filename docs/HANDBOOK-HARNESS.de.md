@@ -32,7 +32,8 @@ BigBoy macht den Loop *stabil und fernsteuerbar*. Es macht ihn nicht
 
 Gateway-Allow-List ist seit Track 0 **fünf Verben**: `workspaces:list`,
 `workspaces:start` (jetzt mit optionalem `goal`), `workspaces:stop`,
-`profiles:list`, `answer_question`. Kein `focus_agent` / `stop_agent` auf dem
+`profiles:list`, `answer_question`; `user_message` (D2) und
+`workspaces:goal` (H2-Nachtrag) kamen später dazu — heute sieben. Kein `focus_agent` / `stop_agent` auf dem
 Gateway. `resize` existiert im WS-Protokoll; es ist kein Produktziel von
 Remote-v1.
 
@@ -46,7 +47,7 @@ Remote-Server.
 | Haken / Phase | Status |
 | --- | --- |
 | H1 `answer_question` am Gateway | **umgesetzt** (Track 0) — ein Host-Pfad (`mcp/answerQuestion.ts`), Gateway-Verb, Panel-Badge |
-| H2 `workspaces:start {goal}` | **umgesetzt** (Track 0) — Goal-Seed über den Assignment-Handshake, Back-compat ohne Goal |
+| H2 `workspaces:start {goal}` | **umgesetzt** (Track 0) — Goal-Seed über den Assignment-Handshake, Back-compat ohne Goal; Nachtrag (`workspaces:goal`) gibt einem bar gestarteten Lauf sein Ziel später |
 | C3 Snapshot-Commit / C4 Handoff-Paket | **umgesetzt** (Track 1) — `snapshotDone` committet dirty Worktrees beim Done; `start_agent{baseBranch}` trägt Handoff-Block |
 | C5 Orchestrator-Idle-Watchdog | **umgesetzt** (Track 2) — `orchestrator_idle` Event + Panel/Remote-Hinweis; Timeouts ≠ Idle (Touch bei Call-Start und -Ende) |
 | C6 Orchestrator-Succession (Context-Handoff) | **S1 im Code** — siehe [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
@@ -103,6 +104,16 @@ workspaces:start { profileId, goal: string }
 Host seedet das Goal über denselben Handshake wie jede Assignment.
 Panel und Remote-Client teilen das Feld. Ohne Goal bleibt Start erlaubt
 (Back-compat), aber die Karte zeigt „kein Ziel — Orchestrator wartet“.
+
+**Nachtrag (Follow-up).** Dieser Wartezustand ist keine Sackgasse: Die Zeile
+„kein Ziel“ auf der Karte ist ein Feld, im Panel (IPC `workspaces:goal`) wie
+am Handy (Gateway-Verb `workspaces:goal`). Es nimmt exakt denselben
+`Workspace.assignGoal`-Handshake — ein Lauf, der bereits ein Ziel trägt,
+lehnt mit `goal_already_set` ab, denn ein zweiter erster Turn in eine CLI,
+die schon den MCP-Loop fährt, ist genau das Zwei-Hirne-Versagen aus H1;
+das Steuern eines laufenden Ziels bleibt Sache von `user_message`. Ein
+zugestellter Nachtrag schreibt außerdem die `meta.json` des Laufs neu, damit
+das Resume aus E3 auf dem Ziel briefed, das der Lauf wirklich bekommen hat.
 
 ### H3 — erledigt in PR #17
 

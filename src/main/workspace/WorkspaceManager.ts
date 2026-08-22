@@ -31,7 +31,7 @@ import type { AgentEvent } from '@shared/schema/events'
 import type { OrchestratorHandoffPackage } from '@shared/schema/handoff'
 import type { TaskBoardState } from '@shared/schema/tasks'
 import type { RetroSink } from './retroSink'
-import type { RunJournal } from './journal'
+import type { RunJournal, RunMeta } from './journal'
 import type { TaskBoard } from './taskBoard'
 import { Workspace, type WorkspaceDeps, type WorkspaceMcpUrls } from './Workspace'
 
@@ -123,6 +123,17 @@ export interface StartWorkspaceOptions {
 
 export interface WorkspaceManager {
   startWorkspace(profile: Profile, options?: StartWorkspaceOptions): Promise<RunningWorkspace>
+  /**
+   * H2 refill: hand a bare-started run its goal now. Same handshake as the
+   * start-time seed (`Workspace.assignGoal`) plus the journal's `meta.json`
+   * rewrite — a goal the run really got must brief a later Resume, and a meta
+   * frozen at start time would keep claiming the run had none.
+   *
+   * Rejects on an unknown workspace, on a run that already carries a goal
+   * (`goal_already_set`), and on a failed PTY delivery — the run keeps
+   * running in every case, and `goalText` stays unset unless the CLI took it.
+   */
+  assignGoal(workspaceId: string, goal: string): Promise<void>
   stopWorkspace(workspaceId: string, options?: StopOptions): Promise<boolean>
   stopAll(options?: StopOptions): Promise<void>
   get(workspaceId: string): Workspace | undefined
@@ -163,6 +174,12 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
   const eventTaps = new Map<string, { events: AgentEvent[]; off: () => void }>()
   /** Per-workspace change subscriptions (event queue + question registry). */
   const changeTaps = new Map<string, Array<() => void>>()
+  /**
+   * E3: each run's journal and the `meta.json` written for it, kept so a goal
+   * that arrives AFTER the start (see `assignGoal`) can be written into that
+   * same file. Absent for a run whose journal factory failed or is not wired.
+   */
+  const runMetas = new Map<string, { journal: RunJournal; meta: RunMeta }>()
   const changeListeners = new Set<() => void>()
   let notifyScheduled = false
 
@@ -264,15 +281,19 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     } catch (error) {
       console.warn('[taskBoard] not started:', error)
     }
-    // E3: the run's identity, once — everything after this line is events.
-    journal?.writeMeta({
+    // E3: the run's identity, once — everything after this line is events. The
+    // one later write is a refilled goal (`assignGoal`), which is why the meta
+    // is kept beside its journal instead of being forgotten here.
+    const meta: RunMeta = {
       workspaceId: workspace.workspaceId,
       profileId: profile.id,
       workspaceName: workspace.name,
       ...(options?.goal?.trim() ? { goal: options.goal.trim() } : {}),
       startedAt: Date.now(),
       ...(options?.resume ? { resumedFrom: options.resume.fromWorkspaceId } : {})
-    })
+    }
+    journal?.writeMeta(meta)
+    if (journal) runMetas.set(workspace.workspaceId, { journal, meta })
     if (deps.retro) {
       const events: AgentEvent[] = []
       const off = workspace.events.onPush((event) => events.push(event))
@@ -329,6 +350,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       // orchestrator with an undelivered goal stays up (see above).
       if (workspace.orchestratorAlive) throw error
       workspaces.delete(workspace.workspaceId)
+      runMetas.delete(workspace.workspaceId)
       dropTap(workspace.workspaceId)
       dropChangeTap(workspace.workspaceId)
       await workspace.close()
@@ -338,10 +360,28 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     }
   }
 
+  /**
+   * H2 refill — see {@link WorkspaceManager.assignGoal}. The journal write
+   * happens only after the CLI accepted the text: `meta.json` records what the
+   * run was actually told, never what the user typed into a failed handshake.
+   */
+  async function assignGoal(workspaceId: string, goal: string): Promise<void> {
+    const workspace = workspaces.get(workspaceId)
+    if (!workspace) throw new Error(`goal rejected — unknown workspace ${workspaceId}`)
+    await workspace.assignGoal(goal)
+    const run = runMetas.get(workspaceId)
+    if (run) {
+      run.meta = { ...run.meta, goal }
+      run.journal.writeMeta(run.meta)
+    }
+    notifyChange()
+  }
+
   async function stopWorkspace(workspaceId: string, options?: StopOptions): Promise<boolean> {
     const workspace = workspaces.get(workspaceId)
     if (!workspace) return false
     workspaces.delete(workspaceId)
+    runMetas.delete(workspaceId)
     // A3: the user pressing Stop is the other "the work is done" — open the
     // pull request the profile asked for if record_retro never got around to
     // it. Before close(), because the event queue dies in there; at most one
@@ -378,6 +418,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
 
   return {
     startWorkspace,
+    assignGoal,
     stopWorkspace,
 
     async stopAll(options?: StopOptions): Promise<void> {

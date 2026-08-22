@@ -1487,6 +1487,16 @@ describe('assignGoal — H2, the goal rides the assignment handshake', () => {
     expect(workspace.orchestratorTaskText).toBeUndefined()
   })
 
+  it('refuses a SECOND goal — a running loop is steered, not re-briefed', async () => {
+    const { workspace, prompts } = harness()
+    await workspace.startOrchestrator()
+    await workspace.assignGoal('Fix the login bug')
+
+    await expect(workspace.assignGoal('Rewrite the parser')).rejects.toThrow(/goal_already_set/)
+    expect(workspace.goalText).toBe('Fix the login bug')
+    expect(prompts.at(-1)).toBe('Fix the login bug')
+  })
+
   it('does not record a goal the CLI never accepted', async () => {
     const seedOk = { value: true }
     const { workspace } = harness({

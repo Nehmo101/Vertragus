@@ -216,6 +216,7 @@ export function PanelApp(): React.JSX.Element {
                   onSucceedOrchestrator={panel.succeedOrchestrator}
                   onFocusAgent={panel.focusAgent}
                   onCloseAgentWindow={panel.closeAgentWindow}
+                  onAssignGoal={panel.assignGoal}
                   onAnswerQuestion={panel.answerQuestion}
                   onUserMessage={panel.sendUserMessage}
                   onPromoteAgent={panel.promoteAgent}

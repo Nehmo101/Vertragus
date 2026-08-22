@@ -107,6 +107,11 @@ keeps the last 1000 and the on-disk journal keeps everything.
   `user_message` that wakes the orchestrator's `await_events` immediately.
   The text shows in its terminal display-only — delivery is the event, so
   there is no second brain typing into the TUI.
+- **A goal can arrive late.** A run started without a goal has an
+  orchestrator waiting at its prompt, so the card's "no goal" line is a field
+  (panel and phone): the text typed there becomes the orchestrator's first
+  user turn over the same handshake the start goal takes. A run that already
+  has a goal refuses a second one — that is what steering is for.
 - **Questions in both directions:** an agent's open question shows as a `?`
   badge answerable from panel or phone (one host path, one question
   registry); the orchestrator's `ask_user` shows on the workspace card the
@@ -192,9 +197,10 @@ your PC. It is **off by default**; enable it under **Settings → Remote access*
   it, start a workspace **with a goal** (the host seeds it into the
   orchestrator over the same handshake as any assignment; starting without a
   goal stays allowed and the card says "no goal — the orchestrator is
-  waiting"), stop workspaces, send the orchestrator a steering message, and
-  **answer an agent's open MCP question** from its `?` badge. The command
-  allow-list is exactly six verbs: `workspaces:list`, `workspaces:start`,
+  waiting" — and offers the field that hands it one later), stop workspaces,
+  send the orchestrator a steering message, and **answer an agent's open MCP
+  question** from its `?` badge. The command allow-list is exactly seven
+  verbs: `workspaces:list`, `workspaces:start`, `workspaces:goal`,
   `workspaces:stop`, `profiles:list`, `answer_question`, `user_message`.
   There is no `focus_agent` or `stop_agent` on the gateway.
   `answer_question` takes the same host path as the orchestrator's

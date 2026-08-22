@@ -114,6 +114,12 @@ export const APP_CHANNELS = {
   modelsDiscover: 'models:discover',
   workspacesList: 'workspaces:list',
   workspacesStart: 'workspaces:start',
+  /**
+   * H2 refill: hand a run that was started bare its goal now. Separate from
+   * `workspaces:userMessage` on purpose — a goal is the orchestrator's FIRST
+   * user turn (it starts the loop), a user message steers a loop that runs.
+   */
+  workspacesGoal: 'workspaces:goal',
   workspacesResume: 'workspaces:resume',
   workspacesStop: 'workspaces:stop',
   workspacesSucceedOrchestrator: 'workspaces:succeedOrchestrator',
@@ -352,6 +358,12 @@ export interface WorkspaceDirectory {
    */
   start(profileId: string, goal?: string): void | Promise<unknown>
   /**
+   * H2 refill: the goal for a run that was started without one. Rejects with a
+   * readable message when the workspace is unknown, already carries a goal, or
+   * its CLI refused the text — the run keeps going in every case.
+   */
+  assignGoal(workspaceId: string, goal: string): Promise<void>
+  /**
    * E3: start a NEW workspace of this profile briefed on the repository's
    * newest journaled run (worktrees/branches survive; processes do not).
    * Rejects with a readable message when the repo holds no journaled run.
@@ -445,6 +457,7 @@ export function createStubWorkspaceDirectory(
   return {
     list: () => [],
     start: refuse,
+    assignGoal: async () => refuse(),
     resume: refuse,
     stop: refuse,
     succeedOrchestrator: refuse,
@@ -1033,6 +1046,17 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     // is treated as absent rather than refused — an empty field is not an error.
     const goal = typeof body.goal === 'string' && body.goal.trim() ? body.goal.trim() : undefined
     await (goal ? host.directory.start(body.profileId, goal) : host.directory.start(body.profileId))
+    emitWorkspaces()
+  })
+
+  // H2 refill: unlike the start goal above, THIS one is the whole point of the
+  // call — a blank field is refused instead of quietly starting nothing.
+  handle(APP_CHANNELS.workspacesGoal, requirePanel, async (_event, payload) => {
+    const body = (payload ?? {}) as { workspaceId?: string; goal?: unknown }
+    if (!body.workspaceId) throw new Error('workspaces:goal rejected — missing workspace id')
+    const goal = typeof body.goal === 'string' ? body.goal.trim() : ''
+    if (!goal) throw new Error('workspaces:goal rejected — missing goal text')
+    await host.directory.assignGoal(body.workspaceId, goal)
     emitWorkspaces()
   })
 

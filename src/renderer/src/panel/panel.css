@@ -988,6 +988,37 @@
   font-style: italic;
 }
 
+/*
+ * H2 refill: the "no goal" line of a RUNNING workspace is a button — pressing
+ * it folds the goal field out. It keeps the line's look; only the pointer and
+ * the hover wash say it can be pressed.
+ */
+.panel-card-goal.is-refill {
+  display: block;
+  width: calc(100% - 10px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.panel-card-goal.is-refill:hover {
+  color: var(--text-2);
+}
+
+.panel-goal-late {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+  margin: 4px 5px 2px;
+}
+
+.panel-goal-late .panel-goal-input {
+  width: 100%;
+}
+
 /* C5: orchestrator alive but silent on its tools. */
 .panel-card-goal.is-idle {
   color: var(--warn-text);

@@ -38,6 +38,12 @@ interface MainMessages {
   successorAlreadyStarting: string
   /** Orchestrator succession: this workspace never had an orchestrator. */
   noOrchestrator: string
+  /**
+   * H2 refill: the goal field was submitted for a run that already has a
+   * goal — a second one would type a first turn into a CLI that is already
+   * driving the loop. Steering an existing run is the composer's job.
+   */
+  goalAlreadySet: string
   /** Promote left the branch untouched because the merge conflicted. */
   promoteConflict: (conflictFiles: string) => string
   /** Git named no paths in the conflict — the list must still say something. */
@@ -103,6 +109,8 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
       `Fortsetzen abgelehnt — in ${repoPath} liegt kein aufgezeichneter Lauf.`,
     successorAlreadyStarting: 'Orchestrator-Wechsel abgelehnt — ein Nachfolger startet bereits.',
     noOrchestrator: 'Orchestrator-Wechsel abgelehnt — dieser Workspace hat keinen Orchestrator.',
+    goalAlreadySet:
+      'Ziel abgelehnt — dieser Lauf hat bereits ein Ziel. Nutze die Nachricht, um ihn zu steuern.',
     promoteConflict: (conflictFiles) =>
       `Merge-Konflikt — es wurde nichts geändert. Betroffene Dateien: ${conflictFiles}`,
     unknownConflictFiles: '(unbekannt)',
@@ -154,6 +162,8 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     successorAlreadyStarting:
       'Orchestrator replacement rejected — a successor is already starting.',
     noOrchestrator: 'Orchestrator replacement rejected — this workspace has no orchestrator.',
+    goalAlreadySet:
+      'Goal rejected — this run already has a goal. Send a message to steer it instead.',
     promoteConflict: (conflictFiles) =>
       `Merge conflict — nothing was changed. Conflicting files: ${conflictFiles}`,
     unknownConflictFiles: '(unknown)',

@@ -28,6 +28,15 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
     GitHub-CLI; ohne `gh` trägt das neue Event `pull_request` die fertige
     Compare-URL, die die Workspace-Karte als Link zeigt. Ziel-Branch,
     Remote und Draft-Modus sind einstellbar.
+- **Das Ziel lässt sich nach einem Start ohne Ziel nachtragen
+  (H2-Nachtrag).** Die Zeile „Kein Ziel — Orchestrator wartet“ auf der Karte
+  eines laufenden Workspace ist jetzt ein Feld, im Panel wie im
+  Handy-Client: Der Text darin erreicht den Orchestrator über denselben
+  Handshake wie das Start-Ziel und wird sein erster User-Turn. Ein Lauf, der
+  bereits ein Ziel hat, lehnt ein zweites ab (dann steuert man ihn mit einer
+  Nachricht), und ein zugestellter Nachtrag wird in die `meta.json` des Laufs
+  geschrieben, damit Resume darauf briefed. Neuer Panel-Kanal
+  `workspaces:goal` und das siebte Gateway-Verb gleichen Namens.
 - **Phase G (dsh-Adoption), alle fünf Muster:**
   - Spill statt Truncation — übergroße `read_output`- und
     `inspect_agent`-Ergebnisse werden verbatim unter
