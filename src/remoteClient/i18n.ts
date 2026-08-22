@@ -33,6 +33,15 @@ export interface RemoteCopy {
   errorTitle: string
   unknownError: string
   pairingFailed: string
+  /**
+   * Distinct from `pairingFailed` on purpose: the desktop said no, versus the
+   * desktop could not be reached at all. Only the first justifies sending the
+   * user back to the QR code — the second is a phone that walked out of the
+   * tailnet and will be fine in a minute.
+   */
+  unreachable: string
+  retry: string
+  retrying: string
   pairAgain: string
   themeFollowHost: string
   themeDark: string
@@ -154,6 +163,10 @@ const de: RemoteCopy = {
   errorTitle: 'Verbindung fehlgeschlagen',
   unknownError: 'Unbekannter Fehler.',
   pairingFailed: 'Pairing fehlgeschlagen — der Link ist abgelaufen oder ungültig.',
+  unreachable:
+    'Vertragus ist nicht erreichbar. Läuft der Desktop, und ist dieses Gerät im selben Tailnet?',
+  retry: 'Erneut versuchen',
+  retrying: 'versuche erneut …',
   pairAgain: 'Erneut koppeln',
   themeFollowHost: 'Desktop folgen',
   themeDark: 'Dunkel',
@@ -271,6 +284,10 @@ const en: RemoteCopy = {
   errorTitle: 'Connection failed',
   unknownError: 'Unknown error.',
   pairingFailed: 'Pairing failed — the link has expired or is invalid.',
+  unreachable:
+    'Vertragus cannot be reached. Is the desktop running, and is this device on the same tailnet?',
+  retry: 'Try again',
+  retrying: 'retrying …',
   pairAgain: 'Pair again',
   themeFollowHost: 'Follow desktop',
   themeDark: 'Dark',
