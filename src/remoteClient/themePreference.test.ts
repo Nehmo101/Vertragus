@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { StorageLike } from './navState'
 import {
@@ -69,5 +72,29 @@ describe('theme colour', () => {
     expect(themeColorFrom(undefined, 'dark')).toBe('#0e1013')
     expect(themeColorFrom('', 'light')).toBe('#f4f1ea')
     expect(themeColorFrom('   ', 'light')).toBe('#f4f1ea')
+  })
+
+  /**
+   * The fallback restates `--bg`, and a restated colour drifts. The runtime
+   * path reads the computed token and cannot drift; this pair is the one copy
+   * that can, so it is held against the sheet itself — the same file-reading
+   * guard this project uses for its other cross-cutting values, self-checked
+   * so a reshaped sheet fails loudly instead of quietly scanning nothing.
+   */
+  it('states the same --bg the sheet does, in both themes', () => {
+    const sheet = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'styles.css'),
+      'utf8'
+    )
+    const lightStart = sheet.indexOf(":root[data-theme='light']")
+    expect(lightStart, 'the light token block moved').toBeGreaterThan(-1)
+    const bgIn = (block: string): string | undefined => /--bg:\s*(#[0-9a-fA-F]{3,8});/.exec(block)?.[1]
+    const dark = bgIn(sheet.slice(0, lightStart))
+    const light = bgIn(sheet.slice(lightStart))
+    expect(dark, 'no --bg in the dark token block').toBeDefined()
+    expect(light, 'no --bg in the light token block').toBeDefined()
+    expect(dark).not.toBe(light)
+    expect(themeColorFrom(undefined, 'dark')).toBe(dark)
+    expect(themeColorFrom(undefined, 'light')).toBe(light)
   })
 })

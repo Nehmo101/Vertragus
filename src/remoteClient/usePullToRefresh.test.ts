@@ -8,6 +8,7 @@ import {
   pullLabel,
   pullPhase,
   PULL_THRESHOLD_PX,
+  shouldFireRefresh,
   type GestureNode
 } from './usePullToRefresh'
 
@@ -34,6 +35,22 @@ describe('pull phase', () => {
   it('lets an in-flight refresh outrank the finger', () => {
     expect(pullPhase(0, true)).toBe('refreshing')
     expect(pullPhase(PULL_THRESHOLD_PX, true)).toBe('refreshing')
+  })
+})
+
+describe('firing the refresh', () => {
+  it('fires on a released pull that reached the threshold', () => {
+    expect(shouldFireRefresh(PULL_THRESHOLD_PX, true)).toBe(true)
+    expect(shouldFireRefresh(PULL_THRESHOLD_PX - 1, true)).toBe(false)
+  })
+
+  it('refuses a gesture the pull no longer owns', () => {
+    // Pull 70 px, put a second finger down to pinch, lift. The second
+    // touchstart is ineligible, so the pull stops tracking — but the distance
+    // it had already travelled used to be read by the touchend anyway, and the
+    // list refreshed for a gesture the user abandoned two fingers ago.
+    expect(shouldFireRefresh(PULL_THRESHOLD_PX + 6, false)).toBe(false)
+    expect(shouldFireRefresh(0, false)).toBe(false)
   })
 })
 

@@ -20,14 +20,19 @@
  *
  * The other three halves are not redundant, and no z-index can replace them:
  *
- *   - Hit-testing. The overlay is pinned to the *visible* viewport, so on iOS
- *     it starts `--vv-offset-top` below the top of the document. In that band
- *     the sticky header is uncovered — without this rule its refresh, theme
- *     and inbox buttons stay tappable behind a terminal.
  *   - The accessibility tree. Stacking order is paint, not semantics; a rotor
  *     or a swipe-through would otherwise walk the whole list under the sheet.
  *   - Tab order. With a hardware keyboard, focus would otherwise leave the
  *     terminal for controls nobody can see.
+ *   - Hit-testing during the frames the two viewports disagree. The overlay is
+ *     pinned to the *visible* viewport through `--vv-offset-top`, which is a
+ *     custom property a JS handler writes — so it lands a frame behind the
+ *     browser's own move of the visual viewport. While the keyboard opens or
+ *     closes, or a rubber-band settles, there is a real band of uncovered
+ *     header under a terminal, and a thumb already on its way down finds it.
+ *     (The steady state is not that band: an overlay offset by `offsetTop`
+ *     covers everything the user can see, and the strip above it is off the
+ *     top of the screen, not merely uncovered.)
  *
  * Nothing here competes with the overlay's z-index: `visibility` does not take
  * part in stacking at all. Note that it *is* inherited, so a descendant that
@@ -36,6 +41,47 @@
  */
 .app.is-under-terminal {
   visibility: hidden;
+}
+
+/*
+ * `visibility: hidden` stops the paint, NOT the timeline: an animation on a
+ * hidden element keeps ticking and keeps its style recalculated. Ten working
+ * agents is ten infinite pulses running behind an opaque full-screen terminal
+ * — on the one screen where frame budget and battery matter most, for nothing
+ * anybody can see. `paused` rather than `none`: the animation resumes where it
+ * was when the terminal closes, instead of every dot in the list restarting
+ * its cycle together.
+ */
+.app.is-under-terminal .card-attention,
+.app.is-under-terminal .dot-live {
+  animation-play-state: paused;
+}
+
+/*
+ * A programmatic `focus()` is how "jump to Paradiso" and the inbox pill move a
+ * screen reader's cursor (App.tsx). It must not draw a ring the mouse and
+ * touch user never asked for — `:focus-visible` still does, so a keyboard user
+ * who tabs here keeps theirs.
+ */
+.card:focus:not(:focus-visible),
+.inbox:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/*
+ * The terminal chunk is loaded on demand (App.tsx). The overview is already
+ * hidden by then, so the fallback's only job is to be the page's own colour
+ * for the moment between the tap and the first frame of the terminal —
+ * anything more would be a spinner that is usually gone before it is seen.
+ */
+.terminal-pending {
+  position: fixed;
+  top: var(--vv-offset-top, 0px);
+  left: 0;
+  right: 0;
+  height: var(--vv-height, 100dvh);
+  z-index: 9;
+  background: var(--bg);
 }
 
 /* --- header controls --- */
@@ -87,8 +133,13 @@
   color: var(--text-3);
 }
 
+/* was var(--bronze) — 3.09:1 on --bg in light, under AA for 0.85rem text.
+   --bronze-strong clears AA, but the armed state takes the token
+   that is already "the accent, legal as text": 7.08:1 light, 10.80:1 dark.
+   It is the same green the composer's "sent" note uses, which is the right
+   family for a control that is saying "release and this will happen". */
 .pull-indicator.is-armed {
-  color: var(--bronze);
+  color: var(--verdigris-text);
 }
 
 /* --- workspace list: document scroll, content-sized --- */
@@ -171,6 +222,42 @@
   overflow-wrap: anywhere;
 }
 
+/* --- unsent text ---
+   Words the user typed into a field that no longer exists. Quieter than the
+   inbox — nothing here blocks a run — but not hidden: it is the only place
+   that text still exists. */
+.unsent {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px dashed var(--hairline);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.unsent-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+.unsent-text {
+  margin: 0;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--hairline);
@@ -181,6 +268,22 @@
 
 .card.inactive {
   opacity: 0.78;
+}
+
+/*
+ * A run that ended with the user right there keeps its place in the live group
+ * (see `overviewRows`), so it needs to look ended without looking abandoned:
+ * full opacity, because the user is probably still reading it, and a left edge
+ * that says the state changed under them.
+ */
+.card.inactive.is-just-ended {
+  opacity: 1;
+  border-left: 3px solid var(--idle);
+}
+
+.ended-note {
+  color: var(--text-3);
+  font-style: italic;
 }
 
 .card.needs-attention {
@@ -239,8 +342,24 @@
   font-weight: 600;
 }
 
+/*
+ * The armed state of the only destructive control on the screen, so it has to
+ * be the most legible thing in the card head rather than the least. The old
+ * 22 % wash over the card composited to 4.13:1 for --err-text in light —
+ * under AA exactly when it matters, and every stronger tint made it worse.
+ * A solid fill inverts that: --surface is the light ink in the dark theme and
+ * the dark ink in the light one, which is precisely the opposite of --err in
+ * each, and it measures 5.03:1 light / 5.50:1 dark.
+ */
 .stop.is-confirm {
-  background: color-mix(in srgb, var(--err) 22%, transparent);
+  background: var(--err);
+  border-color: var(--err);
+  color: var(--surface);
+}
+
+.stop:disabled,
+.stop-confirm .ghost-inline:disabled {
+  opacity: 0.7;
 }
 
 .stop-confirm {
@@ -385,12 +504,21 @@
   gap: 10px;
 }
 
+/* A button now, not a `<summary>` — see `StartForm` on why `<details>` had to
+   go. It keeps the summary's shape so the card head still reads as one. */
 .start-summary {
-  list-style: none;
   cursor: pointer;
 }
 
-.start-summary::-webkit-details-marker {
+.start-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* An author `display` outranks the UA rule behind the `hidden` attribute, so
+   the panel has to say this itself or it never closes. */
+.start-body[hidden] {
   display: none;
 }
 
@@ -523,8 +651,11 @@
   border-left-color: var(--verdigris-bright);
 }
 
+/* was var(--bronze) — 2.93:1 on --surface-2 in light, under the 3:1 bar for a
+   state border. --bronze-strong is the accent contracted to be legal as ink:
+   4.89:1 light, and a no-op on dark where it resolves to --bronze itself. */
 .task-row.is-ready {
-  border-left-color: var(--bronze);
+  border-left-color: var(--bronze-strong);
 }
 
 .task-row.is-blocked {

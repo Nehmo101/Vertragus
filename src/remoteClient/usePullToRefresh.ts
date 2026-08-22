@@ -176,6 +176,20 @@ export function pullIndicatorHeight(phase: PullPhase, distance: number): number 
   return Math.round(Math.max(0, distance))
 }
 
+/**
+ * Whether a lifted finger fires the refresh.
+ *
+ * Distance alone is not enough, and the gap was reachable with one hand: pull
+ * the list 70 px, put a second finger down to pinch-zoom, lift. The second
+ * `touchstart` is ineligible so the pull stops tracking — but the distance it
+ * had already travelled was still sitting in the ref, and `touchend` read it
+ * and refreshed a list the user had stopped pulling two gestures ago.
+ * `claimed` is the gesture still being ours; an abandoned pull owns nothing.
+ */
+export function shouldFireRefresh(distance: number, claimed: boolean): boolean {
+  return claimed && distance >= PULL_THRESHOLD_PX
+}
+
 export interface PullState {
   phase: PullPhase
   distance: number
@@ -219,7 +233,15 @@ export function usePullToRefresh(onRefresh: () => void, enabled: boolean): PullS
     const onStart = (event: TouchEvent): void => {
       const eligible =
         event.touches.length === 1 && window.scrollY <= 0 && claimsGesture(gestureChain(event.target))
-      startY.current = eligible ? (event.touches[0]?.clientY ?? null) : null
+      // A full reset, not just `startY`: an ineligible start is the second
+      // finger of a pinch as often as it is a tap in a text field, and
+      // whatever distance the first finger had already travelled must not
+      // survive to be read by the `touchend` that ends the new gesture.
+      if (!eligible) {
+        reset()
+        return
+      }
+      startY.current = event.touches[0]?.clientY ?? null
     }
 
     const onMove = (event: TouchEvent): void => {
@@ -238,7 +260,7 @@ export function usePullToRefresh(onRefresh: () => void, enabled: boolean): PullS
     }
 
     const onEnd = (): void => {
-      const fire = distanceRef.current >= PULL_THRESHOLD_PX
+      const fire = shouldFireRefresh(distanceRef.current, startY.current !== null)
       reset()
       if (!fire) return
       setRefreshing(true)

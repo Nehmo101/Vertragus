@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { RemoteAgentSummary, RemoteWorkspaceSummary } from '@shared/remote/protocol'
 import {
@@ -7,6 +10,36 @@ import {
   questionInbox,
   USER_AGENT_ID
 } from './inbox'
+
+/**
+ * The reserved addressee is one value in three places: the host's registry
+ * (`USER_QUESTION_AGENT_ID`), the desktop panel's answer call, and this
+ * bundle's own copy — which cannot import the first, because the web
+ * tsconfig does not see `src/main` and a browser bundle has no business
+ * pulling main-process code in to reach a string. So the invariant is pinned
+ * the way this project pins its other cross-cutting rules: by reading the
+ * file, with a self-check that fails loudly if the scan itself breaks.
+ */
+describe('the reserved addressee', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const read = (relative: string): string => readFileSync(join(root, relative), 'utf8')
+
+  it('is the same string the host answers questions under', () => {
+    const declaration = /export const USER_QUESTION_AGENT_ID = '([^']+)'/.exec(
+      read('main/mcp/types.ts')
+    )
+    expect(declaration, 'USER_QUESTION_AGENT_ID not found in src/main/mcp/types.ts').not.toBeNull()
+    expect(USER_AGENT_ID).toBe(declaration?.[1])
+  })
+
+  it('is the same string the desktop panel sends', () => {
+    const call = /onAnswer\(workspaceId, '([^']+)', questionId/.exec(
+      read('renderer/src/panel/WorkspaceCard.tsx')
+    )
+    expect(call, 'the panel answer call not found — has it been reshaped?').not.toBeNull()
+    expect(USER_AGENT_ID).toBe(call?.[1])
+  })
+})
 
 function agent(overrides: Partial<RemoteAgentSummary> = {}): RemoteAgentSummary {
   return {

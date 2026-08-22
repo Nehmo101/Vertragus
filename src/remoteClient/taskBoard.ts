@@ -33,6 +33,8 @@ export interface TaskBoardCopy {
   taskCompleted: string
   taskReady: string
   taskBlocked: (count: number) => string
+  /** The blocked row that cannot name what it waits on — see `blockerLabel`. */
+  taskNotReady: string
   taskOwner: (name: string) => string
 }
 
@@ -56,16 +58,37 @@ function statusLabel(task: RemoteTaskSummary, copy: TaskBoardCopy): string {
  * How many blockers are actually still open. The wire carries every blocker
  * the plan declared, including the ones already finished, so counting
  * `blockedBy` would tell a user waiting on one task that it waits on four.
- * Falls back to the declared count if the board disagrees with itself (a
- * blocker id the summary no longer carries) — a blocked row must never claim
- * to be waiting on nothing.
+ *
+ * An id the summary no longer carries counts as OPEN — `undefined` is not
+ * 'completed'. That is deliberate and it is the only safe reading: the client
+ * cannot prove a task it has never seen finished, and a row that claims to be
+ * free when it is not is the worse of the two lies.
  */
 function openBlockerCount(
   task: RemoteTaskSummary,
   byId: ReadonlyMap<string, RemoteTaskSummary>
 ): number {
-  const open = task.blockedBy.filter((id) => byId.get(id)?.status !== 'completed').length
-  return open || task.blockedBy.length
+  return task.blockedBy.filter((id) => byId.get(id)?.status !== 'completed').length
+}
+
+/**
+ * What a blocked row says it is waiting for.
+ *
+ * Zero open blockers on a row the host says is not ready is the board
+ * disagreeing with itself: every declared blocker reads as done, yet
+ * `ready` is false. The old code answered that by counting the finished
+ * blockers instead — "waiting on 2 tasks" about two tasks that are both
+ * done. The truthful answer is that the row is not ready and the plan does
+ * not say why, which is what `taskNotReady` says. It still says it in words,
+ * so the stripe is never the only thing separating this row from a ready one.
+ */
+function blockerLabel(
+  task: RemoteTaskSummary,
+  byId: ReadonlyMap<string, RemoteTaskSummary>,
+  copy: TaskBoardCopy
+): string {
+  const open = openBlockerCount(task, byId)
+  return open > 0 ? copy.taskBlocked(open) : copy.taskNotReady
 }
 
 export function taskRows(
@@ -88,7 +111,7 @@ export function taskRows(
         tone === 'ready'
           ? copy.taskReady
           : tone === 'blocked'
-            ? copy.taskBlocked(openBlockerCount(task, byId))
+            ? blockerLabel(task, byId, copy)
             : undefined,
       ownerLabel: owner ? copy.taskOwner(owner) : undefined
     }

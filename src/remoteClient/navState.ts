@@ -98,11 +98,26 @@ export function readExpansionState(storage = browserStorage()): Record<string, b
   return parseExpansionState(readStored(EXPANSION_KEY, storage))
 }
 
+/**
+ * Nothing is written until the client knows of a workspace.
+ *
+ * `useRemote` starts `workspaces` at `[]`, and an empty list is exactly what a
+ * client that never reached the host has: without this guard the very first
+ * commit prunes every remembered card against a list of nothing and overwrites
+ * the store with `{}`. Open the app out of tailnet range once and every
+ * collapse decision the user ever made is gone — a write is the one thing that
+ * cannot be undone by the next push arriving.
+ *
+ * The cost is that a host which genuinely has no workspaces left never gets
+ * its stale keys pruned. They are inert (`isWorkspaceExpanded` only ever asks
+ * about ids that exist) and the first push with a workspace in it clears them.
+ */
 export function writeExpansionState(
   state: Readonly<Record<string, boolean>>,
   knownIds: readonly string[],
   storage = browserStorage()
 ): void {
+  if (knownIds.length === 0) return
   writeStored(EXPANSION_KEY, JSON.stringify(pruneExpansionState(state, knownIds)), storage)
 }
 
@@ -128,6 +143,124 @@ export function answerDraftKey(entryKey: string): string {
   return `answer:${entryKey}`
 }
 
+/**
+ * The longest value the gateway will accept.
+ *
+ * `protocol.ts` caps every `args` value at 20 000 characters and the server's
+ * validator drops the whole frame past it — so an over-long paste would leave
+ * the user looking at a field full of text, a button that did nothing, and no
+ * explanation. The fields carry it as `maxLength` instead, which is the
+ * browser telling the truth at the moment of the paste.
+ * `navState.test.ts` pins this number against the schema itself.
+ */
+export const ARG_MAX_CHARS = 20_000
+
+export type DraftKind = 'goal' | 'composer' | 'answer'
+
+export interface OrphanDraft {
+  key: string
+  text: string
+  kind: DraftKind
+  /** The run the text was meant for, when it is still on the list. */
+  workspaceId?: string
+}
+
+/**
+ * Which run a draft key belongs to, matched against ids the host still
+ * carries rather than parsed. Both key shapes embed a workspace id and an
+ * `InboxEntry.key` puts two more colon-joined fields after it, so splitting on
+ * ':' would guess wrong the first time a host hands out an id with a colon in
+ * it. Comparing against the ids we actually have cannot guess.
+ */
+export function draftWorkspaceId(
+  key: string,
+  knownIds: readonly string[]
+): string | undefined {
+  for (const id of knownIds) {
+    if (key === composerDraftKey(id)) return id
+    if (key.startsWith(answerDraftKey(`${id}:`))) return id
+  }
+  return undefined
+}
+
+export function draftKind(key: string): DraftKind {
+  if (key === GOAL_DRAFT_KEY) return 'goal'
+  return key.startsWith('composer:') ? 'composer' : 'answer'
+}
+
+/**
+ * The draft map, bounded.
+ *
+ * `setDraft` only ever added keys, so the map grew for the life of the tab:
+ * one entry per workspace ever seen and one per question ever asked, none of
+ * them ever removed, and the empty strings left behind by a successful send
+ * kept their keys forever too. Two rules bound it: an empty draft is not a
+ * draft, and a draft whose run the host no longer carries has nowhere to go —
+ * the same rule, and the same recycled-id argument, as
+ * `pruneExpansionState`. What is deliberately NOT dropped is text for a run
+ * that is still on the list; that text is the user's, and `orphanedDrafts`
+ * puts it back on the screen instead of deleting it behind their back.
+ *
+ * Returns the same object when nothing was dropped, so this can run on every
+ * push without causing a render.
+ */
+export function pruneDrafts(
+  drafts: Readonly<Record<string, string>>,
+  knownWorkspaceIds: readonly string[]
+): Readonly<Record<string, string>> {
+  const kept: Record<string, string> = {}
+  let dropped = false
+  for (const [key, text] of Object.entries(drafts)) {
+    const keep =
+      text !== '' &&
+      (key === GOAL_DRAFT_KEY || draftWorkspaceId(key, knownWorkspaceIds) !== undefined)
+    if (keep) kept[key] = text
+    else dropped = true
+  }
+  return dropped ? kept : drafts
+}
+
+/** Every draft key the screen can still show a field for. */
+export function liveDraftKeys(
+  workspaceIds: readonly string[],
+  inboxEntryKeys: readonly string[]
+): string[] {
+  return [
+    GOAL_DRAFT_KEY,
+    ...workspaceIds.map(composerDraftKey),
+    ...inboxEntryKeys.map(answerDraftKey)
+  ]
+}
+
+/**
+ * Text the user typed that no field on the screen can reach any more.
+ *
+ * Two ordinary things produce it. A question answered from the DESKTOP leaves
+ * the inbox, and with it the field holding a half-typed answer — which until
+ * now simply vanished mid-sentence with nothing said. And a composer draft
+ * belongs to a run that has ended, so the field it was typed into is gone and
+ * the message can never be sent. Both are the user's words; the screen owes
+ * them a sight of them and a deliberate discard, not a silent deletion.
+ *
+ * Sorted by key so the notice does not reshuffle under a thumb.
+ */
+export function orphanedDrafts(
+  drafts: Readonly<Record<string, string>>,
+  liveKeys: readonly string[],
+  knownWorkspaceIds: readonly string[]
+): OrphanDraft[] {
+  const live = new Set(liveKeys)
+  return Object.entries(drafts)
+    .filter(([key, text]) => text.trim() !== '' && !live.has(key))
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, text]) => ({
+      key,
+      text,
+      kind: draftKind(key),
+      workspaceId: draftWorkspaceId(key, knownWorkspaceIds)
+    }))
+}
+
 // --- the terminal's history entry ---------------------------------------
 
 /**
@@ -147,8 +280,30 @@ export function historyAction(
   pushed: boolean
 ): HistoryAction {
   if (previous === null && next !== null && !pushed) return 'push'
-  if (next === null && pushed) return 'back'
+  // `previous !== null` is not decoration: without it a first run of this
+  // effect with nothing open at all — no terminal, no change — reads as an
+  // in-app close and calls `back()`, which walks the user out of the app.
+  // `pushed` should never be true there, but "should never" is not a guard.
+  if (previous !== null && next === null && pushed) return 'back'
   return 'none'
+}
+
+/**
+ * What a `popstate` means.
+ *
+ * `history.back()` is asynchronous: the traversal is a queued task, so the
+ * pop it produces can land one or more frames after the close that asked for
+ * it. Close the terminal with the in-app button and tap another agent in the
+ * same frame and the naive handler sees `pushed` back at true and closes the
+ * terminal the user has only just opened. `pendingBacks` counts the
+ * traversals we asked for and have not yet seen land; each one settles the
+ * pop it owns and changes nothing else.
+ */
+export type PopAction = 'settle' | 'close' | 'none'
+
+export function popstateAction(pendingBacks: number, pushed: boolean): PopAction {
+  if (pendingBacks > 0) return 'settle'
+  return pushed ? 'close' : 'none'
 }
 
 // --- scroll ---------------------------------------------------------------
@@ -183,6 +338,22 @@ export function shouldShowBackToTop(scrollY: number): boolean {
   return scrollY > BACK_TO_TOP_THRESHOLD_PX
 }
 
+/**
+ * A scripted scroll has to ask about reduced motion itself. `styles.css`
+ * turns `scroll-behavior` off under the media query, but an explicit
+ * `behavior: 'smooth'` in a `scrollTo` outranks the sheet entirely — so the
+ * one control that animates the whole page would keep animating for exactly
+ * the person who asked it not to.
+ */
+export function scrollBehavior(reducedMotion: boolean): ScrollBehavior {
+  return reducedMotion ? 'auto' : 'smooth'
+}
+
+/** False wherever the query cannot be asked — no motion promise is broken. */
+export function prefersReducedMotion(): boolean {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+}
+
 // --- connection -----------------------------------------------------------
 
 export type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'offline'
@@ -190,11 +361,14 @@ export type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'off
 /**
  * What the header says about the link.
  *
- * `navigator.onLine` wins over the socket phase: with the radio off or
- * Tailscale down, "reconnecting …" is a promise the client cannot keep, and a
- * spinner that never resolves is what makes a user reload and lose their
- * place. `everConnected` separates the first connect of a session from a
- * recovery, because the two need different reassurance.
+ * `navigator.onLine` wins over the socket phase, but only for what it can
+ * actually prove: with the radio off or in flight mode it is false, and
+ * "reconnecting …" would be a promise the client cannot keep. It proves
+ * nothing about the tailnet — Wi-Fi up and Tailscale down reads as online,
+ * and the honest "reconnecting …" the user then sees is bounded by the
+ * liveness probe, not by this flag. `everConnected` separates the first
+ * connect of a session from a recovery, because the two need different
+ * reassurance.
  */
 export function connectionState(
   phase: RemotePhase,

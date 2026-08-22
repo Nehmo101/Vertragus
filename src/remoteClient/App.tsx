@@ -27,11 +27,20 @@
  * nothing to restore, and the browser's own restoration agrees with it.
  *
  * State that individual cards used to own (expansion, drafts, the shown-ended
- * flag) is held here for the same reason one level down: collapsing a card
- * unmounts its composer, and the same question is answerable from the inbox at
- * the top and from the card it belongs to.
+ * flag, an answer in flight) is held here for the same reason one level down:
+ * collapsing a card unmounts its composer, and the same question is answerable
+ * from the inbox at the top and from the card it belongs to.
+ *
+ * The list itself is ONE keyed array for a third version of the same rule. A
+ * run ending is the normal end of a session — the user taps the orchestrator
+ * precisely to watch it finish — and with the cards split across a `live` slot
+ * and an `ended` slot, that ending unmounted the card the user was inside:
+ * React reconciles each child slot separately, so a key cannot carry a
+ * component from one to the other. `overviewRows` (viewModel.ts) emits cards
+ * and the ended divider as members of one array, and keeps a run that ended
+ * while this client was watching in the place it held while it was live.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import HoundLogo from '@renderer/panel/HoundLogo'
 import type {
   RemoteAgentSummary,
@@ -49,18 +58,25 @@ import {
 } from './inbox'
 import {
   answerDraftKey,
+  ARG_MAX_CHARS,
   composerDraftKey,
   connectionClass,
   connectionLabel,
   connectionState,
   GOAL_DRAFT_KEY,
   historyAction,
+  liveDraftKeys,
+  orphanedDrafts,
+  popstateAction,
+  prefersReducedMotion,
+  pruneDrafts,
   readExpansionState,
+  scrollBehavior,
   scrollRestoreTarget,
   shouldShowBackToTop,
-  writeExpansionState
+  writeExpansionState,
+  type OrphanDraft
 } from './navState'
-import { RemoteTerminal } from './RemoteTerminal'
 import { taskBoardSize, taskRows } from './taskBoard'
 import {
   nextThemePreference,
@@ -76,20 +92,44 @@ import { useRemote, type RemoteApi } from './useRemote'
 import { pullIndicatorHeight, pullLabel, usePullToRefresh } from './usePullToRefresh'
 import { useVisualViewport } from './useVisualViewport'
 import {
+  advanceSeenLive,
   agentDotKind,
   agentStatusLine,
-  endedWorkspaces,
   everyCardExpanded,
   hasActiveWorkspace,
   isWorkspaceExpanded,
-  liveWorkspaces,
+  keepSelectedProfile,
   orderWorkspaces,
+  overviewRows,
+  rowWorkspaces,
+  safeRoleColor,
   setAllExpanded,
+  startFormOpen,
   workspaceCardClass,
   workspaceGoalLine
 } from './viewModel'
 import './styles.css'
 import './overview.css'
+
+/**
+ * The terminal is half the client's JavaScript (xterm plus its fit and search
+ * addons) and none of its landing screen: the app opens on the overview, and
+ * a terminal is a deliberate tap that a phone on a tunnel should not have paid
+ * for on the way to the first paint.
+ *
+ * One promise serves both paths. `lazy` calls this on the tap, the prefetch
+ * below calls it when the socket goes ready, and whichever comes first is the
+ * one request the other awaits — a prefetch that raced the tap would otherwise
+ * be a second parse of the same 500 kB while the user is looking at a spinner.
+ */
+let terminalModule: Promise<typeof import('./RemoteTerminal')> | undefined
+
+function loadTerminal(): Promise<typeof import('./RemoteTerminal')> {
+  terminalModule ??= import('./RemoteTerminal')
+  return terminalModule
+}
+
+const RemoteTerminal = lazy(async () => ({ default: (await loadTerminal()).RemoteTerminal }))
 
 const INBOX_DOM_ID = 'question-inbox'
 
@@ -100,16 +140,42 @@ function cardDomId(workspaceId: string): string {
   return `workspace-${workspaceId}`
 }
 
+/** The `?` badge that opens an answer field, so dismissing can hand focus back. */
+function askBadgeDomId(entryKey: string): string {
+  return `ask-${entryKey}`
+}
+
+function answerPanelDomId(entryKey: string): string {
+  return `answer-${entryKey}`
+}
+
+/**
+ * Move the reader, not just the viewport. A `scrollIntoView` leaves a screen
+ * reader's virtual cursor exactly where it was, so "jump to Paradiso" moves
+ * the screen for everyone except the user who most needed the jump. The
+ * targets carry `tabIndex={-1}` for this; `preventScroll` leaves the scrolling
+ * to the call that already did it.
+ */
+function focusTarget(id: string): void {
+  const element = document.getElementById(id)
+  if (element instanceof HTMLElement) element.focus({ preventScroll: true })
+}
+
+type Copy = RemoteCopy
+
 type Drafts = Readonly<Record<string, string>>
 type SetDraft = (key: string, value: string) => void
+/** Answer sends in flight, keyed by `InboxEntry.key` — see `AnswerForm`. */
+type Sending = Readonly<Record<string, boolean>>
 
 export function App(): React.JSX.Element {
   const api = useRemote()
-  const copy = remoteCopy(api.locale)
+  const copy = useMemo<Copy>(() => remoteCopy(api.locale), [api.locale])
   const [openAgent, setOpenAgent] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => readExpansionState())
   const [showEnded, setShowEnded] = useState(false)
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [drafts, setDrafts] = useState<Drafts>({})
+  const [sending, setSending] = useState<Sending>({})
   const [everConnected, setEverConnected] = useState(false)
   const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
     readThemePreference()
@@ -118,8 +184,44 @@ export function App(): React.JSX.Element {
   useTerminalHistory(openAgent, setOpenAgent)
   useDocumentScrollLock(openAgent !== null)
 
+  /*
+   * Which runs this client has watched. Adjusted during render rather than in
+   * an effect on purpose: the push that flips `active` to false is the render
+   * that has to already know the card belongs where it is, or the card is
+   * moved once — and, with the ended group collapsed, unmounted once — before
+   * the effect can say otherwise. `advanceSeenLive` returns the same set when
+   * nothing changed, so this settles in one pass and a quiet push costs
+   * nothing. (React re-runs the component immediately on a set during render;
+   * children never see the stale value.)
+   */
+  const [seenLive, setSeenLive] = useState<ReadonlySet<string>>(() => new Set())
+  const nextSeenLive = advanceSeenLive(seenLive, api.workspaces)
+  if (nextSeenLive !== seenLive) setSeenLive(nextSeenLive)
+
   const setDraft = useCallback<SetDraft>((key, value) => {
-    setDrafts((current) => ({ ...current, [key]: value }))
+    // Clearing DELETES: a sent message leaving an empty string behind is how
+    // the map grew a key per workspace and per question and never gave one up.
+    setDrafts((current) => {
+      if (value === '') {
+        if (!(key in current)) return current
+        const next = { ...current }
+        delete next[key]
+        return next
+      }
+      return { ...current, [key]: value }
+    })
+  }, [])
+
+  // Only ever holds what is in flight: a finished send gives its key back
+  // rather than leaving a `false` behind for every question ever answered.
+  const setSendingFor = useCallback((key: string, busy: boolean) => {
+    setSending((current) => {
+      if (busy) return { ...current, [key]: true }
+      if (!(key in current)) return current
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
   }, [])
 
   const theme = resolveTheme(themePreference, api.theme)
@@ -148,6 +250,25 @@ export function App(): React.JSX.Element {
     if (api.phase === 'ready') setEverConnected(true)
   }, [api.phase])
 
+  /*
+   * Fetch the terminal chunk once the list is up and the socket is quiet, so
+   * the tap that opens one finds it already parsed. Idle rather than
+   * immediate: `ready` is the same moment the first `workspaces` push and the
+   * fonts are landing, and a 500 kB chunk elbowing into that is the one thing
+   * the split was meant to stop. It cannot fight the tap either — both go
+   * through `loadTerminal`, which hands out one promise.
+   */
+  useEffect(() => {
+    if (api.phase !== 'ready') return
+    const idle = window.requestIdleCallback
+    if (!idle) {
+      const timer = window.setTimeout(() => void loadTerminal(), 1200)
+      return () => window.clearTimeout(timer)
+    }
+    const handle = idle(() => void loadTerminal(), { timeout: 4000 })
+    return () => window.cancelIdleCallback?.(handle)
+  }, [api.phase])
+
   // A screen the user cannot act on must not keep a terminal open behind it:
   // the socket that fed it is gone, and its history entry has to be popped
   // while `openAgent` is still the thing that owns it.
@@ -157,17 +278,35 @@ export function App(): React.JSX.Element {
     }
   }, [api.phase])
 
-  // A push arrives every few seconds and hands back a new array each time, but
-  // only the set of ids matters for the prune — so the effect depends on a
-  // value a push that changed nothing else leaves untouched, and no storage
-  // write happens. Serialized rather than joined on a separator, so nothing is
-  // assumed about what a workspace id may contain.
-  const workspaceKey = JSON.stringify(api.workspaces.map((workspace) => workspace.workspaceId))
-  useEffect(() => {
-    writeExpansionState(expanded, JSON.parse(workspaceKey) as string[])
-  }, [expanded, workspaceKey])
-
+  // The inbox reads the run live-first; the card list does not (see
+  // `overviewRows`), so this order is the inbox's own and is sorted once here.
   const inbox = useMemo(() => questionInbox(orderWorkspaces(api.workspaces)), [api.workspaces])
+
+  /*
+   * Two jobs, one dependency: the set of ids and the set of open questions are
+   * what decides which drafts are still reachable. Serialized rather than
+   * joined on a separator, so nothing is assumed about what an id may contain,
+   * and a push that changed neither leaves this effect asleep.
+   */
+  const workspaceKey = JSON.stringify(api.workspaces.map((workspace) => workspace.workspaceId))
+  const inboxKey = JSON.stringify(inbox.map((entry) => entry.key))
+  const workspaceIds = useMemo(() => JSON.parse(workspaceKey) as string[], [workspaceKey])
+  const inboxKeys = useMemo(() => JSON.parse(inboxKey) as string[], [inboxKey])
+
+  useEffect(() => {
+    writeExpansionState(expanded, workspaceIds)
+  }, [expanded, workspaceIds])
+
+  // Bounded in the same pass that changes it, like `seenLive` above and for
+  // the same reason: an effect would leave one commit in which the map still
+  // holds keys the screen has already stopped drawing fields for.
+  const prunedDrafts = pruneDrafts(drafts, workspaceIds)
+  if (prunedDrafts !== drafts) setDrafts(prunedDrafts)
+
+  const orphans = useMemo(
+    () => orphanedDrafts(prunedDrafts, liveDraftKeys(workspaceIds, inboxKeys), workspaceIds),
+    [prunedDrafts, workspaceIds, inboxKeys]
+  )
 
   const cycleTheme = (): void => {
     const next = nextThemePreference(themePreference)
@@ -178,12 +317,16 @@ export function App(): React.JSX.Element {
 
   const jumpToWorkspace = (workspaceId: string): void => {
     const workspace = api.workspaces.find((entry) => entry.workspaceId === workspaceId)
-    if (workspace && !workspace.active) setShowEnded(true)
+    // Only a run that folded away needs the group opened; one that ended while
+    // the user was here has kept its place in the list all along.
+    if (workspace && !workspace.active && !seenLive.has(workspaceId)) setShowEnded(true)
     setExpanded((current) => ({ ...current, [workspaceId]: true }))
     // The card has to be open and laid out before it has a position to scroll
     // to; the state above only reaches the DOM on the next frame.
     requestAnimationFrame(() => {
-      document.getElementById(cardDomId(workspaceId))?.scrollIntoView({ block: 'start' })
+      const id = cardDomId(workspaceId)
+      document.getElementById(id)?.scrollIntoView({ block: 'start' })
+      focusTarget(id)
     })
   }
 
@@ -234,10 +377,14 @@ export function App(): React.JSX.Element {
           api={api}
           copy={copy}
           inbox={inbox}
-          drafts={drafts}
+          orphans={orphans}
+          drafts={prunedDrafts}
           setDraft={setDraft}
+          sending={sending}
+          setSending={setSendingFor}
           expanded={expanded}
           setExpanded={setExpanded}
+          seenLive={seenLive}
           showEnded={showEnded}
           setShowEnded={setShowEnded}
           onOpenAgent={setOpenAgent}
@@ -246,12 +393,14 @@ export function App(): React.JSX.Element {
         />
       </div>
       {openAgent ? (
-        <RemoteTerminal
-          agentId={openAgent}
-          api={api}
-          copy={copy}
-          onBack={() => setOpenAgent(null)}
-        />
+        <Suspense fallback={<div className="terminal-pending" role="status" aria-live="polite" />}>
+          <RemoteTerminal
+            agentId={openAgent}
+            api={api}
+            copy={copy}
+            onBack={() => setOpenAgent(null)}
+          />
+        </Suspense>
       ) : null}
     </>
   )
@@ -277,6 +426,8 @@ function useTerminalHistory(
 ): void {
   const previous = useRef<string | null>(null)
   const pushed = useRef(false)
+  /** Traversals we asked for and have not seen land — see `popstateAction`. */
+  const pendingBacks = useRef(0)
 
   useEffect(() => {
     const action = historyAction(previous.current, openAgent, pushed.current)
@@ -286,13 +437,19 @@ function useTerminalHistory(
       window.history.pushState(null, '')
     } else if (action === 'back') {
       pushed.current = false
+      pendingBacks.current += 1
       window.history.back()
     }
   }, [openAgent])
 
   useEffect(() => {
     const onPop = (): void => {
-      if (!pushed.current) return
+      const action = popstateAction(pendingBacks.current, pushed.current)
+      if (action === 'settle') {
+        pendingBacks.current -= 1
+        return
+      }
+      if (action !== 'close') return
       pushed.current = false
       setOpenAgent(null)
     }
@@ -353,7 +510,7 @@ function Header({
   onCycleTheme
 }: {
   api: RemoteApi
-  copy: RemoteCopy
+  copy: Copy
   connection: ReturnType<typeof connectionState>
   openQuestions: number
   themePreference: ThemePreference
@@ -374,9 +531,14 @@ function Header({
             type="button"
             className="inbox-pill"
             aria-label={copy.inboxPillLabel(openQuestions)}
-            onClick={() =>
+            aria-controls={INBOX_DOM_ID}
+            onClick={() => {
+              // Both, in this order: the viewport moves for the eye, focus
+              // moves for the rotor. Scrolling alone leaves a screen-reader
+              // user exactly where they were, in the header they just left.
               document.getElementById(INBOX_DOM_ID)?.scrollIntoView({ block: 'start' })
-            }
+              focusTarget(INBOX_DOM_ID)
+            }}
           >
             <span aria-hidden="true">?</span>
             <span aria-hidden="true">{openQuestions}</span>
@@ -404,10 +566,14 @@ function Overview({
   api,
   copy,
   inbox,
+  orphans,
   drafts,
   setDraft,
+  sending,
+  setSending,
   expanded,
   setExpanded,
+  seenLive,
   showEnded,
   setShowEnded,
   onOpenAgent,
@@ -415,12 +581,16 @@ function Overview({
   paused
 }: {
   api: RemoteApi
-  copy: RemoteCopy
+  copy: Copy
   inbox: readonly InboxEntry[]
+  orphans: readonly OrphanDraft[]
   drafts: Drafts
   setDraft: SetDraft
+  sending: Sending
+  setSending: (key: string, busy: boolean) => void
   expanded: Readonly<Record<string, boolean>>
   setExpanded: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
+  seenLive: ReadonlySet<string>
   showEnded: boolean
   setShowEnded: React.Dispatch<React.SetStateAction<boolean>>
   onOpenAgent: (agentId: string) => void
@@ -430,30 +600,13 @@ function Overview({
 }): React.JSX.Element {
   const pull = usePullToRefresh(api.refresh, !paused)
   const scrolledDown = useScrolledDown(!paused)
-  const ordered = orderWorkspaces(api.workspaces)
-  const live = liveWorkspaces(ordered)
-  const ended = endedWorkspaces(ordered)
-  const visible = showEnded ? ordered : live
-  const allExpanded = everyCardExpanded(visible, expanded)
-
-  const renderCard = (workspace: RemoteWorkspaceSummary): React.JSX.Element => (
-    <WorkspaceCard
-      key={workspace.workspaceId}
-      workspace={workspace}
-      questions={inboxEntriesFor(inbox, workspace.workspaceId)}
-      expanded={isWorkspaceExpanded(workspace, expanded)}
-      onToggle={() =>
-        setExpanded((current) => ({
-          ...current,
-          [workspace.workspaceId]: !isWorkspaceExpanded(workspace, current)
-        }))
-      }
-      api={api}
-      copy={copy}
-      drafts={drafts}
-      setDraft={setDraft}
-      onOpenAgent={onOpenAgent}
-    />
+  const rows = overviewRows(api.workspaces, seenLive, showEnded)
+  const visible = rowWorkspaces(rows)
+  const allExpanded = everyCardExpanded(rows, expanded)
+  const foldedIds = rows.flatMap((row) =>
+    row.kind === 'workspace' && !row.workspace.active && !seenLive.has(row.workspace.workspaceId)
+      ? [cardDomId(row.workspace.workspaceId)]
+      : []
   )
 
   return (
@@ -477,7 +630,15 @@ function Overview({
           entries={inbox}
           drafts={drafts}
           setDraft={setDraft}
+          sending={sending}
+          setSending={setSending}
           onJump={onJumpToWorkspace}
+        />
+        <UnsentDrafts
+          copy={copy}
+          orphans={orphans}
+          workspaces={api.workspaces}
+          onDiscard={(key) => setDraft(key, '')}
         />
         <StartForm
           api={api}
@@ -486,7 +647,7 @@ function Overview({
           setDraft={setDraft}
           hasLiveRun={hasActiveWorkspace(api.workspaces)}
         />
-        {ordered.length === 0 ? (
+        {api.workspaces.length === 0 ? (
           <div className="empty">
             <p>{copy.empty}</p>
             <p className="empty-hint">{copy.emptyHint}</p>
@@ -510,25 +671,68 @@ function Overview({
             </button>
           </div>
         ) : null}
-        {live.map(renderCard)}
-        {ended.length > 0 ? (
-          <button
-            type="button"
-            className="ended-toggle"
-            aria-expanded={showEnded}
-            onClick={() => setShowEnded((current) => !current)}
-          >
-            {showEnded ? copy.hideEnded : copy.showEnded(ended.length)}
-          </button>
-        ) : null}
-        {showEnded ? ended.map(renderCard) : null}
+        {/*
+          ONE keyed list, cards and divider together. React reconciles each
+          child slot on its own, so a second `{ended.map(…)}` beside the first
+          would unmount a card the moment its run ended and mount a stranger in
+          its place — see `overviewRows`. Everything that must survive a run
+          ending (the card's open answers, its stop confirmation, its task
+          board, and the user's place in the document) survives because this
+          array is the only slot a card ever lives in.
+        */}
+        {rows.map((row) =>
+          row.kind === 'workspace' ? (
+            <WorkspaceCard
+              key={row.key}
+              workspace={row.workspace}
+              justEnded={row.justEnded}
+              questions={inboxEntriesFor(inbox, row.workspace.workspaceId)}
+              expanded={isWorkspaceExpanded(row.workspace, expanded, row.justEnded)}
+              onToggle={() =>
+                setExpanded((current) => ({
+                  ...current,
+                  [row.workspace.workspaceId]: !isWorkspaceExpanded(
+                    row.workspace,
+                    current,
+                    row.justEnded
+                  )
+                }))
+              }
+              api={api}
+              copy={copy}
+              drafts={drafts}
+              setDraft={setDraft}
+              sending={sending}
+              setSending={setSending}
+              onOpenAgent={onOpenAgent}
+            />
+          ) : (
+            <button
+              key={row.key}
+              type="button"
+              className="ended-toggle"
+              aria-expanded={showEnded}
+              /* The cards it reveals are its siblings, not a wrapper it could
+                 name while collapsed: wrapping them would put them in a second
+                 child slot, which is the bug above. So the relationship is
+                 stated when it resolves, and the button's own label carries
+                 the count when it does not. */
+              aria-controls={showEnded ? foldedIds.join(' ') : undefined}
+              onClick={() => setShowEnded((current) => !current)}
+            >
+              {showEnded ? copy.hideEnded : copy.showEnded(row.count)}
+            </button>
+          )
+        )}
       </main>
       {scrolledDown ? (
         <button
           type="button"
           className="to-top"
           aria-label={copy.backToTop}
-          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          onClick={() =>
+            window.scrollTo({ top: 0, behavior: scrollBehavior(prefersReducedMotion()) })
+          }
         >
           <span aria-hidden="true">↑</span>
         </button>
@@ -552,18 +756,22 @@ function QuestionInbox({
   entries,
   drafts,
   setDraft,
+  sending,
+  setSending,
   onJump
 }: {
   api: RemoteApi
-  copy: RemoteCopy
+  copy: Copy
   entries: readonly InboxEntry[]
   drafts: Drafts
   setDraft: SetDraft
+  sending: Sending
+  setSending: (key: string, busy: boolean) => void
   onJump: (workspaceId: string) => void
 }): React.JSX.Element | null {
   if (entries.length === 0) return null
   return (
-    <section className="inbox" id={INBOX_DOM_ID} aria-labelledby="inbox-title">
+    <section className="inbox" id={INBOX_DOM_ID} tabIndex={-1} aria-labelledby="inbox-title">
       <h2 className="inbox-title" id="inbox-title">
         <span>{copy.inboxTitle}</span>
         <span className="inbox-count">{copy.inboxCount(entries.length)}</span>
@@ -577,6 +785,8 @@ function QuestionInbox({
             entry={entry}
             drafts={drafts}
             setDraft={setDraft}
+            sending={sending}
+            setSending={setSending}
             idPrefix="inbox"
           />
           <button type="button" className="ghost-inline" onClick={() => onJump(entry.workspaceId)}>
@@ -589,11 +799,74 @@ function QuestionInbox({
 }
 
 /**
+ * Text the user typed into a field that no longer exists.
+ *
+ * Two ordinary things produce it: a question answered from the desktop takes
+ * its answer field down mid-sentence, and a run ending takes its composer.
+ * Both used to happen in silence — the words simply left the screen while
+ * still sitting in the draft map, unreachable and unsendable. They are shown
+ * here instead, next to what they were for, until the user discards them.
+ * Read-only on purpose: there is nothing left to send them to, and a field
+ * that looks like it would send is a worse lie than no field.
+ */
+function UnsentDrafts({
+  copy,
+  orphans,
+  workspaces,
+  onDiscard
+}: {
+  copy: Copy
+  orphans: readonly OrphanDraft[]
+  workspaces: readonly RemoteWorkspaceSummary[]
+  onDiscard: (key: string) => void
+}): React.JSX.Element | null {
+  if (orphans.length === 0) return null
+  const nameOf = (workspaceId: string | undefined): string | undefined =>
+    workspaces.find((workspace) => workspace.workspaceId === workspaceId)?.name
+  return (
+    <section className="unsent" aria-labelledby="unsent-title">
+      <h2 className="inbox-title" id="unsent-title">
+        <span>{copy.unsentTitle}</span>
+      </h2>
+      {orphans.map((orphan) => {
+        const name = nameOf(orphan.workspaceId)
+        const source = !name
+          ? copy.unsentElsewhere
+          : orphan.kind === 'composer'
+            ? copy.unsentComposer(name)
+            : copy.unsentAnswer(name)
+        return (
+          <article className="unsent-entry" key={orphan.key}>
+            <p className="inbox-source">{source}</p>
+            <p className="unsent-text">{orphan.text}</p>
+            <button
+              type="button"
+              className="ghost-inline"
+              onClick={() => onDiscard(orphan.key)}
+            >
+              {copy.discardDraft}
+            </button>
+          </article>
+        )
+      })}
+    </section>
+  )
+}
+
+/**
  * Start a workspace from the phone — profile picker plus the goal field (H2).
  * Without a goal the start stays allowed (back-compat); the card below then
  * says so. Closed by default while a run is already live so the list can
  * scroll to the work — but once the user has opened or closed it themselves,
- * that decision outranks the default, which is why `open` is tri-state.
+ * that decision outranks the default, which is why `openedByUser` is
+ * tri-state (see `startFormOpen`).
+ *
+ * A button and a panel, not `<details open={…}>`. `toggle` fires for ANY
+ * change to the `open` attribute, React's own included, so a workspace started
+ * from the desktop would flip `hasLiveRun`, close the form under the user's
+ * thumb, and then record that close as the user's own decision — pinning a
+ * form shut that they never touched. A disclosure the component drives has no
+ * such second channel.
  */
 function StartForm({
   api,
@@ -603,7 +876,7 @@ function StartForm({
   hasLiveRun
 }: {
   api: RemoteApi
-  copy: RemoteCopy
+  copy: Copy
   drafts: Drafts
   setDraft: SetDraft
   hasLiveRun: boolean
@@ -622,7 +895,11 @@ function StartForm({
       (result) => {
         const list = Array.isArray(result) ? (result as RemoteProfileSummary[]) : []
         setProfiles(list)
-        setProfileId((current) => current || (list[0]?.id ?? ''))
+        // A profile deleted on the desktop must not stay selected: the
+        // `<select>` would show the first option while the start still carried
+        // the old id, and the run would fail with a raw gateway error about an
+        // id the user cannot see anywhere on the screen.
+        setProfileId((current) => keepSelectedProfile(current, list))
       },
       () => setProfiles([])
     )
@@ -630,6 +907,8 @@ function StartForm({
   }, [ready])
 
   if (!ready || profiles.length === 0) return null
+
+  const open = startFormOpen(openedByUser, hasLiveRun, goal.trim().length > 0)
 
   const start = (): void => {
     if (!profileId || busy) return
@@ -650,45 +929,111 @@ function StartForm({
   }
 
   return (
-    <details
-      className="card start-card"
-      open={openedByUser ?? !hasLiveRun}
-      onToggle={(event) => setOpenedByUser(event.currentTarget.open)}
-    >
-      <summary className="card-head start-summary">
-        <span className="card-name">{copy.newWorkspace}</span>
-      </summary>
-      <select
-        className="start-profile"
-        value={profileId}
-        onChange={(event) => setProfileId(event.target.value)}
-        aria-label={copy.profile}
+    <section className="card start-card">
+      <button
+        type="button"
+        className="card-toggle start-summary"
+        aria-expanded={open}
+        aria-controls="start-form-body"
+        onClick={() => setOpenedByUser(!open)}
       >
-        {profiles.map((profile) => (
-          <option key={profile.id} value={profile.id}>
-            {profile.name}
-          </option>
-        ))}
-      </select>
-      <textarea
-        className="goal-input"
-        rows={3}
-        placeholder={copy.goalPlaceholder}
-        aria-label={copy.goalPlaceholder}
-        value={goal}
-        enterKeyHint="enter"
-        onChange={(event) => setDraft(GOAL_DRAFT_KEY, event.target.value)}
-      />
-      {error ? <p className="form-error">{error}</p> : null}
-      <button className="primary" type="button" disabled={busy} onClick={start}>
-        {busy ? copy.starting : goal.trim() ? copy.startWithGoal : copy.startWithoutGoal}
+        <span className="card-name">{copy.newWorkspace}</span>
       </button>
-    </details>
+      <div id="start-form-body" className="start-body" hidden={!open}>
+        {open ? (
+          <>
+            <select
+              className="start-profile"
+              value={profileId}
+              onChange={(event) => setProfileId(event.target.value)}
+              aria-label={copy.profile}
+            >
+              {profiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+            <LimitedTextarea
+              className="goal-input"
+              rows={3}
+              placeholder={copy.goalPlaceholder}
+              ariaLabel={copy.goalPlaceholder}
+              value={goal}
+              copy={copy}
+              enterKeyHint="enter"
+              onChange={(value) => setDraft(GOAL_DRAFT_KEY, value)}
+            />
+            {error ? <p className="form-error">{error}</p> : null}
+            <button className="primary" type="button" disabled={busy} onClick={start}>
+              {busy ? copy.starting : goal.trim() ? copy.startWithGoal : copy.startWithoutGoal}
+            </button>
+          </>
+        ) : null}
+      </div>
+    </section>
+  )
+}
+
+/**
+ * A textarea that cannot silently overrun the wire.
+ *
+ * `protocol.ts` caps an `args` value at 20 000 characters and the server's
+ * validator rejects the whole frame past it — so a long paste used to leave
+ * the user with a full field, a button that appeared to work, and nothing
+ * happening. `maxLength` makes the browser refuse the excess at the moment of
+ * the paste, and the note says so rather than leaving the truncation to be
+ * discovered later.
+ */
+function LimitedTextarea({
+  className,
+  rows,
+  placeholder,
+  ariaLabel,
+  ariaLabelledBy,
+  value,
+  copy,
+  enterKeyHint,
+  onChange,
+  onKeyDown
+}: {
+  className?: string
+  rows: number
+  placeholder: string
+  ariaLabel?: string
+  ariaLabelledBy?: string
+  value: string
+  copy: Copy
+  enterKeyHint: 'enter' | 'send'
+  onChange: (value: string) => void
+  onKeyDown?: React.KeyboardEventHandler<HTMLTextAreaElement>
+}): React.JSX.Element {
+  return (
+    <>
+      <textarea
+        className={className}
+        rows={rows}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabelledBy}
+        value={value}
+        maxLength={ARG_MAX_CHARS}
+        enterKeyHint={enterKeyHint}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={onKeyDown}
+      />
+      {value.length >= ARG_MAX_CHARS ? (
+        <p className="form-error" role="status">
+          {copy.lengthLimit(ARG_MAX_CHARS)}
+        </p>
+      ) : null}
+    </>
   )
 }
 
 function WorkspaceCard({
   workspace,
+  justEnded,
   questions,
   expanded,
   onToggle,
@@ -696,36 +1041,66 @@ function WorkspaceCard({
   copy,
   drafts,
   setDraft,
+  sending,
+  setSending,
   onOpenAgent
 }: {
   workspace: RemoteWorkspaceSummary
+  /** Ended while this client was watching — see `overviewRows`. */
+  justEnded: boolean
   questions: readonly InboxEntry[]
   expanded: boolean
   onToggle: () => void
   api: RemoteApi
-  copy: RemoteCopy
+  copy: Copy
   drafts: Drafts
   setDraft: SetDraft
+  sending: Sending
+  setSending: (key: string, busy: boolean) => void
   onOpenAgent: (agentId: string) => void
 }): React.JSX.Element {
   const [openAnswers, setOpenAnswers] = useState<Record<string, boolean>>({})
   const [confirmStop, setConfirmStop] = useState(false)
+  const [stopping, setStopping] = useState(false)
+  const [stopError, setStopError] = useState<string | null>(null)
   // Held here, not in `TaskBoard`: the card body is only built while the card
   // is open, so a flag living down there would be forgotten by the collapse.
   const [tasksOpen, setTasksOpen] = useState(false)
   const goalLine = workspaceGoalLine(workspace, copy)
   const bodyId = `${cardDomId(workspace.workspaceId)}-body`
 
+  /*
+   * The only destructive control on the screen, and until now the only one
+   * that threw its answer away: a bare `runCommand` with no handlers left a
+   * failed stop as an unhandled rejection while the user walked off believing
+   * the run had ended. It reports both ways now — the button says it is
+   * working, and a refusal is on the card in words. Success needs no notice
+   * of its own: the card goes inactive on the next push, which is the truth
+   * arriving rather than a claim about it.
+   */
   const stop = (): void => {
+    if (stopping) return
     haptic('warn')
-    api.runCommand('workspaces:stop', workspace.workspaceId)
-    setConfirmStop(false)
+    setStopping(true)
+    setStopError(null)
+    api.runCommand('workspaces:stop', workspace.workspaceId).then(
+      () => {
+        setStopping(false)
+        setConfirmStop(false)
+      },
+      (cause: Error) => {
+        setStopping(false)
+        setConfirmStop(false)
+        setStopError(cause.message)
+      }
+    )
   }
 
   return (
     <section
-      className={workspaceCardClass(workspace, expanded)}
+      className={`${workspaceCardClass(workspace, expanded)}${justEnded ? ' is-just-ended' : ''}`}
       id={cardDomId(workspace.workspaceId)}
+      tabIndex={-1}
     >
       <div className="card-head">
         <button
@@ -741,15 +1116,33 @@ function WorkspaceCard({
             <span className="card-profile">{workspace.profileName}</span>
           ) : null}
           <span className="card-count">{copy.agents(workspace.agents.length)}</span>
-          {!expanded && questions.length > 0 ? <span className="card-attention" /> : null}
+          {/* A collapsed card with an open question was a silent pulse — a
+              dot with no name, invisible to anyone reading the screen. */}
+          {!expanded && questions.length > 0 ? (
+            <span
+              className="card-attention"
+              role="img"
+              aria-label={copy.inboxCount(questions.length)}
+            />
+          ) : null}
         </button>
         {workspace.active ? (
           confirmStop ? (
             <span className="stop-confirm">
-              <button type="button" className="stop is-confirm" onClick={stop}>
-                {copy.stopConfirm}
+              <button
+                type="button"
+                className="stop is-confirm"
+                disabled={stopping}
+                onClick={stop}
+              >
+                {stopping ? copy.stopping : copy.stopConfirm}
               </button>
-              <button type="button" className="ghost-inline" onClick={() => setConfirmStop(false)}>
+              <button
+                type="button"
+                className="ghost-inline"
+                disabled={stopping}
+                onClick={() => setConfirmStop(false)}
+              >
                 {copy.stopCancel}
               </button>
             </span>
@@ -766,14 +1159,23 @@ function WorkspaceCard({
             </button>
           )
         ) : (
-          <span className="inactive-tag">{copy.inactive}</span>
+          <span className="inactive-tag">{justEnded ? copy.justEnded : copy.inactive}</span>
         )}
       </div>
+      {stopError ? (
+        <p className="form-error" role="status">
+          {stopError}
+        </p>
+      ) : null}
       {/* The wrapper stays in the DOM so `aria-controls` always resolves; the
           body itself is only built when it is on screen. */}
       <div id={bodyId} hidden={!expanded}>
         {expanded ? (
           <>
+            {/* Said in words, in the body, because the run ending under the
+                user is the moment the card is most likely to be read and least
+                likely to be understood from a colour change alone. */}
+            {justEnded ? <p className="card-task ended-note">{copy.endedWhileHere}</p> : null}
             {workspace.orchestratorIdle ? (
               <p className="card-task idle-hint">{copy.idleHint}</p>
             ) : null}
@@ -791,6 +1193,8 @@ function WorkspaceCard({
                     entry={entry}
                     drafts={drafts}
                     setDraft={setDraft}
+                    sending={sending}
+                    setSending={setSending}
                     idPrefix="card"
                   />
                 </div>
@@ -807,7 +1211,7 @@ function WorkspaceCard({
                     <AgentRow
                       agent={agent}
                       copy={copy}
-                      hasQuestion={question !== undefined}
+                      question={question}
                       answerOpen={answerOpen}
                       onOpen={() => onOpenAgent(agent.agentId)}
                       onToggleAnswer={() =>
@@ -819,17 +1223,24 @@ function WorkspaceCard({
                       }
                     />
                     {question && answerOpen ? (
-                      <div className="answer-form">
+                      <div className="answer-form" id={answerPanelDomId(question.key)}>
                         <AnswerForm
                           api={api}
                           copy={copy}
                           entry={question}
                           drafts={drafts}
                           setDraft={setDraft}
+                          sending={sending}
+                          setSending={setSending}
                           idPrefix="card"
-                          onDismiss={() =>
+                          onDismiss={() => {
+                            // Focus first: the click below is about to unmount
+                            // the button that carries it, and focus that falls
+                            // on nothing puts a keyboard or screen-reader user
+                            // back at the top of the document.
+                            focusTarget(askBadgeDomId(question.key))
                             setOpenAnswers((current) => ({ ...current, [question.key]: false }))
-                          }
+                          }}
                         />
                       </div>
                     ) : null}
@@ -872,7 +1283,7 @@ function TaskBoard({
   onToggle
 }: {
   workspace: RemoteWorkspaceSummary
-  copy: RemoteCopy
+  copy: Copy
   open: boolean
   onToggle: () => void
 }): React.JSX.Element | null {
@@ -926,20 +1337,32 @@ function AnswerForm({
   entry,
   drafts,
   setDraft,
+  sending,
+  setSending,
   idPrefix,
   onDismiss
 }: {
   api: RemoteApi
-  copy: RemoteCopy
+  copy: Copy
   entry: InboxEntry
   drafts: Drafts
   setDraft: SetDraft
+  /**
+   * In flight, keyed by question rather than by form. One `ask_user` is
+   * mounted TWICE — once in the inbox, once on its card — and a `busy` flag
+   * held locally left the other copy live: sending from both produced a second
+   * `answer_question` for a question the registry had already closed, which
+   * comes back as `unknown_question` and reads to the user as their answer
+   * having failed.
+   */
+  sending: Sending
+  setSending: (key: string, busy: boolean) => void
   /** Two mounted copies of one question must not share a DOM id. */
   idPrefix: string
   onDismiss?: () => void
 }): React.JSX.Element {
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const busy = sending[entry.key] === true
   const draftKey = answerDraftKey(entry.key)
   const text = drafts[draftKey] ?? ''
   const promptId = `${idPrefix}-${entry.key}`
@@ -947,7 +1370,7 @@ function AnswerForm({
   const submit = (): void => {
     const trimmed = text.trim()
     if (!trimmed || busy) return
-    setBusy(true)
+    setSending(entry.key, true)
     setError(null)
     api
       .runCommand('answer_question', undefined, {
@@ -958,13 +1381,13 @@ function AnswerForm({
       })
       .then(
         () => {
-          setBusy(false)
+          setSending(entry.key, false)
           setDraft(draftKey, '')
           haptic('confirm')
         },
         (cause: Error) => {
           setError(cause.message)
-          setBusy(false)
+          setSending(entry.key, false)
         }
       )
   }
@@ -974,14 +1397,15 @@ function AnswerForm({
       <p className="answer-question" id={promptId}>
         {inboxPrompt(entry, copy)}
       </p>
-      <textarea
+      <LimitedTextarea
         className="goal-input"
         rows={3}
         placeholder={copy.answerPlaceholder}
-        aria-labelledby={promptId}
+        ariaLabelledBy={promptId}
         value={text}
+        copy={copy}
         enterKeyHint="send"
-        onChange={(event) => setDraft(draftKey, event.target.value)}
+        onChange={(value) => setDraft(draftKey, value)}
       />
       {error ? <p className="form-error">{error}</p> : null}
       <div className="answer-actions">
@@ -1013,7 +1437,7 @@ function Composer({
 }: {
   api: RemoteApi
   workspaceId: string
-  copy: RemoteCopy
+  copy: Copy
   drafts: Drafts
   setDraft: SetDraft
 }): React.JSX.Element {
@@ -1046,13 +1470,14 @@ function Composer({
 
   return (
     <div className="composer">
-      <textarea
+      <LimitedTextarea
         rows={2}
         placeholder={copy.composerPlaceholder}
-        aria-label={copy.composerPlaceholder}
+        ariaLabel={copy.composerPlaceholder}
         value={text}
+        copy={copy}
         enterKeyHint="send"
-        onChange={(event) => setDraft(draftKey, event.target.value)}
+        onChange={(value) => setDraft(draftKey, value)}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault()
@@ -1076,14 +1501,14 @@ function Composer({
 function AgentRow({
   agent,
   copy,
-  hasQuestion,
+  question,
   answerOpen,
   onOpen,
   onToggleAnswer
 }: {
   agent: RemoteAgentSummary
-  copy: RemoteCopy
-  hasQuestion: boolean
+  copy: Copy
+  question: InboxEntry | undefined
   answerOpen: boolean
   onOpen: () => void
   onToggleAnswer: () => void
@@ -1094,7 +1519,9 @@ function AgentRow({
       <button
         type="button"
         className={`agent-row state-${agent.state}`}
-        style={{ '--role': agent.roleColor } as React.CSSProperties}
+        // Validated, not forwarded: this is the one place a string off the
+        // socket reaches a style attribute — see `safeRoleColor`.
+        style={{ '--role': safeRoleColor(agent.roleColor) } as React.CSSProperties}
         onClick={onOpen}
         aria-label={copy.openAgent(agent.name)}
       >
@@ -1112,12 +1539,15 @@ function AgentRow({
           </span>
         </span>
       </button>
-      {hasQuestion ? (
+      {question ? (
         <button
           type="button"
           className="badge"
+          id={askBadgeDomId(question.key)}
           onClick={onToggleAnswer}
           aria-expanded={answerOpen}
+          // Named only while it resolves: the panel is built when it opens.
+          aria-controls={answerOpen ? answerPanelDomId(question.key) : undefined}
           aria-label={
             answerOpen ? copy.dismissAnswer : copy.answerQuestion(agent.name)
           }

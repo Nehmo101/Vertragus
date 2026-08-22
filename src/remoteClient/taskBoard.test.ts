@@ -8,6 +8,7 @@ const copy: TaskBoardCopy = {
   taskCompleted: 'fertig',
   taskReady: 'bereit',
   taskBlocked: (count) => (count === 1 ? 'wartet auf 1 Aufgabe' : `wartet auf ${count} Aufgaben`),
+  taskNotReady: 'noch nicht bereit',
   taskOwner: (name) => `bei ${name}`
 }
 
@@ -71,11 +72,18 @@ describe('taskRows', () => {
     expect(row?.readinessLabel).toBe('wartet auf 1 Aufgabe')
   })
 
-  it('falls back to the declared blockers when the board no longer carries them', () => {
+  it('counts a blocker the board no longer carries as still open', () => {
+    // The client cannot prove a task it has never seen finished, and telling a
+    // user a row is free when it is not is the worse of the two lies.
     const [row] = taskRows([task({ ready: false, blockedBy: ['gone', 'also-gone'] })], agents, copy)
-    // Unknown ids are not completed, so they count — the fallback only matters
-    // when every declared blocker reads as done yet the host says not ready.
     expect(row?.readinessLabel).toBe('wartet auf 2 Aufgaben')
+  })
+
+  it('does not invent blockers when the board disagrees with itself', () => {
+    // Every declared blocker reads as done, yet the host says not ready. The
+    // old fallback answered that by counting the FINISHED blockers — "waiting
+    // on 1 task" about a task that is complete. There is nothing to count, and
+    // the row says so in words rather than leaving the stripe to carry it.
     const [stale] = taskRows(
       [
         task({ taskId: 'a', status: 'completed', ready: false }),
@@ -84,7 +92,23 @@ describe('taskRows', () => {
       agents,
       copy
     ).filter((entry) => entry.taskId === 'stale')
-    expect(stale?.readinessLabel).toBe('wartet auf 1 Aufgabe')
+    expect(stale?.tone).toBe('blocked')
+    expect(stale?.readinessLabel).toBe('noch nicht bereit')
+    expect(stale?.readinessLabel).not.toContain('1')
+  })
+
+  it('counts only what is still open when the board can see all of it', () => {
+    const [row] = taskRows(
+      [
+        task({ taskId: 'done1', status: 'completed', ready: false }),
+        task({ taskId: 'done2', status: 'completed', ready: false }),
+        task({ taskId: 'open', status: 'in_progress', ready: false }),
+        task({ taskId: 'blocked', ready: false, blockedBy: ['done1', 'done2', 'open'] })
+      ],
+      agents,
+      copy
+    ).filter((entry) => entry.taskId === 'blocked')
+    expect(row?.readinessLabel).toBe('wartet auf 1 Aufgabe')
   })
 
   it('resolves the owner to a Commedia name and hides an id it cannot resolve', () => {

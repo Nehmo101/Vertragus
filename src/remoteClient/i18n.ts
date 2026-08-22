@@ -18,6 +18,12 @@ export interface RemoteCopy {
   reconnecting: string
   offline: string
   connectionLost: string
+  /**
+   * The two halves of the wire's argument cap: `lengthLimit` is the field
+   * sitting at it, `commandTooLong` is a send refused for exceeding it. Both
+   * exist because a field can be filled by a paste that outruns its own
+   * maxLength on some browsers.
+   */
   commandTooLong: string
   refresh: string
   pairingTitle: string
@@ -89,6 +95,16 @@ export interface RemoteCopy {
   taskReady: string
   taskBlocked: (count: number) => string
   taskOwner: (name: string) => string
+  taskNotReady: string
+  justEnded: string
+  endedWhileHere: string
+  stopping: string
+  unsentTitle: string
+  unsentAnswer: (source: string) => string
+  unsentComposer: (source: string) => string
+  unsentElsewhere: string
+  discardDraft: string
+  lengthLimit: (max: number) => string
   // --- terminal ----------------------------------------------------------
   back: string
   terminalInput: string
@@ -198,6 +214,16 @@ const de: RemoteCopy = {
   taskReady: 'bereit',
   taskBlocked: (count) => (count === 1 ? 'wartet auf 1 Aufgabe' : `wartet auf ${count} Aufgaben`),
   taskOwner: (name) => `bei ${name}`,
+  taskNotReady: 'noch nicht bereit',
+  justEnded: 'gerade beendet',
+  endedWhileHere: 'Der Lauf ist beendet — die Karte bleibt an ihrem Platz.',
+  stopping: 'beende …',
+  unsentTitle: 'Nicht gesendeter Text',
+  unsentAnswer: (source) => `Antwort für ${source} — die Frage ist inzwischen beantwortet`,
+  unsentComposer: (source) => `Nachricht an ${source} — der Lauf ist beendet`,
+  unsentElsewhere: 'Das Feld dazu gibt es nicht mehr.',
+  discardDraft: 'Verwerfen',
+  lengthLimit: (max) => `Maximale Länge erreicht (${max} Zeichen).`,
   back: 'Zurück',
   terminalInput: 'Eingabe an den Agent …',
   terminalLive: 'läuft',
@@ -305,6 +331,16 @@ const en: RemoteCopy = {
   taskReady: 'ready',
   taskBlocked: (count) => (count === 1 ? 'waiting on 1 task' : `waiting on ${count} tasks`),
   taskOwner: (name) => `with ${name}`,
+  taskNotReady: 'not ready yet',
+  justEnded: 'just ended',
+  endedWhileHere: 'The run ended — the card keeps its place.',
+  stopping: 'stopping …',
+  unsentTitle: 'Unsent text',
+  unsentAnswer: (source) => `Answer for ${source} — the question has since been answered`,
+  unsentComposer: (source) => `Message to ${source} — the run has ended`,
+  unsentElsewhere: 'The field it belonged to is gone.',
+  discardDraft: 'Discard',
+  lengthLimit: (max) => `Maximum length reached (${max} characters).`,
   back: 'Back',
   terminalInput: 'Input for the agent …',
   terminalLive: 'live',
