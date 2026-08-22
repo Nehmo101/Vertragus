@@ -6,7 +6,7 @@
  * arities diverge, or English copy that was pasted from the German column
  * instead of translated.
  */
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -103,5 +103,54 @@ describe('locale resolution', () => {
     for (const locale of ['de', 'en', 'en-US', 'fr', '']) {
       expect(remoteCopy(locale), locale).toBe(remoteCopy(remoteLanguage(locale)))
     }
+  })
+})
+
+/**
+ * Reachability: a copy key nothing renders is a key that rots. Three shipped
+ * unreferenced before this guard existed, one of them written for an error the
+ * user was instead shown "unknown error" for.
+ *
+ * Copy reaches a screen three ways, and the scan has to know all three or it
+ * reports live keys as dead: a plain property read (`copy.stop`), a read
+ * through a ref because the caller is inside a closure that outlived its render
+ * (`copyRef.current.terminalExit`), and a computed lookup where the key name is
+ * chosen at runtime — `copy[api.error]`, and the connection pill's state name.
+ * The last is covered by looking for the key as a string literal, and that is
+ * not a loophole — it is the same fact stated from the other side: for
+ * `copy[state]` to resolve, the name has to be written down somewhere the
+ * lookup can reach, so a key nothing writes down is a key nothing can read.
+ * Seven live keys depend on this branch (`RemoteError`'s two causes and the
+ * five connection states), so weakening it to a plain `copy.<key>` scan would
+ * report all seven as dead and invite deleting the check instead.
+ */
+describe('every copy key reaches a screen', () => {
+  const clientDir = dirname(fileURLToPath(import.meta.url))
+
+  /** Every client source that could render copy — the copy itself excluded. */
+  function consumerSources(): string {
+    return readdirSync(clientDir)
+      .filter((name) => /\.tsx?$/.test(name) && !name.endsWith('.test.ts') && name !== 'i18n.ts')
+      .map((name) => readFileSync(join(clientDir, name), 'utf8'))
+      .join('\n')
+  }
+
+  function renders(sources: string, key: string): boolean {
+    return new RegExp(`\\.\\s*${key}\\b`).test(sources) || sources.includes(`'${key}'`)
+  }
+
+  it('leaves no key unreferenced', () => {
+    const sources = consumerSources()
+    const dead = (Object.keys(de) as (keyof RemoteCopy)[]).filter((key) => !renders(sources, key))
+    expect(dead, 'copy keys no screen renders').toEqual([])
+  })
+
+  it('would notice if its own scan stopped finding consumers', () => {
+    // A glob that matched nothing, or a matcher that matched everything, would
+    // green the check above vacuously. Pin both ends.
+    const sources = consumerSources()
+    expect(sources).toContain('copy.')
+    expect(renders(sources, 'stop')).toBe(true)
+    expect(renders(sources, 'aKeyNoScreenCouldPossiblyRender')).toBe(false)
   })
 })
