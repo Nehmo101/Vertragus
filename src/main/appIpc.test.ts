@@ -14,9 +14,15 @@ vi.mock('electron', () => ({
   dialog: { showOpenDialog: vi.fn(), showMessageBox: vi.fn() },
   BrowserWindow: { getAllWindows: () => [] }
 }))
-vi.mock('@main/store/settings', () => ({ settings: vi.fn() }))
+vi.mock('@main/store/settings', async (importOriginal) => ({
+  // The real helpers (effectiveAgentPolicy) stay; only the Electron-backed
+  // store singleton is stubbed out.
+  ...(await importOriginal<typeof import('@main/store/settings')>()),
+  settings: vi.fn()
+}))
 vi.mock('@main/providers/discovery', () => ({ discoverModels: vi.fn() }))
 vi.mock('@main/providers/health', () => ({ checkAllProviders: vi.fn() }))
+vi.mock('@main/providers/authStatus', () => ({ checkAllProviderAuth: vi.fn() }))
 vi.mock('@main/windows/cliWindow', () => ({
   focusCliWindow: vi.fn(),
   listCliWindows: vi.fn(() => [])
@@ -57,7 +63,9 @@ vi.mock('@main/windows/zoneOverlay', () => ({
   closeZoneOverlayWindows: vi.fn(),
   isZoneOverlaySender: vi.fn(() => null),
   listZoneOverlayWindows: vi.fn(() => []),
-  zoneOverlayDisplayIds: vi.fn(() => [])
+  zoneOverlayDisplayIds: vi.fn(() => []),
+  selectZoneOverlayDisplay: vi.fn(() => false),
+  listZoneDisplays: vi.fn(() => [])
 }))
 vi.mock('@main/windows/hideAll', () => ({
   toggleHideAll: vi.fn(),
@@ -71,7 +79,9 @@ import { openProfileEditorWindow } from '@main/windows/profileEditor'
 import { settings } from '@main/store/settings'
 import {
   APP_CHANNELS,
+  agentCurrentTaskFields,
   createAppIpc,
+  createStubWorkspaceDirectory,
   disposeAppIpc,
   PROVIDER_HEALTH_TTL_MS,
   quitConfirmationText,
@@ -88,10 +98,11 @@ import {
   type ZoneEditorPayload
 } from './appIpc'
 import type { HideAllHotkeyStatus } from './windows/hideAll'
+import { REMOTE_CHANNELS } from './remote/ipc'
 import type { MinimalIpcMain } from './ipc'
 import type { WorkspaceSummary as PreloadWorkspaceSummary } from '../preload'
 import { profileSchema, type Profile, type RoleTemplate } from '@shared/schema/profile'
-import type { ModelLearning, RunRetro } from '@shared/schema/retro'
+import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import { DEFAULT_APPEARANCE } from '@shared/appearance'
 import type { AppSettings } from './store/settings'
 import type { ProviderConfig, ProviderConfigInput } from '@shared/schema/provider'
@@ -150,12 +161,21 @@ function provider(input: ProviderConfigInput): ProviderConfig {
 }
 
 const SETTINGS: AppSettings = {
-  ui: { theme: 'dark', locale: 'de', appearance: DEFAULT_APPEARANCE, reflowNeighbors: true },
+  ui: {
+    theme: 'dark',
+    locale: 'de',
+    appearance: DEFAULT_APPEARANCE,
+    reflowNeighbors: true,
+    onboardingDismissed: false
+  },
+  remote: { enabled: false, bindAddress: '', port: 9482 },
   yoloMaster: true,
   hideAllHotkey: 'Control+Alt+V',
   autostart: false,
   updateChannel: 'main',
-  modelMemory: {}
+  modelMemory: {},
+  voice: { enabled: false, wakePhrase: 'Hey Vertragus', apiKey: '', voiceId: 'eve' },
+  mcpServers: []
 }
 
 /** An in-memory stand-in for the settings store, with the same write rules. */
@@ -170,7 +190,11 @@ function createFakeStore(
   let roles: RoleTemplate[] = []
   let storedProviders: ProviderConfig[] = []
   const settings: AppSettings = structuredClone(SETTINGS)
-  const retroState = { retros: [] as RunRetro[], learnings: [] as ModelLearning[] }
+  const retroState = {
+    retros: [] as RunRetro[],
+    learnings: [] as ModelLearning[],
+    repoNotes: [] as RepoNote[]
+  }
   return {
     settings,
     get retros() {
@@ -190,6 +214,14 @@ function createFakeStore(
     deleteModelLearning(id) {
       retroState.learnings = retroState.learnings.filter((entry) => entry.id !== id)
       return [...retroState.learnings]
+    },
+    getRepoNotes: (profileId) =>
+      profileId
+        ? retroState.repoNotes.filter((entry) => entry.profileId === profileId)
+        : [...retroState.repoNotes],
+    deleteRepoNote(id) {
+      retroState.repoNotes = retroState.repoNotes.filter((entry) => entry.id !== id)
+      return [...retroState.repoNotes]
     },
     getProfiles: () => profiles,
     saveProfile(raw) {
@@ -229,6 +261,13 @@ function createFakeStore(
     getSettings: () => settings,
     setSetting(key, value) {
       ;(settings as Record<string, unknown>)[key] = value
+      // D4 mirror — same write rule as the real store, so panelSettings sees
+      // one truth here too.
+      if (key === 'agentPolicy' && value !== undefined) {
+        settings.yoloMaster = value === 'yolo'
+      } else if (key === 'yoloMaster') {
+        settings.agentPolicy = value ? 'yolo' : 'ask-user'
+      }
       return settings
     }
   }
@@ -248,7 +287,20 @@ function workspace(id: string, active = true): WorkspaceSummary {
         roleLabel: 'Orchestrator',
         roleColor: '#cba35a',
         state: 'working',
-        statusText: 'plant'
+        statusText: 'plant',
+        taskText: 'Fix the parser'
+      }
+    ],
+    // S4: present here so the preload parity check below covers the board row
+    // as well — a field only main knows about is a field the panel cannot draw.
+    tasks: [
+      {
+        taskId: 'task-1',
+        subject: 'Build the parser',
+        status: 'in_progress',
+        ownerAgentId: `${id}-orch`,
+        blockedBy: [],
+        ready: false
       }
     ]
   }
@@ -260,18 +312,31 @@ interface Harness {
   store: ReturnType<typeof createFakeStore>
   broadcasts: { channel: string; payload: unknown }[]
   directory: WorkspaceDirectory & {
-    started: string[]
+    started: Array<{ profileId: string; goal?: string }>
+    goalsAssigned: Array<{ workspaceId: string; goal: string }>
+    resumed: string[]
+    sentToOrchestrator: Array<{ workspaceId: string; text: string }>
     stopped: string[]
+    succeeded: string[]
     focused: string[]
     focusedWorkspaces: string[]
+    closedAgents: string[]
+    answered: Array<{ workspaceId: string; agentId: string; questionId: string; text: string }>
+    userMessages: Array<{ workspaceId: string; text: string }>
+    promoted: Array<{ workspaceId: string; agentId: string }>
+    runFolders: string[]
     removedWorktrees: Array<{ profileId: string; path: string }>
     staleWorktrees: { path: string; branch?: string }[]
     change?: () => void
   }
   health: ReturnType<typeof vi.fn>
+  /** WP-7: the login probe behind `providers:authStatus`. */
+  auth: ReturnType<typeof vi.fn>
   discover: ReturnType<typeof vi.fn>
   pick: ReturnType<typeof vi.fn>
   opened: (string | undefined)[]
+  /** WP-7: the orchestrator hint each editor-open carried, in the same order. */
+  openedHints: (string | undefined)[]
   closed: number[]
   providerEditorsOpened: (string | undefined)[]
   providerEditorsClosed: number[]
@@ -285,6 +350,7 @@ interface Harness {
   quits: number
   zoneSessions: string[]
   zonesClosed: number
+  pickedDisplays: number[]
   now: number
   /** Settings window: how often it was opened / closed, and the live hotkey. */
   settingsOpened: number
@@ -309,12 +375,22 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
   const broadcasts: { channel: string; payload: unknown }[] = []
   const state = { workspaces: [workspace('w1')] }
   const opened: (string | undefined)[] = []
+  const openedHints: (string | undefined)[] = []
   const closed: number[] = []
   const providerEditorsOpened: (string | undefined)[] = []
   const providerEditorsClosed: number[] = []
   const health = vi.fn(
     async (configs: readonly ProviderConfig[]): Promise<ProviderHealth[]> =>
       configs.map((config) => ({ id: config.id, available: true, checkedAt: 1 }))
+  )
+  const auth = vi.fn(
+    async (configs: readonly ProviderConfig[]) =>
+      configs.map((config) => ({
+        id: config.id,
+        state: 'logged-in' as const,
+        loginCommand: `${config.command} login`,
+        checkedAt: 1
+      }))
   )
   const discover = vi.fn(async (config: ProviderConfig) => ({
     models: [`${config.id}-model`],
@@ -327,9 +403,11 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     store,
     broadcasts,
     health,
+    auth,
     discover,
     pick,
     opened,
+    openedHints,
     closed,
     providerEditorsOpened,
     providerEditorsClosed,
@@ -340,6 +418,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     quits: 0,
     zoneSessions: [] as string[],
     zonesClosed: 0,
+    pickedDisplays: [] as number[],
     now: 1_000,
     settingsOpened: 0,
     settingsClosed: 0,
@@ -364,23 +443,60 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
   }
 
   const directory = {
-    started: [] as string[],
+    started: [] as Array<{ profileId: string; goal?: string }>,
+    goalsAssigned: [] as Array<{ workspaceId: string; goal: string }>,
+    resumed: [] as string[],
+    sentToOrchestrator: [] as Array<{ workspaceId: string; text: string }>,
     stopped: [] as string[],
+    succeeded: [] as string[],
     focused: [] as string[],
     focusedWorkspaces: [] as string[],
+    closedAgents: [] as string[],
+    answered: [] as Array<{ workspaceId: string; agentId: string; questionId: string; text: string }>,
+    userMessages: [] as Array<{ workspaceId: string; text: string }>,
+    promoted: [] as Array<{ workspaceId: string; agentId: string }>,
+    runFolders: [] as string[],
     removedWorktrees: [] as Array<{ profileId: string; path: string }>,
     staleWorktrees: [
       { path: '/repo/.vertragus/worktrees/old-1', branch: 'vertragus/paradiso/caronte' }
     ] as { path: string; branch?: string }[],
     list: () => state.workspaces,
-    start(profileId: string) {
-      this.started.push(profileId)
+    start(profileId: string, goal?: string) {
+      this.started.push({ profileId, ...(goal !== undefined ? { goal } : {}) })
+    },
+    async assignGoal(workspaceId: string, goal: string) {
+      this.goalsAssigned.push({ workspaceId, goal })
+    },
+    resume(profileId: string) {
+      this.resumed.push(profileId)
+    },
+    sendToOrchestrator(workspaceId: string, text: string) {
+      this.sentToOrchestrator.push({ workspaceId, text })
     },
     stop(workspaceId: string) {
       this.stopped.push(workspaceId)
     },
+    succeedOrchestrator(workspaceId: string) {
+      this.succeeded.push(workspaceId)
+    },
+    async answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string) {
+      this.answered.push({ workspaceId, agentId, questionId, text })
+    },
+    postUserMessage(workspaceId: string, text: string) {
+      this.userMessages.push({ workspaceId, text })
+    },
+    async promoteAgentBranch(workspaceId: string, agentId: string) {
+      this.promoted.push({ workspaceId, agentId })
+    },
+    async openRunFolder(workspaceId: string) {
+      if (workspaceId === 'gone') throw new Error(`run folder rejected — unknown workspace ${workspaceId}`)
+      this.runFolders.push(workspaceId)
+    },
     focusAgent(agentId: string) {
       this.focused.push(agentId)
+    },
+    closeAgentWindow(agentId: string) {
+      this.closedAgents.push(agentId)
     },
     focusWorkspace(workspaceId: string) {
       this.focusedWorkspaces.push(workspaceId)
@@ -412,8 +528,12 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     providerEditorSender: (id) => (id === PROVIDER_EDITOR_ID ? 'claude' : null),
     discoverModels: discover,
     checkProviders: health,
+    checkProviderAuth: auth,
     pickDirectory: pick,
-    openProfileEditor: (profileId) => opened.push(profileId),
+    openProfileEditor: (profileId, providerId) => {
+      opened.push(profileId)
+      openedHints.push(providerId)
+    },
     closeProfileEditor: (id) => closed.push(id),
     openProviderEditor: (providerId) => providerEditorsOpened.push(providerId),
     closeProviderEditor: (id) => providerEditorsClosed.push(id),
@@ -435,11 +555,19 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     closeZoneOverlays: () => {
       result.zonesClosed += 1
     },
+    selectZoneOverlayDisplay: (displayId) => {
+      result.pickedDisplays.push(displayId)
+      return displayId === 11 || displayId === 22
+    },
+    listZoneDisplays: () => [
+      { id: 11, label: 'Main', width: 1920, height: 1040, primary: true },
+      { id: 22, label: 'Side', width: 1600, height: 860, primary: false }
+    ],
     zoneOverlaySender: (id) =>
       id === OVERLAY_A_ID
-        ? { profileId: 'p1', displayId: 11 }
+        ? { profileId: 'p1', displayId: 11, pick: false }
         : id === OVERLAY_B_ID
-          ? { profileId: 'p1', displayId: 22 }
+          ? { profileId: 'p1', displayId: 22, pick: false }
           : null,
     zoneOverlayDisplayIds: () => [11, 22],
     now: () => result.now,
@@ -571,6 +699,24 @@ describe('providers and models', () => {
     expect(h.health).toHaveBeenCalledTimes(2)
   })
 
+  it('re-probes on an explicit refresh and leaves the cache warm for the picker', async () => {
+    // WP-7: the first-run card's ⟳ is the one affordance step 1 has, and its
+    // own copy tells the user to press it after installing a CLI. Served from
+    // the cache it would be a no-op for up to 30 s — a hit does not even
+    // refresh its timestamp, so pressing again would change nothing either.
+    await h.ipc.invoke(APP_CHANNELS.providersList, PANEL_ID)
+    expect(h.health).toHaveBeenCalledTimes(1)
+
+    await h.ipc.invoke(APP_CHANNELS.providersList, PANEL_ID, { refresh: true })
+    expect(h.health).toHaveBeenCalledTimes(2)
+
+    // The refresh overwrote the cache rather than dropping it: the picker's
+    // frequent reads keep their TTL.
+    await h.ipc.invoke(APP_CHANNELS.providersList, PANEL_ID)
+    await h.ipc.invoke(APP_CHANNELS.providersList, EDITOR_ID, { refresh: false })
+    expect(h.health).toHaveBeenCalledTimes(2)
+  })
+
   it('discovers models for a known provider', async () => {
     const result = await h.ipc.invoke(APP_CHANNELS.modelsDiscover, EDITOR_ID, {
       providerId: 'codex'
@@ -583,6 +729,77 @@ describe('providers and models', () => {
     await expect(
       Promise.resolve(h.ipc.invoke(APP_CHANNELS.modelsDiscover, EDITOR_ID, { providerId: 'ghost' }))
     ).rejects.toThrow(/unknown provider/)
+  })
+})
+
+describe('provider login status (WP-7)', () => {
+  it('answers the panel with one entry per effective provider', async () => {
+    const statuses = (await h.ipc.invoke(APP_CHANNELS.providersAuthStatus, PANEL_ID)) as {
+      id: string
+      state: string
+      loginCommand?: string
+    }[]
+
+    expect(statuses.map((entry) => entry.id)).toEqual(['claude', 'codex'])
+    expect(statuses[0]).toMatchObject({ state: 'logged-in', loginCommand: 'claude login' })
+    expect(h.auth.mock.calls[0]![0]).toHaveLength(2)
+  })
+
+  it('probes again on every call — "I just logged in" must not wait out a TTL', async () => {
+    await h.ipc.invoke(APP_CHANNELS.providersAuthStatus, PANEL_ID)
+    await h.ipc.invoke(APP_CHANNELS.providersAuthStatus, PANEL_ID)
+    expect(h.auth).toHaveBeenCalledTimes(2)
+  })
+
+  it('includes a provider that was just created', async () => {
+    h.ipc.invoke(APP_CHANNELS.providersSave, PANEL_ID, {
+      id: 'my-cli',
+      label: 'Mein CLI',
+      command: 'mycli'
+    })
+    const statuses = (await h.ipc.invoke(APP_CHANNELS.providersAuthStatus, PANEL_ID)) as {
+      id: string
+    }[]
+    expect(statuses.map((entry) => entry.id)).toEqual(['claude', 'codex', 'my-cli'])
+  })
+
+  it('is closed to a CLI window and to a zone overlay', () => {
+    for (const sender of [CLI_ID, OVERLAY_A_ID]) {
+      expect(() => h.ipc.invoke(APP_CHANNELS.providersAuthStatus, sender)).toThrow(
+        /not a panel or editor/
+      )
+    }
+    expect(h.auth).not.toHaveBeenCalled()
+  })
+})
+
+describe('reading providers from the panel (WP-7)', () => {
+  it('lets the panel read the list its first-run card draws', async () => {
+    const entries = (await h.ipc.invoke(APP_CHANNELS.providersList, PANEL_ID)) as {
+      config: ProviderConfig
+      health?: ProviderHealth
+    }[]
+    expect(entries.map((entry) => entry.config.id)).toEqual(['claude', 'codex'])
+  })
+
+  it('still refuses every sender it refused before', () => {
+    // The card is a read; widening the guard would be the regression. These are
+    // the two window kinds that have their own bridge object and are NOT app
+    // windows — a CLI window above all.
+    for (const sender of [CLI_ID, OVERLAY_A_ID, OVERLAY_B_ID, 999]) {
+      expect(() => h.ipc.invoke(APP_CHANNELS.providersList, sender)).toThrow(
+        /not a panel or editor/
+      )
+    }
+    expect(h.health).not.toHaveBeenCalled()
+  })
+
+  it('keeps the write channels closed to everything but panel and editors', () => {
+    for (const channel of [APP_CHANNELS.providersSave, APP_CHANNELS.providersDelete]) {
+      expect(() => h.ipc.invoke(channel, CLI_ID, { id: 'claude' })).toThrow(
+        /not a panel or editor/
+      )
+    }
   })
 })
 
@@ -712,20 +929,209 @@ describe('workspaces', () => {
     await h.ipc.invoke(APP_CHANNELS.workspacesStop, PANEL_ID, { workspaceId: 'w1' })
     h.ipc.invoke(APP_CHANNELS.workspacesFocusAgent, PANEL_ID, { agentId: 'w1-orch' })
     h.ipc.invoke(APP_CHANNELS.workspacesFocus, PANEL_ID, { workspaceId: 'w1' })
+    h.ipc.invoke(APP_CHANNELS.workspacesCloseAgent, PANEL_ID, { agentId: 'w1-orch' })
 
-    expect(h.directory.started).toEqual(['p1'])
+    expect(h.directory.started).toEqual([{ profileId: 'p1' }])
     expect(h.directory.stopped).toEqual(['w1'])
     expect(h.directory.focused).toEqual(['w1-orch'])
     expect(h.directory.focusedWorkspaces).toEqual(['w1'])
+    expect(h.directory.closedAgents).toEqual(['w1-orch'])
     expect(h.broadcasts.map((entry) => entry.channel)).toEqual([
+      APP_CHANNELS.eventWorkspaces,
       APP_CHANNELS.eventWorkspaces,
       APP_CHANNELS.eventWorkspaces
     ])
   })
 
+  it('passes a goal through to the directory and treats a blank one as absent (H2)', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesStart, PANEL_ID, {
+      profileId: 'p1',
+      goal: '  Fix the login bug  '
+    })
+    await h.ipc.invoke(APP_CHANNELS.workspacesStart, PANEL_ID, { profileId: 'p1', goal: '   ' })
+
+    expect(h.directory.started).toEqual([
+      { profileId: 'p1', goal: 'Fix the login bug' },
+      { profileId: 'p1' }
+    ])
+  })
+
+  it('H2 refill: hands a running workspace its goal and refuses a blank one', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesGoal, PANEL_ID, {
+      workspaceId: 'w1',
+      goal: '  Fix the login bug  '
+    })
+    expect(h.directory.goalsAssigned).toEqual([{ workspaceId: 'w1', goal: 'Fix the login bug' }])
+    expect(h.broadcasts.at(-1)?.channel).toBe(APP_CHANNELS.eventWorkspaces)
+
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesGoal, PANEL_ID, { goal: 'Goal.' }))
+    ).rejects.toThrow(/missing workspace id/)
+    // Unlike the start goal, a blank one here is an error, not a bare start.
+    await expect(
+      Promise.resolve(
+        h.ipc.invoke(APP_CHANNELS.workspacesGoal, PANEL_ID, { workspaceId: 'w1', goal: '   ' })
+      )
+    ).rejects.toThrow(/missing goal text/)
+    expect(h.directory.goalsAssigned).toHaveLength(1)
+  })
+
+  it('resumes the last run over the directory (E3) — panel only, id required', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesResume, PANEL_ID, { profileId: 'p1' })
+    expect(h.directory.resumed).toEqual(['p1'])
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesResume, PANEL_ID, {}))
+    ).rejects.toThrow(/missing profile id/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesResume, CLI_ID, { profileId: 'p1' })
+    ).toThrow(/not the panel/)
+  })
+
+  it('replaces an orchestrator over the directory (C6/S3) — panel only, id required', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesSucceedOrchestrator, PANEL_ID, { workspaceId: 'w1' })
+    expect(h.directory.succeeded).toEqual(['w1'])
+    // The card's badge and the replace button both derive from the list.
+    expect(h.broadcasts.map((entry) => entry.channel)).toEqual([APP_CHANNELS.eventWorkspaces])
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesSucceedOrchestrator, PANEL_ID, {}))
+    ).rejects.toThrow(/missing workspace id/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesSucceedOrchestrator, CLI_ID, { workspaceId: 'w1' })
+    ).toThrow(/not the panel/)
+  })
+
+  it('answers an agent question over the directory (H1) — panel only, all ids required', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesAnswerQuestion, PANEL_ID, {
+      workspaceId: 'w1',
+      agentId: 'a1',
+      questionId: 'q1',
+      text: 'Use bcrypt.'
+    })
+    expect(h.directory.answered).toEqual([
+      { workspaceId: 'w1', agentId: 'a1', questionId: 'q1', text: 'Use bcrypt.' }
+    ])
+
+    for (const broken of [
+      { agentId: 'a1', questionId: 'q1', text: 'x' },
+      { workspaceId: 'w1', questionId: 'q1', text: 'x' },
+      { workspaceId: 'w1', agentId: 'a1', text: 'x' },
+      { workspaceId: 'w1', agentId: 'a1', questionId: 'q1', text: '  ' }
+    ]) {
+      await expect(
+        Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesAnswerQuestion, PANEL_ID, broken))
+      ).rejects.toThrow(/rejected/)
+    }
+    expect(h.directory.answered).toHaveLength(1)
+
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesAnswerQuestion, CLI_ID, {
+        workspaceId: 'w1',
+        agentId: 'a1',
+        questionId: 'q1',
+        text: 'x'
+      })
+    ).toThrow(/not the panel/)
+  })
+
+  it('steers a workspace over user_message (D2) — panel only, text required', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesUserMessage, PANEL_ID, {
+      workspaceId: 'w1',
+      text: '  Focus on the parser.  '
+    })
+    expect(h.directory.userMessages).toEqual([{ workspaceId: 'w1', text: 'Focus on the parser.' }])
+
+    await expect(
+      Promise.resolve(
+        h.ipc.invoke(APP_CHANNELS.workspacesUserMessage, PANEL_ID, { workspaceId: 'w1', text: ' ' })
+      )
+    ).rejects.toThrow(/missing text/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesUserMessage, CLI_ID, { workspaceId: 'w1', text: 'x' })
+    ).toThrow(/not the panel/)
+  })
+
+  it('promotes an agent branch on explicit click (E1) — panel only', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesPromoteAgent, PANEL_ID, {
+      workspaceId: 'w1',
+      agentId: 'a1'
+    })
+    expect(h.directory.promoted).toEqual([{ workspaceId: 'w1', agentId: 'a1' }])
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesPromoteAgent, PANEL_ID, { agentId: 'a1' }))
+    ).rejects.toThrow(/missing workspace id/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesPromoteAgent, CLI_ID, { workspaceId: 'w1', agentId: 'a1' })
+    ).toThrow(/not the panel/)
+  })
+
+  it('reveals a run folder — panel only, id required, disk failure stays loud', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesOpenRunFolder, PANEL_ID, { workspaceId: 'w1' })
+    // The single-id shorthand every other workspace channel accepts.
+    await h.ipc.invoke(APP_CHANNELS.workspacesOpenRunFolder, PANEL_ID, 'w2')
+    expect(h.directory.runFolders).toEqual(['w1', 'w2'])
+
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesOpenRunFolder, PANEL_ID, {}))
+    ).rejects.toThrow(/missing workspace id/)
+    await expect(
+      Promise.resolve(
+        h.ipc.invoke(APP_CHANNELS.workspacesOpenRunFolder, PANEL_ID, { workspaceId: 'gone' })
+      )
+    ).rejects.toThrow(/unknown workspace gone/)
+
+    // Desktop-only by construction: only the panel window may ask, and no
+    // gateway verb mirrors it (see main/remote/gateway.test.ts).
+    for (const sender of [CLI_ID, EDITOR_ID, SETTINGS_ID, PROVIDER_EDITOR_ID]) {
+      expect(() =>
+        h.ipc.invoke(APP_CHANNELS.workspacesOpenRunFolder, sender, { workspaceId: 'w1' })
+      ).toThrow(/not the panel/)
+    }
+    expect(h.directory.runFolders).toEqual(['w1', 'w2'])
+  })
+
+  it('sends a follow-up to the running orchestrator', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesSendToOrchestrator, PANEL_ID, {
+      workspaceId: 'w1',
+      text: '  follow up  '
+    })
+    expect(h.directory.sentToOrchestrator).toEqual([{ workspaceId: 'w1', text: 'follow up' }])
+  })
+
+  it('rejects sendToOrchestrator without a workspace id or non-empty text', () => {
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesSendToOrchestrator, PANEL_ID, { text: 'hi' })
+    ).toThrow(/missing workspace id/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesSendToOrchestrator, PANEL_ID, { workspaceId: 'w1' })
+    ).toThrow(/missing text/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesSendToOrchestrator, PANEL_ID, {
+        workspaceId: 'w1',
+        text: '   '
+      })
+    ).toThrow(/missing text/)
+    expect(h.directory.sentToOrchestrator).toEqual([])
+  })
+
+  it('rejects a CLI sender on sendToOrchestrator', () => {
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesSendToOrchestrator, CLI_ID, {
+        workspaceId: 'w1',
+        text: 'hi'
+      })
+    ).toThrow(/not the panel/)
+    expect(h.directory.sentToOrchestrator).toEqual([])
+  })
+
   it('rejects a focus-workspace call without a workspace id', () => {
     expect(() => h.ipc.invoke(APP_CHANNELS.workspacesFocus, PANEL_ID, {})).toThrow(
       /missing workspace id/
+    )
+  })
+
+  it('rejects a close-agent call without an agent id', () => {
+    expect(() => h.ipc.invoke(APP_CHANNELS.workspacesCloseAgent, PANEL_ID, {})).toThrow(
+      /missing agent id/
     )
   })
 
@@ -737,8 +1143,17 @@ describe('workspaces', () => {
       directory: {
         list: () => [],
         start: refuse,
+        assignGoal: async () => refuse(),
+        resume: refuse,
         stop() {},
+        sendToOrchestrator: refuse,
+        succeedOrchestrator: refuse,
+        answerQuestion: async () => refuse(),
+        postUserMessage: refuse,
+        promoteAgentBranch: async () => refuse(),
+        openRunFolder: async () => refuse(),
         focusAgent() {},
+        closeAgentWindow() {},
         focusWorkspace() {},
         listStaleWorktrees: async () => refuse(),
         removeWorktree: async () => refuse()
@@ -856,6 +1271,7 @@ describe('settings and windows', () => {
   it('returns only the settings a window shows', () => {
     expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).toEqual({
       yoloMaster: true,
+      agentPolicy: 'yolo',
       hideAllHotkey: 'Control+Alt+V',
       locale: 'de',
       theme: 'dark',
@@ -863,11 +1279,19 @@ describe('settings and windows', () => {
       updateChannel: 'main',
       autostartSupported: true,
       appearance: DEFAULT_APPEARANCE,
-      reflowNeighbors: true
+      reflowNeighbors: true,
+      voiceEnabled: false,
+      voiceWakePhrase: 'Hey Vertragus',
+      voiceVoiceId: 'eve',
+      voiceApiKeySet: false,
+      onboardingDismissed: false,
+      mcpServers: []
     })
-    // Never the app's own bookkeeping — model memory and panel bounds are
-    // written by the app and have no form.
+    // Never the app's own bookkeeping — model memory, panel bounds and the
+    // raw voice API key have no form and must not leak to a renderer.
     expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).not.toHaveProperty('modelMemory')
+    expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).not.toHaveProperty('apiKey')
+    expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).not.toHaveProperty('voiceApiKey')
   })
 
   it('answers the appearance in EVERY window — a CLI window included', () => {
@@ -919,9 +1343,25 @@ describe('settings and windows', () => {
 
   it('toggles the yolo master', () => {
     expect(h.ipc.invoke(APP_CHANNELS.settingsYolo, PANEL_ID, { enabled: false })).toMatchObject({
-      yoloMaster: false
+      yoloMaster: false,
+      // D4: the coarse toggle lands on the ask-user tier, never on a stale one.
+      agentPolicy: 'ask-user'
     })
     expect(h.store.settings.yoloMaster).toBe(false)
+  })
+
+  it('writes the D4 tier from the settings window and mirrors the boolean', async () => {
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'agentPolicy',
+      value: 'ask-orchestrator'
+    })) as PanelSettings
+    expect(next.agentPolicy).toBe('ask-orchestrator')
+    expect(next.yoloMaster).toBe(false)
+    expect(h.store.settings.agentPolicy).toBe('ask-orchestrator')
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'agentPolicy', value: 'full-send' })
+    ).rejects.toThrow(/agentPolicy expects/)
   })
 
   it('broadcasts every settings write so the other windows follow', async () => {
@@ -984,6 +1424,16 @@ describe('settings and windows', () => {
     h.ipc.invoke(APP_CHANNELS.profileEditorOpen, PANEL_ID, { profileId: 'p1' })
     h.ipc.invoke(APP_CHANNELS.profileEditorOpen, EDITOR_ID, {})
     expect(h.opened).toEqual(['p1', undefined])
+  })
+
+  it('carries the first-run card orchestrator hint through (WP-7)', () => {
+    h.ipc.invoke(APP_CHANNELS.profileEditorOpen, PANEL_ID, { providerId: 'codex' })
+    // Blank is absent, not a provider id: a hint nobody sent must not become
+    // an empty orchestrator on the new profile.
+    h.ipc.invoke(APP_CHANNELS.profileEditorOpen, PANEL_ID, { providerId: '' })
+    h.ipc.invoke(APP_CHANNELS.profileEditorOpen, PANEL_ID, 'p1')
+    expect(h.opened).toEqual([undefined, undefined, 'p1'])
+    expect(h.openedHints).toEqual(['codex', undefined, undefined])
   })
 
   it('lets only an editor close an editor', () => {
@@ -1053,8 +1503,90 @@ describe('settings:set', () => {
       'theme',
       'locale',
       'appearance',
-      'reflowNeighbors'
+      'reflowNeighbors',
+      'voice',
+      'agentPolicy',
+      'onboardingDismissed',
+      'mcpServers'
     ])
+  })
+
+  it('round-trips extra MCP servers and rejects a reserved id', async () => {
+    const servers = [
+      {
+        id: 'github',
+        label: 'GitHub',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: [] as string[],
+        enabled: true
+      }
+    ]
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'mcpServers',
+      value: servers
+    })) as PanelSettings
+    expect(next.mcpServers).toEqual(servers)
+    expect(h.store.settings.mcpServers).toEqual(servers)
+    expect(h.broadcasts.some((entry) => entry.channel === APP_CHANNELS.eventSettings)).toBe(true)
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+        key: 'mcpServers',
+        value: [{ id: 'vertragus', label: 'Nope', transport: 'stdio', command: 'npx' }]
+      })
+    ).rejects.toThrow(/reserved/)
+
+    for (const sender of [CLI_ID, EDITOR_ID]) {
+      expect(() =>
+        h.ipc.invoke(APP_CHANNELS.settingsSet, sender, { key: 'mcpServers', value: [] })
+      ).toThrow(/not the panel or the settings window/)
+    }
+  })
+
+  it('accepts a partial voice write and never puts the raw api key on PanelSettings', async () => {
+    h.store.settings.voice.apiKey = 'xai-secret'
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'voice',
+      value: { enabled: true, wakePhrase: 'Hey Grok' }
+    })) as PanelSettings
+
+    expect(h.store.settings.voice).toMatchObject({
+      enabled: true,
+      wakePhrase: 'Hey Grok',
+      apiKey: 'xai-secret',
+      voiceId: 'eve'
+    })
+    expect(next.voiceEnabled).toBe(true)
+    expect(next.voiceWakePhrase).toBe('Hey Grok')
+    expect(next.voiceVoiceId).toBe('eve')
+    expect(next.voiceApiKeySet).toBe(true)
+    expect(next).not.toHaveProperty('apiKey')
+    expect(JSON.stringify(next)).not.toContain('xai-secret')
+  })
+
+  it('leaves the stored api key unchanged when the write sends an empty string', async () => {
+    h.store.settings.voice.apiKey = 'xai-keep-me'
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'voice',
+      value: { apiKey: '' }
+    })) as PanelSettings
+
+    expect(h.store.settings.voice.apiKey).toBe('xai-keep-me')
+    expect(next.voiceApiKeySet).toBe(true)
+    expect(JSON.stringify(next)).not.toContain('xai-keep-me')
+  })
+
+  it('replaces the stored api key when the write sends a non-empty string', async () => {
+    h.store.settings.voice.apiKey = 'xai-old'
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'voice',
+      value: { apiKey: 'xai-new' }
+    })) as PanelSettings
+
+    expect(h.store.settings.voice.apiKey).toBe('xai-new')
+    expect(next.voiceApiKeySet).toBe(true)
+    expect(JSON.stringify(next)).not.toContain('xai-new')
   })
 
   it('takes a new hotkey immediately instead of at the next boot', async () => {
@@ -1146,7 +1678,8 @@ describe('settings:set', () => {
       theme: 'light',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
-      reflowNeighbors: true
+      reflowNeighbors: true,
+      onboardingDismissed: false
     })
   })
 
@@ -1169,6 +1702,28 @@ describe('settings:set', () => {
       h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'reflowNeighbors', value: 'ja' })
     ).rejects.toThrow(/expects a boolean/)
     expect(h.store.settings.ui.reflowNeighbors).toBe(true)
+  })
+
+  it('lets the panel close the first-run card for good (WP-7)', async () => {
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, PANEL_ID, {
+      key: 'onboardingDismissed',
+      value: true
+    })) as PanelSettings
+
+    expect(next.onboardingDismissed).toBe(true)
+    // Patched into `ui`, not written over it: theme and locale survive.
+    expect(h.store.settings.ui).toMatchObject({ theme: 'dark', locale: 'de' })
+    // Every window learns about it in the same tick, like any other setting.
+    expect(h.broadcasts.map((entry) => entry.channel)).toContain(APP_CHANNELS.eventSettings)
+  })
+
+  it('refuses a dismiss payload that is not a boolean', async () => {
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+        key: 'onboardingDismissed',
+        value: 'ja'
+      })
+    ).rejects.toThrow(/expects a boolean/)
   })
 })
 
@@ -1269,17 +1824,101 @@ describe('quitting the app', () => {
   })
 })
 
+describe('voice IPC', () => {
+  function voicePort(): {
+    status: ReturnType<typeof vi.fn>
+    setEnabled: ReturnType<typeof vi.fn>
+    pushPcm: ReturnType<typeof vi.fn>
+  } {
+    return {
+      status: vi.fn(() => ({ phase: 'listening', enabled: true })),
+      setEnabled: vi.fn(async () => undefined),
+      pushPcm: vi.fn()
+    }
+  }
+
+  it('reports idle from the store when no runtime is wired', () => {
+    expect(h.ipc.invoke(APP_CHANNELS.voiceStatus, PANEL_ID)).toEqual({
+      phase: 'idle',
+      enabled: false
+    })
+  })
+
+  it('persists setEnabled and starts the optional runtime', async () => {
+    const voice = voicePort()
+    const live = harness({ voice })
+    const status = await live.ipc.invoke(APP_CHANNELS.voiceSetEnabled, PANEL_ID, { enabled: true })
+    expect(live.store.settings.voice.enabled).toBe(true)
+    expect(voice.setEnabled).toHaveBeenCalledWith(true)
+    expect(status).toEqual({ phase: 'listening', enabled: true })
+    const pushed = live.broadcasts.filter((entry) => entry.channel === APP_CHANNELS.eventSettings)
+    expect((pushed.at(-1)?.payload as PanelSettings).voiceEnabled).toBe(true)
+    expect(JSON.stringify(pushed.at(-1)?.payload)).not.toMatch(/apiKey/)
+  })
+
+  it('forwards panel PCM to the runtime and ignores a CLI sender', () => {
+    const voice = voicePort()
+    const live = harness({ voice })
+    const pcm = new Int16Array([1, 2, 3, 4])
+    live.ipc.send(APP_CHANNELS.voicePcm, PANEL_ID, pcm)
+    expect(voice.pushPcm).toHaveBeenCalledTimes(1)
+    expect(voice.pushPcm.mock.calls[0]![0]).toEqual(pcm)
+
+    live.ipc.send(APP_CHANNELS.voicePcm, CLI_ID, new Int16Array([9]))
+    expect(voice.pushPcm).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects voice invokes from a CLI window', () => {
+    expect(() => h.ipc.invoke(APP_CHANNELS.voiceStatus, CLI_ID)).toThrow(/not the panel window/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.voiceSetEnabled, CLI_ID, { enabled: true })
+    ).toThrow(/not the panel window/)
+    expect(h.store.settings.voice.enabled).toBe(false)
+  })
+
+  it('rejects a settings window on the panel-only voice channels', () => {
+    expect(() => h.ipc.invoke(APP_CHANNELS.voiceStatus, SETTINGS_ID)).toThrow(/not the panel window/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.voiceSetEnabled, SETTINGS_ID, { enabled: true })
+    ).toThrow(/not the panel window/)
+  })
+
+  it('recreates the runtime after a voice or locale write while enabled', async () => {
+    const voice = voicePort()
+    const live = harness({ voice })
+    live.store.settings.voice.enabled = true
+    await live.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'voice',
+      value: { wakePhrase: 'Hey Grok' }
+    })
+    expect(voice.setEnabled).toHaveBeenCalledWith(true)
+
+    await live.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'locale',
+      value: 'en'
+    })
+    expect(voice.setEnabled).toHaveBeenCalledTimes(2)
+    expect(voice.setEnabled).toHaveBeenLastCalledWith(true)
+  })
+})
+
 describe('sender authorization', () => {
   const panelOnly = [
     APP_CHANNELS.workspacesList,
     APP_CHANNELS.workspacesStart,
+    APP_CHANNELS.workspacesSendToOrchestrator,
+    APP_CHANNELS.workspacesGoal,
     APP_CHANNELS.workspacesStop,
+    APP_CHANNELS.workspacesSucceedOrchestrator,
     APP_CHANNELS.workspacesFocusAgent,
     APP_CHANNELS.workspacesFocus,
+    APP_CHANNELS.workspacesCloseAgent,
     APP_CHANNELS.settingsYolo,
     APP_CHANNELS.windowsHideAll,
     APP_CHANNELS.windowsMinimizePanel,
-    APP_CHANNELS.appQuit
+    APP_CHANNELS.appQuit,
+    APP_CHANNELS.voiceStatus,
+    APP_CHANNELS.voiceSetEnabled
   ]
   const appWindows = [
     APP_CHANNELS.profilesList,
@@ -1352,6 +1991,8 @@ describe('zones', () => {
     expect(payload.locale).toBe('de')
     expect(payload.theme).toBe('dark')
     expect(payload.reflowNeighbors).toBe(true)
+    expect(payload.selectingDisplay).toBe(false)
+    expect(payload.displays.map((display) => display.id)).toEqual([11, 22])
   })
 
   it('saves the layout of every overlay, not just the one that clicked save', () => {
@@ -1368,6 +2009,7 @@ describe('zones', () => {
       { roleId: 'worker', displayId: 11, rect: rel(0.5, 0, 0.5, 1) },
       { roleId: 'reviewer', displayId: 22, rect: rel(0, 0, 0.5, 1) }
     ])
+    expect(saved.zones?.targetDisplayId).toBe(11)
     expect(h.zonesClosed).toBe(1)
     expect(h.broadcasts.at(-1)?.channel).toBe(APP_CHANNELS.eventProfiles)
   })
@@ -1423,11 +2065,15 @@ describe('zones', () => {
       expect(() =>
         h.ipc.invoke(APP_CHANNELS.zonesSave, sender, { profileId: 'p1', zones: [] })
       ).toThrow(/not a zone overlay window/)
+      expect(() =>
+        h.ipc.invoke(APP_CHANNELS.zonesPickDisplay, sender, { displayId: 11 })
+      ).toThrow(/not a zone overlay window/)
     }
     // The fire-and-forget channels ignore strangers instead of throwing.
     h.ipc.send(APP_CHANNELS.zonesDraft, CLI_ID, { zones: [] })
     h.ipc.send(APP_CHANNELS.zonesCancel, CLI_ID)
     expect(h.zonesClosed).toBe(0)
+    expect(h.pickedDisplays).toEqual([])
     expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones).toBeUndefined()
   })
 
@@ -1485,6 +2131,29 @@ describe('zones', () => {
     expect(() =>
       h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_A_ID, { profileId: 'p1', zones: 42 })
     ).toThrow(/expected an array of zones/)
+  })
+
+  it('pins the profile to the chosen screen and returns the editor payload', () => {
+    const payload = h.ipc.invoke(APP_CHANNELS.zonesPickDisplay, OVERLAY_A_ID, {
+      displayId: 22
+    }) as ZoneEditorPayload
+
+    expect(h.pickedDisplays).toEqual([22])
+    expect(payload.displayId).toBe(22)
+    expect(payload.selectingDisplay).toBe(false)
+    expect(payload.roles.map((role) => role.roleId)).toEqual(['orchestrator', 'worker'])
+    expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones?.targetDisplayId).toBe(
+      22
+    )
+    expect(h.broadcasts.at(-1)?.channel).toBe(APP_CHANNELS.eventProfiles)
+  })
+
+  it('refuses a pick for a display that is not attached', () => {
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.zonesPickDisplay, OVERLAY_A_ID, { displayId: 99 })
+    ).toThrow(/unknown display/)
+    expect(h.pickedDisplays).toEqual([])
+    expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones).toBeUndefined()
   })
 })
 
@@ -1568,7 +2237,7 @@ describe('production registration', () => {
   it('opens the profile editor for a gear click from the panel', () => {
     registerAppIpc()
     invokeRegistered(APP_CHANNELS.profileEditorOpen, PANEL_ID, { profileId: 'p1' })
-    expect(openProfileEditorWindow).toHaveBeenCalledWith('p1')
+    expect(openProfileEditorWindow).toHaveBeenCalledWith('p1', undefined)
   })
 
   it('registers every channel exactly once', () => {
@@ -1581,8 +2250,17 @@ describe('production registration', () => {
     const real: WorkspaceDirectory = {
       list: () => [workspace('w1')],
       start: vi.fn(),
+      assignGoal: vi.fn(async () => {}),
+      resume: vi.fn(),
       stop: vi.fn(),
+      sendToOrchestrator: vi.fn(),
+      succeedOrchestrator: vi.fn(),
+      answerQuestion: vi.fn(async () => {}),
+      postUserMessage: vi.fn(),
+      promoteAgentBranch: vi.fn(async () => {}),
+      openRunFolder: vi.fn(async () => {}),
       focusAgent: vi.fn(),
+      closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
       listStaleWorktrees: vi.fn(async () => []),
       removeWorktree: vi.fn(async () => [])
@@ -1590,8 +2268,17 @@ describe('production registration', () => {
     const second: WorkspaceDirectory = {
       list: () => [],
       start: vi.fn(),
+      assignGoal: vi.fn(async () => {}),
+      resume: vi.fn(),
       stop: vi.fn(),
+      sendToOrchestrator: vi.fn(),
+      succeedOrchestrator: vi.fn(),
+      answerQuestion: vi.fn(async () => {}),
+      postUserMessage: vi.fn(),
+      promoteAgentBranch: vi.fn(async () => {}),
+      openRunFolder: vi.fn(async () => {}),
       focusAgent: vi.fn(),
+      closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
       listStaleWorktrees: vi.fn(async () => []),
       removeWorktree: vi.fn(async () => [])
@@ -1610,18 +2297,58 @@ describe('production registration', () => {
   })
 })
 
+/**
+ * The panel is the only surface a boot failure can reach. `console.error` is
+ * not one — nobody opens a devtools console to find out why Play did nothing.
+ */
+describe('stub workspace directory', () => {
+  it('names the boot failure instead of blaming an unfinished feature', () => {
+    const stub = createStubWorkspaceDirectory(() => 'en', 'listen EADDRINUSE :::9481')
+    expect(() => stub.start('p1')).toThrow(
+      'The workspace manager could not start — no agents can be launched: listen EADDRINUSE :::9481'
+    )
+    // Every workspace channel, not just Play: Resume is the likelier first click.
+    expect(() => stub.resume('p1')).toThrow(/listen EADDRINUSE/)
+    expect(() => stub.stop('w1')).toThrow(/listen EADDRINUSE/)
+  })
+
+  it('speaks the stored locale — the reason rides along in the CLI’s own words', () => {
+    const stub = createStubWorkspaceDirectory(() => 'de', 'spawn claude ENOENT')
+    expect(() => stub.start('p1')).toThrow(
+      'Workspace-Manager konnte nicht starten — Agenten lassen sich nicht anlegen: spawn claude ENOENT'
+    )
+  })
+
+  /** Without a recorded reason there is nothing honest to add. */
+  it('falls back to the plain refusal when no boot error was recorded', () => {
+    expect(() => createStubWorkspaceDirectory(() => 'en').start('p1')).toThrow(
+      'The workspace manager is not wired up yet.'
+    )
+  })
+
+  /** The refusals are the point; the read-only halves must stay usable. */
+  it('still lists nothing and still focuses a CLI window', () => {
+    const stub = createStubWorkspaceDirectory(() => 'en', 'boom')
+    expect(stub.list()).toEqual([])
+    expect(() => stub.focusWorkspace('w1')).not.toThrow()
+  })
+})
+
 describe('preload parity', () => {
   it('uses exactly the channel names main registers', () => {
     const source = readFileSync(join(__dirname, '../preload/index.ts'), 'utf8')
-    for (const channel of Object.values(APP_CHANNELS)) {
+    // The remote-access channels are registered separately (main/remote/ipc.ts)
+    // but still cross this bridge, so they count toward parity too.
+    const expected = new Set([...Object.values(APP_CHANNELS), ...Object.values(REMOTE_CHANNELS)])
+    for (const channel of expected) {
       expect(source).toContain(`'${channel}'`)
     }
     const found = [
       ...source.matchAll(
-        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|ev):[a-zA-Z]+)'/g
+        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|remote|voice|ev):[a-zA-Z]+)'/g
       )
     ].map((match) => match[1])
-    expect(new Set(found)).toEqual(new Set(Object.values(APP_CHANNELS)))
+    expect(new Set(found)).toEqual(expected)
   })
 
   it('keeps the workspace payload type identical on both sides of the bridge', () => {
@@ -1631,5 +2358,16 @@ describe('preload parity', () => {
     const toPreload: PreloadWorkspaceSummary = fromMain
     const backAgain: WorkspaceSummary = toPreload
     expect(backAgain).toBe(fromMain)
+  })
+})
+
+describe('agentCurrentTaskFields', () => {
+  it('fills taskText and statusText from one current-task note', () => {
+    expect(agentCurrentTaskFields('Fix the parser')).toEqual({
+      taskText: 'Fix the parser',
+      statusText: 'Fix the parser'
+    })
+    expect(agentCurrentTaskFields(undefined)).toEqual({})
+    expect(agentCurrentTaskFields('   ')).toEqual({})
   })
 })

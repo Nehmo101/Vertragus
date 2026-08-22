@@ -1,0 +1,540 @@
+/*
+ * Vertragus remote client — SHELL sheet: brand tokens, base typography,
+ * the app frame (header, safe areas, keyboard inset) and the pairing /
+ * error screens. Card, agent and terminal styling live next to the
+ * components that own them (`overview.css`, `terminal.css`).
+ *
+ * Scroll lives on the DOCUMENT, not a nested overflow box. iOS Safari will
+ * not reliably pan an inner `overflow-y: auto` flex child; 100% height plus
+ * nowrap ellipsis on the goal was why the old client felt unreadable and
+ * "did not scroll".
+ *
+ * The tokens below are the single definition for the whole client — the other
+ * two sheets consume them and never redefine them. Colours are chosen for a
+ * phone held outdoors, not for a monitor: every pairing used for text clears
+ * WCAG AA (4.5:1) against every surface it can land on, and every pairing used
+ * for a dot, a badge fill or a state border clears the 3:1 bar for non-text
+ * UI. The comment on each fixed value records what it was and why it moved.
+ *
+ * A ratio is a property of a PAIR, so each token says what it may be paired
+ * with. The accent is two tokens for that reason and they are not
+ * interchangeable:
+ *   --bronze         a FILL. Light enough on both themes to carry --on-bronze
+ *                    as its text (the `.primary` button). Nothing draws text
+ *                    or a state border IN it on a light ground — at 3.09:1 on
+ *                    --bg it is below every bar that matters there.
+ *   --bronze-strong  the accent as INK: a glyph, a label, a state stripe.
+ *                    Clears 4.5:1 on --bg, --surface and --surface-2 in both
+ *                    themes, which also clears the 3:1 graphical bar. On dark
+ *                    that is plain --bronze; on light it has to go darker,
+ *                    because on a light ground more emphasis means darker.
+ *
+ * `--vv-height`, `--keyboard-inset` and `--vv-offset-top` are declared here as
+ * fallbacks only; `useVisualViewport.ts` owns them at runtime and documents
+ * their contract. The fallbacks below are the answer for a browser with no
+ * `visualViewport` — and for the first paint, before the hook's effect runs —
+ * where the visible viewport IS the layout viewport: no shift, no keyboard
+ * inset, full dynamic height. `terminal.css` consumes all three.
+ */
+
+@font-face {
+  font-family: 'Caprasimo';
+  src: url('../renderer/src/assets/fonts/caprasimo-latin.woff2') format('woff2');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Caprasimo';
+  src: url('../renderer/src/assets/fonts/caprasimo-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-024F;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Figtree';
+  src: url('../renderer/src/assets/fonts/figtree-latin.woff2') format('woff2');
+  font-weight: 300 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Figtree';
+  src: url('../renderer/src/assets/fonts/figtree-latin-ext.woff2') format('woff2');
+  font-weight: 300 900;
+  unicode-range: U+0100-024F;
+  font-display: swap;
+}
+/*
+ * The mono face is loaded here and NAMED in `RemoteTerminal.tsx`, and there is
+ * deliberately no `--font-mono` token: its only would-be consumer is xterm's
+ * `fontFamily` option, and xterm renders into a canvas that no CSS rule can
+ * reach. A token nothing can read is the `--bronze-bright` defect — the same
+ * list written twice in two languages, free to drift — so the stack is stated
+ * once, on the side that can act on it.
+ */
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('../renderer/src/assets/fonts/jetbrains-mono-latin.woff2') format('woff2');
+  font-weight: 100 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('../renderer/src/assets/fonts/jetbrains-mono-latin-ext.woff2') format('woff2');
+  font-weight: 100 800;
+  unicode-range: U+0100-024F;
+  font-display: swap;
+}
+
+:root,
+:root[data-theme='dark'] {
+  --font-heading: 'Caprasimo', Georgia, serif;
+  --font-body: 'Figtree', system-ui, -apple-system, sans-serif;
+  --text: #eae6db;
+  --text-2: #c4c0b4;
+  /* was #9a968b — 5.40:1 on --surface-2, legal but thin in sunlight. */
+  --text-3: #adaa9e;
+  --bronze: #cba35a;
+  /* Ink-grade accent. Here it IS --bronze: 8.10:1 on --bg, 7.48:1 on
+     --surface, 6.78:1 on --surface-2 — nothing to fix on a dark ground. */
+  --bronze-strong: var(--bronze);
+  --on-bronze: #1d1a12;
+  --verdigris: #2f7d6d;
+  --verdigris-bright: #3e9d82;
+  --verdigris-text: #8fd0ba;
+  --warn: #f5a524;
+  /* The warn hue as a FILL THAT CARRIES INK — the mirror of --bronze-strong,
+     which is the accent as ink. --warn itself is contracted to clear 3:1 as a
+     status dot, which in the light theme leaves --on-bronze on it at 3.91:1:
+     legal for a shape, short of AA for the glyph the `?` badge actually draws.
+     Dark has no such problem, so the token aliases there. */
+  --warn-fill: var(--warn);
+  --warn-text: #f7c96b;
+  --err: #d9735c;
+  --err-text: #f0a08c;
+  /* was #8c8069 — 4.10:1 on --surface-2, only just past the 3:1 dot bar. */
+  --idle: #988c73;
+  --bg: #0e1013;
+  --surface: #16191f;
+  --surface-2: #1e222a;
+  --hairline: rgba(234, 230, 219, 0.12);
+  /* Derived, not respelled: the same colour written out as rgba() three times
+     per theme is three places to forget when --bronze moves. Numerically
+     identical to the rgba() literals these replace. Both themes share these
+     two declarations — `var(--bronze)` resolves against whichever --bronze
+     won the cascade on :root, so the light block needs no copies. */
+  --accent-soft: color-mix(in srgb, var(--bronze) 14%, transparent);
+  --accent-line: color-mix(in srgb, var(--bronze) 45%, transparent);
+  /* A fingertip does not scale with the type size, so this stays in px. */
+  --touch: 44px;
+  --keyboard-inset: 0px;
+  --vv-height: 100dvh;
+  --vv-offset-top: 0px;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --text: #1d1a12;
+  --text-2: #3f3b32;
+  /* was #5c584e — 5.96:1 on --surface-2; the same sunlight margin as dark. */
+  --text-3: #4c483f;
+  /* Stays, as a FILL only: --on-bronze on it is 4.99:1, so the `.primary`
+     button keeps its AA. It is NOT ink here — 3.09:1 on --bg, 2.93:1 on
+     --surface-2 — and the three places that used it as ink (the armed pull
+     indicator, the expanded terminal icon button, the ready task stripe) take
+     --bronze-strong instead. */
+  --bronze: #a8843d;
+  /* was --bronze-bright #8a6b2c, which no element consumed and which measured
+     4.41:1 on --bg / 4.18:1 on --surface-2 — under AA had anything used it.
+     This clears 5.16:1 on --bg, 5.68:1 on --surface, 4.89:1 on --surface-2,
+     so it is legal as text and comfortably past 3:1 as a stripe or a glyph. */
+  --bronze-strong: #7d6126;
+  --on-bronze: #1d1a12;
+  --verdigris: #2a6b5e;
+  --verdigris-bright: #348574;
+  --verdigris-text: #1f5a4e;
+  /* was #c47d10 — 2.81:1 on --surface-2, under the 3:1 bar for a status dot. */
+  --warn: #a86a08;
+  /* 4.70:1 under --on-bronze, and still 3.11:1 on --surface-2 and 3.61:1 on
+     --surface, so the badge stays legal as a shape as well as a glyph. The
+     window is narrow: AA under near-black ink wants luminance >= 0.222, and
+     3:1 against --surface-2 allows at most 0.244. This sits at 0.234. */
+  --warn-fill: #b8770f;
+  /* was #9a6208 — 4.28:1 on --surface-2, under AA for the text it carries. */
+  --warn-text: #8c5806;
+  /* was #c45a45 — 3.61:1 on --surface-2. */
+  --err: #b64c37;
+  /* was #a84838 — 5.10:1 on --bg, but `.stop.is-confirm` puts it on
+     color-mix(--err 22%, transparent) over --surface-2, i.e. #e2c8bc, where it
+     measured 3.62:1. Contrast is a property of the pair, and that pair was the
+     one nobody looked at. Now 4.78:1 on that fill, 6.73:1 on --bg, 7.41:1 on
+     --surface, 6.38:1 on --surface-2. */
+  --err-text: #8e3928;
+  /* was #7a6f5a — 4.15:1 on --surface-2. */
+  --idle: #6f6550;
+  --bg: #f4f1ea;
+  --surface: #fffcf6;
+  --surface-2: #efebe2;
+  --hairline: rgba(29, 26, 18, 0.14);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  /* Never let iOS inflate text on rotation; the layout is already fluid. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* The viewport is the only scroller: the terminal's fixed overlay and the
+     sticky header both depend on that, and iOS pans it reliably. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  /* Kills the browser's own pull-to-refresh and the rubber-band chain, so a
+     flick at the top of the list cannot reload the page mid-run. */
+  overscroll-behavior-y: contain;
+  /* No layout jump on a desktop browser when the list outgrows the viewport. */
+  scrollbar-gutter: stable;
+  /* The interactive elements below opt back in to a visible tap flash; the
+     page itself flashing grey on every scroll start is what reads as "web
+     page". */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * `clip` rather than `hidden` where it exists: `hidden` makes the element a
+ * scroll container, and that is what silently disables a sticky header. For
+ * the same reason `body` carries no overflow of its own at all — with a
+ * non-visible overflow on `html`, the body's own value would apply to the
+ * body box and make *it* the scrollport the sticky header resolves against,
+ * one that never scrolls.
+ */
+@supports (overflow: clip) {
+  html {
+    overflow-x: clip;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  /* In rem, so the phone's own text-size setting scales the whole client.
+     17px at the default root size. */
+  font-size: 1.0625rem;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100%;
+  min-height: 100dvh;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--bronze) 32%, transparent);
+  color: var(--text);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  /*
+   * No 300 ms double-tap wait, and no double-tap zoom on a control. This does
+   * not undo the stricter `touch-action` the terminal's rows declare: the
+   * behaviour for a touch is the INTERSECTION of `touch-action` down the
+   * ancestor chain, so a `pan-x` bar containing a `manipulation` button still
+   * refuses a vertical pan. Only a value *wider* than an ancestor's would be
+   * ignored, and `manipulation` is the widest thing worth writing here.
+   */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: color-mix(in srgb, var(--bronze) 18%, transparent);
+  accent-color: var(--bronze);
+}
+
+button {
+  cursor: pointer;
+  /* A long press on a control should act, not offer to copy its label or drag
+     it out as a link. Text and terminal output keep the callout. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+select,
+textarea {
+  /* iOS zooms any focused field under 16px; `max` keeps that floor while the
+     phone's larger text sizes still come through. */
+  font-size: max(16px, 1.0625rem);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 3.2em;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible {
+  /* Derived from the token, so the light theme gets its own bronze instead of
+     the dark one hard-coded. */
+  outline: 2px solid color-mix(in srgb, var(--bronze) 70%, transparent);
+  outline-offset: 1px;
+}
+
+/* Both pulses derive their colour from the tokens so the light theme does not
+   inherit the dark theme's glow. */
+@keyframes vg-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--verdigris-bright) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@keyframes vg-pulse-bronze {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--bronze) 50%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/*
+ * Reduced motion, the whole client. Not `animation: none`: that drops an
+ * animation's end state as well, so anything that fades or slides *in* would
+ * stay at its start value and simply never appear. Collapsing the durations
+ * keeps every end state and removes the movement, which is what the setting
+ * asks for. `scroll-behavior` has to be named explicitly — a smooth
+ * programmatic scroll is motion too.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * "Increase Contrast" on the phone. Only the tokens the eye reads as grey
+ * move, plus the hairlines, which are the first thing to disappear outdoors.
+ * Both selectors are repeated because the base light block outweighs a bare
+ * `:root` here.
+ */
+@media (prefers-contrast: more) {
+  :root,
+  :root[data-theme='dark'] {
+    --text-2: #ded9cd;
+    --text-3: #c8c4b8;
+    --hairline: rgba(234, 230, 219, 0.34);
+  }
+
+  :root[data-theme='light'] {
+    --text-2: #2a2720;
+    --text-3: #35322b;
+    --hairline: rgba(29, 26, 18, 0.38);
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus,
+  button:focus-visible {
+    outline-width: 3px;
+    outline-color: var(--bronze);
+  }
+}
+
+/* --- centered (pairing / error) --- */
+.centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  /* The horizontal insets are zero in portrait and the notch/rounded corner in
+     landscape, where a flat 24px would put the text under the cut-out. */
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+}
+.centered-inner {
+  max-width: 22rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.centered h1 {
+  font-family: var(--font-heading);
+  font-size: 1.55rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  margin: 8px 0 0;
+}
+.centered p {
+  color: var(--text-2);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.primary {
+  margin-top: 8px;
+  min-height: var(--touch);
+  padding: 12px 20px;
+  border: none;
+  border-radius: 12px;
+  background: var(--bronze);
+  color: var(--on-bronze);
+  font-weight: 600;
+  transition: transform 90ms ease-out;
+}
+/* A press has to answer instantly: over Tailscale the round-trip does not. */
+.primary:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* --- app shell --- */
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  /* `max`, not a sum: the keyboard already covers the home-indicator strip, so
+     adding both insets pushes the last row needlessly far up the screen. */
+  padding-bottom: calc(24px + max(env(safe-area-inset-bottom), var(--keyboard-inset)));
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/*
+ * `backdrop-filter` makes this a stacking context *and* a containing block for
+ * fixed descendants. That is safe here only because the terminal is a sibling
+ * of `.app`, never a descendant of this header: App.tsx renders `.app` and
+ * `<RemoteTerminal>` side by side under one fragment — the shell stays mounted
+ * and merely goes `visibility: hidden` — so `.terminal-view`'s
+ * `position: fixed` resolves against the viewport, which is what
+ * `--vv-offset-top` / `--vv-height` assume. Nesting a fixed overlay under this
+ * header, or giving `.app` a filter or transform of its own, would silently
+ * trap it and break both.
+ */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: max(10px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 12px
+    max(14px, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(16px) saturate(1.1);
+}
+
+/* Without the blur the header would be see-through over scrolling content. */
+@supports not (backdrop-filter: blur(1px)) {
+  .app-header {
+    background: var(--surface);
+  }
+}
+
+.brand-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.brand {
+  font-family: var(--font-heading);
+  font-size: 1.05rem;
+  letter-spacing: 0.14em;
+  font-weight: 400;
+}
+
+/*
+ * The connection pill is the one thing on this screen that has to be readable
+ * at arm's length in sunlight, so it carries a border as well as a fill: a
+ * tinted background alone disappears behind a reflection.
+ */
+.conn {
+  font-size: 0.78rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: var(--surface-2);
+  color: var(--text-3);
+  width: max-content;
+}
+.conn.ok {
+  color: var(--verdigris-text);
+  border-color: color-mix(in srgb, var(--verdigris-text) 40%, transparent);
+}
+/* `api.online === false`: not reconnecting, waiting for a network at all. */
+.conn.off {
+  color: var(--warn-text);
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+}
+
+/* `inline-flex` so the min touch box actually centres its glyph rather than
+   leaving it on the text baseline of a 44px-tall button. */
+.ghost {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch);
+  min-height: var(--touch);
+  border-radius: 12px;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  font-size: 1.25rem;
+}
+
+.ghost-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch);
+  padding: 0 10px;
+  border-radius: 12px;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  font-size: 0.9rem;
+}
+
+.ghost:active,
+.ghost-inline:active {
+  background: var(--accent-soft);
+}
+
+/* --- shared form feedback --- */
+.form-error {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--err-text);
+  overflow-wrap: anywhere;
+}

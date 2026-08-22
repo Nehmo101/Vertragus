@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { Field, SwitchField } from '../profileEditor/fields'
 import { normalizeProviderId } from '@shared/schema/provider'
 import type { McpAttach, ModelDiscovery, SystemPromptDelivery } from '@shared/schema/provider'
-import { type EffortStyleChoice, type ProviderDraft } from './model'
+import { versionDrift, type EffortStyleChoice, type ProviderDraft } from './model'
 import { useProviderEditor } from './useProviderEditor'
 import '../profileEditor/profileEditor.css'
 import './providerEditor.css'
@@ -92,6 +92,21 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
             {editor.health.error ?? editor.health.detail ?? t('providerEditor.errors.command')}
           </p>
         ) : null}
+
+        {(() => {
+          // A hint, never an error: the launch flags were verified against one
+          // CLI version, the health probe reports another. Nothing is blocked.
+          const drift = versionDrift(draft.presetId, editor.health?.version)
+          return drift ? (
+            <p className="pe-hint pv-drift">
+              {t('providerEditor.verifiedDrift', {
+                verified: drift.verified,
+                installed: drift.installed
+              })}{' '}
+              {t('providerEditor.verifiedOn', { date: drift.verifiedAt })}
+            </p>
+          ) : null
+        })()}
 
         {/* --- identity --- */}
         <section className="pv-section">
@@ -285,6 +300,8 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
                 <option value="claude-json">{t('providerEditor.mcpKindClaudeJson')}</option>
                 <option value="codex-overrides">{t('providerEditor.mcpKindCodexOverrides')}</option>
                 <option value="kimi-project">{t('providerEditor.mcpKindKimiProject')}</option>
+                <option value="cursor-project">{t('providerEditor.mcpKindCursorProject')}</option>
+                <option value="grok-project">{t('providerEditor.mcpKindGrokProject')}</option>
                 <option value="none">{t('providerEditor.mcpKindNone')}</option>
               </select>
             </Field>
@@ -314,7 +331,11 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
                   ? t('providerEditor.mcpCodexHint')
                   : draft.mcpKind === 'kimi-project'
                     ? t('providerEditor.mcpKimiHint')
-                    : t('providerEditor.mcpNoneHint')}
+                    : draft.mcpKind === 'cursor-project'
+                      ? t('providerEditor.mcpCursorHint')
+                      : draft.mcpKind === 'grok-project'
+                        ? t('providerEditor.mcpGrokHint')
+                        : t('providerEditor.mcpNoneHint')}
               </p>
             )}
           </div>

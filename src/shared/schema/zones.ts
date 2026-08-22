@@ -41,7 +41,16 @@ export type Zone = z.infer<typeof zoneSchema>
 
 export const zoneLayoutSchema = z
   .object({
-    zones: z.array(zoneSchema).max(MAX_ZONES).default([])
+    zones: z.array(zoneSchema).max(MAX_ZONES).default([]),
+    /**
+     * Electron `Display.id` of the screen Vertragus windows live on.
+     *
+     * Drawn zones still pin themselves to a display, but auto-tiling and the
+     * overlay editor need a single answer to "which monitor is this profile
+     * on?" when several are attached. Absent = every attached display (the
+     * historical auto-tile-across-all-monitors behaviour).
+     */
+    targetDisplayId: z.number().int().optional()
   })
   .strict()
 export type ZoneLayout = z.infer<typeof zoneLayoutSchema>

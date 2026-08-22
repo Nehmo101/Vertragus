@@ -30,6 +30,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import Store from 'electron-store'
 import { z } from 'zod'
+import { AGENT_POLICIES, type AgentPolicy } from '@shared/agentPolicy'
 import { normalizeAppearance } from '@shared/appearance'
 import {
   parseProfiles,
@@ -39,6 +40,12 @@ import {
   type RoleTemplate
 } from '@shared/schema/profile'
 import {
+  extraMcpServerSchema,
+  parseExtraMcpServers,
+  parseExtraMcpServersForWrite,
+  type ExtraMcpServer
+} from '@shared/schema/mcpServer'
+import {
   mergeProviderConfigs,
   modelMemorySchema,
   parseProviderConfigs,
@@ -46,12 +53,16 @@ import {
   type ProviderConfig
 } from '@shared/schema/provider'
 import {
+  MAX_REPO_NOTES_PER_PROFILE,
   MAX_RUN_RETROS,
   modelLearningSchema,
   parseModelLearnings,
+  parseRepoNotes,
   parseRunRetros,
+  repoNoteSchema,
   runRetroSchema,
   type ModelLearning,
+  type RepoNote,
   type RunRetro
 } from '@shared/schema/retro'
 import { providerPresets } from '@main/providers/presets'
@@ -98,16 +109,68 @@ export const uiSettingsSchema = z
     locale: z.enum(['de', 'en']).default('de'),
     appearance: appearanceSchema,
     /** When a window or zone is moved, neighbors shrink and fill the gap. */
-    reflowNeighbors: z.boolean().default(true)
+    reflowNeighbors: z.boolean().default(true),
+    /**
+     * WP-7: the user closed the first-run card. NOT the card's trigger — that
+     * stays "there is no profile yet", which is true again after a reinstall
+     * and needs nothing persisted. This flag only records the one thing the
+     * trigger cannot know: that somebody looked at the card and would rather
+     * find their own way. Defaulting to false means an install from before it
+     * existed reads as "never dismissed", which is the truth.
+     */
+    onboardingDismissed: z.boolean().default(false)
   })
   .strict()
 export type UiSettings = z.infer<typeof uiSettingsSchema>
 
+/**
+ * Voice assistant. Off until the user turns it on — a mic that listens on
+ * first boot is a surprise, not a feature. The API key lives here; it never
+ * rides on PanelSettings / `ev:settings`.
+ */
+export const voiceSettingsSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    wakePhrase: z.string().trim().min(1).max(80).default('Hey Vertragus'),
+    apiKey: z.string().max(200).default(''),
+    voiceId: z.string().trim().min(1).max(40).default('eve')
+  })
+  .strict()
+export type VoiceSettings = z.infer<typeof voiceSettingsSchema>
+
+/**
+ * Remote access — opt-in, off by default. `bindAddress` empty means "the
+ * auto-detected Tailscale address"; a concrete address (a LAN IP, or
+ * `0.0.0.0`) is a deliberate override set in the settings window. The pairing
+ * token is stored ENCRYPTED (Electron `safeStorage`, base64) because
+ * electron-store is plaintext JSON on disk — the encryption happens in the
+ * remote wiring, this schema only carries the opaque ciphertext. A 0600
+ * file under userData is the restart-safe copy when the keychain is missing.
+ */
+export const remoteSettingsSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    /** '' = auto (Tailscale); otherwise the exact bind address. */
+    bindAddress: z.string().max(64).default(''),
+    port: z.number().int().min(1).max(65_535).default(9482),
+    pairingTokenEncrypted: z.string().max(4_000).optional()
+  })
+  .strict()
+export type RemoteSettings = z.infer<typeof remoteSettingsSchema>
+
 export const appSettingsSchema = z
   .object({
     ui: uiSettingsSchema.default({}),
+    remote: remoteSettingsSchema.default({}),
     /** Master switch above every slot's yolo flag. Subagents default to yolo. */
     yoloMaster: z.boolean().default(true),
+    /**
+     * D4: the three-tier policy behind the yolo boolean. Optional on purpose —
+     * a store from before D4 has only `yoloMaster`, and
+     * {@link effectiveAgentPolicy} derives the tier from it. `setSetting`
+     * mirrors the two keys so they can never disagree.
+     */
+    agentPolicy: z.enum(AGENT_POLICIES).optional(),
     /** Electron accelerator; registration failure must be shown, never swallowed. */
     hideAllHotkey: z.string().trim().min(1).max(80).default('Control+Alt+V'),
     autostart: z.boolean().default(false),
@@ -118,25 +181,59 @@ export const appSettingsSchema = z
      */
     updateChannel: z.enum(['main', 'stable']).default('main'),
     /** `{ providerId: { modelId: lastSeenAtMs } }` — see providers/discovery. */
-    modelMemory: modelMemorySchema.default({})
+    modelMemory: modelMemorySchema.default({}),
+    voice: voiceSettingsSchema.default({}),
+    /**
+     * Extra MCP servers attached next to Vertragus on the next spawn.
+     * Preprocess drops a bad row so one hand-edited entry cannot reset the
+     * rest of settings; {@link setSetting} still validates strictly on write.
+     */
+    mcpServers: z.preprocess(parseExtraMcpServers, z.array(extraMcpServerSchema))
   })
   .strict()
 export type AppSettings = z.infer<typeof appSettingsSchema>
 export type UpdateChannel = AppSettings['updateChannel']
+export type { ExtraMcpServer }
 
 /** Keys of the store's top-level sections. */
 export const SETTINGS_KEYS = [
   'ui',
+  'remote',
   'yoloMaster',
+  'agentPolicy',
   'hideAllHotkey',
   'autostart',
   'updateChannel',
-  'modelMemory'
+  'modelMemory',
+  'voice',
+  'mcpServers'
 ] as const
+
+/**
+ * D4: the tier a subagent actually runs under. The stored `agentPolicy` wins;
+ * a store from before D4 falls back to the legacy boolean — `yoloMaster` on
+ * was always "act without asking", off was always "the CLI asks in its
+ * terminal".
+ */
+export function effectiveAgentPolicy(
+  value: Pick<AppSettings, 'agentPolicy' | 'yoloMaster'>
+): AgentPolicy {
+  return value.agentPolicy ?? (value.yoloMaster ? 'yolo' : 'ask-user')
+}
 
 export interface SettingsBackend {
   get(key: string): unknown
   set(key: string, value: unknown): void
+}
+
+/**
+ * Map an OS locale (`app.getLocale()`, BCP-47-ish) onto a shipped UI locale:
+ * any German variant (de, de-DE, de-AT, de_CH…) stays German, everything else
+ * gets English. Pure and exported so the rule is unit-testable without
+ * Electron.
+ */
+export function defaultLocaleForOs(osLocale: string | undefined): UiSettings['locale'] {
+  return osLocale?.toLowerCase().startsWith('de') ? 'de' : 'en'
 }
 
 export interface SettingsStoreDeps {
@@ -220,6 +317,10 @@ export interface SettingsStore {
   /** Replace the whole list — the merge itself lives in shared/retro/learnings. */
   setModelLearnings(learnings: readonly unknown[]): ModelLearning[]
   deleteModelLearning(id: string): ModelLearning[]
+  /** E2: repo notes per profile, newest first, bounded per profile. */
+  getRepoNotes(profileId?: string): RepoNote[]
+  addRepoNotes(profileId: string, notes: readonly string[]): RepoNote[]
+  deleteRepoNote(id: string): RepoNote[]
   getSettings(): AppSettings
   setSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): AppSettings
 }
@@ -262,6 +363,15 @@ export function createSettingsStore({ backend, warn = console.warn }: SettingsSt
     return retros
   }
 
+  function readRepoNotes(): RepoNote[] {
+    const raw = backend.get('repoNotes')
+    const notes = parseRepoNotes(raw)
+    if (Array.isArray(raw) && raw.length !== notes.length) {
+      warn(`[settings] dropped ${raw.length - notes.length} invalid repo note(s)`)
+    }
+    return notes
+  }
+
   function readModelLearnings(): ModelLearning[] {
     const raw = backend.get('modelLearnings')
     const learnings = parseModelLearnings(raw)
@@ -294,10 +404,21 @@ export function createSettingsStore({ backend, warn = console.warn }: SettingsSt
       // just drew — only an explicit `zones` field (including `{ zones: [] }`)
       // replaces what is stored.
       const existing = readProfiles().find((entry) => entry.id === parsed.id)
-      const next =
+      const withZones =
         parsed.zones === undefined && existing?.zones
           ? { ...parsed, zones: existing.zones }
           : parsed
+      // E6: `extraMcp` has no form field either — a slot save that omits it
+      // keeps what the same slot (by id) already stored. `extraMcp: []`
+      // explicitly clears it.
+      const next = {
+        ...withZones,
+        slots: withZones.slots.map((slot) => {
+          if (slot.extraMcp !== undefined) return slot
+          const kept = existing?.slots.find((entry) => entry.id === slot.id)?.extraMcp
+          return kept ? { ...slot, extraMcp: kept } : slot
+        })
+      }
       const profiles = upsert(readProfiles(), next)
       backend.set('profiles', profiles)
       return profiles
@@ -372,11 +493,71 @@ export function createSettingsStore({ backend, warn = console.warn }: SettingsSt
       return learnings
     },
 
+    getRepoNotes(profileId) {
+      const notes = readRepoNotes()
+      return profileId ? notes.filter((note) => note.profileId === profileId) : notes
+    },
+
+    addRepoNotes(profileId, notes) {
+      const existing = readRepoNotes()
+      const now = Date.now()
+      const fresh = notes
+        .map((note) => note.trim())
+        .filter(Boolean)
+        // Reinforcing an identical note must not duplicate it.
+        .filter(
+          (note) =>
+            !existing.some((entry) => entry.profileId === profileId && entry.note === note)
+        )
+        .map((note, index) =>
+          repoNoteSchema.parse({
+            // Bursts land in the same millisecond — the random suffix keeps
+            // ids unique, and parseRepoNotes dedupes BY id on read.
+            id: `${profileId}-${now}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+            profileId,
+            note,
+            createdAt: now
+          })
+        )
+      // Newest first; the per-profile cap drops the oldest, other profiles untouched.
+      const merged = [...fresh, ...existing]
+      const kept: RepoNote[] = []
+      const perProfile = new Map<string, number>()
+      for (const note of merged) {
+        const count = perProfile.get(note.profileId) ?? 0
+        if (count >= MAX_REPO_NOTES_PER_PROFILE) continue
+        perProfile.set(note.profileId, count + 1)
+        kept.push(note)
+      }
+      backend.set('repoNotes', kept)
+      return kept
+    },
+
+    deleteRepoNote(id) {
+      const notes = readRepoNotes().filter((note) => note.id !== id)
+      backend.set('repoNotes', notes)
+      return notes
+    },
+
     getSettings: readSettings,
 
     setSetting(key, value) {
+      if (key === 'mcpServers') {
+        // Preprocess on the field is fail-soft (a bad row must not reset the
+        // rest of settings on READ). Writes stay fail-closed.
+        backend.set(key, parseExtraMcpServersForWrite(value))
+        return readSettings()
+      }
       const field = appSettingsSchema.shape[key] as z.ZodTypeAny
       backend.set(key, field.parse(value))
+      // D4: one truth, two representations. The panel's yolo toggle writes the
+      // boolean, the settings picker writes the tier — whichever landed, the
+      // other key follows, so no reader can see them disagree.
+      if (key === 'agentPolicy' && value !== undefined) {
+        backend.set('yoloMaster', value === 'yolo')
+      } else if (key === 'yoloMaster') {
+        backend.set('agentPolicy', value ? 'yolo' : 'ask-user')
+      }
       return readSettings()
     }
   }
@@ -437,6 +618,29 @@ function createElectronBackend(): SettingsBackend {
     if (keys.length > 0) {
       for (const key of keys) store.set(key, adopted[key])
       console.info(`[settings] adopted from ${LEGACY_STORE_NAME}.json: ${keys.join(', ')}`)
+    }
+  }
+
+  /*
+   * WP-1: first-run UI language follows the OS (de* → de, else en).
+   *
+   * Decision: the zod schema keeps its pure `'de'` default — the schema must
+   * stay evaluable without an Electron runtime (tests, the renderer's boot
+   * fallback, `mainMessages`' documented fallback all lean on it). The OS
+   * derivation therefore lives HERE, in the only place that constructs the
+   * real Electron backend, and it MATERIALIZES the choice by writing a `ui`
+   * value once. Written, not derived per read, so the decision is stable: a
+   * later OS-language change must not silently flip an installation's UI. A
+   * stored `ui` (including one adopted from the legacy file above) always
+   * wins — this only fills true first runs that have no `ui` at all.
+   */
+  if (firstRun && store.get('ui') === undefined) {
+    try {
+      store.set('ui', { locale: defaultLocaleForOs(app.getLocale()) })
+    } catch {
+      // Unreadable OS locale (stripped runtime, too-early call): write
+      // nothing and let the schema default ('de') carry, rather than failing
+      // the whole store construction over a nicety.
     }
   }
 

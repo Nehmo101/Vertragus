@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -25,10 +23,17 @@ class FakeBrowserWindow {
   shown = false
   focused = false
   alwaysOnTop: [boolean, string] | undefined
+  bounds: { x: number; y: number; width: number; height: number }
 
   constructor(public readonly options: Record<string, unknown>) {
     FakeBrowserWindow.instances.push(this)
     listeners.set(this, new Map())
+    this.bounds = {
+      x: (options.x as number) ?? 0,
+      y: (options.y as number) ?? 0,
+      width: (options.width as number) ?? 0,
+      height: (options.height as number) ?? 0
+    }
   }
 
   on(event: string, handler: () => void): this {
@@ -40,6 +45,9 @@ class FakeBrowserWindow {
   }
   setAlwaysOnTop(flag: boolean, level: string): void {
     this.alwaysOnTop = [flag, level]
+  }
+  setBounds(bounds: { x: number; y: number; width: number; height: number }): void {
+    this.bounds = { ...bounds }
   }
   isDestroyed(): boolean {
     return this.destroyed
@@ -66,7 +74,9 @@ vi.mock('electron', () => ({
   app: { exit: vi.fn() },
   screen: {
     getAllDisplays: () => DISPLAYS,
-    getPrimaryDisplay: () => DISPLAYS[0]
+    getPrimaryDisplay: () => DISPLAYS[0],
+    getCursorScreenPoint: () => ({ x: 100, y: 100 }),
+    getDisplayNearestPoint: () => DISPLAYS[0]
   }
 }))
 
@@ -90,11 +100,11 @@ beforeEach(async () => {
 })
 
 describe('openZoneOverlayWindows', () => {
-  it('opens one transparent sheet per display, sized to its work area', () => {
+  it('opens one transparent sheet on the display under the cursor', () => {
     overlay.openZoneOverlayWindows('p1')
-    const [first, second] = FakeBrowserWindow.instances
+    const [first] = FakeBrowserWindow.instances
 
-    expect(FakeBrowserWindow.instances).toHaveLength(2)
+    expect(FakeBrowserWindow.instances).toHaveLength(1)
     expect(first!.options).toMatchObject({
       frame: false,
       transparent: true,
@@ -107,31 +117,34 @@ describe('openZoneOverlayWindows', () => {
       skipTaskbar: true,
       alwaysOnTop: true
     })
-    expect(second!.options).toMatchObject({ x: 1920, y: 100, width: 1600, height: 860 })
     expect(first!.alwaysOnTop).toEqual([true, 'screen-saver'])
+    expect(first!.bounds).toEqual({ x: 0, y: 0, width: 1920, height: 1040 })
   })
 
   it('loads the display’s route with the profile and guards navigation', () => {
     const [win] = overlay.openZoneOverlayWindows('profile 1/x')
 
     expect(secureWindow).toHaveBeenCalledWith(win)
+    expect(loadRoute).toHaveBeenCalledTimes(1)
     expect(loadRoute).toHaveBeenCalledWith(
       win,
-      `/zones/11?profile=${encodeURIComponent('profile 1/x')}`
+      `/zones/11?profile=${encodeURIComponent('profile 1/x')}&pick=1`
     )
-    expect(loadRoute).toHaveBeenCalledWith(expect.anything(), '/zones/22?profile=profile%201%2Fx')
   })
 
-  it('adds the demo flag only when asked (the screenshot hook)', () => {
+  it('adds the demo flag only when asked and skips the picker (the screenshot hook)', () => {
     overlay.openZoneOverlayWindows('demo', { demo: true })
     expect(loadRoute).toHaveBeenCalledWith(expect.anything(), '/zones/11?profile=demo&demo=1')
+    expect(overlay.isZoneOverlaySender(FakeBrowserWindow.instances[0]!.webContents.id)?.pick).toBe(
+      false
+    )
   })
 
   it('refocuses a running session instead of opening a second one', () => {
     const first = overlay.openZoneOverlayWindows('p1')
     const again = overlay.openZoneOverlayWindows('p2')
 
-    expect(FakeBrowserWindow.instances).toHaveLength(2)
+    expect(FakeBrowserWindow.instances).toHaveLength(1)
     expect(again).toEqual(first)
     expect((first[0] as unknown as FakeBrowserWindow).focused).toBe(true)
     // The session keeps the profile it was opened for.
@@ -143,26 +156,21 @@ describe('openZoneOverlayWindows', () => {
     for (const win of FakeBrowserWindow.instances) {
       win.emit('ready-to-show')
       expect(win.shown).toBe(true)
+      expect(win.focused).toBe(true)
     }
-    // Only the primary display's overlay takes focus.
-    expect(FakeBrowserWindow.instances[0]!.focused).toBe(true)
-    expect(FakeBrowserWindow.instances[1]!.focused).toBe(false)
   })
 })
 
 describe('the overlay registry', () => {
   it('maps a webContents id to exactly one profile/display pair', () => {
-    const [a, b] = overlay.openZoneOverlayWindows('p1')
+    const [a] = overlay.openZoneOverlayWindows('p1')
 
     expect(overlay.isZoneOverlaySender(a!.webContents.id)).toEqual({
       profileId: 'p1',
-      displayId: 11
+      displayId: 11,
+      pick: true
     })
-    expect(overlay.isZoneOverlaySender(b!.webContents.id)).toEqual({
-      profileId: 'p1',
-      displayId: 22
-    })
-    expect(overlay.zoneOverlayDisplayIds()).toEqual([11, 22])
+    expect(overlay.zoneOverlayDisplayIds()).toEqual([11])
   })
 
   it('rejects every other window — no zone writes from the panel or a CLI', () => {
@@ -187,13 +195,12 @@ describe('the overlay registry', () => {
     overlay.openZoneOverlayWindows('p1')
     FakeBrowserWindow.instances[0]!.close()
 
-    expect(FakeBrowserWindow.instances[1]!.destroyed).toBe(true)
     expect(overlay.zoneOverlayDisplayIds()).toEqual([])
   })
 
   it('closes the session on Esc even if the renderer never booted', () => {
     overlay.openZoneOverlayWindows('p1')
-    FakeBrowserWindow.instances[1]!.inputHandlers[0]!({}, { type: 'keyDown', key: 'Escape' })
+    FakeBrowserWindow.instances[0]!.inputHandlers[0]!({}, { type: 'keyDown', key: 'Escape' })
 
     expect(overlay.zoneOverlayDisplayIds()).toEqual([])
     for (const win of FakeBrowserWindow.instances) expect(win.destroyed).toBe(true)
@@ -212,19 +219,34 @@ describe('the overlay registry', () => {
     overlay.closeZoneOverlayWindows()
     overlay.openZoneOverlayWindows('p2')
 
-    expect(FakeBrowserWindow.instances).toHaveLength(4)
-    expect(overlay.listZoneOverlayWindows().map((entry) => entry.profileId)).toEqual(['p2', 'p2'])
+    expect(FakeBrowserWindow.instances).toHaveLength(2)
+    expect(overlay.listZoneOverlayWindows().map((entry) => entry.profileId)).toEqual(['p2'])
+  })
+
+  it('moves the overlay onto the chosen display and flips it out of picker mode', () => {
+    overlay.openZoneOverlayWindows('p1')
+    const [win] = FakeBrowserWindow.instances
+    expect(overlay.selectZoneOverlayDisplay(22)).toBe(true)
+
+    expect(overlay.zoneOverlayDisplayIds()).toEqual([22])
+    expect(overlay.isZoneOverlaySender(win!.webContents.id)).toEqual({
+      profileId: 'p1',
+      displayId: 22,
+      pick: false
+    })
+    expect(win!.bounds).toEqual({ x: 1920, y: 100, width: 1600, height: 860 })
+    // A second pick on the same overlay rebinds again and keeps the editor.
+    expect(overlay.selectZoneOverlayDisplay(11)).toBe(true)
+    expect(overlay.zoneOverlayDisplayIds()).toEqual([11])
+    expect(win!.bounds).toEqual({ x: 0, y: 0, width: 1920, height: 1040 })
+  })
+
+  it('refuses an unknown display id without closing the session', () => {
+    overlay.openZoneOverlayWindows('p1')
+    expect(overlay.selectZoneOverlayDisplay(99)).toBe(false)
+    expect(overlay.zoneOverlayDisplayIds()).toEqual([11])
   })
 })
 
-describe('security posture', () => {
-  it('never weakens the sandbox flags', () => {
-    const source = readFileSync(join(__dirname, 'zoneOverlay.ts'), 'utf8')
-    expect(source).not.toMatch(/sandbox:\s*false/)
-    expect(source).not.toMatch(/contextIsolation:\s*false/)
-    expect(source).not.toMatch(/nodeIntegration:\s*true/)
-    expect(source).not.toMatch(/webSecurity:\s*false/)
-    expect(source).toMatch(/glassWindowOptions\(\)/)
-    expect(source).toMatch(/secureWindow\(win\)/)
-  })
-})
+// The sandbox/secureWindow posture of this window is pinned centrally by
+// base.securityContract.test.ts, which derives its file list from the directory.

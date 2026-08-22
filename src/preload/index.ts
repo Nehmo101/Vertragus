@@ -1,9 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Profile, RoleTemplate } from '@shared/schema/profile'
 import type { ProviderConfig } from '@shared/schema/provider'
-import type { ModelLearning, RunRetro } from '@shared/schema/retro'
+import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import type { Zone, ZoneLayout } from '@shared/schema/zones'
+import type { ExtraMcpServer } from '@shared/schema/mcpServer'
 import type { Appearance } from '@shared/appearance'
+import type { BindOption, RemoteClientInfo, RemoteStatus } from '@shared/remote/types'
 
 /**
  * The renderer bridge. One API object per window type; a CLI window only ever
@@ -21,6 +23,7 @@ const CHANNELS = {
   resize: 'terminal:resize',
   data: 'terminal:data',
   exit: 'terminal:exit',
+  task: 'terminal:task',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -47,11 +50,19 @@ export interface TerminalAttachResult {
   theme?: 'dark' | 'light'
   /** True while the window fills its screen — the title bar's glyph follows it. */
   maximized: boolean
+  /** Current task note at attach time; later changes arrive via onTask. */
+  task?: string
 }
 
 export interface TerminalDataEvent {
   agentId: string
   data: string
+}
+
+/** A new current-task note for this window's agent — the hover card follows it. */
+export interface TerminalTaskEvent {
+  agentId: string
+  task?: string
 }
 
 export interface TerminalExitEvent {
@@ -82,6 +93,14 @@ const terminal = {
     ipcRenderer.on(CHANNELS.exit, handler)
     return () => {
       ipcRenderer.removeListener(CHANNELS.exit, handler)
+    }
+  },
+  /** The agent got a new assignment — the title bar's hover card follows it. */
+  onTask: (listener: (event: TerminalTaskEvent) => void): (() => void) => {
+    const handler = (_event: unknown, payload: TerminalTaskEvent): void => listener(payload)
+    ipcRenderer.on(CHANNELS.task, handler)
+    return () => {
+      ipcRenderer.removeListener(CHANNELS.task, handler)
     }
   },
   /** Close this window only — the agent keeps running. */
@@ -117,25 +136,41 @@ const APP = {
   rolesList: 'roles:list',
   rolesSave: 'roles:save',
   providersList: 'providers:list',
+  providersAuthStatus: 'providers:authStatus',
   providersSave: 'providers:save',
   providersDelete: 'providers:delete',
   modelsDiscover: 'models:discover',
   workspacesList: 'workspaces:list',
   workspacesStart: 'workspaces:start',
+  workspacesSendToOrchestrator: 'workspaces:sendToOrchestrator',
+  workspacesGoal: 'workspaces:goal',
+  workspacesResume: 'workspaces:resume',
   workspacesStop: 'workspaces:stop',
+  workspacesSucceedOrchestrator: 'workspaces:succeedOrchestrator',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
+  workspacesCloseAgent: 'workspaces:closeAgent',
+  workspacesAnswerQuestion: 'workspaces:answerQuestion',
+  workspacesUserMessage: 'workspaces:userMessage',
+  workspacesPromoteAgent: 'workspaces:promoteAgent',
+  workspacesOpenRunFolder: 'workspaces:openRunFolder',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
   retroLearnings: 'retro:learnings',
   retroDeleteLearning: 'retro:deleteLearning',
+  retroRepoNotes: 'retro:repoNotes',
+  retroDeleteRepoNote: 'retro:deleteRepoNote',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
   windowsHideAll: 'windows:hideAll',
   windowsMinimizePanel: 'windows:minimizePanel',
   appQuit: 'app:quit',
+  voiceStatus: 'voice:status',
+  voiceSetEnabled: 'voice:setEnabled',
+  voicePcm: 'voice:pcm',
+  voiceAudio: 'voice:audio',
   dialogPickDirectory: 'dialog:pickDirectory',
   profileEditorOpen: 'profileEditor:open',
   profileEditorClose: 'profileEditor:close',
@@ -151,13 +186,23 @@ const APP = {
   zonesDraft: 'zones:draft',
   zonesSave: 'zones:save',
   zonesCancel: 'zones:cancel',
+  zonesPickDisplay: 'zones:pickDisplay',
   eventProfiles: 'ev:profiles',
   eventProviders: 'ev:providers',
   eventWorkspaces: 'ev:workspaces',
   eventUpdate: 'ev:update',
   eventSettings: 'ev:settings',
+  eventVoice: 'ev:voice',
   settingsAppearance: 'settings:appearance',
-  eventAppearance: 'ev:appearance'
+  eventAppearance: 'ev:appearance',
+  // Remote access — settings-window-only in main; see main/remote/ipc.ts.
+  remoteGet: 'remote:get',
+  remoteSet: 'remote:set',
+  remoteRegenerateToken: 'remote:regenerateToken',
+  remoteClients: 'remote:clients',
+  remoteRevokeClient: 'remote:revokeClient',
+  remoteInterfaces: 'remote:interfaces',
+  eventRemote: 'ev:remote'
 } as const
 
 /**
@@ -186,7 +231,41 @@ export interface WorkspaceAgentSummary {
   roleColor: string
   state: PanelAgentState
   statusText?: string
+  /**
+   * Current task for the row's hover card. Subagents: last start_agent /
+   * follow-up send_to_agent. Orchestrator: latest submitted user CLI note.
+   */
+  taskText?: string
+  /**
+   * F: 'orchestrator' for the root row, 'lead' for sub-orchestrators, the
+   * role id otherwise. Drives the panel's indentation and lead styling.
+   */
+  kind?: string
+  /** F: the lead this agent works under; absent for direct children. */
+  parentId?: string
+
+  /**
+   * True while this agent's CLI window is on screen. A finished agent whose
+   * window is still open can be dismissed with ✕; clicking the row after
+   * that reopens the scrollback so the last task stays readable.
+   */
+  windowOpen?: boolean
   pendingQuestion?: string
+  /** Id of that open question — what `answerQuestion` addresses. */
+  pendingQuestionId?: string
+}
+
+/** S4: one row of the run's task board. Mirrors main's WorkspaceTaskSummary. */
+export interface WorkspaceTaskSummary {
+  taskId: string
+  subject: string
+  /** Tombstones never travel — the card shows the living plan only. */
+  status: 'pending' | 'in_progress' | 'completed'
+  /** Agent id of the owner; the card resolves it to the Commedia name. */
+  ownerAgentId?: string
+  blockedBy: string[]
+  /** pending AND every blockedBy completed — decided by the host's board. */
+  ready: boolean
 }
 
 export interface WorkspaceSummary {
@@ -195,9 +274,30 @@ export interface WorkspaceSummary {
   profileId: string
   profileName?: string
   active: boolean
-  /** Latest assignment the orchestrator handed out — the tooltip's task line. */
+  /**
+   * Last delegated assignment, when still populated. The workspace hover uses
+   * {@link goalText}, not this.
+   */
   taskText?: string
+  /** User's workspace goal (full text); absent = "no goal" hint on the card. */
+  goalText?: string
+  /** C5: orchestrator alive but silent on its tools — the card shows a hint. */
+  orchestratorIdle?: boolean
+  /** C6: a successor orchestrator is spawning — the card shows a badge. */
+  successionInProgress?: true
+  /** D3: the orchestrator's open ask_user question (answer with agentId "user"). */
+  userQuestion?: { questionId: string; question: string }
   agents: WorkspaceAgentSummary[]
+  /** S4: the run's task board, capped and tombstone-free. Absent = no plan yet. */
+  tasks?: WorkspaceTaskSummary[]
+  /**
+   * S4: counts over the WHOLE plan, not over the capped {@link tasks} — the
+   * card must never derive progress from the rows that happened to fit.
+   */
+  taskTotal?: number
+  taskDone?: number
+  /** A3: the run's pull request (or why there is none) once auto-PR has run. */
+  pullRequest?: { ok: boolean; url?: string; message?: string }
 }
 
 /** One stale worktree the panel's cleanup view offers for removal. */
@@ -208,7 +308,7 @@ export interface StaleWorktreeSummary {
 }
 
 /** Retro records, re-exported so renderer code imports them from the bridge. */
-export type { ModelLearning, RunRetro } from '@shared/schema/retro'
+export type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 
 /** Result of a provider version probe (see main/providers/health.ts). */
 export interface ProviderHealth {
@@ -225,6 +325,20 @@ export interface ProviderListEntry {
   health?: ProviderHealth
 }
 
+/** WP-7: how a provider answered its own login question. */
+export type ProviderAuthState = 'logged-in' | 'logged-out' | 'unknown'
+
+/** Login state of one provider (see main/providers/authStatus.ts). */
+export interface ProviderAuthStatus {
+  id: string
+  state: ProviderAuthState
+  /** The probe's first output line, or the error that replaced it. */
+  detail?: string
+  /** `cursor-agent login`, composed from the descriptor. Absent = none declared. */
+  loginCommand?: string
+  checkedAt: number
+}
+
 export interface ModelDiscoveryResult {
   models: string[]
   /**
@@ -239,6 +353,8 @@ export interface ModelDiscoveryResult {
 
 export interface PanelSettings {
   yoloMaster: boolean
+  /** D4: the effective subagent tier — mirrors main/appIpc. */
+  agentPolicy: AgentPolicy
   hideAllHotkey: string
   locale: 'de' | 'en'
   theme: 'dark' | 'light'
@@ -246,15 +362,41 @@ export interface PanelSettings {
   appearance: Appearance
   /** When a window or zone is moved, neighbors shrink and fill the gap. */
   reflowNeighbors: boolean
+  /** WP-7: the first-run card was closed by hand — the panel honours it. */
+  onboardingDismissed: boolean
   autostart: boolean
   updateChannel: UpdateChannel
   /** False in a dev run — the login item would point at the Electron binary. */
   autostartSupported: boolean
   /** Present only when the global hide-all hotkey could not be registered. */
   hideAllHotkeyError?: string
+  voiceEnabled: boolean
+  voiceWakePhrase: string
+  voiceVoiceId: string
+  /** Whether a key is stored. The raw key never appears here. */
+  voiceApiKeySet: boolean
+  /** Extra MCP servers attached next to Vertragus on the next spawn. */
+  mcpServers: ExtraMcpServer[]
+}
+
+export type VoicePhase = 'idle' | 'listening' | 'engaged' | 'error'
+
+export interface VoiceStatusPayload {
+  phase: VoicePhase
+  enabled: boolean
+  error?: string
+}
+
+export interface VoiceEventPayload {
+  phase: VoicePhase
+  transcript?: string
+  error?: string
 }
 
 export type UpdateChannel = 'main' | 'stable'
+
+/** D4: how far a subagent may act on its own; mirrors @shared/agentPolicy. */
+export type AgentPolicy = 'yolo' | 'ask-user' | 'ask-orchestrator'
 
 /** The keys the settings form may write; see WRITABLE_SETTINGS in main/appIpc. */
 export type WritableSetting =
@@ -265,6 +407,10 @@ export type WritableSetting =
   | 'locale'
   | 'appearance'
   | 'reflowNeighbors'
+  | 'voice'
+  | 'agentPolicy'
+  | 'onboardingDismissed'
+  | 'mcpServers'
 
 export type UpdateStatus =
   | 'disabled'
@@ -294,6 +440,15 @@ export interface ZoneEditorRole {
   color: string
 }
 
+/** One attached monitor as the zone overlay picker labels it. */
+export interface ZoneDisplayInfo {
+  id: number
+  label: string
+  width: number
+  height: number
+  primary: boolean
+}
+
 /** What one zone overlay window needs to draw its display. */
 export interface ZoneEditorPayload {
   profileId: string
@@ -301,6 +456,9 @@ export interface ZoneEditorPayload {
   displayId: number
   roles: ZoneEditorRole[]
   zones: Zone[]
+  displays: ZoneDisplayInfo[]
+  /** True while this overlay is asking which screen Vertragus should use. */
+  selectingDisplay: boolean
   /** UI language — an overlay window may not call `settings:get` itself. */
   locale?: 'de' | 'en'
   /** Appearance — same constraint as locale. */
@@ -325,18 +483,90 @@ const app = {
   listRoles: (): Promise<RoleTemplate[]> => ipcRenderer.invoke(APP.rolesList),
   saveRole: (template: RoleTemplate): Promise<RoleTemplate[]> =>
     ipcRenderer.invoke(APP.rolesSave, template),
-  listProviders: (): Promise<ProviderListEntry[]> => ipcRenderer.invoke(APP.providersList),
+  /**
+   * The effective providers with their health probe. `refresh` skips the main
+   * process' 30 s health cache — reserved for an explicit user gesture (the
+   * first-run card's ⟳); every read that happens on a render omits it.
+   */
+  listProviders: (options?: { refresh?: boolean }): Promise<ProviderListEntry[]> =>
+    ipcRenderer.invoke(APP.providersList, options),
+  /**
+   * WP-7: login state per provider. Shells out to the CLIs' own status
+   * commands, so it is called on demand (the first-run card, its ⟳) and never
+   * on a render.
+   */
+  listProviderAuth: (): Promise<ProviderAuthStatus[]> =>
+    ipcRenderer.invoke(APP.providersAuthStatus),
   discoverModels: (providerId: string): Promise<ModelDiscoveryResult> =>
     ipcRenderer.invoke(APP.modelsDiscover, { providerId }),
   listWorkspaces: (): Promise<WorkspaceSummary[]> => ipcRenderer.invoke(APP.workspacesList),
-  startWorkspace: (profileId: string): Promise<void> =>
-    ipcRenderer.invoke(APP.workspacesStart, { profileId }),
+  /** Start a workspace; `goal` (optional) is seeded into the orchestrator. */
+  startWorkspace: (profileId: string, goal?: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesStart, { profileId, ...(goal ? { goal } : {}) }),
+  /**
+   * H2 refill: hand a workspace that was started bare its goal now. Rejects
+   * readably when the run already has one (steer it with a message instead) or
+   * when its CLI refused the text.
+   */
+  assignWorkspaceGoal: (workspaceId: string, goal: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesGoal, { workspaceId, goal }),
+  /** E3: start a workspace briefed on the profile's newest journaled run. */
+  resumeWorkspace: (profileId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesResume, { profileId }),
+  /** Panel-only: type text into the orchestrator's terminal (voice control). */
+  sendToOrchestrator: (workspaceId: string, text: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesSendToOrchestrator, { workspaceId, text }),
   stopWorkspace: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesStop, { workspaceId }),
+  /**
+   * C6/S3: replace this workspace's orchestrator with a fresh one that
+   * continues the run — the escape hatch for a dead or silent orchestrator.
+   * Subagents, worktrees and the task board stay; rejects readably when there
+   * is nothing to replace.
+   */
+  succeedOrchestrator: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesSucceedOrchestrator, { workspaceId }),
   focusAgent: (agentId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesFocusAgent, { agentId }),
+  /**
+   * Close one agent's CLI window. The agent stays listed — a finished worker
+   * can leave the screen without forgetting what it worked on.
+   */
+  closeAgentWindow: (agentId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesCloseAgent, { agentId }),
   focusWorkspace: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesFocus, { workspaceId }),
+  /**
+   * Answer an agent's open question from the panel badge — the same host path
+   * the orchestrator's send_to_agent{questionId} takes. Rejects with a
+   * readable message when the question is gone or delivery failed.
+   */
+  answerQuestion: (
+    workspaceId: string,
+    agentId: string,
+    questionId: string,
+    text: string
+  ): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesAnswerQuestion, { workspaceId, agentId, questionId, text }),
+  /**
+   * D2: steer a running workspace — the text shows up in the orchestrator's
+   * terminal and wakes its parked await_events as a user_message event.
+   */
+  sendUserMessage: (workspaceId: string, text: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesUserMessage, { workspaceId, text }),
+  /**
+   * E1 Promote — the user's explicit click: merge this agent's branch into
+   * the repository's own checkout. Rejects readably on a dirty checkout or a
+   * conflict (the merge is aborted then; nothing changes).
+   */
+  promoteAgentBranch: (workspaceId: string, agentId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesPromoteAgent, { workspaceId, agentId }),
+  /**
+   * Reveal this run's artefact folder (spill/, tasks.json, events.jsonl) in the
+   * OS file manager. Rejects readably when the run left nothing on disk.
+   */
+  openRunFolder: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesOpenRunFolder, { workspaceId }),
   /** Stale worktrees of this profile's repo — the panel's cleanup list. */
   listStaleWorktrees: (profileId: string): Promise<StaleWorktreeSummary[]> =>
     ipcRenderer.invoke(APP.worktreesList, { profileId }),
@@ -356,6 +586,12 @@ const app = {
   /** Remove one learning (explicit user click); answers with the refreshed list. */
   deleteLearning: (id: string): Promise<ModelLearning[]> =>
     ipcRenderer.invoke(APP.retroDeleteLearning, { id }),
+  /** E2: repo notes recorded by past runs; the briefing feeds on them. */
+  listRepoNotes: (profileId?: string): Promise<RepoNote[]> =>
+    ipcRenderer.invoke(APP.retroRepoNotes, profileId ? { profileId } : {}),
+  /** Remove one repo note (explicit user click); answers with the refreshed list. */
+  deleteRepoNote: (id: string): Promise<RepoNote[]> =>
+    ipcRenderer.invoke(APP.retroDeleteRepoNote, { id }),
   getSettings: (): Promise<PanelSettings> => ipcRenderer.invoke(APP.settingsGet),
   /**
    * How see-through the app is. Unlike `getSettings` this one answers in EVERY
@@ -385,8 +621,13 @@ const app = {
   quitApp: (): Promise<boolean> => ipcRenderer.invoke(APP.appQuit),
   pickDirectory: (defaultPath?: string): Promise<string | null> =>
     ipcRenderer.invoke(APP.dialogPickDirectory, { defaultPath }),
-  openProfileEditor: (profileId?: string): Promise<void> =>
-    ipcRenderer.invoke(APP.profileEditorOpen, { profileId }),
+  /**
+   * Open the profile editor. `providerId` (WP-7) preselects the orchestrator
+   * of a NEW profile and is ignored for an existing one — a hint from the
+   * first-run card, never a write.
+   */
+  openProfileEditor: (profileId?: string, providerId?: string): Promise<void> =>
+    ipcRenderer.invoke(APP.profileEditorOpen, { profileId, providerId }),
   /**
    * Write a provider descriptor. Saving under a preset id EDITS that built-in;
    * the merged list that comes back is what every picker should show next.
@@ -453,7 +694,40 @@ const app = {
     subscribe(APP.eventAppearance, listener),
   /** Cursor enters/leaves the panel window — the panel's hover signal. */
   onPointer: (listener: (event: PanelPointerEvent) => void): (() => void) =>
-    subscribe(PANEL_POINTER, listener)
+    subscribe(PANEL_POINTER, listener),
+  voiceStatus: (): Promise<VoiceStatusPayload> => ipcRenderer.invoke(APP.voiceStatus),
+  setVoiceEnabled: (enabled: boolean): Promise<VoiceStatusPayload> =>
+    ipcRenderer.invoke(APP.voiceSetEnabled, { enabled }),
+  sendVoicePcm: (pcm: Int16Array): void => {
+    ipcRenderer.send(APP.voicePcm, pcm)
+  },
+  onVoice: (listener: (event: VoiceEventPayload) => void): (() => void) =>
+    subscribe(APP.eventVoice, listener),
+  onVoiceAudio: (listener: (pcm: Int16Array) => void): (() => void) =>
+    subscribe(APP.voiceAudio, listener),
+
+  // --- remote access (settings window only, enforced in main) ---
+  /** Current remote-server status: enabled, running, bind address, pairing URL. */
+  getRemote: (): Promise<RemoteStatus> => ipcRenderer.invoke(APP.remoteGet),
+  /** Toggle/reconfigure remote access; answers with the fresh status. */
+  setRemote: (patch: {
+    enabled?: boolean
+    bindAddress?: string
+    port?: number
+  }): Promise<RemoteStatus> => ipcRenderer.invoke(APP.remoteSet, patch),
+  /** New pairing token — every existing session dies and the QR changes. */
+  regenerateRemoteToken: (): Promise<RemoteStatus> =>
+    ipcRenderer.invoke(APP.remoteRegenerateToken),
+  /** The paired clients currently connected. */
+  listRemoteClients: (): Promise<RemoteClientInfo[]> => ipcRenderer.invoke(APP.remoteClients),
+  /** Kick one client by its session token. */
+  revokeRemoteClient: (token: string): Promise<boolean> =>
+    ipcRenderer.invoke(APP.remoteRevokeClient, token),
+  /** The bind-address options the picker offers (Tailscale first). */
+  listRemoteInterfaces: (): Promise<BindOption[]> => ipcRenderer.invoke(APP.remoteInterfaces),
+  /** Remote status changed — a client connected, the server started/stopped. */
+  onRemote: (listener: (status: RemoteStatus) => void): (() => void) =>
+    subscribe(APP.eventRemote, listener)
 }
 
 /**
@@ -481,7 +755,13 @@ const zones = {
   /** Esc: close every overlay, save nothing. */
   cancel: (): void => {
     ipcRenderer.send(APP.zonesCancel)
-  }
+  },
+  /**
+   * Multi-monitor picker: pin Vertragus to this display, move the overlay
+   * onto it, and return the editor payload for that screen.
+   */
+  pickDisplay: (displayId: number): Promise<ZoneEditorPayload> =>
+    ipcRenderer.invoke(APP.zonesPickDisplay, { displayId })
 }
 
 const api = {

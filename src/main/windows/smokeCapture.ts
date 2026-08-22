@@ -96,11 +96,11 @@ async function waitForPaint(
       const mounted = await win.webContents.executeJavaScript(PAINTED_PROBE)
       if (typeof mounted === 'number' && mounted > 0) return true
     } catch (error) {
-      log(`[smoke] ${label}: Render-Probe fehlgeschlagen:`, error)
+      log(`[smoke] ${label}: paint probe failed:`, error)
     }
     if (attempt < attempts) await wait(pollMs)
   }
-  log(`[smoke] ${label}: #root blieb leer — der Renderer hat nichts gezeichnet.`)
+  log(`[smoke] ${label}: #root stayed empty — the renderer drew nothing.`)
   return false
 }
 
@@ -125,7 +125,8 @@ export async function captureWindowToFile(
   } = options
 
   if (win.isDestroyed()) {
-    log(`[smoke] ${label}: Fenster ist bereits zerstört.`)
+    // Developer-facing CI log, not UI copy — English like the rest of stderr.
+    log(`[smoke] ${label}: window is already destroyed.`)
     return false
   }
   ensureVisible(win)
@@ -135,7 +136,7 @@ export async function captureWindowToFile(
   let lastError: unknown
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     if (win.isDestroyed()) {
-      log(`[smoke] ${label}: Fenster verschwand während der Aufnahme.`)
+      log(`[smoke] ${label}: window disappeared during capture.`)
       return false
     }
     ensureVisible(win)
@@ -143,16 +144,16 @@ export async function captureWindowToFile(
       const image = await win.webContents.capturePage()
       // A capture that "succeeded" with nothing in it is a failed capture; the
       // viz process reports that this way instead of rejecting.
-      if (image.isEmpty()) throw new Error('capturePage lieferte ein leeres Bild.')
+      if (image.isEmpty()) throw new Error('capturePage returned an empty image.')
       await writeFile(target, image.toPNG())
       return true
     } catch (error) {
       lastError = error
-      log(`[smoke] ${label}: Aufnahme ${attempt}/${attempts} fehlgeschlagen:`, error)
+      log(`[smoke] ${label}: capture ${attempt}/${attempts} failed:`, error)
       if (attempt < attempts) await wait(retryMs)
     }
   }
-  log(`[smoke] ${label}: keine Aufnahme nach ${attempts} Versuchen.`, lastError)
+  log(`[smoke] ${label}: no capture after ${attempts} attempts.`, lastError)
   return false
 }
 

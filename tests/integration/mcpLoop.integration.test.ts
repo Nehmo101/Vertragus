@@ -21,8 +21,11 @@ import { buildSubagentUrl, startMcpServer, type McpServerHandle } from '@main/mc
 import type {
   AgentHost,
   AgentSummary,
+  InspectAgentOptions,
+  InspectAgentResult,
   StartAgentInput,
-  StartedAgent,
+  StartingAgent,
+  WorktreeFacts,
   WorkspaceMcpContext
 } from '@main/mcp/types'
 import type { AgentEvent } from '@shared/schema/events'
@@ -60,7 +63,7 @@ class SpawningHost implements AgentHost {
     return 'mcp'
   }
 
-  async startAgent(input: StartAgentInput): Promise<StartedAgent> {
+  beginAgent(input: StartAgentInput): StartingAgent {
     const n = ++this.counter
     const agentId = `agent-${n}`
     // The task text carries the behaviour the fake agent should act out.
@@ -133,7 +136,10 @@ class SpawningHost implements AgentHost {
       providerId: 'fake',
       model: record.summary.model,
       worktreePath: `/worktrees/${agentId}`,
-      branch: `vertragus/test/${agentId}`
+      branch: `vertragus/test/${agentId}`,
+      // `spawn` is synchronous and the fake needs no seed handshake — a begun
+      // agent is a ready agent here.
+      ready: Promise.resolve()
     }
   }
 
@@ -155,8 +161,64 @@ class SpawningHost implements AgentHost {
     return this.require(agentId).lines.slice(-lines).join('\n')
   }
 
+  /** S1: the whole captured output — the integration fake's "no line cap". */
+  async readOutputFull(agentId: string): Promise<string> {
+    return this.require(agentId).lines.join('\n')
+  }
+
+  async inspectAgent(agentId: string, options: InspectAgentOptions): Promise<InspectAgentResult> {
+    const record = this.require(agentId)
+    if (options.view === 'file' && !options.path?.trim()) {
+      throw new Error('inspect view "file" needs path.')
+    }
+    return {
+      view: options.view,
+      body: `(integration ${options.view})`,
+      ...this.fakeFacts(record)
+    }
+  }
+
+  async snapshotWorktree(agentId: string): Promise<WorktreeFacts> {
+    return this.fakeFacts(this.require(agentId))
+  }
+
+  async snapshotDone(agentId: string): Promise<WorktreeFacts> {
+    // The integration loop has no real worktrees — done-snapshot equals snapshot.
+    return this.snapshotWorktree(agentId)
+  }
+
+  beginLead(): never {
+    throw new Error('the integration loop runs flat — no leads')
+  }
+
+  async integrateBranch(): Promise<never> {
+    throw new Error('the integration loop has no real worktrees to merge')
+  }
+
+  budget(): { usedSec: number; exhausted: boolean } {
+    return { usedSec: 0, exhausted: false }
+  }
+
+  private fakeFacts(record: FakeProcess): WorktreeFacts {
+    return {
+      branch: record.summary.branch ?? 'unknown',
+      headSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      uncommitted: false,
+      changedFiles: [],
+      diffStat: ''
+    }
+  }
+
   listAgents(): AgentSummary[] {
     return [...this.processes.values()].map((record) => record.summary)
+  }
+
+  successionInProgress(): boolean {
+    return false
+  }
+
+  requestSuccession(_input: Parameters<AgentHost['requestSuccession']>[0]): never {
+    throw new Error('no_orchestrator')
   }
 
   /** Resolve once the agent prints a line with this prefix (past lines count). */
@@ -291,7 +353,8 @@ afterEach(async () => {
 interface AwaitResult {
   events: AgentEvent[]
   cursor: number
-  agentsSummary: Array<Record<string, unknown>>
+  /** Absent on an empty long-poll — nothing changed, so nothing is restated. */
+  agentsSummary?: Array<Record<string, unknown>>
   note?: string
 }
 

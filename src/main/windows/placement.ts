@@ -122,6 +122,27 @@ function areaOf(rect: Rect): number {
   return Math.max(0, rect.width) * Math.max(0, rect.height)
 }
 
+/**
+ * The monitors a layout may use.
+ *
+ * A profile that picked a target screen (the zone overlay's display picker)
+ * is pinned to that monitor: auto-tiling must not spill onto the other one,
+ * and zones drawn on a different display are ignored until that display is
+ * chosen again. A stale id (unplugged, Windows Display.id churn) degrades
+ * the same way {@link resolveZoneRect} does — sole remaining monitor wins,
+ * otherwise every attached display (do not guess).
+ */
+export function displaysForPlacement(
+  displays: readonly DisplayInfo[],
+  targetDisplayId: number | undefined
+): DisplayInfo[] {
+  if (targetDisplayId === undefined || displays.length === 0) return [...displays]
+  const match = displays.find((display) => display.id === targetDisplayId)
+  if (match) return [match]
+  if (displays.length === 1) return [...displays]
+  return [...displays]
+}
+
 /** Primary first, then the biggest monitor; id breaks ties so plans are stable. */
 function displayOrder(displays: readonly DisplayInfo[]): DisplayInfo[] {
   return [...displays].sort((a, b) => {
@@ -150,8 +171,14 @@ function resolvableZones(
   roleId: string,
   displays: readonly DisplayInfo[]
 ): Rect[] {
+  // A live target screen must not inherit leftover zones from a different
+  // monitor: `resolveZoneRect` rematches a stale id when only one display is
+  // in the list, and `displaysForPlacement` already narrowed to the target.
+  const target = layout?.targetDisplayId
+  const targetAttached = target !== undefined && displays.some((display) => display.id === target)
   const rects: Rect[] = []
   for (const zone of zonesForRole(layout, roleId)) {
+    if (targetAttached && zone.displayId !== target) continue
     const rect = resolveZoneRect(zone, displays)
     if (rect) rects.push(rect)
   }
@@ -169,7 +196,8 @@ function resolvableZones(
  */
 export function planWindowLayout(input: PlanWindowLayoutInput): PlacedWindow[] {
   const participants = input.windows.filter((window) => !window.movedByUser)
-  if (participants.length === 0 || input.displays.length === 0) return []
+  const displays = displaysForPlacement(input.displays, input.profile?.zones?.targetDisplayId)
+  if (participants.length === 0 || displays.length === 0) return []
 
   const layout = input.profile?.zones
   const placements = new Map<string, Rect>()
@@ -184,7 +212,7 @@ export function planWindowLayout(input: PlanWindowLayoutInput): PlacedWindow[] {
   }
 
   for (const [roleId, members] of byRole) {
-    const zones = resolvableZones(layout, roleId, input.displays)
+    const zones = resolvableZones(layout, roleId, displays)
     if (zones.length === 0) {
       zoneless.push(...members)
       continue
@@ -216,11 +244,11 @@ export function planWindowLayout(input: PlanWindowLayoutInput): PlacedWindow[] {
       ...zoneless.filter((window) => window.roleId === ORCHESTRATOR_ROLE_ID),
       ...zoneless.filter((window) => window.roleId !== ORCHESTRATOR_ROLE_ID)
     ]
-    const displays = displayOrder(input.displays)
+    const orderedDisplays = displayOrder(displays)
     let cursor = 0
-    displays.forEach((display, displayIndex) => {
+    orderedDisplays.forEach((display, displayIndex) => {
       if (cursor >= ordered.length) return
-      const last = displayIndex === displays.length - 1
+      const last = displayIndex === orderedDisplays.length - 1
       const take = last
         ? ordered.length - cursor
         : Math.min(comfortCapacity(display, input.rail), ordered.length - cursor)

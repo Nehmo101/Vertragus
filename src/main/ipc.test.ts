@@ -14,6 +14,7 @@ vi.mock('./windows/cliWindow', () => ({
 
 import {
   createTerminalIpc,
+  setTerminalInputSink,
   TERMINAL_CHANNELS,
   TERMINAL_COALESCE_MS,
   type AgentMeta,
@@ -155,6 +156,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  setTerminalInputSink(undefined)
   registry.dispose()
   vi.useRealTimers()
 })
@@ -216,6 +218,54 @@ describe('terminal:input and terminal:resize', () => {
     ipc.send(TERMINAL_CHANNELS.input, 10, { toString: () => 'nope' })
     ipc.send(TERMINAL_CHANNELS.input, 10, '')
     expect(ptyA.written).toEqual([])
+  })
+
+  it('invokes the input sink with agentId and data after writing the PTY', () => {
+    const seen: Array<[string, string]> = []
+    setTerminalInputSink((agentId, data) => {
+      seen.push([agentId, data])
+    })
+    ipc.send(TERMINAL_CHANNELS.input, 10, 'ls\r')
+    expect(ptyA.written).toEqual(['ls\r'])
+    expect(seen).toEqual([['agent-a', 'ls\r']])
+  })
+
+  it('invokes the sink for any agent — the sink decides orchestrator vs not', () => {
+    const seen: string[] = []
+    setTerminalInputSink((agentId) => {
+      seen.push(agentId)
+    })
+    ipc.send(TERMINAL_CHANNELS.input, 10, 'a')
+    ipc.send(TERMINAL_CHANNELS.input, 20, 'b')
+    expect(seen).toEqual(['agent-a', 'agent-b'])
+    expect(ptyA.written).toEqual(['a'])
+    expect(ptyB.written).toEqual(['b'])
+  })
+
+  it('writes the PTY even when no sink is attached', () => {
+    setTerminalInputSink(undefined)
+    ipc.send(TERMINAL_CHANNELS.input, 10, 'x')
+    expect(ptyA.written).toEqual(['x'])
+  })
+
+  it('fires the same sink from TerminalDirectory.write (remote steering)', () => {
+    const seen: Array<[string, string]> = []
+    setTerminalInputSink((agentId, data) => {
+      seen.push([agentId, data])
+    })
+    expect(registry.terminals().write('agent-a', 'from the phone\r')).toBe(true)
+    expect(ptyA.written).toEqual(['from the phone\r'])
+    expect(seen).toEqual([['agent-a', 'from the phone\r']])
+  })
+
+  it('does not fire the sink for a direct pty.write (seed / sendToAgent / assignGoal)', () => {
+    const seen: string[] = []
+    setTerminalInputSink((_agentId, data) => {
+      seen.push(data)
+    })
+    ptyA.write('seeded goal\r')
+    expect(seen).toEqual([])
+    expect(ptyA.written).toEqual(['seeded goal\r'])
   })
 
   it('forwards a valid resize and drops nonsense', () => {
@@ -375,6 +425,56 @@ describe('window:maximize', () => {
     // A reloaded renderer learns it is maximized without having clicked.
     expect(attach(10).maximized).toBe(true)
     expect(attach(20).maximized).toBe(false)
+  })
+})
+
+describe('terminal:task', () => {
+  it('rides on the attach result once a task note is set', () => {
+    expect(attach(10).task).toBeUndefined()
+    registry.setAgentTask('agent-a', 'Fix the parser')
+    expect(attach(10).task).toBe('Fix the parser')
+    expect(attach(20).task).toBeUndefined()
+  })
+
+  it('pushes a change to the attached window and dedupes repeats', () => {
+    attach(10)
+    registry.setAgentTask('agent-a', 'Fix the parser')
+    registry.setAgentTask('agent-a', 'Fix the parser')
+
+    expect(sent).toEqual([
+      {
+        agentId: 'agent-a',
+        channel: TERMINAL_CHANNELS.task,
+        payload: { agentId: 'agent-a', task: 'Fix the parser' }
+      }
+    ])
+  })
+
+  it('stays quiet for a detached window — the next attach carries the note', () => {
+    registry.setAgentTask('agent-a', 'Fix the parser')
+    expect(sent).toHaveLength(0)
+    expect(attach(10).task).toBe('Fix the parser')
+  })
+
+  it('ignores unknown agents and survives a re-registration', () => {
+    expect(() => registry.setAgentTask('ghost', 'nothing')).not.toThrow()
+    registry.setAgentTask('agent-a', 'Fix the parser')
+    // A PTY swap under the same id keeps the note, like the rest of the record.
+    registry.registerAgent({ pty: new FakePty(), meta: meta('agent-a') })
+    expect(attach(10).task).toBe('Fix the parser')
+  })
+
+  it('clears the note when the assignment is withdrawn', () => {
+    attach(10)
+    registry.setAgentTask('agent-a', 'Fix the parser')
+    registry.setAgentTask('agent-a', undefined)
+
+    expect(sent[1]).toEqual({
+      agentId: 'agent-a',
+      channel: TERMINAL_CHANNELS.task,
+      payload: { agentId: 'agent-a' }
+    })
+    expect(attach(10).task).toBeUndefined()
   })
 })
 

@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -17,6 +15,8 @@ class FakeBrowserWindow {
   shown = false
   focused = false
   minimized = false
+  /** Which of show / showInactive / focus ran, in order. */
+  readonly calls: Array<'show' | 'showInactive' | 'focus'> = []
 
   constructor(public readonly options: Record<string, unknown>) {
     FakeBrowserWindow.instances.push(this)
@@ -50,6 +50,9 @@ class FakeBrowserWindow {
     this.options.width = bounds.width
     this.options.height = bounds.height
   }
+  isFocused(): boolean {
+    return this.focused
+  }
   restore(): void {
     this.minimized = false
   }
@@ -58,15 +61,27 @@ class FakeBrowserWindow {
   }
   show(): void {
     this.shown = true
+    this.calls.push('show')
+  }
+  showInactive(): void {
+    this.shown = true
+    this.calls.push('showInactive')
   }
   focus(): void {
     this.focused = true
+    this.calls.push('focus')
   }
   close(): void {
     this.destroyed = true
     this.emit('closed')
   }
 }
+
+function fake(win: unknown): FakeBrowserWindow {
+  return win as unknown as FakeBrowserWindow
+}
+
+const META = { title: 'Caronte', roleColor: '#2f7d6d' } as const
 
 vi.mock('electron', () => ({ BrowserWindow: FakeBrowserWindow }))
 
@@ -124,11 +139,48 @@ describe('createCliWindow', () => {
   })
 
   it('reuses and refocuses an existing window instead of opening a second one', () => {
-    const first = cli.createCliWindow('agent-1', { title: 'Caronte', roleColor: '#2f7d6d' })
-    const again = cli.createCliWindow('agent-1', { title: 'Caronte', roleColor: '#2f7d6d' })
+    const first = fake(cli.createCliWindow('agent-1', META))
+    const again = cli.createCliWindow('agent-1', META)
     expect(again).toBe(first)
     expect(FakeBrowserWindow.instances).toHaveLength(1)
-    expect((first as unknown as FakeBrowserWindow).focused).toBe(true)
+    expect(first.calls).toEqual(['show', 'focus'])
+    expect(first.focused).toBe(true)
+  })
+
+  it('shows a new window when no other CLI is focused', () => {
+    const win = fake(cli.createCliWindow('agent-1', META))
+    win.emit('ready-to-show')
+    expect(win.calls).toEqual(['show'])
+  })
+
+  it('shows a new window inactive when another CLI is focused', () => {
+    const other = fake(cli.createCliWindow('agent-a', { title: 'A', roleColor: '#111' }))
+    other.focused = true
+    const win = fake(cli.createCliWindow('agent-b', { title: 'B', roleColor: '#222' }))
+    win.emit('ready-to-show')
+    expect(win.calls).toEqual(['showInactive'])
+    expect(win.focused).toBe(false)
+  })
+
+  it('shows inactive on ready-to-show even if construction stole focus from the other CLI', () => {
+    const other = fake(cli.createCliWindow('agent-a', { title: 'A', roleColor: '#111' }))
+    other.focused = true
+    const win = fake(cli.createCliWindow('agent-b', { title: 'B', roleColor: '#222' }))
+    other.focused = false
+    win.emit('ready-to-show')
+    expect(win.calls).toEqual(['showInactive'])
+    expect(win.focused).toBe(false)
+  })
+
+  it('reuses an existing window without stealing focus from another CLI', () => {
+    const other = fake(cli.createCliWindow('agent-a', { title: 'A', roleColor: '#111' }))
+    other.focused = true
+    const existing = fake(cli.createCliWindow('agent-b', { title: 'B', roleColor: '#222' }))
+    const again = cli.createCliWindow('agent-b', { title: 'B', roleColor: '#222' })
+    expect(again).toBe(existing)
+    expect(FakeBrowserWindow.instances).toHaveLength(2)
+    expect(existing.calls).toEqual(['showInactive'])
+    expect(existing.focused).toBe(false)
   })
 })
 
@@ -163,17 +215,37 @@ describe('CLI window registry', () => {
     expect(cli.listCliWindows()).toEqual([])
   })
 
-  it('closing an unknown agent is a no-op', () => {
-    expect(() => cli.closeCliWindow('ghost')).not.toThrow()
+  it('notifies listeners when a window is closed', () => {
+    const seen: string[] = []
+    const off = cli.onCliWindowClosed((agentId) => seen.push(agentId))
+    cli.createCliWindow('agent-a', { title: 'A', roleColor: '#111' })
+    cli.closeCliWindow('agent-a')
+    expect(seen).toEqual(['agent-a'])
+    off()
+    cli.createCliWindow('agent-b', { title: 'B', roleColor: '#222' })
+    cli.closeCliWindow('agent-b')
+    expect(seen).toEqual(['agent-a'])
   })
 
   it('focus restores a minimized window', () => {
-    const win = cli.createCliWindow('agent-a', { title: 'A', roleColor: '#111' }) as unknown as FakeBrowserWindow
+    const win = fake(cli.createCliWindow('agent-a', { title: 'A', roleColor: '#111' }))
     win.minimized = true
     cli.focusCliWindow('agent-a')
     expect(win.minimized).toBe(false)
+    expect(win.calls).toEqual(['show', 'focus'])
     expect(win.focused).toBe(true)
     expect(() => cli.focusCliWindow('ghost')).not.toThrow()
+  })
+
+  it('focus restores, shows and focuses even when another CLI is focused', () => {
+    const other = fake(cli.createCliWindow('agent-a', { title: 'A', roleColor: '#111' }))
+    other.focused = true
+    const win = fake(cli.createCliWindow('agent-b', { title: 'B', roleColor: '#222' }))
+    win.minimized = true
+    cli.focusCliWindow('agent-b')
+    expect(win.minimized).toBe(false)
+    expect(win.calls).toEqual(['show', 'focus'])
+    expect(win.focused).toBe(true)
   })
 
   it('minimizeCliWindow minimizes without forgetting the registry entry', () => {
@@ -191,15 +263,5 @@ describe('CLI window registry', () => {
   })
 })
 
-describe('security posture', () => {
-  it('never weakens the sandbox flags', () => {
-    const source = readFileSync(join(__dirname, 'cliWindow.ts'), 'utf8')
-    expect(source).not.toMatch(/sandbox:\s*false/)
-    expect(source).not.toMatch(/contextIsolation:\s*false/)
-    expect(source).not.toMatch(/nodeIntegration:\s*true/)
-    expect(source).not.toMatch(/webSecurity:\s*false/)
-    // Every window inherits the shared posture instead of hand-rolling one.
-    expect(source).toMatch(/glassWindowOptions\(\)/)
-    expect(source).toMatch(/secureWindow\(win\)/)
-  })
-})
+// The sandbox/secureWindow posture of this window is pinned centrally by
+// base.securityContract.test.ts, which derives its file list from the directory.

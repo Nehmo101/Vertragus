@@ -7,6 +7,8 @@ import {
   adoptLegacyStore,
   appSettingsSchema,
   createSettingsStore,
+  defaultLocaleForOs,
+  effectiveAgentPolicy,
   LEGACY_STORE_NAME,
   SETTINGS_KEYS,
   STORE_NAME,
@@ -128,6 +130,19 @@ describe('profiles', () => {
     expect(settings.getProfile('p1')!.zones).toEqual({ zones: [] })
   })
 
+  it('E6: keeps a slot’s extraMcp when a form save omits it; [] clears it', () => {
+    const { store: settings } = store()
+    const slot = { id: 's1', roleId: 'worker', providerId: 'claude' }
+    const extraMcp = [{ name: 'browser', url: 'http://127.0.0.1:9200/mcp' }]
+    settings.saveProfile({ ...validProfile, slots: [{ ...slot, extraMcp }] })
+    // The profile editor has no extraMcp field — its save must not wipe it.
+    settings.saveProfile({ ...validProfile, slots: [slot] })
+    expect(settings.getProfile('p1')!.slots[0]!.extraMcp).toEqual(extraMcp)
+    // An explicit empty list is the deliberate clear.
+    settings.saveProfile({ ...validProfile, slots: [{ ...slot, extraMcp: [] }] })
+    expect(settings.getProfile('p1')!.slots[0]!.extraMcp).toEqual([])
+  })
+
   it('zone → profile-save → placeAgentWindow still lands inside the zone', async () => {
     const { placeAgentWindow } = await import('@main/windows/placement')
     const { store: settings } = store()
@@ -236,12 +251,21 @@ describe('app settings', () => {
   it('serves the documented defaults on a fresh store', () => {
     const { store: settings } = store()
     expect(settings.getSettings()).toEqual({
-      ui: { theme: 'dark', locale: 'de', appearance: DEFAULT_APPEARANCE, reflowNeighbors: true },
+      ui: {
+        theme: 'dark',
+        locale: 'de',
+        appearance: DEFAULT_APPEARANCE,
+        reflowNeighbors: true,
+        onboardingDismissed: false
+      },
+      remote: { enabled: false, bindAddress: '', port: 9482 },
       yoloMaster: true,
       hideAllHotkey: 'Control+Alt+V',
       autostart: false,
       updateChannel: 'main',
-      modelMemory: {}
+      modelMemory: {},
+      voice: { enabled: false, wakePhrase: 'Hey Vertragus', apiKey: '', voiceId: 'eve' },
+      mcpServers: []
     })
   })
 
@@ -249,6 +273,52 @@ describe('app settings', () => {
     const { store: settings } = store({ hideAllHotkey: 'Control+Shift+H' })
     expect(settings.getSettings().ui.reflowNeighbors).toBe(true)
     expect(settings.getSettings().hideAllHotkey).toBe('Control+Shift+H')
+  })
+
+  it('keeps the voice assistant off until the user turns it on', () => {
+    const { store: settings } = store()
+    expect(settings.getSettings().voice.enabled).toBe(false)
+    expect(settings.getSettings().voice.wakePhrase).toBe('Hey Vertragus')
+    expect(settings.getSettings().voice.voiceId).toBe('eve')
+    expect(settings.getSettings().voice.apiKey).toBe('')
+  })
+
+  it('round-trips a voice section without touching the other keys', () => {
+    const { store: settings, backend } = store()
+    settings.setSetting('yoloMaster', false)
+    const next = settings.setSetting('voice', {
+      enabled: true,
+      wakePhrase: 'Hey Grok',
+      apiKey: 'xai-test-key',
+      voiceId: 'ara'
+    })
+    expect(next.voice).toEqual({
+      enabled: true,
+      wakePhrase: 'Hey Grok',
+      apiKey: 'xai-test-key',
+      voiceId: 'ara'
+    })
+    expect(next.yoloMaster).toBe(false)
+    expect(backend.data.voice).toEqual(next.voice)
+    expect(settings.getSettings().voice).toEqual(next.voice)
+  })
+
+  it('drops an invalid voice section without killing the rest', () => {
+    const { store: settings } = store({
+      yoloMaster: false,
+      hideAllHotkey: 'Control+Shift+H',
+      voice: { enabled: 'yes', wakePhrase: '' }
+    })
+    const result = settings.getSettings()
+    expect(result.yoloMaster).toBe(false)
+    expect(result.hideAllHotkey).toBe('Control+Shift+H')
+    expect(result.voice).toEqual({
+      enabled: false,
+      wakePhrase: 'Hey Vertragus',
+      apiKey: '',
+      voiceId: 'eve'
+    })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid settings section'))
   })
 
   it('switches the update channel and refuses an invented one', () => {
@@ -286,6 +356,7 @@ describe('app settings', () => {
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
       reflowNeighbors: true,
+      onboardingDismissed: false,
       panelBounds: { edge: 'right', y: 320 }
     })
     expect(settings.getSettings().ui).toEqual({
@@ -293,6 +364,7 @@ describe('app settings', () => {
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
       reflowNeighbors: true,
+      onboardingDismissed: false,
       panelBounds: { edge: 'right', y: 320 }
     })
   })
@@ -321,7 +393,8 @@ describe('app settings', () => {
       theme: 'light',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
-      reflowNeighbors: true
+      reflowNeighbors: true,
+      onboardingDismissed: false
     })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid settings section'))
   })
@@ -339,11 +412,104 @@ describe('app settings', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid settings section'))
   })
 
+  it('derives the D4 tier from the legacy boolean when no policy is stored', () => {
+    const { store: settings } = store()
+    expect(effectiveAgentPolicy(settings.getSettings())).toBe('yolo')
+    const { store: off } = store({ yoloMaster: false })
+    expect(effectiveAgentPolicy(off.getSettings())).toBe('ask-user')
+  })
+
+  it('a stored policy wins over the boolean', () => {
+    const { store: settings } = store({ yoloMaster: true, agentPolicy: 'ask-orchestrator' })
+    expect(effectiveAgentPolicy(settings.getSettings())).toBe('ask-orchestrator')
+  })
+
+  it('mirrors a policy write into yoloMaster — one truth, two representations', () => {
+    const { store: settings, backend } = store()
+    settings.setSetting('agentPolicy', 'ask-orchestrator')
+    expect(backend.data.agentPolicy).toBe('ask-orchestrator')
+    expect(backend.data.yoloMaster).toBe(false)
+    settings.setSetting('agentPolicy', 'yolo')
+    expect(backend.data.yoloMaster).toBe(true)
+  })
+
+  it('mirrors the panel’s yolo toggle back into the policy', () => {
+    const { store: settings, backend } = store({ agentPolicy: 'ask-orchestrator' })
+    settings.setSetting('yoloMaster', true)
+    expect(backend.data.agentPolicy).toBe('yolo')
+    settings.setSetting('yoloMaster', false)
+    expect(backend.data.agentPolicy).toBe('ask-user')
+  })
+
+  it('rejects an invented tier and falls back soft on read', () => {
+    const { store: settings } = store()
+    // @ts-expect-error — IPC input is not type-checked; the schema is the gate.
+    expect(() => settings.setSetting('agentPolicy', 'full-send')).toThrow()
+    const { store: corrupt } = store({ agentPolicy: 'full-send' })
+    expect(effectiveAgentPolicy(corrupt.getSettings())).toBe('yolo')
+  })
+
   it('covers every settings key with a schema field', () => {
     for (const key of SETTINGS_KEYS) {
       expect(appSettingsSchema.shape[key]).toBeDefined()
     }
     expect(Object.keys(appSettingsSchema.shape).sort()).toEqual([...SETTINGS_KEYS].sort())
+    expect(SETTINGS_KEYS).toContain('mcpServers')
+  })
+
+  it('round-trips extra MCP servers', () => {
+    const { store: settings, backend } = store()
+    const servers = [
+      {
+        id: 'github',
+        label: 'GitHub',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-github'],
+        enabled: true
+      }
+    ]
+    expect(settings.setSetting('mcpServers', servers).mcpServers).toEqual(servers)
+    expect(backend.data.mcpServers).toEqual(servers)
+  })
+
+  it('drops an invalid MCP row on read and keeps the rest', () => {
+    const { store: settings } = store({
+      mcpServers: [
+        { id: 'github', label: 'GitHub', transport: 'stdio', command: 'npx' },
+        { id: 'broken' },
+        { id: 'vertragus', label: 'Nope', transport: 'http', url: 'http://127.0.0.1/mcp' }
+      ]
+    })
+    expect(settings.getSettings().mcpServers.map((server) => server.id)).toEqual(['github'])
+  })
+
+  it('rejects a reserved MCP id on write', () => {
+    const { store: settings } = store()
+    expect(() =>
+      settings.setSetting('mcpServers', [
+        { id: 'vertragus', label: 'Nope', transport: 'stdio', command: 'npx', enabled: true, args: [] }
+      ])
+    ).toThrow(/reserved/)
+    expect(settings.getSettings().mcpServers).toEqual([])
+  })
+
+  /**
+   * WP-1: the first-run UI language follows the OS. The rule itself is pure —
+   * the Electron backend applies it exactly once, on a first run with no
+   * stored `ui`, so a stored choice always wins (see createElectronBackend).
+   */
+  it('derives the first-run locale from the OS: de* stays German, the rest gets English', () => {
+    expect(defaultLocaleForOs('de')).toBe('de')
+    expect(defaultLocaleForOs('de-DE')).toBe('de')
+    expect(defaultLocaleForOs('de-AT')).toBe('de')
+    expect(defaultLocaleForOs('DE_CH')).toBe('de')
+    expect(defaultLocaleForOs('en-US')).toBe('en')
+    expect(defaultLocaleForOs('fr')).toBe('en')
+    expect(defaultLocaleForOs('')).toBe('en')
+    expect(defaultLocaleForOs(undefined)).toBe('en')
+    // A partially German-looking tag that is not German must not match.
+    expect(defaultLocaleForOs('nds')).toBe('en')
   })
 })
 
@@ -380,8 +546,10 @@ describe('adoptLegacyStore', () => {
       theme: 'light',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
-      reflowNeighbors: true
+      reflowNeighbors: true,
+      onboardingDismissed: false
     })
+    expect(adopted.mcpServers).toBeUndefined()
   })
 
   it('leaves the archived app’s own records behind instead of dropping them loudly', () => {
@@ -499,5 +667,43 @@ describe('run retros and model learnings', () => {
     const { store: settings } = store({ modelLearnings: [validLearning, 42] })
     expect(settings.getModelLearnings()).toHaveLength(1)
     expect(warn).toHaveBeenCalledWith('[settings] dropped 1 invalid model learning(s)')
+  })
+})
+
+describe('repo notes — E2', () => {
+  it('adds, filters by profile, dedupes identical notes and deletes by id', () => {
+    const { store: s } = store()
+    const first = s.addRepoNotes('p1', ['tests need pnpm run ci', '  ', 'panel is a drag region'])
+    expect(first.filter((note) => note.profileId === 'p1')).toHaveLength(2)
+
+    // Same note again: reinforced, not duplicated. Other profiles untouched.
+    s.addRepoNotes('p1', ['tests need pnpm run ci'])
+    s.addRepoNotes('p2', ['tests need pnpm run ci'])
+    expect(s.getRepoNotes('p1')).toHaveLength(2)
+    expect(s.getRepoNotes('p2')).toHaveLength(1)
+    expect(s.getRepoNotes()).toHaveLength(3)
+
+    const id = s.getRepoNotes('p1')[0]!.id
+    s.deleteRepoNote(id)
+    expect(s.getRepoNotes('p1')).toHaveLength(1)
+  })
+
+  it('caps per profile — newest win, other profiles keep theirs', () => {
+    const { store: s } = store()
+    s.addRepoNotes('p2', ['keep me'])
+    for (let index = 0; index < 25; index += 1) {
+      s.addRepoNotes('p1', [`note ${index}`])
+    }
+    expect(s.getRepoNotes('p1')).toHaveLength(20)
+    // Newest first: the earliest notes fell off.
+    expect(s.getRepoNotes('p1').some((note) => note.note === 'note 0')).toBe(false)
+    expect(s.getRepoNotes('p1')[0]!.note).toBe('note 24')
+    expect(s.getRepoNotes('p2')).toHaveLength(1)
+  })
+
+  it('drops corrupt rows on read instead of losing the list', () => {
+    const { store: s } = store({ repoNotes: [{ junk: true }, null] })
+    expect(s.getRepoNotes()).toEqual([])
+    expect(warn).toHaveBeenCalled()
   })
 })

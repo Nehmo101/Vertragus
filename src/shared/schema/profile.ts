@@ -34,6 +34,82 @@ export const roleTemplateSchema = z
   .strict()
 export type RoleTemplate = z.infer<typeof roleTemplateSchema>
 
+/** E6: at most this many extra MCP servers per slot — a bug net, not a quota. */
+export const MAX_EXTRA_MCP = 4
+
+/**
+ * E6: one extra MCP server a slot's agents attach IN ADDITION to Vertragus.
+ * The name must be a TOML/JSON-safe bare key (it becomes a Codex `-c
+ * mcp_servers.<name>.url` override and a Grok `[mcp_servers.<name>]` table),
+ * and `vertragus` is reserved so nothing can shadow the reporting channel.
+ */
+export const extraMcpServerSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(40)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/, 'letters, digits, "_" and "-" only')
+      .refine((name) => name.toLowerCase() !== 'vertragus', {
+        message: 'the name "vertragus" is reserved for the built-in server'
+      }),
+    /** HTTP(S) Streamable endpoint; every dialect here treats a bare url as HTTP. */
+    url: z.string().trim().url().max(500)
+  })
+  .strict()
+export type ExtraMcpServer = z.infer<typeof extraMcpServerSchema>
+
+/** The remote an auto-PR pushes to unless the profile names another one. */
+export const DEFAULT_PR_REMOTE = 'origin'
+
+/**
+ * A3: what the host does at the end of a piece of work WITHOUT a human click.
+ *
+ * Everything here is off by default. Vertragus' doctrine is that adopting an
+ * agent's work is the user's decision — these switches are that decision, made
+ * once in the profile instead of once per branch. What they never become is a
+ * second merge path: auto-adoption runs through exactly the host merges the
+ * panel button and `integrate_branch` already use, and a conflict aborts and
+ * reports there just the same.
+ */
+export const automationSchema = z
+  .object({
+    /**
+     * Merge every cleanly reported agent branch into the ORCHESTRATOR's
+     * worktree as soon as its `agent_done` lands. Keeps the run's integration
+     * branch complete without the orchestrator having to call
+     * `integrate_branch` for every worker — and it is the branch `autoPr`
+     * opens the pull request from.
+     */
+    autoIntegrate: z.boolean().default(false),
+    /**
+     * Merge every cleanly reported agent branch into the REPOSITORY's own
+     * checkout — the panel's Promote button, without the click. This is the
+     * "merge the branch in the panel to get the fix" step automated; a dirty
+     * checkout still refuses (never overwrite the user's own work).
+     */
+    autoPromote: z.boolean().default(false),
+    /**
+     * Open a pull request when the run wraps up (`record_retro`, or the user
+     * stopping the workspace). Pushes the run's branch first; needs the GitHub
+     * CLI (`gh`) to be installed and logged in — without it the host reports
+     * the ready-made compare URL instead of failing the run.
+     */
+    autoPr: z.boolean().default(false),
+    /** Remote the PR branch is pushed to. */
+    prRemote: z.string().trim().min(1).max(100).default(DEFAULT_PR_REMOTE),
+    /** PR base; absent = the branch the repository checkout is on. */
+    prBaseBranch: z.string().trim().max(300).optional(),
+    /** Open the pull request as a draft. */
+    prDraft: z.boolean().default(false)
+  })
+  .strict()
+export type ProfileAutomation = z.infer<typeof automationSchema>
+
+/** Every switch off — what a profile without an `automation` block means. */
+export const AUTOMATION_OFF: ProfileAutomation = automationSchema.parse({})
+
 export const slotSchema = z
   .object({
     id: idSchema,
@@ -43,7 +119,14 @@ export const slotSchema = z
     model: z.string().trim().max(200).optional(),
     effort: effortLevelSchema.optional(),
     /** Max parallel instances of this slot. Absent = only `maxSubagents` binds. */
-    maxCount: z.number().int().min(1).max(MAX_SLOT_COUNT).optional()
+    maxCount: z.number().int().min(1).max(MAX_SLOT_COUNT).optional(),
+    /**
+     * E6: extra MCP servers for this slot's agents — SUBAGENTS ONLY. The
+     * orchestrator and leads never get them: their tool surface is the
+     * allow-list, and a browser tool on the delegator is how a delegator
+     * starts doing the work itself.
+     */
+    extraMcp: z.array(extraMcpServerSchema).max(MAX_EXTRA_MCP).optional()
   })
   .strict()
 export type Slot = z.infer<typeof slotSchema>
@@ -80,6 +163,33 @@ export const profileSchema = z
      * field so a human can redact it before it runs.
      */
     autoSubmitTasks: z.boolean().default(true),
+    /**
+     * E4: wall-clock budget — the sum of agent-seconds a run may burn before
+     * new starts are refused (`budget_warning` fires at 80% and at 100%).
+     * Deliberately time, not tokens: the host can measure time truthfully.
+     */
+    maxRuntimeMin: z.number().int().min(1).max(24 * 60).optional(),
+    /**
+     * E6: playbooks are GOAL TEMPLATES — one click fills the goal field, the
+     * orchestrator still decides the team. Never a pre-started crew.
+     */
+    playbooks: z
+      .array(
+        z
+          .object({
+            name: z.string().trim().min(1).max(60),
+            goal: z.string().trim().min(1).max(4_000)
+          })
+          .strict()
+      )
+      .max(12)
+      .optional(),
+    /**
+     * A3: end-of-work automation (auto-integrate, auto-promote, auto-PR).
+     * Absent in every profile written before A3 — the default is every switch
+     * off, so an old profile keeps needing the human click it always needed.
+     */
+    automation: automationSchema.default(() => automationSchema.parse({})),
     zones: zoneLayoutSchema.optional()
   })
   .strict()

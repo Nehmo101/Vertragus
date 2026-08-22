@@ -13,6 +13,8 @@
  * key, mirroring `isCliWindowSender`.
  */
 import { BrowserWindow } from 'electron'
+import { mainMessages, readLocale } from '@shared/mainMessages'
+import { getSettings } from '@main/store/settings'
 import { glassWindowOptions, loadRoute, secureWindow } from './base'
 import { armWindowCapture } from './smokeCapture'
 
@@ -86,7 +88,25 @@ export function armProfileEditorSmoke(): void {
   openProfileEditorWindow(process.env['VERTRAGUS_PROFILE_EDITOR_PROFILE'])
 }
 
-export function openProfileEditorWindow(profileId?: string): BrowserWindow {
+/**
+ * The route this key opens under, plus WP-7's orchestrator hint.
+ *
+ * The hint rides the route because that is the only channel a freshly created
+ * window has before it can talk back — the same reason the zone overlay reads
+ * its display from the hash. It is attached to the NEW slot only: an existing
+ * profile already names its orchestrator, and a query parameter that silently
+ * repointed a saved record would be data loss disguised as convenience.
+ */
+export function profileEditorRoute(key: string, providerId?: string): string {
+  if (key !== NEW_PROFILE_KEY) return `/profile-editor/${encodeURIComponent(key)}`
+  const hint = providerId?.trim()
+  return hint ? `/profile-editor?provider=${encodeURIComponent(hint)}` : '/profile-editor'
+}
+
+export function openProfileEditorWindow(
+  profileId?: string,
+  providerId?: string
+): BrowserWindow {
   const key = profileEditorKey(profileId)
   const existing = getProfileEditorWindow(key)
   if (existing) {
@@ -105,10 +125,11 @@ export function openProfileEditorWindow(profileId?: string): BrowserWindow {
     resizable: true,
     // Never always-on-top: the editor is a task, not a HUD.
     alwaysOnTop: false,
-    title: 'Vertragus — Profil'
+    // OS-chrome title in the stored locale (see settingsWindow.ts).
+    title: mainMessages(readLocale(() => getSettings().ui.locale)).profileEditorTitle
   })
   secureWindow(win)
-  loadRoute(win, key === NEW_PROFILE_KEY ? '/profile-editor' : `/profile-editor/${encodeURIComponent(key)}`)
+  loadRoute(win, profileEditorRoute(key, providerId))
   win.on('ready-to-show', () => win.show())
   win.on('closed', () => {
     const entry = windows.get(key)

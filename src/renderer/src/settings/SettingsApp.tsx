@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   APPEARANCE_LIMITS,
@@ -5,7 +6,16 @@ import {
   type Appearance,
   type AppearanceSlider
 } from '@shared/appearance'
-import { LOCALES, translator } from '../i18n'
+import type { PanelSettings } from '../../../preload'
+import { RemoteSection } from './RemoteSection'
+import { normalizeMcpServerId, type ExtraMcpServer } from '@shared/schema/mcpServer'
+import {
+  draftFromServer,
+  emptyMcpDraft,
+  validateMcpDraft,
+  type McpDraftErrors,
+  type McpServerDraft
+} from './model'
 import { useSettings, type SettingsState } from './useSettings'
 import './settings.css'
 
@@ -61,13 +71,137 @@ function AppearanceSliderRow({
 }
 
 /**
+ * Wake-phrase and voice-id drafts. Keyed by the stored pair so a settings
+ * update remounts with fresh initial state instead of syncing in an effect.
+ */
+function VoiceDraftFields({
+  settings,
+  set
+}: {
+  settings: PanelSettings
+  set: SettingsState['set']
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const [wake, setWake] = useState(settings.voiceWakePhrase)
+  const [voiceId, setVoiceId] = useState(settings.voiceVoiceId)
+
+  return (
+    <>
+      <div className="st-field">
+        <span className="st-label">{t('settings.voiceWakePhrase')}</span>
+        <input
+          className="st-input"
+          value={wake}
+          maxLength={80}
+          onChange={(event) => setWake(event.target.value)}
+          onBlur={() => {
+            const trimmed = wake.trim()
+            if (trimmed && trimmed !== settings.voiceWakePhrase) {
+              set('voice', { wakePhrase: trimmed })
+            } else {
+              setWake(settings.voiceWakePhrase)
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+          }}
+        />
+        <span className="st-hint">{t('settings.voiceWakePhraseHint')}</span>
+      </div>
+      <div className="st-field">
+        <span className="st-label">{t('settings.voiceVoiceId')}</span>
+        <input
+          className="st-input st-mono"
+          value={voiceId}
+          maxLength={40}
+          onChange={(event) => setVoiceId(event.target.value)}
+          onBlur={() => {
+            const trimmed = voiceId.trim()
+            if (trimmed && trimmed !== settings.voiceVoiceId) {
+              set('voice', { voiceId: trimmed })
+            } else {
+              setVoiceId(settings.voiceVoiceId)
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+          }}
+        />
+        <span className="st-hint">{t('settings.voiceVoiceIdHint')}</span>
+      </div>
+    </>
+  )
+}
+
+function VoiceSection({
+  settings,
+  set
+}: {
+  settings: PanelSettings
+  set: SettingsState['set']
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const [apiKey, setApiKey] = useState('')
+
+  return (
+    <section className="st-glass-section">
+      <h2 className="st-section-label">{t('settings.voice')}</h2>
+      <label className="st-switch">
+        <input
+          type="checkbox"
+          className="st-switch-input"
+          checked={settings.voiceEnabled}
+          onChange={(event) => set('voice', { enabled: event.target.checked })}
+        />
+        <span className="st-switch-text">
+          <span className="st-switch-label">{t('settings.voiceEnabled')}</span>
+          <span className="st-hint">{t('settings.voiceEnabledHint')}</span>
+        </span>
+      </label>
+      <VoiceDraftFields
+        key={`${settings.voiceWakePhrase}\0${settings.voiceVoiceId}`}
+        settings={settings}
+        set={set}
+      />
+      <div className="st-field">
+        <span className="st-label">{t('settings.voiceApiKey')}</span>
+        <input
+          type="password"
+          className="st-input st-mono"
+          value={apiKey}
+          maxLength={200}
+          autoComplete="off"
+          placeholder={
+            settings.voiceApiKeySet
+              ? t('settings.voiceApiKeySet')
+              : t('settings.voiceApiKeyPlaceholder')
+          }
+          onChange={(event) => setApiKey(event.target.value)}
+          onBlur={() => {
+            if (apiKey.length > 0) {
+              set('voice', { apiKey })
+              setApiKey('')
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+          }}
+        />
+        <span className="st-hint">{t('settings.voiceApiKeyHint')}</span>
+      </div>
+    </section>
+  )
+}
+
+/**
  * The settings window — the sheet behind the panel's gear.
  *
- * Deliberately small. Five settings that belong to the app rather than to a
- * profile, plus the state of the self-updater. Everything a profile owns
- * (providers, models, slots, zones) lives in the profile editor, and putting
- * either half into the other window is how a settings dialog turns into a
- * second, worse copy of the app.
+ * Deliberately small. App-wide settings rather than profile ones, with
+ * Tailscale remote access first so enabling a phone does not mean scrolling
+ * past glass sliders. Extra MCP servers, glass and the self-updater sit
+ * further down. Everything a profile owns (providers, models, slots, zones)
+ * lives in the profile editor, and putting either half into the other window
+ * is how a settings dialog turns into a second, worse copy of the app.
  *
  * Two fields carry a warning instead of being disabled: autostart in a dev run
  * and the hotkey the OS refused. A greyed-out control with no explanation is
@@ -98,14 +232,11 @@ export function SettingsApp(): React.JSX.Element {
   // an unknown one still shows its raw name rather than an empty line.
   const statusKey = `settings.updateStatus.${update?.status}`
   const statusText = update ? t([statusKey, update.status]) : t('common.loading')
-  // The updater's own `message` is authored in the main process and therefore
-  // German. For `disabled` it says exactly what the status line already says,
-  // so it is dropped — comparing against BOTH languages, not just the current
-  // one: in English the two strings differ and the German sentence would be
-  // printed underneath the English one.
-  const messageAddsSomething =
-    update?.message !== undefined &&
-    !LOCALES.some((locale) => translator(locale)(statusKey) === update.message)
+  // The updater's `message` comes from the main process via `mainMessages`,
+  // in the stored locale. For `disabled` it says by construction exactly what
+  // the status line already says (`settings.updateStatus.disabled`), so only
+  // the other states print it underneath.
+  const messageAddsSomething = update?.message !== undefined && update?.status !== 'disabled'
 
   return (
     <div className="st glass">
@@ -115,6 +246,22 @@ export function SettingsApp(): React.JSX.Element {
       </header>
 
       <div className="st-body">
+        <RemoteSection />
+
+        <section className="st-field">
+          <span className="st-label">{t('settings.agentPolicy')}</span>
+          <select
+            className="st-input"
+            value={settings.agentPolicy}
+            onChange={(event) => view.set('agentPolicy', event.target.value)}
+          >
+            <option value="yolo">{t('settings.agentPolicyYolo')}</option>
+            <option value="ask-user">{t('settings.agentPolicyAskUser')}</option>
+            <option value="ask-orchestrator">{t('settings.agentPolicyAskOrchestrator')}</option>
+          </select>
+          <span className="st-hint">{t('settings.agentPolicyHint')}</span>
+        </section>
+
         <section className="st-field">
           <span className="st-label">{t('settings.hotkey')}</span>
           <div className="st-row">
@@ -220,6 +367,8 @@ export function SettingsApp(): React.JSX.Element {
           </section>
         </div>
 
+        <VoiceSection settings={settings} set={view.set} />
+
         <section className="st-glass-section">
           <h2 className="st-section-label">{t('settings.glass')}</h2>
           <label className="st-switch">
@@ -249,6 +398,12 @@ export function SettingsApp(): React.JSX.Element {
           ))}
           <span className="st-hint">{t('settings.glassLadderHint')}</span>
         </section>
+
+        <McpServersSection
+          servers={settings.mcpServers}
+          saving={view.saving}
+          onWrite={(next) => view.set('mcpServers', next)}
+        />
 
         <section className="st-updates">
           <h2 className="st-section-label">{t('settings.updates')}</h2>
@@ -296,5 +451,244 @@ export function SettingsApp(): React.JSX.Element {
         </button>
       </footer>
     </div>
+  )
+}
+
+function McpServersSection({
+  servers,
+  saving,
+  onWrite
+}: {
+  servers: ExtraMcpServer[]
+  saving: boolean
+  onWrite: (next: ExtraMcpServer[]) => void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const [draft, setDraft] = useState<McpServerDraft | null>(null)
+  const [errors, setErrors] = useState<McpDraftErrors>({})
+
+  const patch = (update: Partial<McpServerDraft>): void => {
+    setDraft((current) => (current ? { ...current, ...update } : current))
+    setErrors({})
+  }
+
+  const save = (): void => {
+    if (!draft) return
+    const result = validateMcpDraft(t, draft, servers)
+    if (!result.ok) {
+      setErrors(result.errors)
+      return
+    }
+    const next = draft.editingId
+      ? servers.map((server) => (server.id === draft.editingId ? result.server : server))
+      : [...servers, result.server]
+    onWrite(next)
+    setDraft(null)
+    setErrors({})
+  }
+
+  return (
+    <section className="st-mcp-section">
+      <h2 className="st-section-label">{t('settings.mcp.title')}</h2>
+      <span className="st-hint">{t('settings.mcp.hint')}</span>
+
+      {servers.length === 0 && !draft ? (
+        <span className="st-hint">{t('settings.mcp.empty')}</span>
+      ) : (
+        <ul className="st-mcp-list">
+          {servers.map((server) => (
+            <li key={server.id} className="st-mcp-row">
+              <div className="st-mcp-row-main">
+                <span className="st-mcp-row-label">{server.label}</span>
+                <span className="st-mcp-row-id">{server.id}</span>
+              </div>
+              <span className="st-mcp-badge">
+                {server.transport === 'stdio'
+                  ? t('settings.mcp.transportStdio')
+                  : t('settings.mcp.transportHttp')}
+              </span>
+              <label className="st-switch">
+                <input
+                  type="checkbox"
+                  className="st-switch-input"
+                  checked={server.enabled}
+                  disabled={saving}
+                  aria-label={t('settings.mcp.enabled')}
+                  onChange={(event) =>
+                    onWrite(
+                      servers.map((entry) =>
+                        entry.id === server.id ? { ...entry, enabled: event.target.checked } : entry
+                      )
+                    )
+                  }
+                />
+              </label>
+              <button
+                type="button"
+                className="st-ghost"
+                onClick={() => {
+                  setDraft(draftFromServer(server))
+                  setErrors({})
+                }}
+              >
+                {t('settings.mcp.edit')}
+              </button>
+              <button
+                type="button"
+                className="st-ghost"
+                onClick={() => {
+                  if (!window.confirm(t('settings.mcp.deleteConfirm', { label: server.label }))) {
+                    return
+                  }
+                  onWrite(servers.filter((entry) => entry.id !== server.id))
+                  if (draft?.editingId === server.id) {
+                    setDraft(null)
+                    setErrors({})
+                  }
+                }}
+              >
+                {t('settings.mcp.delete')}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {draft ? (
+        <div className="st-mcp-form">
+          <section className="st-field">
+            <span className="st-label">{t('settings.mcp.label')}</span>
+            <input
+              className="st-input"
+              value={draft.label}
+              onChange={(event) => {
+                const label = event.target.value
+                const followId = !draft.editingId && draft.id === normalizeMcpServerId(draft.label)
+                patch({ label, ...(followId ? { id: normalizeMcpServerId(label) } : {}) })
+              }}
+            />
+            {errors.label ? <span className="st-error">{errors.label}</span> : null}
+          </section>
+          <section className="st-field">
+            <span className="st-label">{t('settings.mcp.id')}</span>
+            <input
+              className="st-input st-mono"
+              value={draft.id}
+              spellCheck={false}
+              disabled={Boolean(draft.editingId)}
+              onChange={(event) => patch({ id: event.target.value })}
+            />
+            <span className="st-hint">
+              {draft.editingId ? t('settings.mcp.idLocked') : t('settings.mcp.idHint')}
+            </span>
+            {errors.id ? <span className="st-error">{errors.id}</span> : null}
+          </section>
+          <section className="st-field">
+            <label className="st-switch">
+              <input
+                type="checkbox"
+                className="st-switch-input"
+                checked={draft.enabled}
+                onChange={(event) => patch({ enabled: event.target.checked })}
+              />
+              <span className="st-switch-text">
+                <span className="st-switch-label">{t('settings.mcp.enabled')}</span>
+              </span>
+            </label>
+          </section>
+          <section className="st-field">
+            <span className="st-label">{t('settings.mcp.transport')}</span>
+            <select
+              className="st-input"
+              value={draft.transport}
+              onChange={(event) =>
+                patch({ transport: event.target.value === 'http' ? 'http' : 'stdio' })
+              }
+            >
+              <option value="stdio">{t('settings.mcp.transportStdio')}</option>
+              <option value="http">{t('settings.mcp.transportHttp')}</option>
+            </select>
+          </section>
+          {draft.transport === 'stdio' ? (
+            <>
+              <section className="st-field">
+                <span className="st-label">{t('settings.mcp.command')}</span>
+                <input
+                  className="st-input st-mono"
+                  value={draft.command}
+                  onChange={(event) => patch({ command: event.target.value })}
+                />
+                <span className="st-hint">{t('settings.mcp.commandHint')}</span>
+                {errors.command ? <span className="st-error">{errors.command}</span> : null}
+              </section>
+              <section className="st-field">
+                <span className="st-label">{t('settings.mcp.args')}</span>
+                <textarea
+                  className="st-textarea st-mono"
+                  value={draft.argsText}
+                  spellCheck={false}
+                  onChange={(event) => patch({ argsText: event.target.value })}
+                />
+                <span className="st-hint">{t('settings.mcp.argsHint')}</span>
+              </section>
+              <section className="st-field">
+                <span className="st-label">{t('settings.mcp.env')}</span>
+                <textarea
+                  className="st-textarea st-mono"
+                  value={draft.envText}
+                  spellCheck={false}
+                  onChange={(event) => patch({ envText: event.target.value })}
+                />
+                <span className="st-hint">{t('settings.mcp.envHint')}</span>
+              </section>
+            </>
+          ) : (
+            <>
+              <section className="st-field">
+                <span className="st-label">{t('settings.mcp.url')}</span>
+                <input
+                  className="st-input st-mono"
+                  value={draft.url}
+                  spellCheck={false}
+                  onChange={(event) => patch({ url: event.target.value })}
+                />
+                {errors.url ? <span className="st-error">{errors.url}</span> : null}
+              </section>
+              <section className="st-field">
+                <span className="st-label">{t('settings.mcp.headers')}</span>
+                <textarea
+                  className="st-textarea st-mono"
+                  value={draft.headersText}
+                  spellCheck={false}
+                  onChange={(event) => patch({ headersText: event.target.value })}
+                />
+                <span className="st-hint">{t('settings.mcp.headersHint')}</span>
+              </section>
+            </>
+          )}
+          <div className="st-mcp-actions">
+            <button type="button" className="st-secondary" disabled={saving} onClick={save}>
+              {t('settings.mcp.save')}
+            </button>
+            <button
+              type="button"
+              className="st-ghost"
+              onClick={() => {
+                setDraft(null)
+                setErrors({})
+              }}
+            >
+              {t('common.cancel')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="st-mcp-actions">
+          <button type="button" className="st-secondary" onClick={() => setDraft(emptyMcpDraft())}>
+            {t('settings.mcp.add')}
+          </button>
+        </div>
+      )}
+    </section>
   )
 }

@@ -119,6 +119,7 @@ vi.mock('./base', () => ({
 
 type PanelModule = typeof import('./panel')
 let panel: PanelModule
+let settingsData: Record<string, unknown>
 
 beforeEach(async () => {
   vi.resetModules()
@@ -128,6 +129,21 @@ beforeEach(async () => {
   listeners.clear()
   cursor.x = 0
   cursor.y = 0
+  // Fresh in-memory settings per test — panel bounds persistence reads and
+  // writes through the real store logic, only the backend is memory.
+  settingsData = {}
+  const settings = await import('@main/store/settings')
+  settings.setSettingsStoreForTesting(
+    settings.createSettingsStore({
+      backend: {
+        get: (key: string) => settingsData[key],
+        set: (key: string, value: unknown) => {
+          settingsData[key] = JSON.parse(JSON.stringify(value))
+        }
+      },
+      warn: () => undefined
+    })
+  )
   panel = await import('./panel')
 })
 
@@ -165,6 +181,31 @@ describe('createPanelWindow', () => {
 
     expect(win.minimized).toBe(false)
     expect(win.visible).toBe(true)
+  })
+
+  it('restores the stored edge and offset on the next launch', async () => {
+    const settings = await import('@main/store/settings')
+    settings.setSetting('ui', {
+      ...settings.getSettings().ui,
+      panelBounds: { edge: 'left', y: 123 }
+    })
+
+    panel.createPanelWindow()
+    const win = FakeBrowserWindow.instances[0]!
+    expect(win.options.x).toBe(panel.PANEL_MARGIN)
+    expect(win.options.y).toBe(123)
+  })
+
+  it('persists where the user dropped the panel — debounced, one write per drop', async () => {
+    const win = panel.createPanelWindow() as unknown as FakeBrowserWindow
+    win.bounds = { ...win.bounds, x: 20, y: 333 }
+    win.emit('move')
+    win.emit('move')
+
+    const settings = await import('@main/store/settings')
+    expect(settings.getSettings().ui.panelBounds).toBeUndefined()
+    vi.advanceTimersByTime(panel.PANEL_BOUNDS_SAVE_DEBOUNCE_MS + 1)
+    expect(settings.getSettings().ui.panelBounds).toEqual({ edge: 'left', y: 333 })
   })
 
   it('maps its webContents id and forgets the window when it closes', () => {

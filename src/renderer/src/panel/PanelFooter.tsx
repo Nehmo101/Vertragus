@@ -1,5 +1,7 @@
 import { useTranslation } from 'react-i18next'
-import { EyeIcon, GearIcon } from './icons'
+import type { VertragusAppApi } from '../../../preload'
+import { EyeIcon, GearIcon, MicIcon } from './icons'
+import { useVoice } from './useVoice'
 
 interface Props {
   yolo: boolean
@@ -14,6 +16,10 @@ interface Props {
   /** The version waiting in the badge's tooltip. */
   updateVersion?: string
   onInstallUpdate?(): void
+  bridge?: VertragusAppApi
+  voiceEnabled: boolean
+  voiceWakePhrase: string
+  onToggleVoice(): void
 }
 
 /**
@@ -21,6 +27,9 @@ interface Props {
  * Yolo master (subagents may act without asking) and hide-all. They are red and
  * quiet respectively — the dangerous one is the one you can see from across the
  * room.
+ *
+ * The mic sits with the icon cluster. The whole panel is a drag region; the
+ * button is a no-drag island (see panel.css `button` rule).
  *
  * Above them, and only when there is something to say, sits the update badge.
  * It appears exactly once per downloaded update and does nothing until it is
@@ -35,9 +44,30 @@ export function PanelFooter({
   hotkeyError,
   updateReady = false,
   updateVersion,
-  onInstallUpdate
+  onInstallUpdate,
+  bridge,
+  voiceEnabled,
+  voiceWakePhrase,
+  onToggleVoice
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
+  const voice = useVoice(bridge, voiceEnabled)
+  const micState = voiceEnabled
+    ? voice.phase === 'engaged'
+      ? 'engaged'
+      : voice.phase === 'error'
+        ? 'error'
+        : 'listening'
+    : 'off'
+  const micTitle =
+    micState === 'off'
+      ? t('panel.voiceToggleOn')
+      : micState === 'error'
+        ? t('panel.voiceError', { error: voice.error ?? t('panel.voiceMissingKey') })
+        : micState === 'engaged'
+          ? t('panel.voiceEngaged')
+          : t('panel.voiceListening', { phrase: voiceWakePhrase })
+
   return (
     <>
       {updateReady ? (
@@ -69,6 +99,16 @@ export function PanelFooter({
           <span className="panel-yolo-label">{t('panel.yolo')}</span>
         </button>
         <span className="panel-footer-spacer" />
+        <button
+          type="button"
+          className={`panel-icon-button panel-mic is-${micState}`}
+          title={micTitle}
+          aria-label={voiceEnabled ? t('panel.voiceToggleOff') : t('panel.voiceToggleOn')}
+          aria-pressed={voiceEnabled}
+          onClick={onToggleVoice}
+        >
+          <MicIcon />
+        </button>
         <button
           type="button"
           className={`panel-icon-button${hotkeyError ? ' has-warning' : ''}`}

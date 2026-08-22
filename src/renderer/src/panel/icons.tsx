@@ -52,6 +52,28 @@ export function GearIcon({ size = 13 }: IconProps): React.JSX.Element {
   )
 }
 
+/** The panel footer's voice assistant mark. */
+export function MicIcon({ size = 14 }: IconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="9" y="3.5" width="6" height="11" rx="3" />
+      <path d="M6.5 11.5a5.5 5.5 0 0 0 11 0" />
+      <path d="M12 17v3.2M9 20.5h6" />
+    </svg>
+  )
+}
+
 export function EyeIcon({ size = 14 }: IconProps): React.JSX.Element {
   return (
     <svg

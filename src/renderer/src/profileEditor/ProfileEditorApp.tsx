@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next'
+import { DEFAULT_PR_REMOTE } from '@shared/schema/profile'
 import { WORKER_ROLE_ID } from '@shared/prompts/roles'
 import { FolderIcon } from '../panel/icons'
 import { EffortSelect, Field, ModelCombo, ProviderSelect, SwitchField } from './fields'
-import { newSlotDraft, type SlotDraft } from './model'
+import { newSlotDraft, type ProfileDraft, type SlotDraft } from './model'
 import { SlotRow } from './SlotRow'
 import { useProfileEditor } from './useProfileEditor'
 import './profileEditor.css'
@@ -15,9 +16,16 @@ import './profileEditor.css'
  * schema the store enforces and shows every rejection on its field — a save
  * that silently does nothing is the one outcome this form must never have.
  */
-export function ProfileEditorApp({ profileId }: { profileId?: string }): React.JSX.Element {
+export function ProfileEditorApp({
+  profileId,
+  providerHint
+}: {
+  profileId?: string
+  /** WP-7: orchestrator preselection for a NEW profile; see the route. */
+  providerHint?: string
+}): React.JSX.Element {
   const { t } = useTranslation()
-  const editor = useProfileEditor(profileId)
+  const editor = useProfileEditor(profileId, providerHint)
   const { draft } = editor
 
   if (editor.fatal) {
@@ -45,6 +53,12 @@ export function ProfileEditorApp({ profileId }: { profileId?: string }): React.J
     editor.update((current) => ({
       ...current,
       slots: current.slots.filter((_entry, position) => position !== index)
+    }))
+
+  const updateAutomation = (patch: Partial<ProfileDraft['automation']>): void =>
+    editor.update((current) => ({
+      ...current,
+      automation: { ...current.automation, ...patch }
     }))
 
   const addSlot = (): void =>
@@ -181,6 +195,61 @@ export function ProfileEditorApp({ profileId }: { profileId?: string }): React.J
               editor.update((current) => ({ ...current, autoSubmitTasks }))
             }
           />
+        </section>
+
+        <section className="pe-automation">
+          <h2 className="pe-section-label">{t('profileEditor.automation')}</h2>
+          <p className="pe-hint">{t('profileEditor.automationHint')}</p>
+
+          <SwitchField
+            label={t('profileEditor.autoIntegrate')}
+            hint={t('profileEditor.autoIntegrateHint')}
+            checked={draft.automation.autoIntegrate}
+            onChange={(autoIntegrate) => updateAutomation({ autoIntegrate })}
+          />
+          <SwitchField
+            label={t('profileEditor.autoPromote')}
+            hint={t('profileEditor.autoPromoteHint')}
+            checked={draft.automation.autoPromote}
+            onChange={(autoPromote) => updateAutomation({ autoPromote })}
+          />
+          <SwitchField
+            label={t('profileEditor.autoPr')}
+            hint={t('profileEditor.autoPrHint')}
+            checked={draft.automation.autoPr}
+            onChange={(autoPr) => updateAutomation({ autoPr })}
+          />
+          {/* The three PR details only exist for an auto-PR — showing them
+              while the switch is off would offer settings that change nothing. */}
+          {draft.automation.autoPr ? (
+            <>
+              <Field
+                label={t('profileEditor.prBaseBranch')}
+                error={editor.errors['automation.prBaseBranch']}
+              >
+                <input
+                  className="pe-input"
+                  value={draft.automation.prBaseBranch}
+                  placeholder={t('profileEditor.prBaseBranchPlaceholder')}
+                  onChange={(event) => updateAutomation({ prBaseBranch: event.target.value })}
+                />
+              </Field>
+              <Field label={t('profileEditor.prRemote')} error={editor.errors['automation.prRemote']}>
+                <input
+                  className="pe-input"
+                  value={draft.automation.prRemote}
+                  placeholder={DEFAULT_PR_REMOTE}
+                  onChange={(event) => updateAutomation({ prRemote: event.target.value })}
+                />
+              </Field>
+              <SwitchField
+                label={t('profileEditor.prDraft')}
+                hint={t('profileEditor.prDraftHint')}
+                checked={draft.automation.prDraft}
+                onChange={(prDraft) => updateAutomation({ prDraft })}
+              />
+            </>
+          ) : null}
         </section>
 
         <Field label={t('profileEditor.maxSubagents')} error={editor.errors.maxSubagents}>

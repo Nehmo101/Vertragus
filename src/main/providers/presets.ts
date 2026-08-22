@@ -1,5 +1,5 @@
 /**
- * The five built-in provider presets.
+ * The six built-in provider presets.
  *
  * These are ordinary {@link ProviderConfig} values, not privileged code paths:
  * a stored config with the same id replaces the preset wholesale (see
@@ -7,17 +7,33 @@
  * preset" possible without a special case anywhere else.
  *
  * Every flag below is taken from the verified launch code of the previous
- * Vertragus generation (`src/main/providers/types.ts` YOLO_FLAGS /
- * buildInteractiveLaunch, `src/shared/providers.ts` PROVIDERS,
- * `src/main/orchestrator/mcpConfig.ts`, `docs/MODELS_AND_EFFORT.md`) — not from
+ * Vertragus generation (the Vertragus-Archiv repository: its
+ * `src/main/providers/types.ts` YOLO_FLAGS / buildInteractiveLaunch,
+ * `src/shared/providers.ts` PROVIDERS, `src/main/orchestrator/mcpConfig.ts`
+ * and its model/effort notes; the current model discovery story lives in
+ * README.md "Providers") — not from
  * documentation guesses. An unknown CLI flag kills a launch, so nothing
- * unverified is declared here.
+ * unverified is declared here. Grok Build is the exception that was added
+ * after that generation: its flags come from the published CLI reference
+ * (https://docs.x.ai/build/cli/reference) and the MCP / settings docs, which
+ * list `--always-approve`, `--model`, `--effort`, `--append-system-prompt`
+ * (alias of `--rules`), a positional string as the interactive first prompt
+ * (never `-p`/`--single`), `grok --version`, `grok login` and `grok models`.
  */
 import {
   providerConfigSchema,
   type ProviderConfig,
   type ProviderPresetId
 } from '@shared/schema/provider'
+
+/**
+ * Which CLI version each preset was last verified against. The data lives in
+ * `@shared/presetVerification` so the renderer's provider editor can show a
+ * drift hint without importing main-process code; it is re-exported here
+ * because this file is where the presets — and their verification notes in the
+ * comments below — are defined.
+ */
+export { PRESET_VERIFICATION, type PresetVerification } from '@shared/presetVerification'
 
 /**
  * Model discovery notes for the file/http sources below:
@@ -30,6 +46,8 @@ import {
  * - Kimi answers `kimi provider list --json` with a `models` table whose KEYS
  *   (`kimi-code/k3`, not the nested `model` field) are what `--model` accepts.
  * - Cursor prints `<id> - <label>` per line on `cursor-agent models`.
+ * - Grok Build prints its catalogue on `grok models` (built-in xAI models plus
+ *   any `[model.*]` entries in `~/.grok/config.toml`).
  * - Ollama is a local service; its tags endpoint is the only truth about which
  *   models physically exist on this machine.
  */
@@ -51,6 +69,15 @@ const PRESETS: readonly ProviderConfig[] = [
       strictArg: '--strict-mcp-config',
       allowedToolsArg: '--allowedTools'
     },
+    /**
+     * Claude Code reads `MCP_TIMEOUT` / `MCP_TOOL_TIMEOUT` (milliseconds) from
+     * its own environment, so the raise is process-local — the spawn layer sets
+     * the pair, nothing touches `~/.claude/settings.json`. Ten minutes is the
+     * point where the orchestrator's `await_events` stops being a metronome:
+     * one long poll instead of ~12 empty 50 s ones, each of which would cost a
+     * full model pass over the whole orchestrator context.
+     */
+    mcpToolTimeoutSec: 600,
     modelDiscovery: {
       kind: 'file',
       path: '~/.claude.json',
@@ -88,6 +115,12 @@ const PRESETS: readonly ProviderConfig[] = [
     auth: { loginArgs: ['login'], statusArgs: ['login', 'status'] },
     systemPromptDelivery: { kind: 'codex-config' },
     mcp: { kind: 'codex-overrides' },
+    // No `mcpToolTimeoutSec` on purpose. Newer Codex builds take a per-server
+    // `tool_timeout_sec`, and the attach layer emits the `-c` override the
+    // moment this field is set — but nothing here verified how an OLDER codex
+    // reacts to an unknown key under `mcp_servers.*`, and a rejected override
+    // is a launch that never starts. The mechanism ships, the claim does not:
+    // a user on a recent codex opts in by editing this preset.
     modelDiscovery: {
       kind: 'file',
       path: '~/.codex/models_cache.json',
@@ -176,6 +209,40 @@ const PRESETS: readonly ProviderConfig[] = [
       submitAcceptance: 'sustained-activity',
       bracketedPaste: 'auto'
     }
+  }),
+  providerConfigSchema.parse({
+    id: 'grok',
+    presetId: 'grok',
+    label: 'Grok Build',
+    command: 'grok',
+    yoloArgs: ['--always-approve'],
+    modelArg: '--model',
+    effortArg: { style: 'flag', flag: '--effort' },
+    versionArgs: ['--version'],
+    // `grok login` is browser/device-code OAuth; the CLI exposes no status probe.
+    auth: { loginArgs: ['login'] },
+    // `--append-system-prompt` is the documented Claude-compatible alias of
+    // `--rules`: extra instructions appended for this session, not a replacement
+    // of the coding-agent prompt (`--system-prompt-override` would drop it).
+    systemPromptDelivery: { kind: 'arg', flag: '--append-system-prompt' },
+    // `grok` with no args opens the welcome screen; a trailing positional
+    // string is the interactive first turn. Never `-p`/`--single` — those
+    // are headless and exit after one turn.
+    initialPromptDelivery: { kind: 'positional' },
+    mcp: { kind: 'grok-project' },
+    modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },
+    /**
+     * The rolling coding-agent alias of the Grok CLI — `grok-build`, which the
+     * CLI resolves to whatever currently powers Grok Build (see
+     * https://docs.x.ai/build/overview). Like Cursor's `auto`, it names no
+     * release.
+     *
+     * `grok models` needs a signed-in session or `XAI_API_KEY`, so a healthy
+     * `--version` probe can still produce an empty picker on a fresh machine.
+     * One rolling alias keeps the provider startable; discovery still wins
+     * the order when it answers.
+     */
+    seedModels: ['grok-build']
   }),
   providerConfigSchema.parse({
     id: 'ollama',

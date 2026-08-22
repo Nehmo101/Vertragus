@@ -47,8 +47,12 @@
 .lore-tip-text {
   font: 400 11.5px/1.45 var(--font-body);
   color: var(--text);
-  /* The workspace card appends the current task as its own paragraph. */
+  /* Goal / current task append as their own paragraph. The card cannot
+     scroll (pointer-events: none; LoreTip dismisses on window scroll), so
+     there is no scrollbar — typical goals fit, a novel is clipped. */
   white-space: pre-line;
+  max-height: 70vh;
+  overflow: hidden;
 }
 
 @keyframes lore-tip-in {

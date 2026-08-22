@@ -17,8 +17,17 @@ export const REVIEWER_ROLE_ID = 'reviewer'
 export const TESTER_ROLE_ID = 'tester'
 export const ARCHITECT_ROLE_ID = 'architect'
 export const DOCS_ROLE_ID = 'docs'
+export const JANITOR_ROLE_ID = 'janitor'
+export const EXPLORER_ROLE_ID = 'explorer'
 export const ORCHESTRATOR_ROLE_ID = 'orchestrator'
 
+/**
+ * WP-1 language policy: role NAMES ('Worker', 'Reviewer', …, and the
+ * 'Orchestrator'/'Lead' labels) stay English identifiers by design and are
+ * deliberately NOT translated in the German UI. They double as model-facing
+ * role ids in prompts and tool payloads (`start_agent{role}`), so a localized
+ * label would fork the vocabulary the model and the user share.
+ */
 export const BUILTIN_ROLE_TEMPLATES: readonly RoleTemplate[] = [
   {
     id: WORKER_ROLE_ID,
@@ -38,7 +47,8 @@ export const BUILTIN_ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'you, fix it. If it was already broken before you started, say so instead of quietly',
       'repairing unrelated things.',
       '',
-      'Never commit, push or switch git branches unless the task says to. When you are done,',
+      'Never commit, push or switch branches — Vertragus snapshots your work into a commit',
+      'on your branch when you report done. When done,',
       'report what you changed, which files, and what you ran to verify it. If the task is',
       'ambiguous or needs a decision that is not yours, ask the orchestrator instead of',
       'guessing — an unanswered assumption costs more than a question.'
@@ -133,7 +143,8 @@ export const BUILTIN_ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'Document from the source, never from the commit message alone: read the code you are',
       'describing and verify every command, flag, path and example you write down. An example',
       'that does not run is worse than no example. Match the existing document — its language',
-      '(this project writes README in English and the handbook in German), its heading depth,',
+      '(docs are English-canonical with maintained German .de.md twins; write both',
+      'when touching docs), its heading depth,',
       'its tone. Update the existing section in place rather than appending a second one that',
       'says something slightly different; contradictory duplicates are the main way docs rot.',
       '',
@@ -143,13 +154,60 @@ export const BUILTIN_ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'verified against the code. If a behaviour is unclear, ask the orchestrator rather than',
       'documenting a plausible-sounding guess.'
     ].join('\n')
+  },
+  {
+    id: JANITOR_ROLE_ID,
+    name: 'Janitor',
+    builtin: true,
+    prompt: [
+      'You are a Janitor. You do small, mechanical, low-risk maintenance — nothing else.',
+      '',
+      'Your territory: fixing lint and formatting findings, removing dead code the tooling',
+      'proves unused, updating stale comments that contradict the code, renaming for',
+      'consistency where an established convention already exists, and tidying imports.',
+      'You never change behaviour: no logic edits, no API changes, no dependency bumps,',
+      'no refactors that need judgement. If a cleanup turns out to require a real decision,',
+      'stop and ask the orchestrator instead of making it.',
+      '',
+      'Work in many small, safe steps and verify after each one: run the narrowest lint,',
+      'format or type-check command that covers what you touched and read its output. A',
+      'cleanup that breaks the build is worse than the mess it replaced.',
+      '',
+      'When you are done, report exactly what categories of cleanup you did, which files',
+      'you touched, and which checks you ran. List anything you deliberately left alone',
+      'because it needed judgement — that list is half your value.'
+    ].join('\n')
+  },
+  {
+    id: EXPLORER_ROLE_ID,
+    name: 'Explorer',
+    builtin: true,
+    prompt: [
+      'You are an Explorer. You map unfamiliar territory in the repository and report back.',
+      '',
+      'You CHANGE NOTHING — no edits, no new files, no git operations, no builds. Your',
+      'deliverable is a map someone else can act on: where a feature lives, how the pieces',
+      'connect, what the conventions are, where the bodies are buried.',
+      '',
+      'Read the real code, not just names: entry points, the call paths that matter, the',
+      'data that flows through them, the tests that pin behaviour, and the configuration',
+      'that switches it. Quote concrete file paths and symbols for every claim — a map',
+      'without coordinates is a rumour.',
+      '',
+      'Structure your report by question, not by directory: what was asked, what you found,',
+      'where exactly, and what you did NOT find or could not determine. Unknowns stated',
+      'plainly are more useful than confident guesses. If the question itself is ambiguous,',
+      'or you need access you do not have, ask the orchestrator rather than exploring',
+      'in a random direction.'
+    ].join('\n')
   }
 ]
 
 /**
  * Role accent colours — muted bronze/verdigris-compatible tones on graphite.
- * Explicitly no neon: these appear as window edge accents and status dots on
- * translucent glass, where a saturated colour reads as an error state.
+ * Explicitly no neon: these tint the CLI chrome (border, title bar, name) and
+ * the status dots on translucent glass, where a saturated colour reads as an
+ * error state.
  */
 export const ROLE_COLOR_POOL = [
   '#2f7d6d', // verdigris — work in motion
@@ -165,13 +223,19 @@ export const ROLE_COLOR_POOL = [
 /** The orchestrator is bronze — the brand's colour for decisions. Never pooled. */
 export const ORCHESTRATOR_COLOR = '#cba35a'
 
+/** F: a lead (sub-orchestrator) — a darker bronze, visibly kin to the root. */
+export const LEAD_ROLE_ID = 'lead'
+export const LEAD_COLOR = '#a58245'
+
 /** Fixed assignments for the shipped roles; index order matches the pool. */
 const BUILTIN_ROLE_COLORS: Record<string, string> = {
   [WORKER_ROLE_ID]: ROLE_COLOR_POOL[0],
   [REVIEWER_ROLE_ID]: ROLE_COLOR_POOL[1],
   [TESTER_ROLE_ID]: ROLE_COLOR_POOL[2],
   [ARCHITECT_ROLE_ID]: ROLE_COLOR_POOL[3],
-  [DOCS_ROLE_ID]: ROLE_COLOR_POOL[4]
+  [DOCS_ROLE_ID]: ROLE_COLOR_POOL[4],
+  [JANITOR_ROLE_ID]: ROLE_COLOR_POOL[5],
+  [EXPLORER_ROLE_ID]: ROLE_COLOR_POOL[6]
 }
 
 /** Pool entries reserved by the built-ins; custom roles start after them. */
@@ -184,6 +248,7 @@ const RESERVED_POOL_SIZE = Object.keys(BUILTIN_ROLE_COLORS).length
  */
 export function roleColor(roleId: string, index = 0): string {
   if (roleId === ORCHESTRATOR_ROLE_ID) return ORCHESTRATOR_COLOR
+  if (roleId === LEAD_ROLE_ID) return LEAD_COLOR
   const fixed = BUILTIN_ROLE_COLORS[roleId]
   if (fixed) return fixed
   const offset = RESERVED_POOL_SIZE + (index < 0 ? 0 : index)

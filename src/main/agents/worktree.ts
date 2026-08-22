@@ -22,9 +22,10 @@
  *    branch survives either way.
  */
 import { execFile } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
+import { WORKTREE_SECRET_FILES } from '@main/mcp/attach'
 
 const execFileAsync = promisify(execFile)
 
@@ -175,7 +176,8 @@ export interface CreateWorktreeOptions extends WorktreeDeps {
   startPoint?: string
 }
 
-function gitErrorMessage(error: unknown): string {
+/** git's own stderr is the best sentence we have — never a generic wrapper. */
+export function gitErrorMessage(error: unknown): string {
   if (error && typeof error === 'object') {
     const shaped = error as { stderr?: string; message?: string }
     const stderr = shaped.stderr?.trim()
@@ -215,6 +217,7 @@ export async function createWorktree(
       if (error.code !== 'EEXIST') throw error
     }
   )
+  await ensureSecretExcludes(repoPath)
 
   try {
     const args = ['worktree', 'add', path, '-b', branch]
@@ -226,6 +229,125 @@ export async function createWorktree(
     )
   }
   return { path, branch }
+}
+
+/** Identity of the host's snapshot commits — deliberately not the user's. */
+export const SNAPSHOT_AUTHOR_NAME = 'Vertragus'
+export const SNAPSHOT_AUTHOR_EMAIL = 'vertragus@localhost'
+
+/**
+ * C3: commit EVERYTHING in one agent worktree onto its own branch — the
+ * host's snapshot at done-time. No push, no `--force`, and `--no-verify` on
+ * purpose: repo hooks belong to the user's own commits, not to a host
+ * snapshot whose only job is to make `baseBranch` point at the work. The
+ * author identity is pinned so the commit works on machines without a global
+ * git identity and is recognisable as host-made.
+ */
+export async function commitWorktree(
+  worktreePath: string,
+  message: string,
+  deps: WorktreeDeps = {}
+): Promise<void> {
+  const git = deps.git ?? defaultGitRunner
+  const identity = [
+    '-c',
+    `user.name=${SNAPSHOT_AUTHOR_NAME}`,
+    '-c',
+    `user.email=${SNAPSHOT_AUTHOR_EMAIL}`
+  ]
+  try {
+    await git(['add', '-A'], worktreePath)
+    await git([...identity, 'commit', '-m', message, '--no-verify'], worktreePath)
+  } catch (error) {
+    throw new Error(`git snapshot commit failed in ${worktreePath}: ${gitErrorMessage(error)}`)
+  }
+}
+
+/** Outcome of one host-side merge (E1) — never a throw for a plain conflict. */
+export type MergeOutcome =
+  | { ok: true; headSha: string }
+  | { ok: false; conflictFiles: string[]; message: string }
+
+/**
+ * E1: merge `branch` into the checkout at `worktreePath` — the host-side
+ * integrate. No push, no `--force`; identity pinned like the snapshot commits.
+ * A conflict ABORTS the merge (the worktree stays clean) and reports the
+ * conflicting files instead of leaving a half-merged tree for an agent to
+ * stumble into.
+ */
+export async function mergeBranchIntoWorktree(
+  worktreePath: string,
+  branch: string,
+  deps: WorktreeDeps = {}
+): Promise<MergeOutcome> {
+  const git = deps.git ?? defaultGitRunner
+  const identity = [
+    '-c',
+    `user.name=${SNAPSHOT_AUTHOR_NAME}`,
+    '-c',
+    `user.email=${SNAPSHOT_AUTHOR_EMAIL}`
+  ]
+  try {
+    await git([...identity, 'merge', '--no-edit', branch], worktreePath)
+  } catch (error) {
+    const message = gitErrorMessage(error)
+    let conflictFiles: string[] = []
+    try {
+      const { stdout } = await git(['diff', '--name-only', '--diff-filter=U'], worktreePath)
+      conflictFiles = stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 80)
+    } catch {
+      /* the abort below still runs */
+    }
+    // Leave a CLEAN worktree behind — a half-merged tree under a working
+    // agent is worse than the conflict report.
+    await git(['merge', '--abort'], worktreePath).catch(() => undefined)
+    return { ok: false, conflictFiles, message }
+  }
+  const { stdout } = await git(['rev-parse', 'HEAD'], worktreePath)
+  return { ok: true, headSha: stdout.trim() }
+}
+
+/**
+ * Put the MCP config files the attach dialects write into agent worktrees on
+ * the repository's `.git/info/exclude`.
+ *
+ * Linked worktrees share that file, so one entry covers every agent checkout:
+ * the files carry the agent's tokenised MCP URL, and an agent running
+ * `git add -A` in its own worktree must not be able to commit its token into
+ * the user's history. Exclude (not `.gitignore`) on purpose — it never touches
+ * the user's own tracked files, and a `.cursor/mcp.json` the user tracks
+ * deliberately keeps showing its diff. Skipped when `<repo>/.git` is not a
+ * directory (the repo is itself a linked worktree); idempotent otherwise.
+ */
+async function ensureSecretExcludes(repoPath: string): Promise<void> {
+  const gitDir = join(repoPath, '.git')
+  try {
+    if (!(await stat(gitDir)).isDirectory()) return
+  } catch {
+    return
+  }
+  const excludePath = join(gitDir, 'info', 'exclude')
+  let current = ''
+  try {
+    current = await readFile(excludePath, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const present = new Set(current.split('\n').map((line) => line.trim()))
+  const missing = WORKTREE_SECRET_FILES.map((file) => `/${file}`).filter(
+    (pattern) => !present.has(pattern)
+  )
+  if (missing.length === 0) return
+  await mkdir(dirname(excludePath), { recursive: true })
+  const separator = current === '' || current.endsWith('\n') ? '' : '\n'
+  await appendFile(
+    excludePath,
+    `${separator}# Vertragus: agent MCP config files carry per-agent tokens - never commit them.\n${missing.join('\n')}\n`
+  )
 }
 
 /**

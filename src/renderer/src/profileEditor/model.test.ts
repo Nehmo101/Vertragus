@@ -85,6 +85,48 @@ describe('draft ⇄ profile', () => {
     expect(result.ok && result.profile.autoSubmitTasks).toBe(false)
   })
 
+  it('A3: carries every automation switch both ways, all off by default', () => {
+    expect(emptyDraft('claude', 'profile-x').automation).toEqual({
+      autoIntegrate: false,
+      autoPromote: false,
+      autoPr: false,
+      prRemote: '',
+      prBaseBranch: '',
+      prDraft: false
+    })
+
+    const on = validateDraft(
+      t,
+      draft({
+        automation: {
+          autoIntegrate: true,
+          autoPromote: false,
+          autoPr: true,
+          prRemote: '  upstream ',
+          prBaseBranch: ' develop ',
+          prDraft: true
+        }
+      })
+    )
+    expect(on.ok && on.profile.automation).toEqual({
+      autoIntegrate: true,
+      autoPromote: false,
+      autoPr: true,
+      prRemote: 'upstream',
+      prBaseBranch: 'develop',
+      prDraft: true
+    })
+  })
+
+  it('A3: leaves the remote at the schema default instead of freezing today’s value', () => {
+    // An empty remote field means "whatever origin means"; writing the
+    // resolved default back would pin it into every profile ever edited.
+    const input = toProfileInput(draft()) as { automation: Record<string, unknown> }
+    expect('prRemote' in input.automation).toBe(false)
+    expect('prBaseBranch' in input.automation).toBe(false)
+    expect(draftFromProfile(SAVED).automation.prRemote).toBe('')
+  })
+
   it('starts a new profile empty but valid apart from the repo path', () => {
     const fresh = emptyDraft('claude', 'profile-x')
     expect(fresh).toMatchObject({ id: 'profile-x', name: '', slots: [] })
@@ -113,6 +155,26 @@ describe('validation', () => {
     )
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.errors['slots.0.maxCount']).toBe('Bitte eine Zahl ab 1 (oder leer lassen).')
+  })
+
+  it('A3: names the automation fields a user can get wrong instead of leaking zod prose', () => {
+    const result = validateDraft(
+      t,
+      draft({
+        automation: {
+          autoIntegrate: false,
+          autoPromote: false,
+          autoPr: true,
+          prRemote: '   x'.padEnd(400, 'x'),
+          prBaseBranch: '',
+          prDraft: false
+        }
+      })
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.errors['automation.prRemote']).toBe(t('profileEditor.errors.prRemote'))
+    }
   })
 
   it('rejects a maxSubagents beyond the schema bound', () => {

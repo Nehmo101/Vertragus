@@ -1,25 +1,79 @@
-import { homedir } from 'node:os'
-import { app } from 'electron'
+import { homedir, networkInterfaces } from 'node:os'
+import { join } from 'node:path'
+import { app, BrowserWindow, safeStorage, ipcMain, shell } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
+import { mainMessages, readLocale } from '@shared/mainMessages'
 import { allRoleTemplates, roleColor } from '@shared/prompts/roles'
 import { PtyAgent } from './agents/PtyAgent'
 import { resolveLaunch } from './agents/resolveCommand'
-import { registerAppIpc, type WorkspaceDirectory, type WorkspaceSummary } from './appIpc'
+import {
+  agentCurrentTaskFields,
+  APP_CHANNELS,
+  createStubWorkspaceDirectory,
+  PANEL_TASKS_MAX,
+  registerAppIpc,
+  toPanelSettings,
+  type WorkspaceDirectory,
+  type WorkspaceSummary
+} from './appIpc'
+import { createAppVoice, installDefaultVoicePermissions, type AppVoice } from './appVoice'
 import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
-import { registerTerminalIpc } from './ipc'
+import { getAgentRegistry, registerTerminalIpc, setTerminalInputSink } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
-import { getProfile, getRoleTemplates } from './store/settings'
-import { createCliWindow, focusCliWindow } from './windows/cliWindow'
+import {
+  getProfile,
+  getProfiles,
+  getRoleTemplates,
+  getSettings,
+  setSetting,
+  settings
+} from './store/settings'
+import {
+  closeCliWindow,
+  createCliWindow,
+  focusCliWindow,
+  getCliWindow,
+  layoutCliWindows,
+  onCliWindowClosed
+} from './windows/cliWindow'
 import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
-import { registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
-import { createPanelWindow } from './windows/panel'
-import { armProfileEditorSmoke } from './windows/profileEditor'
+import {
+  forgetHideAll,
+  hideAllHotkeyStatus,
+  registerAppHideAllShortcut,
+  toggleHideAll,
+  unregisterHideAllShortcut
+} from './windows/hideAll'
+import { suppressMoveTracking } from './windows/placement'
+import { createPanelWindow, getPanelWindow, isPanelWindowSender } from './windows/panel'
+import { armProfileEditorSmoke, openProfileEditorWindow } from './windows/profileEditor'
 import { armProviderEditorSmoke } from './windows/providerEditor'
-import { armSettingsWindowSmoke } from './windows/settingsWindow'
+import {
+  armSettingsWindowSmoke,
+  isSettingsWindowSender,
+  listSettingsWindows,
+  openSettingsWindow
+} from './windows/settingsWindow'
+import { createRemoteController, type RemoteController } from './remote/controller'
+import { registerRemoteIpc } from './remote/ipc'
+import { bindOptions } from './remote/interfaces'
+import { createPairingTokenFile } from './remote/tokenFile'
 import { armWindowCapture } from './windows/smokeCapture'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
 import type { WorkspaceManager } from './workspace/WorkspaceManager'
+import { runDir } from './workspace/journal'
+import {
+  boardForResume,
+  buildResumeBriefing,
+  latestRun,
+  markSuccessionConsumed,
+  readRunTasks,
+  readSuccessionPackage,
+  successionSuperseded
+} from './workspace/resume'
+import { revealRunFolder } from './workspace/revealRunFolder'
+import { taskWindow } from './workspace/taskWindow'
 import { createWorktreeCleanup } from './workspace/worktreeCleanup'
 
 /**
@@ -32,13 +86,45 @@ function armScreenshotHook(win: Electron.BrowserWindow, envVar: string, delayMs 
   armWindowCapture(win, envVar, envVar, delayMs)
 }
 
+/**
+ * F: order a flat agent list so every agent follows its parent — root
+ * children in start order, each lead's children directly after the lead.
+ */
+function orderByParent<T extends { agentId: string }>(
+  agents: readonly T[],
+  parentOf: (agent: T) => string | undefined
+): T[] {
+  const byParent = new Map<string | undefined, T[]>()
+  for (const agent of agents) {
+    const key = parentOf(agent)
+    const bucket = byParent.get(key) ?? []
+    bucket.push(agent)
+    byParent.set(key, bucket)
+  }
+  const ordered: T[] = []
+  const seen = new Set<string>()
+  for (const root of byParent.get(undefined) ?? []) {
+    ordered.push(root)
+    seen.add(root.agentId)
+    for (const child of byParent.get(root.agentId) ?? []) {
+      ordered.push(child)
+      seen.add(child.agentId)
+    }
+  }
+  // Orphans (parent no longer listed) still render instead of vanishing.
+  for (const agent of agents) if (!seen.has(agent.agentId)) ordered.push(agent)
+  return ordered
+}
+
 /** Adapter: WorkspaceManager → the view the panel draws. */
 function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): WorkspaceDirectory {
   const roleLabel = (roleId: string): string =>
     allRoleTemplates(getRoleTemplates()).find((role) => role.id === roleId)?.name ?? roleId
 
-  const pendingOf = (workspaceId: string, agentId: string): string | undefined =>
-    mcp.pendingQuestion(workspaceId, agentId)
+  const pendingOf = (
+    workspaceId: string,
+    agentId: string
+  ): { questionId: string; question: string } | undefined => mcp.openQuestion(workspaceId, agentId)
 
   // Active paths across ALL workspaces, not just the asking profile's: two
   // profiles may point at the same repository, and an agent of either must
@@ -46,22 +132,61 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
   const cleanup = createWorktreeCleanup({
     repoPathFor: (profileId) => getProfile(profileId)?.repoPath,
     activeWorktreePaths: () =>
-      manager.list().flatMap((workspace) => workspace.activeWorktreePaths())
+      manager.list().flatMap((workspace) => workspace.activeWorktreePaths()),
+    locale: () => readLocale(() => getSettings().ui.locale)
   })
+
+  const windowOpenOf = (agentId: string): boolean => getCliWindow(agentId) !== null
 
   return {
     list: () =>
       manager.list().map<WorkspaceSummary>((ws) => {
         const orchestrator = ws.orchestrator
         const roleIds = [...new Set(ws.profile.slots.map((slot) => slot.roleId))]
-        const taskText = mcp.workspaceTask(ws.workspaceId)
+        const orchestratorQuestion = orchestrator
+          ? pendingOf(ws.workspaceId, orchestrator.agentId)
+          : undefined
+        // S4: the plan, already tombstone-free and readiness-resolved by the
+        // host. Capped here because this payload is re-broadcast on every
+        // change and also travels to the phone — but the counts come from the
+        // whole board, and the window keeps unfinished work over finished
+        // (see workspace/taskWindow).
+        const plan = taskWindow(ws.listTasks(), PANEL_TASKS_MAX)
         return {
           workspaceId: ws.workspaceId,
           name: ws.name,
           profileId: ws.profileId,
           profileName: ws.profile.name,
-          active: orchestrator !== undefined,
-          ...(taskText ? { taskText } : {}),
+          // Not "was an orchestrator ever started" — a crashed orchestrator
+          // must grey the card out even though its record (and window) stay.
+          active: ws.orchestratorAlive,
+          ...(ws.goalText ? { goalText: ws.goalText } : {}),
+          ...(ws.orchestratorIdle ? { orchestratorIdle: true } : {}),
+          // C6: a successor is spawning — the seat is mid-cutover, which is
+          // neither "working" nor the greyed-out dead state.
+          ...(ws.successionInProgress() ? { successionInProgress: true as const } : {}),
+          // D3: the orchestrator's open ask_user question, registry-keyed
+          // under the reserved agent id 'user'.
+          ...(() => {
+            const open = mcp.openQuestion(ws.workspaceId, 'user')
+            return open ? { userQuestion: open } : {}
+          })(),
+          ...(plan.total > 0
+            ? { tasks: plan.rows, taskTotal: plan.total, taskDone: plan.done }
+            : {}),
+          // A3: the run's pull request. Only the three fields the card reads —
+          // the branch pair lives in the event and the journal, not on a chip.
+          ...(() => {
+            const pr = ws.runPullRequest
+            if (!pr) return {}
+            return {
+              pullRequest: {
+                ok: pr.ok,
+                ...(pr.url ? { url: pr.url } : {}),
+                ...(pr.message ? { message: pr.message } : {})
+              }
+            }
+          })(),
           agents: [
             ...(orchestrator
               ? [
@@ -71,20 +196,33 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     roleId: 'orchestrator',
                     roleLabel: 'Orchestrator',
                     roleColor: roleColor('orchestrator'),
-                    state: 'working' as const,
-                    ...(pendingOf(ws.workspaceId, orchestrator.agentId)
-                      ? { pendingQuestion: pendingOf(ws.workspaceId, orchestrator.agentId) }
+                    state: ws.orchestratorAlive ? ('working' as const) : ('stopped' as const),
+                    // Latest user CLI submit — not the last delegated start_agent.
+                    ...agentCurrentTaskFields(ws.orchestratorTaskText),
+                    ...(windowOpenOf(orchestrator.agentId) ? { windowOpen: true } : {}),
+                    ...(orchestratorQuestion
+                      ? {
+                          pendingQuestion: orchestratorQuestion.question,
+                          pendingQuestionId: orchestratorQuestion.questionId
+                        }
                       : {})
                   }
                 ]
               : []),
-            ...ws.listAgents().map((agent) => {
+            // F: flat list with indentation — every agent right after its
+            // lead. Root children keep start order; orphans (unknown parent)
+            // fall back to the end rather than disappearing.
+            ...orderByParent(ws.listAgents(), (agent) =>
+              mcp.agentParent(ws.workspaceId, agent.agentId)
+            ).map((agent) => {
               const pendingQuestion = pendingOf(ws.workspaceId, agent.agentId)
+              const agentTask = mcp.agentTask(ws.workspaceId, agent.agentId)
+              const parentId = mcp.agentParent(ws.workspaceId, agent.agentId)
               return {
                 agentId: agent.agentId,
                 name: agent.name,
                 roleId: agent.role,
-                roleLabel: roleLabel(agent.role),
+                roleLabel: agent.kind === 'lead' ? 'Lead' : roleLabel(agent.role),
                 roleColor: roleColor(agent.role, roleIds.indexOf(agent.role)),
                 state:
                   agent.status === 'working'
@@ -92,19 +230,186 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     : agent.status === 'starting'
                       ? ('waiting' as const)
                       : ('stopped' as const),
-                ...(pendingQuestion ? { pendingQuestion } : {})
+                ...(agent.kind ? { kind: agent.kind } : {}),
+                ...(parentId ? { parentId } : {}),
+                ...agentCurrentTaskFields(agentTask),
+                ...(windowOpenOf(agent.agentId) ? { windowOpen: true } : {}),
+                ...(pendingQuestion
+                  ? {
+                      pendingQuestion: pendingQuestion.question,
+                      pendingQuestionId: pendingQuestion.questionId
+                    }
+                  : {})
               }
             })
           ]
         }
       }),
-    start(profileId) {
+    start(profileId, goal) {
       const profile = getProfile(profileId)
-      if (!profile) throw new Error(`Unbekanntes Profil ${profileId}`)
-      return manager.startWorkspace(profile)
+      if (!profile) {
+        const locale = readLocale(() => getSettings().ui.locale)
+        throw new Error(mainMessages(locale).unknownProfile(profileId))
+      }
+      return manager.startWorkspace(profile, goal ? { goal } : undefined)
+    },
+    async assignGoal(workspaceId, goal) {
+      try {
+        await manager.assignGoal(workspaceId, goal)
+      } catch (error) {
+        // The host code is the workspace's contract, not a sentence for a
+        // human who just typed into the goal field.
+        const message = error instanceof Error ? error.message : String(error)
+        if (message.includes('goal_already_set')) {
+          const messages = mainMessages(readLocale(() => getSettings().ui.locale))
+          throw new Error(messages.goalAlreadySet)
+        }
+        throw error
+      }
+    },
+    async resume(profileId) {
+      const profile = getProfile(profileId)
+      if (!profile) {
+        const locale = readLocale(() => getSettings().ui.locale)
+        throw new Error(mainMessages(locale).unknownProfile(profileId))
+      }
+      // E3: brief a NEW orchestrator on the newest journaled run. The old
+      // run's goal (when its meta recorded one) is re-seeded over the same
+      // handshake, so the card and the orchestrator agree on what continues.
+      const run = await latestRun(profile.repoPath, profile.id)
+      if (!run) {
+        const locale = readLocale(() => getSettings().ui.locale)
+        throw new Error(mainMessages(locale).resumeNoRun(profile.repoPath))
+      }
+      // S4 (fail-soft): the old run's task board — dead owners freed — seeds
+      // the new board and gets one honest mention in the briefing.
+      const rawTasks = await readRunTasks(profile.repoPath, run.workspaceId)
+      const tasks = rawTasks ? boardForResume(rawTasks) : undefined
+      // C6: that run may have died mid-handoff. Its frozen package briefs the
+      // new orchestrator instead of the journal summary — and is only retired
+      // once the start actually succeeded, so a failed boot can try again.
+      //
+      // Unless the journal contradicts it. Both renames that retire a package
+      // are best-effort, so a surviving `succession.json` is a hint, not a
+      // fact; the journal is the fact, and it is already loaded. A package the
+      // run outlived would seed a fresh orchestrator with a stale roster while
+      // asserting the run died at the freeze — and would drop the briefing
+      // that covers everything since.
+      const frozen = await readSuccessionPackage(profile.repoPath, run.workspaceId)
+      const stale = frozen !== undefined && successionSuperseded(frozen, run.events)
+      if (stale) await markSuccessionConsumed(profile.repoPath, run.workspaceId, {}, 'failed')
+      const succession = stale ? undefined : frozen
+      const running = await manager.startWorkspace(profile, {
+        resume: {
+          briefing: buildResumeBriefing(run, tasks),
+          fromWorkspaceId: run.workspaceId,
+          ...(tasks ? { tasks } : {}),
+          ...(succession ? { succession } : {})
+        },
+        ...(run.meta?.goal ? { goal: run.meta.goal } : {})
+      })
+      if (succession) await markSuccessionConsumed(profile.repoPath, run.workspaceId)
+      return running
     },
     stop: (workspaceId) => manager.stopWorkspace(workspaceId),
-    focusAgent: (agentId) => focusCliWindow(agentId),
+    // Panel-only, spoken: type a follow-up into the running orchestrator. The
+    // refusals stay host codes like the neighbouring members — the voice layer
+    // is what turns them into something spoken.
+    sendToOrchestrator(workspaceId, text) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) {
+        throw new Error(`send to orchestrator rejected — unknown workspace ${workspaceId}`)
+      }
+      const orchestrator = workspace.orchestrator
+      if (!orchestrator) {
+        throw new Error(mainMessages(readLocale(() => getSettings().ui.locale)).noOrchestrator)
+      }
+      return workspace.sendToAgent(orchestrator.agentId, text)
+    },
+    async succeedOrchestrator(workspaceId) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) {
+        throw new Error(`orchestrator replacement rejected — unknown workspace ${workspaceId}`)
+      }
+      try {
+        await workspace.replaceOrchestratorFromHost()
+      } catch (error) {
+        // The host codes are the MCP contract's, not a sentence for a human
+        // who just pressed a button.
+        const message = error instanceof Error ? error.message : String(error)
+        const messages = mainMessages(readLocale(() => getSettings().ui.locale))
+        if (message.includes('already_in_progress')) {
+          throw new Error(messages.successorAlreadyStarting)
+        }
+        if (message.includes('no_orchestrator')) {
+          throw new Error(messages.noOrchestrator)
+        }
+        throw error
+      }
+    },
+    postUserMessage(workspaceId, text) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) throw new Error(`user message rejected — unknown workspace ${workspaceId}`)
+      workspace.postUserMessage(text)
+    },
+    async promoteAgentBranch(workspaceId, agentId) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) throw new Error(`promote rejected — unknown workspace ${workspaceId}`)
+      const outcome = await workspace.promoteAgentBranch(agentId)
+      if (!outcome.ok) {
+        const locale = readLocale(() => getSettings().ui.locale)
+        throw new Error(
+          mainMessages(locale).promoteConflict(
+            outcome.conflictFiles.join(', ') || mainMessages(locale).unknownConflictFiles
+          )
+        )
+      }
+    },
+    async openRunFolder(workspaceId) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) throw new Error(`run folder rejected — unknown workspace ${workspaceId}`)
+      // The openPath contract (resolves with an error STRING, never rejects)
+      // is a rule with two branches, so it lives in a module a test can hold.
+      await revealRunFolder(
+        (path) => shell.openPath(path),
+        runDir(workspace.repoPath, workspaceId),
+        readLocale(() => getSettings().ui.locale)
+      )
+    },
+    async answerQuestion(workspaceId, agentId, questionId, text) {
+      // One host path (H1): identical to the orchestrator's
+      // send_to_agent{questionId} — see mcp/answerQuestion.ts.
+      const outcome = await mcp.answerQuestion(workspaceId, agentId, questionId, text)
+      if (outcome.ok) return
+      const messages = mainMessages(readLocale(() => getSettings().ui.locale))
+      switch (outcome.error) {
+        case 'unknown_workspace':
+          // Raw like the other unknown-id refusals in this directory: only a
+          // renderer that lost track of a closed workspace can reach it.
+          throw new Error(`answer rejected — unknown workspace ${workspaceId}`)
+        // The remaining three are races an ordinary click loses: the question
+        // was answered elsewhere, or the agent died between render and send.
+        case 'unknown_question':
+          throw new Error(messages.answerQuestionClosed)
+        case 'question_agent_mismatch':
+          throw new Error(messages.answerAgentMismatch)
+        case 'answer_delivery_failed':
+          throw new Error(messages.answerNotDelivered(outcome.message))
+      }
+    },
+    focusAgent(agentId) {
+      if (getCliWindow(agentId)) {
+        focusCliWindow(agentId)
+        return
+      }
+      // A closed window of a still-registered agent (finished, scrollback
+      // intact) reopens so the last task is not a tooltip-only memory.
+      if (!getAgentRegistry().getAgent(agentId)) return
+      for (const workspace of manager.list()) {
+        if (workspace.showAgentWindow(agentId)) return
+      }
+    },
+    closeAgentWindow: (agentId) => closeCliWindow(agentId),
     focusWorkspace(workspaceId) {
       const workspace = manager.get(workspaceId)
       if (!workspace) return
@@ -113,11 +418,54 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         ...(workspace.orchestrator ? [workspace.orchestrator.agentId] : []),
         ...workspace.listAgents().map((agent) => agent.agentId)
       ]
-      focusWorkspaceAgents(agentIds, { windows: cliFocusTargets })
+      if (agentIds.length === 0) return
+      // Workspace click replaced hide-all's snapshot: forget it so the next
+      // toggle hides what is visible instead of restoring foreign windows.
+      forgetHideAll()
+      focusWorkspaceAgents(agentIds, {
+        windows: cliFocusTargets,
+        beforeRestore: suppressMoveTracking
+      })
+      // After show: restore can fire move events that wreck bounds (Windows).
+      layoutCliWindows(agentIds)
     },
     listStaleWorktrees: (profileId) => cleanup.listStale(profileId),
-    removeWorktree: (profileId, worktreePath) => cleanup.remove(profileId, worktreePath)
+    removeWorktree: (profileId, worktreePath) => cleanup.remove(profileId, worktreePath),
+    // The push channel: appIpc turns this into ev:workspaces, which is what
+    // lets the panel drop its poll — badges and card states update the moment
+    // something happens instead of up to four seconds later. Window close is
+    // the same feed: dismissing a finished agent must drop its ✕ immediately.
+    onChange: (listener) => {
+      const offManager = manager.onChange(listener)
+      const offWindows = onCliWindowClosed(() => listener())
+      return () => {
+        offManager()
+        offWindows()
+      }
+    }
   }
+}
+
+/**
+ * Feed every agent's current task note into the terminal registry, so the CLI
+ * window's title-bar hover card can show what its agent is working on. Runs on
+ * the same change feed as the panel; `setAgentTask` dedupes, so a burst of
+ * unrelated events costs nothing.
+ */
+function armTerminalTaskFeed(manager: WorkspaceManager, mcp: McpServerHandle): void {
+  const registry = getAgentRegistry()
+  const push = (): void => {
+    for (const ws of manager.list()) {
+      const orchestrator = ws.orchestrator
+      if (orchestrator) {
+        registry.setAgentTask(orchestrator.agentId, ws.orchestratorTaskText)
+      }
+      for (const agent of ws.listAgents()) {
+        registry.setAgentTask(agent.agentId, mcp.agentTask(ws.workspaceId, agent.agentId))
+      }
+    }
+  }
+  manager.onChange(push)
 }
 
 // --- M1 dev verification path -------------------------------------------
@@ -137,7 +485,9 @@ async function startDevAgent(): Promise<void> {
     const launch = await resolveLaunch(command, rawArgs)
     agent.spawn({ file: launch.file, args: launch.args, cwd: homedir() })
   } catch (error) {
-    agent.push(`\x1b[31mSpawn fehlgeschlagen: ${String(error)}\x1b[0m\r\n`)
+    // Raw English on purpose: this whole path exists only behind
+    // VERTRAGUS_DEV_SPAWN and is read by whoever set that variable.
+    agent.push(`\x1b[31mspawn failed: ${String(error)}\x1b[0m\r\n`)
   }
   registry.registerAgent({
     pty: agent,
@@ -158,6 +508,100 @@ async function startDevAgent(): Promise<void> {
 let appMcp: McpServerHandle | undefined
 let appManager: WorkspaceManager | undefined
 let devRun: DevRunHandle | undefined
+let appVoice: AppVoice | undefined
+
+function sendToPanel(channel: string, payload: unknown): void {
+  const win = getPanelWindow()
+  if (win && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)
+}
+
+function broadcastPanelSettings(): void {
+  const value = toPanelSettings(getSettings(), hideAllHotkeyStatus(), app.isPackaged)
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.webContents.isDestroyed()) continue
+    win.webContents.send(APP_CHANNELS.eventSettings, value)
+    win.webContents.send(APP_CHANNELS.eventAppearance, value.appearance)
+  }
+}
+
+function attachVoice(directory: WorkspaceDirectory): AppVoice {
+  const voice = createAppVoice({
+    directory,
+    store: () => settings(),
+    hideAll: () => toggleHideAll(),
+    openSettings: () => openSettingsWindow(),
+    openProfileEditor: (profileId) => openProfileEditorWindow(profileId),
+    quit: () => app.quit(),
+    onYoloChanged: () => broadcastPanelSettings(),
+    sendToPanel
+  })
+  appVoice = voice
+  return voice
+}
+let remote: RemoteController | undefined
+
+/** The built web client sits next to the main bundle: out/main → out/remote. */
+function remoteStaticRoot(): string {
+  return join(__dirname, '..', 'remote')
+}
+
+/**
+ * Wire the remote-access controller to the app: the command gateway delegates
+ * to the same WorkspaceDirectory the panel uses, terminals come from the shared
+ * registry, and workspace changes fan out over the same manager feed.
+ *
+ * The pairing token is encrypted at rest with Electron safeStorage when the
+ * OS keychain is available, and always also written to a 0600 file under
+ * userData so the Tailscale QR survives a restart without a keyring.
+ */
+function buildRemoteController(
+  directory: WorkspaceDirectory,
+  manager: WorkspaceManager
+): RemoteController {
+  return createRemoteController({
+    readSettings: () => getSettings().remote,
+    writeSettings: (next) => setSetting('remote', next),
+    locale: () => readLocale(() => getSettings().ui.locale),
+    networkInterfaces: () => networkInterfaces() as Parameters<typeof bindOptions>[0],
+    secrets: {
+      // No OS keychain (a Linux desktop without a configured keyring) → do
+      // not write the token into electron-store JSON. The 0600 fallback file
+      // is what keeps the pairing URL stable across restarts in that case.
+      available: safeStorage.isEncryptionAvailable(),
+      encrypt: (plain) => safeStorage.encryptString(plain).toString('base64'),
+      decrypt: (cipher) => {
+        try {
+          return safeStorage.decryptString(Buffer.from(cipher, 'base64'))
+        } catch {
+          return undefined
+        }
+      }
+    },
+    tokenFallback: createPairingTokenFile(join(app.getPath('userData'), 'remote-pairing.token')),
+    staticRoot: remoteStaticRoot(),
+    serverBase: {
+      gateway: {
+        listWorkspaces: () => directory.list(),
+        listProfiles: () =>
+          getProfiles().map((profile) => ({
+            id: profile.id,
+            name: profile.name,
+            repoPath: profile.repoPath
+          })),
+        startWorkspace: (profileId, goal) => directory.start(profileId, goal),
+        stopWorkspace: (workspaceId) => directory.stop(workspaceId),
+        answerQuestion: ({ workspaceId, agentId, questionId, text }) =>
+          directory.answerQuestion(workspaceId, agentId, questionId, text),
+        userMessage: ({ workspaceId, text }) => directory.postUserMessage(workspaceId, text),
+        assignGoal: ({ workspaceId, goal }) => directory.assignGoal(workspaceId, goal)
+      },
+      terminals: () => getAgentRegistry().terminals(),
+      onWorkspaceChange: (listener) => manager.onChange(listener),
+      locale: () => getSettings().ui.locale,
+      theme: () => getSettings().ui.theme
+    }
+  })
+}
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('org.nehmo.vertragus')
@@ -179,11 +623,51 @@ app.whenReady().then(async () => {
   try {
     appMcp = await startMcpServer()
     appManager = createAppWorkspaceManager(appMcp)
-    registerAppIpc(panelDirectory(appManager, appMcp))
+    const directory = panelDirectory(appManager, appMcp)
+    registerAppIpc(directory, undefined, attachVoice(directory).port)
+    armTerminalTaskFeed(appManager, appMcp)
+    // Late-bound: registerTerminalIpc ran before the manager existed. ipc.ts
+    // must not import WorkspaceManager. Seed / sendToAgent / assignGoal paste
+    // go through pty.write and never hit this sink.
+    const manager = appManager
+    setTerminalInputSink((agentId, data) => {
+      manager.noteOrchestratorGoal(agentId, data)
+    })
+    // Remote access — off by default. The controller does nothing until the
+    // user enables it in settings; wiring it here gives the settings channels
+    // a live controller to drive.
+    remote = buildRemoteController(directory, appManager)
+    const remoteIpc = registerRemoteIpc({
+      ipcMain: ipcMain as unknown as Parameters<typeof registerRemoteIpc>[0]['ipcMain'],
+      controller: remote,
+      bindOptions: () => bindOptions(networkInterfaces() as Parameters<typeof bindOptions>[0]),
+      isSettingsSender: (id) => isSettingsWindowSender(id),
+      broadcast: (channel, payload) => {
+        for (const { window } of listSettingsWindows()) {
+          if (!window.isDestroyed()) window.webContents.send(channel, payload)
+        }
+      }
+    })
+    // Resume a server the user had enabled before the last quit.
+    if (getSettings().remote.enabled) {
+      await remote.apply({ enabled: true })
+      remoteIpc.emit()
+    }
   } catch (error) {
     console.error('[boot] MCP server did not start — panel runs without workspaces:', error)
-    registerAppIpc()
+    // A console the user cannot open is not a report. The reason travels into
+    // the stub directory, so the next Play/Resume answers with what actually
+    // failed instead of "not wired up yet" — which reads as an unfinished
+    // feature and sends nobody looking for a broken MCP boot.
+    registerAppIpc(
+      undefined,
+      error instanceof Error ? error.message : String(error),
+      attachVoice(createStubWorkspaceDirectory()).port
+    )
   }
+
+  // Mic capture is a panel-window permission; CLI windows must not get it.
+  installDefaultVoicePermissions((id) => isPanelWindowSender(id))
 
   // Hide-all: the global hotkey. A failed registration is not fatal — the
   // status reaches the panel through settings:get, and the eye still works.
@@ -199,6 +683,9 @@ app.whenReady().then(async () => {
   // here, next to each other — a window smoke hook hidden inside an IPC
   // registration is how you end up calling that registration twice.
   armScreenshotHook(createPanelWindow(), 'VERTRAGUS_PANEL_SCREENSHOT')
+
+  // After the panel exists so a stored-on session can ask for the mic.
+  if (getSettings().voice.enabled) void appVoice?.port.setEnabled(true)
   armProfileEditorSmoke()
   armProviderEditorSmoke()
   armSettingsWindowSmoke()
@@ -232,11 +719,35 @@ app.on('will-quit', () => {
   unregisterHideAllShortcut()
 })
 
-app.on('before-quit', () => {
-  // devRun shares the app's manager/server, so stopping twice must be safe.
-  void devRun?.stop().catch(() => undefined)
-  void appManager?.stopAll().catch(() => undefined)
-  void appMcp?.close().catch(() => undefined)
+/**
+ * Ceiling for the quit-time shutdown. Covers the POSIX SIGTERM→SIGKILL grace
+ * (5 s) plus taskkill latency; a wedged kill must not wedge quitting forever.
+ */
+const QUIT_SHUTDOWN_CEILING_MS = 8_000
+
+let quitting = false
+
+app.on('before-quit', (event) => {
+  if (quitting) return
+  quitting = true
+  // Electron would exit before the fire-and-forget kills land, orphaning
+  // yolo-mode CLI processes. Hold the quit, await the kills (bounded), then
+  // exit for real — the second pass falls through the `quitting` guard.
+  event.preventDefault()
+  const shutdown = (async () => {
+    // devRun shares the app's manager/server, so stopping twice must be safe.
+    appVoice?.dispose()
+    appVoice = undefined
+    await remote?.stop().catch(() => undefined)
+    await devRun?.stop().catch(() => undefined)
+    await appManager?.stopAll({ awaitExitMs: QUIT_SHUTDOWN_CEILING_MS - 1_000 }).catch(() => undefined)
+    await appMcp?.close().catch(() => undefined)
+  })()
+  const ceiling = new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, QUIT_SHUTDOWN_CEILING_MS)
+    timer.unref?.()
+  })
+  void Promise.race([shutdown, ceiling]).finally(() => app.exit())
 })
 
 app.on('window-all-closed', () => {

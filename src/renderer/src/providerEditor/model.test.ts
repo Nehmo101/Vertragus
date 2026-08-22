@@ -10,6 +10,7 @@ import {
   toLines,
   toProviderInput,
   validateDraft,
+  versionDrift,
   type ProviderDraft
 } from './model'
 
@@ -22,7 +23,7 @@ const en = translator('en')
  *
  * Declared here rather than imported from `@main/providers/presets`: the
  * renderer must not reach into main. It is also the stronger check — the
- * shipped presets use five of these shapes, this covers all of them, including
+ * shipped presets use six of these shapes, this covers all of them, including
  * combinations only a hand-written provider will ever have.
  */
 const SHAPES: ProviderConfig[] = (
@@ -101,6 +102,22 @@ const SHAPES: ProviderConfig[] = (
       mcp: { kind: 'none' },
       modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },
       enabled: false
+    },
+    // Grok-like: flag effort, arg prompt, grok-project attach, line discovery.
+    {
+      id: 'shape-grok',
+      presetId: 'grok',
+      label: 'Grok-like',
+      command: 'grok',
+      yoloArgs: ['--always-approve'],
+      modelArg: '--model',
+      effortArg: { style: 'flag', flag: '--effort' },
+      auth: { loginArgs: ['login'] },
+      systemPromptDelivery: { kind: 'arg', flag: '--append-system-prompt' },
+      initialPromptDelivery: { kind: 'positional' },
+      mcp: { kind: 'grok-project' },
+      modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },
+      seedModels: ['grok-build']
     },
     // Ollama-like: positional model (no modelArg), base args, http discovery.
     {
@@ -213,6 +230,14 @@ describe('draft ⇄ ProviderConfig', () => {
     expect((toProviderInput(edited) as { seed?: unknown }).seed).toEqual(tuned.seed)
   })
 
+  it('carries initialPromptDelivery through an edit instead of dropping it', () => {
+    const grokLike = shape('shape-grok')
+    const edited = { ...draftFromProvider(grokLike), label: 'Grok (mine)' }
+    expect((toProviderInput(edited) as { initialPromptDelivery?: unknown }).initialPromptDelivery).toEqual(
+      { kind: 'positional' }
+    )
+  })
+
   it('normalizes an id typed with spaces and capitals', () => {
     const result = validateDraft(t, draft({ id: 'Mein CLI!' }))
     expect(result.ok).toBe(true)
@@ -290,5 +315,30 @@ describe('validation', () => {
     const result = validateDraft(t, draftFromProvider(shape('shape-kimi')))
     expect(result.ok).toBe(true)
     if (result.ok) expect(() => providerConfigSchema.parse(result.config)).not.toThrow()
+  })
+})
+
+describe('versionDrift', () => {
+  it('says nothing for a custom provider or before the health probe answered', () => {
+    expect(versionDrift(undefined, '9.9.9')).toBeNull()
+    expect(versionDrift('claude', undefined)).toBeNull()
+    expect(versionDrift('claude', '   ')).toBeNull()
+  })
+
+  it('says nothing when the installed CLI matches the verified version', () => {
+    // Probes answer decorated strings — the verified version appearing
+    // anywhere in them means there is nothing to hint at.
+    expect(versionDrift('codex', 'codex-cli 0.144.6')).toBeNull()
+    expect(versionDrift('cursor', '2026.08.11-e8db854')).toBeNull()
+    expect(versionDrift('ollama', 'ollama version is 0.30.11')).toBeNull()
+  })
+
+  it('reports the pair the hint shows when the versions differ', () => {
+    const drift = versionDrift('codex', 'codex-cli 0.150.0')
+    expect(drift).toEqual({
+      verified: '0.144.6',
+      installed: 'codex-cli 0.150.0',
+      verifiedAt: expect.any(String)
+    })
   })
 })

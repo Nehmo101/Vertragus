@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -135,6 +135,30 @@ describe('createWorktree', () => {
     expect(readFileSync(ignorePath, 'utf8')).toBe('# user-edited\nworktrees/\n')
   }, 30_000)
 
+  it('puts the token-carrying MCP config files on .git/info/exclude, once, idempotently', async () => {
+    const created = await createWorktree(repoPath, 'agent-secret', 'vertragus/paradiso/secreto')
+
+    const exclude = readFileSync(join(repoPath, '.git', 'info', 'exclude'), 'utf8')
+    expect(exclude).toContain('/.cursor/mcp.json')
+    expect(exclude).toContain('/.kimi-code/mcp.json')
+    expect(exclude).toContain('/.grok/config.toml')
+
+    // The proof is git's own view, inside the agent's worktree: a config file
+    // an attach dialect writes there stays invisible to `git add -A`.
+    mkdirSync(join(created.path, '.cursor'), { recursive: true })
+    writeFileSync(join(created.path, '.cursor', 'mcp.json'), '{"mcpServers":{}}\n')
+    const { stdout } = await execFileAsync('git', ['status', '--porcelain'], {
+      cwd: created.path,
+      windowsHide: true
+    })
+    expect(stdout).not.toContain('.cursor')
+
+    // A second worktree does not duplicate the block.
+    await createWorktree(repoPath, 'agent-secret-2', 'vertragus/paradiso/secondo')
+    const again = readFileSync(join(repoPath, '.git', 'info', 'exclude'), 'utf8')
+    expect(again.match(/\/\.cursor\/mcp\.json/g)).toHaveLength(1)
+  }, 30_000)
+
   it('does not collide with the branch a previous run left behind', async () => {
     // Branches deliberately survive their worktree — Vertragus never deletes work.
     const created = await createWorktree(repoPath, 'agent-two', 'vertragus/paradiso/caronte')
@@ -244,5 +268,81 @@ describe('listWorktrees', () => {
       { path: '/repo', head: '1'.repeat(40), branch: 'main', detached: false },
       { path: '/repo/.vertragus/worktrees/a1', head: '2'.repeat(40), detached: true }
     ])
+  })
+})
+
+describe('commitWorktree — C3 snapshot commit', () => {
+  it('stages everything and commits with the pinned identity, no push, no --force', async () => {
+    const { commitWorktree, SNAPSHOT_AUTHOR_NAME, SNAPSHOT_AUTHOR_EMAIL } = await import('./worktree')
+    const calls: string[][] = []
+    const git = vi.fn(async (args: string[]) => {
+      calls.push(args)
+      return { stdout: '', stderr: '' }
+    })
+
+    await commitWorktree('/wt', 'vertragus: Caronte / worker — fixed', { git })
+
+    expect(calls[0]).toEqual(['add', '-A'])
+    expect(calls[1]).toEqual([
+      '-c',
+      `user.name=${SNAPSHOT_AUTHOR_NAME}`,
+      '-c',
+      `user.email=${SNAPSHOT_AUTHOR_EMAIL}`,
+      'commit',
+      '-m',
+      'vertragus: Caronte / worker — fixed',
+      '--no-verify'
+    ])
+    expect(calls.some((args) => args[0] === 'push' || args.includes('--force'))).toBe(false)
+  })
+
+  it('rethrows with git stderr so the caller can fall back to the dirty snapshot', async () => {
+    const { commitWorktree } = await import('./worktree')
+    const git = vi.fn(async (args: string[]) => {
+      if (args.includes('commit')) throw Object.assign(new Error('x'), { stderr: 'index.lock held' })
+      return { stdout: '', stderr: '' }
+    })
+    await expect(commitWorktree('/wt', 'msg', { git })).rejects.toThrow(/index\.lock held/)
+  })
+})
+
+describe('mergeBranchIntoWorktree — E1 host merge', () => {
+  it('merges with the pinned identity and returns the new HEAD', async () => {
+    const { mergeBranchIntoWorktree } = await import('./worktree')
+    const calls: string[][] = []
+    const git = vi.fn(async (args: string[]) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse') return { stdout: 'beefbeef\n', stderr: '' }
+      return { stdout: '', stderr: '' }
+    })
+
+    const outcome = await mergeBranchIntoWorktree('/wt', 'vertragus/x/other', { git })
+
+    expect(outcome).toEqual({ ok: true, headSha: 'beefbeef' })
+    const merge = calls.find((args) => args.includes('merge'))!
+    expect(merge).toContain('vertragus/x/other')
+    expect(merge).toContain('--no-edit')
+    expect(calls.some((args) => args[0] === 'push' || args.includes('--force'))).toBe(false)
+  })
+
+  it('aborts on conflict, reports the files, and leaves the worktree clean', async () => {
+    const { mergeBranchIntoWorktree } = await import('./worktree')
+    const calls: string[][] = []
+    const git = vi.fn(async (args: string[]) => {
+      calls.push(args)
+      if (args.includes('merge') && !args.includes('--abort')) {
+        throw Object.assign(new Error('x'), { stderr: 'CONFLICT (content): src/a.ts' })
+      }
+      if (args[0] === 'diff') return { stdout: 'src/a.ts\nsrc/b.ts\n', stderr: '' }
+      return { stdout: '', stderr: '' }
+    })
+
+    const outcome = await mergeBranchIntoWorktree('/wt', 'other', { git })
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      conflictFiles: ['src/a.ts', 'src/b.ts']
+    })
+    expect(calls.some((args) => args.includes('merge') && args.includes('--abort'))).toBe(true)
   })
 })

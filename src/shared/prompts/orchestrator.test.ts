@@ -39,7 +39,7 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/merging the other branches into its own/i)
     // The old opt-in flag is gone — the prompt must not teach it.
     expect(prompt).not.toContain('worktree: true')
-    expect(prompt).toContain('start_agent{role, task, model?, baseBranch?}')
+    expect(prompt).toContain('start_agent{role, task, model?, providerId?, slotId?, baseBranch?}')
   })
 
   it('teaches baseBranch as the way to chain one agent’s work onto another’s', () => {
@@ -48,16 +48,18 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/reports every agent’s branch back/i)
   })
 
-  it('names all seven orchestrator tools', () => {
+  it('names all orchestrator tools', () => {
     const prompt = buildOrchestratorSystemPrompt(base)
     for (const tool of [
       'start_agent',
       'send_to_agent',
       'await_events',
       'list_agents',
+      'inspect_agent',
       'read_output',
       'stop_agent',
-      'record_retro'
+      'record_retro',
+      'request_succession'
     ]) {
       expect(prompt).toContain(tool)
     }
@@ -120,12 +122,54 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/call read_output on it first/i)
   })
 
+  it('teaches inspect_agent as the way to verify file changes', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/inspect_agent\{agentId, view, path\?, lines\?\}/)
+    expect(prompt).toMatch(/never treat the terminal tail as a diff/i)
+    expect(prompt).toMatch(/verify the result with inspect_agent/i)
+    expect(prompt).toMatch(/host facts on the event/i)
+  })
+
+  it('orders verification cheapest-first: status before a full diff', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/view "status" \(porcelain \+ diffstat\) first/i)
+    expect(prompt).toMatch(/full diff only when something looks off/i)
+    expect(prompt).toMatch(/pass path to scope the diff/i)
+  })
+
+  it('teaches model economy for role and slot choice', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/smaller, faster slot or model/i)
+    expect(prompt).toMatch(/reserve the strongest ones for review, architecture/i)
+  })
+
   it('forbids coding and requires a closing summary plus stop', () => {
     const prompt = buildOrchestratorSystemPrompt(base)
     expect(prompt).toMatch(/never edit, create or delete files yourself/i)
     expect(prompt).toMatch(/stop every remaining agent with stop_agent/i)
     expect(prompt).toMatch(/one summary/i)
   })
+
+  it('teaches request_succession as serial replacement, not run end', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/request_succession\{reason/)
+    expect(prompt).toMatch(/fresh context/i)
+    expect(prompt).toMatch(/not a second concurrent orchestrator/i)
+    expect(prompt).toMatch(/never as part of a context handoff/i)
+  })
+
+  it('asks for succession early instead of at the context wall', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/Call it EARLY and proactively/)
+    expect(prompt).toMatch(/do not wait for a provider context warning/i)
+  })
+
+  it('forbids native spawn_subagent, write, and shell', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/do not use native spawn_subagent, write, or shell/i)
+    expect(prompt).toMatch(/vertragus start_agent/i)
+  })
+
 
   it('is plain English with no German left in it', () => {
     const prompt = buildOrchestratorSystemPrompt(base)

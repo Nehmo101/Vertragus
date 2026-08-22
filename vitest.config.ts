@@ -26,19 +26,26 @@ export default defineConfig({
        * Ratchet thresholds: set ~2 points below the measured status quo so
        * coverage can only move up. Raise them deliberately, never lower.
        *
-       * Measured at M6a (891 tests): statements/lines 63.1, branches 89.6,
-       * functions 80.0. The statement figure is dominated by React components
+       * Measured after the phone client's second pass (2350 tests):
+       * statements/lines 64.5, branches 90.5, functions 86.3. The function
+       * figure moved most because that pass pulled the client's decisions —
+       * scroll accumulation, re-attach alignment, resize policy, inbox
+       * aggregation, pairing recovery — out of components and into modules
+       * a Node test can reach. The statement figure is dominated by React components
        * — there is no DOM test runner in this project, so every `.tsx` file
-       * counts as uncovered while its extracted logic (`viewModel`, `model`,
-       * `geometry`, `useSettings`'s validation) is tested at close to 100 %.
-       * That is why the branch and function numbers are the meaningful ones,
-       * and why the statement gate is the loosest of the four.
+       * counts as uncovered while its extracted logic (`panel/viewModel`,
+       * `settings/model`, `zones/geometry`, `zones/autoLayout`) is tested at
+       * close to 100 %. Note what is NOT in that list: the hooks themselves
+       * (`useSettings` and friends) hold their validation inline and are
+       * untested — extracting one is the cheapest way to raise the statement
+       * number. That is why the branch and function numbers are the meaningful
+       * ones, and why the statement gate is the loosest of the four.
        */
       thresholds: {
-        statements: 61,
-        branches: 87,
-        functions: 78,
-        lines: 61
+        statements: 62,
+        branches: 88,
+        functions: 84,
+        lines: 62
       }
     }
   }

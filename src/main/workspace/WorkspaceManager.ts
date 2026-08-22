@@ -23,23 +23,53 @@
  * against fakes with no Electron runtime in sight.
  */
 import type { McpServerHandle } from '@main/mcp/server'
+import { queueForAgent } from '@main/mcp/types'
 import { workspacePlaceName } from '@shared/workspaceNames'
 import type { Profile } from '@shared/schema/profile'
 import type { StartedAgent } from '@main/mcp/types'
 import type { AgentEvent } from '@shared/schema/events'
+import type { OrchestratorHandoffPackage } from '@shared/schema/handoff'
+import type { TaskBoardState } from '@shared/schema/tasks'
 import type { RetroSink } from './retroSink'
+import type { RunJournal, RunMeta } from './journal'
+import type { TaskBoard } from './taskBoard'
 import { Workspace, type WorkspaceDeps, type WorkspaceMcpUrls } from './Workspace'
 
 export interface WorkspaceManagerDeps
-  extends Omit<WorkspaceDeps, 'providers' | 'roleTemplates' | 'yoloMaster' | 'retro'> {
+  extends Omit<
+    WorkspaceDeps,
+    | 'providers'
+    | 'roleTemplates'
+    | 'yoloMaster'
+    | 'agentPolicy'
+    | 'retro'
+    | 'resumeBriefing'
+    | 'resumeSuccession'
+  > {
   mcp: McpServerHandle
   /** Read fresh per start so a provider edit reaches the next workspace. */
   providers: WorkspaceDeps['providers'] | (() => WorkspaceDeps['providers'])
   roleTemplates?: WorkspaceDeps['roleTemplates'] | (() => WorkspaceDeps['roleTemplates'])
   /** Master yolo switch; also read fresh per start. */
   yoloMaster?: boolean | (() => boolean)
+  /** D4: the three-tier policy; wins over `yoloMaster`. Also read fresh per start. */
+  agentPolicy?: WorkspaceDeps['agentPolicy'] | (() => WorkspaceDeps['agentPolicy'])
   /** Full sink (the workspace itself only sees the feed slice). Absent = no retro. */
   retro?: RetroSink
+  /**
+   * E3: run-journal factory. Absent = no journal (unit tests). Production
+   * passes {@link createRunJournal} so every event of a run — subtree events
+   * included — survives the EventQueue's ring in
+   * `.vertragus/runs/<id>/events.jsonl`.
+   */
+  journal?: (repoPath: string, workspaceId: string) => RunJournal
+  /**
+   * S4: task-board factory, created next to the journal. Absent = no board
+   * (unit tests) — the task tools then answer `task_board_unavailable`.
+   * Production passes {@link createTaskBoard}, which persists the board to
+   * `.vertragus/runs/<id>/tasks.json`.
+   */
+  taskBoard?: (repoPath: string, workspaceId: string) => TaskBoard
 }
 
 export interface RunningWorkspace {
@@ -48,14 +78,84 @@ export interface RunningWorkspace {
   urls: WorkspaceMcpUrls
 }
 
+/** Options for the stop paths; `awaitExitMs` bounds the wait for real process death. */
+export interface StopOptions {
+  /**
+   * Wait up to this long for the killed CLI processes to actually exit. The
+   * quit path sets it — exiting the app before the kills land orphans
+   * yolo-mode CLIs. Absent = fire the kills and return (interactive stop).
+   */
+  awaitExitMs?: number
+}
+
+/** Options for {@link WorkspaceManager.startWorkspace}. */
+export interface StartWorkspaceOptions {
+  /**
+   * Goal for the orchestrator's first user turn (H2). Providers that declare
+   * `initialPromptDelivery` receive it at spawn; others are PTY-seeded after
+   * boot via the assignment handshake. Absent = the classic bare Play: allowed,
+   * the card shows "no goal" until someone types one into the TUI.
+   */
+  goal?: string
+  /**
+   * E3: this start resumes an earlier run. The briefing (built by
+   * `resume.buildResumeBriefing` from the old run's journal) lands in the new
+   * orchestrator's system prompt; `fromWorkspaceId` is recorded in the new
+   * run's meta. Nothing else is restored — the old processes are gone.
+   */
+  resume?: {
+    briefing: string
+    fromWorkspaceId: string
+    /**
+     * S4: the resumed run's task board, already transformed for the new run
+     * (dead owners freed — see `resume.boardForResume`). Seeds the new board.
+     */
+    tasks?: TaskBoardState
+    /**
+     * C6: the frozen succession package of that run — present only when it
+     * died mid-handoff (see `resume.readSuccessionPackage`). It REPLACES the
+     * briefing in the orchestrator prompt: same dead run, more of it, and two
+     * accounts of one run would only compete for the successor's attention.
+     */
+    succession?: OrchestratorHandoffPackage
+  }
+}
+
 export interface WorkspaceManager {
-  startWorkspace(profile: Profile): Promise<RunningWorkspace>
-  stopWorkspace(workspaceId: string): Promise<boolean>
-  stopAll(): Promise<void>
+  startWorkspace(profile: Profile, options?: StartWorkspaceOptions): Promise<RunningWorkspace>
+  /**
+   * H2 refill: hand a bare-started run its goal now. Same handshake as the
+   * start-time seed (`Workspace.assignGoal`) plus the journal's `meta.json`
+   * rewrite — a goal the run really got must brief a later Resume, and a meta
+   * frozen at start time would keep claiming the run had none.
+   *
+   * Rejects on an unknown workspace, on a run that already carries a goal
+   * (`goal_already_set`), and on a failed PTY delivery — the run keeps
+   * running in every case, and `goalText` stays unset unless the CLI took it.
+   */
+  assignGoal(workspaceId: string, goal: string): Promise<void>
+  stopWorkspace(workspaceId: string, options?: StopOptions): Promise<boolean>
+  stopAll(options?: StopOptions): Promise<void>
   get(workspaceId: string): Workspace | undefined
   list(): Workspace[]
   /** Workspaces of one profile, for the panel's per-profile grouping. */
   listForProfile(profileId: string): Workspace[]
+  /**
+   * Fires after anything that changes what {@link list} would render: a
+   * workspace starting or stopping, any agent event (start, done, question,
+   * exit — orchestrator death included), and question-registry mutations
+   * (answered badges going dark). Bursts within one tick collapse into a
+   * single notification. This is what lets the panel stop polling.
+   */
+  onChange(listener: () => void): () => void
+  /**
+   * Feed a user-input chunk from an agent's CLI. Only the workspace whose
+   * orchestrator owns `agentId` is considered; a subagent is a no-op. First
+   * successful note sticks on {@link Workspace.goalText}; a start-with-goal
+   * is never overwritten. Later submits update the orchestrator's current
+   * task only. Fires {@link onChange} when either field changes.
+   */
+  noteOrchestratorGoal(agentId: string, chunk: string): boolean
 }
 
 function resolveValue<T>(source: T | (() => T)): T {
@@ -72,6 +172,31 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
    * events would be gone by stop time, and stats without identity are noise.
    */
   const eventTaps = new Map<string, { events: AgentEvent[]; off: () => void }>()
+  /** Per-workspace change subscriptions (event queue + question registry). */
+  const changeTaps = new Map<string, Array<() => void>>()
+  /**
+   * E3: each run's journal and the `meta.json` written for it, kept so a goal
+   * that arrives AFTER the start (see `assignGoal`) can be written into that
+   * same file. Absent for a run whose journal factory failed or is not wired.
+   */
+  const runMetas = new Map<string, { journal: RunJournal; meta: RunMeta }>()
+  const changeListeners = new Set<() => void>()
+  let notifyScheduled = false
+
+  /** Collapse same-tick bursts into one notification — no timers involved. */
+  function notifyChange(): void {
+    if (notifyScheduled || changeListeners.size === 0) return
+    notifyScheduled = true
+    queueMicrotask(() => {
+      notifyScheduled = false
+      for (const listener of [...changeListeners]) listener()
+    })
+  }
+
+  function dropChangeTap(workspaceId: string): void {
+    for (const off of changeTaps.get(workspaceId) ?? []) off()
+    changeTaps.delete(workspaceId)
+  }
 
   function nextName(profileId: string): string {
     const sequence = (sequences.get(profileId) ?? 0) + 1
@@ -85,6 +210,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       providers: resolveValue(deps.providers),
       roleTemplates: deps.roleTemplates ? resolveValue(deps.roleTemplates) : [],
       yoloMaster: deps.yoloMaster === undefined ? true : resolveValue(deps.yoloMaster),
+      agentPolicy: deps.agentPolicy === undefined ? undefined : resolveValue(deps.agentPolicy),
       retro: deps.retro
     }
   }
@@ -97,11 +223,27 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     return tap
   }
 
-  async function startWorkspace(profile: Profile): Promise<RunningWorkspace> {
+  async function startWorkspace(
+    profile: Profile,
+    options?: StartWorkspaceOptions
+  ): Promise<RunningWorkspace> {
     if (!profile.repoPath.trim()) {
       throw new Error(`Profile "${profile.name}" has no repository path.`)
     }
-    const workspace = new Workspace({ profile, name: nextName(profile.id) }, workspaceDeps())
+    const workspace = new Workspace(
+      { profile, name: nextName(profile.id) },
+      {
+        ...workspaceDeps(),
+        // E3: the previous run's briefing rides into the orchestrator prompt —
+        // unless C6 left a succession package, which says the same and more
+        // (see StartWorkspaceOptions.resume.succession).
+        ...(options?.resume?.succession
+          ? { resumeSuccession: options.resume.succession }
+          : options?.resume
+            ? { resumeBriefing: options.resume.briefing }
+            : {})
+      }
+    )
 
     // Register before spawning: the orchestrator's launch args contain its MCP
     // URL, so there is no window in which an agent exists without an attachment.
@@ -110,32 +252,149 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     const registered = deps.mcp.registerWorkspace(workspace.mcpContext())
     workspace.attachMcp(registered)
     workspace.attachQuestions(registered.runtime.questions)
+    // F: host events about a lead's child go to the lead's queue, not the root's.
+    workspace.attachEventRouter((agentId) => queueForAgent(registered.runtime, agentId))
     workspaces.set(workspace.workspaceId, workspace)
+    // E3: the durable journal outlives the ring buffer. Never a blocker.
+    const journal = ((): RunJournal | undefined => {
+      try {
+        return deps.journal?.(profile.repoPath, workspace.workspaceId)
+      } catch (error) {
+        console.warn('[journal] not started:', error)
+        return undefined
+      }
+    })()
+    // S4: the task board, next to the journal and equally never a blocker.
+    // ONE assignment installs it for both readers — the tool layer calls
+    // through `runtime.taskBoard`, the succession package reads the host's,
+    // and the runtime property is an accessor over exactly that (see
+    // `mcp/server.registerWorkspace`). Wiring one side and forgetting the
+    // other is no longer expressible.
+    try {
+      const board = deps.taskBoard?.(profile.repoPath, workspace.workspaceId)
+      if (board) {
+        // Resume carries the old run's plan over — dead owners were already
+        // freed by the caller (resume.boardForResume).
+        if (options?.resume?.tasks) board.seed(options.resume.tasks)
+        registered.runtime.taskBoard = board
+      }
+    } catch (error) {
+      console.warn('[taskBoard] not started:', error)
+    }
+    // E3: the run's identity, once — everything after this line is events. The
+    // one later write is a refilled goal (`assignGoal`), which is why the meta
+    // is kept beside its journal instead of being forgotten here.
+    const meta: RunMeta = {
+      workspaceId: workspace.workspaceId,
+      profileId: profile.id,
+      workspaceName: workspace.name,
+      ...(options?.goal?.trim() ? { goal: options.goal.trim() } : {}),
+      startedAt: Date.now(),
+      ...(options?.resume ? { resumedFrom: options.resume.fromWorkspaceId } : {})
+    }
+    journal?.writeMeta(meta)
+    if (journal) runMetas.set(workspace.workspaceId, { journal, meta })
     if (deps.retro) {
       const events: AgentEvent[] = []
       const off = workspace.events.onPush((event) => events.push(event))
       eventTaps.set(workspace.workspaceId, { events, off })
     }
+    changeTaps.set(workspace.workspaceId, [
+      workspace.events.onPush(() => notifyChange()),
+      registered.runtime.questions.onMutate(() => notifyChange()),
+      ...(journal ? [workspace.events.onPush((event) => journal.append(event))] : [])
+    ])
+    // F: lead queues carry the subtrees' events past the root queue — the
+    // retro and the journal need them for honest history, the panel needs
+    // the change ticks.
+    registered.runtime.onLeadCreated = (lead) => {
+      const tap = eventTaps.get(workspace.workspaceId)
+      changeTaps
+        .get(workspace.workspaceId)
+        ?.push(
+          lead.events.onPush((event) => {
+            tap?.events.push(event)
+            journal?.append(event)
+            notifyChange()
+          })
+        )
+    }
+    // Assignments too: a follow-up task pushes no agent event, so without this
+    // the panel's status lines and the CLI hover cards would lag behind it.
+    registered.runtime.onTasksChanged = () => notifyChange()
+    // C5: every orchestrator tool call feeds the host's idle watchdog.
+    registered.runtime.onOrchestratorToolCall = () => workspace.noteOrchestratorActivity()
+    // Visible right away — the card renders "starting" while the orchestrator
+    // boots instead of appearing only once it is done.
+    notifyChange()
 
     try {
-      const orchestrator = await workspace.startOrchestrator()
+      const goal = options?.goal?.trim()
+      const orchestrator = await workspace.startOrchestrator(
+        goal ? { initialPrompt: goal } : undefined
+      )
+      notifyChange()
+      // Providers that take a first user prompt at spawn already have the goal
+      // (goalText is set) — do not type a second copy into the TUI. Everyone
+      // else still uses the assignment handshake. A failed PTY delivery does
+      // NOT tear the workspace down: the orchestrator is running and the user
+      // can still type into its terminal; the error travels to the caller
+      // (panel banner / gateway error) and the card truthfully shows "no goal".
+      if (goal && !workspace.goalText) {
+        await workspace.assignGoal(goal)
+        notifyChange()
+      }
       return { workspace, orchestrator, urls: registered }
     } catch (error) {
+      // Only a failed ORCHESTRATOR start unwinds the workspace; a delivered
+      // orchestrator with an undelivered goal stays up (see above).
+      if (workspace.orchestratorAlive) throw error
       workspaces.delete(workspace.workspaceId)
+      runMetas.delete(workspace.workspaceId)
       dropTap(workspace.workspaceId)
+      dropChangeTap(workspace.workspaceId)
       await workspace.close()
       deps.mcp.unregisterWorkspace(workspace.workspaceId)
+      notifyChange()
       throw error
     }
   }
 
-  async function stopWorkspace(workspaceId: string): Promise<boolean> {
+  /**
+   * H2 refill — see {@link WorkspaceManager.assignGoal}. The journal write
+   * happens only after the CLI accepted the text: `meta.json` records what the
+   * run was actually told, never what the user typed into a failed handshake.
+   */
+  async function assignGoal(workspaceId: string, goal: string): Promise<void> {
+    const workspace = workspaces.get(workspaceId)
+    if (!workspace) throw new Error(`goal rejected — unknown workspace ${workspaceId}`)
+    await workspace.assignGoal(goal)
+    const run = runMetas.get(workspaceId)
+    if (run) {
+      run.meta = { ...run.meta, goal }
+      run.journal.writeMeta(run.meta)
+    }
+    notifyChange()
+  }
+
+  async function stopWorkspace(workspaceId: string, options?: StopOptions): Promise<boolean> {
     const workspace = workspaces.get(workspaceId)
     if (!workspace) return false
     workspaces.delete(workspaceId)
+    runMetas.delete(workspaceId)
+    // A3: the user pressing Stop is the other "the work is done" — open the
+    // pull request the profile asked for if record_retro never got around to
+    // it. Before close(), because the event queue dies in there; at most one
+    // pull request per run, so a retro that already opened it wins. A failure
+    // here must never keep a workspace running.
+    try {
+      await workspace.openRunPullRequest?.({ summary: workspace.pendingRetroSummary })
+    } catch (error) {
+      console.warn('[automation] failed to open the run pull request:', error)
+    }
     // Agents first (subagents, then the orchestrator), then the registration —
     // unregisterWorkspace closes the EventQueue, and a push after that throws.
-    await workspace.close()
+    await workspace.close(options)
     const tap = dropTap(workspaceId)
     if (tap) {
       // A retro write failure must never block stopping the workspace.
@@ -151,21 +410,39 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
         console.warn('[retro] failed to record run retro:', error)
       }
     }
+    dropChangeTap(workspaceId)
     deps.mcp.unregisterWorkspace(workspaceId)
+    notifyChange()
     return true
   }
 
   return {
     startWorkspace,
+    assignGoal,
     stopWorkspace,
 
-    async stopAll(): Promise<void> {
-      for (const workspaceId of [...workspaces.keys()]) await stopWorkspace(workspaceId)
+    async stopAll(options?: StopOptions): Promise<void> {
+      for (const workspaceId of [...workspaces.keys()]) await stopWorkspace(workspaceId, options)
     },
 
     get: (workspaceId) => workspaces.get(workspaceId),
     list: () => [...workspaces.values()],
     listForProfile: (profileId) =>
-      [...workspaces.values()].filter((workspace) => workspace.profileId === profileId)
+      [...workspaces.values()].filter((workspace) => workspace.profileId === profileId),
+
+    onChange(listener: () => void): () => void {
+      changeListeners.add(listener)
+      return () => {
+        changeListeners.delete(listener)
+      }
+    },
+
+    noteOrchestratorGoal(agentId: string, chunk: string): boolean {
+      const workspace = [...workspaces.values()].find((ws) => ws.orchestrator?.agentId === agentId)
+      if (!workspace) return false
+      if (!workspace.noteOrchestratorGoal(chunk)) return false
+      notifyChange()
+      return true
+    }
   }
 }

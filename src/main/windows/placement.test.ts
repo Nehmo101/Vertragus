@@ -3,6 +3,7 @@ import { zoneLayoutSchema, type ZoneLayout } from '@shared/schema/zones'
 import { ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
 import {
   applyWindowBounds,
+  displaysForPlacement,
   forgetWindowPlacement,
   flushLiveReflow,
   isMovedByUser,
@@ -244,10 +245,53 @@ describe('placeAgentWindow — auto-tiling', () => {
     expect(contains(PRIMARY.workArea, bounds)).toBe(true)
   })
 
+  it('pins every window to the profile’s chosen screen', () => {
+    const profile = {
+      zones: zoneLayoutSchema.parse({ targetDisplayId: SECOND.id, zones: [] })
+    }
+    const plan = planWindowLayout({
+      profile,
+      displays: [PRIMARY, SECOND],
+      windows: [
+        { agentId: 'orch', roleId: ORCHESTRATOR_ROLE_ID },
+        { agentId: 'a', roleId: 'worker' },
+        { agentId: 'b', roleId: 'worker' }
+      ]
+    })
+    for (const entry of plan) {
+      expect(contains(SECOND.workArea, entry.bounds)).toBe(true)
+    }
+  })
+
+  it('ignores leftover zones on a screen that is not the target', () => {
+    const profile = {
+      zones: zoneLayoutSchema.parse({
+        targetDisplayId: SECOND.id,
+        zones: [{ roleId: 'worker', displayId: PRIMARY.id, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+      })
+    }
+    const bounds = placeAgentWindow({
+      profile,
+      roleId: 'worker',
+      displays: [PRIMARY, SECOND]
+    })
+    expect(contains(SECOND.workArea, bounds)).toBe(true)
+    expect(bounds).not.toEqual({ x: 960, y: 0, width: 960, height: 1080 })
+  })
+
   it('returns a usable rect when there is no display at all', () => {
     const bounds = placeAgentWindow({ roleId: 'worker', displays: [] })
     expect(bounds.width).toBeGreaterThan(0)
     expect(bounds.height).toBeGreaterThan(0)
+  })
+})
+
+describe('displaysForPlacement', () => {
+  it('narrows to the target when it is attached and otherwise leaves the list', () => {
+    expect(displaysForPlacement([PRIMARY, SECOND], SECOND.id)).toEqual([SECOND])
+    expect(displaysForPlacement([PRIMARY, SECOND], 99)).toEqual([PRIMARY, SECOND])
+    expect(displaysForPlacement([PRIMARY], 99)).toEqual([PRIMARY])
+    expect(displaysForPlacement([PRIMARY, SECOND], undefined)).toEqual([PRIMARY, SECOND])
   })
 })
 

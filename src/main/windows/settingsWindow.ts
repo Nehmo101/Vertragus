@@ -13,14 +13,17 @@
  * and from nowhere else except the panel.
  */
 import { BrowserWindow } from 'electron'
+import { mainMessages, readLocale } from '@shared/mainMessages'
+import { getSettings } from '@main/store/settings'
 import { glassWindowOptions, loadRoute, secureWindow } from './base'
 import { armWindowCapture } from './smokeCapture'
 
 export const SETTINGS_WINDOW_WIDTH = 480
-// Measured against the rendered sheet: tall enough that the update block is on
-// screen without scrolling (the thing people open this window for), short
-// enough that there is no empty half below it.
-export const SETTINGS_WINDOW_HEIGHT = 570
+// Measured against the rendered sheet: tall enough that the Tailscale remote
+// card — the first block in the body — is on screen without scrolling, with
+// room for the voice card below it. Glass sliders, extra MCP servers and
+// updates sit further down on purpose.
+export const SETTINGS_WINDOW_HEIGHT = 780
 export const SETTINGS_WINDOW_MIN_WIDTH = 420
 export const SETTINGS_WINDOW_MIN_HEIGHT = 420
 
@@ -82,7 +85,9 @@ export function openSettingsWindow(): BrowserWindow {
     minHeight: SETTINGS_WINDOW_MIN_HEIGHT,
     resizable: true,
     alwaysOnTop: false,
-    title: 'Vertragus — Einstellungen'
+    // OS-chrome title, set once at creation in the stored locale — a later
+    // language flip retitles on the next open, which is what OS windows do.
+    title: mainMessages(readLocale(() => getSettings().ui.locale)).settingsWindowTitle
   })
   secureWindow(win)
   loadRoute(win, '/settings')

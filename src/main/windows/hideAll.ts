@@ -22,6 +22,7 @@
  * that path is the one that must never fail silently.
  */
 import { globalShortcut } from 'electron'
+import { mainMessages, readLocale } from '@shared/mainMessages'
 import { getSettings } from '@main/store/settings'
 import { listCliWindows } from './cliWindow'
 import { listProfileEditorWindows } from './profileEditor'
@@ -144,6 +145,15 @@ export function isEverythingHidden(): boolean {
   return appController().isHidden()
 }
 
+/**
+ * Drop hide-all's remembered set without showing anything. A workspace click
+ * already decided what is visible; the next hide-all must hide that, not
+ * restore the previous snapshot.
+ */
+export function forgetHideAll(): void {
+  controller?.reset()
+}
+
 // --- the global shortcut -------------------------------------------------
 
 export interface HideAllHotkeyStatus {
@@ -158,6 +168,8 @@ export interface HideAllShortcutDeps {
   register(accelerator: string, callback: () => void): boolean
   unregisterAll(): void
   onToggle?: () => void
+  /** UI locale for the failure texts; absent = the schema default (German). */
+  locale?: string
 }
 
 let status: HideAllHotkeyStatus | undefined
@@ -175,25 +187,25 @@ export function hideAllHotkeyStatus(): HideAllHotkeyStatus | undefined {
  */
 export function registerHideAllShortcut(deps: HideAllShortcutDeps): HideAllHotkeyStatus {
   const hotkey = deps.hotkey.trim()
+  const messages = mainMessages(deps.locale)
   deps.unregisterAll()
   if (!hotkey) {
-    status = { hotkey, registered: false, error: 'Kein Hotkey konfiguriert.' }
+    status = { hotkey, registered: false, error: messages.hotkeyNone }
     return status
   }
   try {
     const ok = deps.register(hotkey, deps.onToggle ?? (() => toggleHideAll()))
     status = ok
       ? { hotkey, registered: true }
-      : {
-          hotkey,
-          registered: false,
-          error: `Hotkey ${hotkey} ist belegt — eine andere Anwendung hat ihn zuerst registriert.`
-        }
+      : { hotkey, registered: false, error: messages.hotkeyTaken(hotkey) }
   } catch (error) {
     status = {
       hotkey,
       registered: false,
-      error: `Hotkey ${hotkey} ist ungültig: ${error instanceof Error ? error.message : String(error)}`
+      error: messages.hotkeyInvalid(
+        hotkey,
+        error instanceof Error ? error.message : String(error)
+      )
     }
   }
   return status
@@ -215,7 +227,8 @@ export function reRegisterHideAllShortcut(hotkey: string): HideAllHotkeyStatus {
   return registerHideAllShortcut({
     hotkey,
     register: (accelerator, callback) => globalShortcut.register(accelerator, callback),
-    unregisterAll: () => globalShortcut.unregisterAll()
+    unregisterAll: () => globalShortcut.unregisterAll(),
+    locale: readLocale(() => getSettings().ui.locale)
   })
 }
 
@@ -232,7 +245,11 @@ export function registerAppHideAllShortcut(): HideAllHotkeyStatus {
     status = {
       hotkey,
       registered: false,
-      error: `Einstellungen nicht lesbar: ${error instanceof Error ? error.message : String(error)}`
+      // Store unreadable → locale unreadable too, so `mainMessages(undefined)`
+      // renders the schema-default language on purpose.
+      error: mainMessages(undefined).settingsUnreadable(
+        error instanceof Error ? error.message : String(error)
+      )
     }
     return status
   }

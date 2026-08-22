@@ -7,8 +7,10 @@
  * start, a save that did not validate) always ends up visible in the panel
  * instead of in the devtools console nobody has open.
  *
- * Workspaces are additionally polled: `ev:workspaces` is the fast path, but the
- * panel must also be right when whoever owns the workspaces forgets to emit.
+ * Workspaces arrive over `ev:workspaces` — the manager pushes on every change
+ * (agent events, question badges, start/stop), so there is no poll here. The
+ * one belt-and-braces refresh left is window focus: if a push was ever lost
+ * while the panel was in the background, looking at it makes it true again.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Profile } from '@shared/schema/profile'
@@ -20,26 +22,56 @@ import type {
 } from '../../../preload'
 import { errorText } from './viewModel'
 
-/** Slow enough to be free, fast enough that a stale card is never a surprise. */
-export const WORKSPACE_POLL_MS = 4_000
-
 export interface PanelData {
   bridge: VertragusAppApi | undefined
   profiles: Profile[]
+  /**
+   * WP-7: has the profile list actually answered once? An empty list means
+   * "nothing loaded yet" until it has, and the first-run card reacts to
+   * emptiness.
+   */
+  profilesLoaded: boolean
   workspaces: WorkspaceSummary[]
   settings: PanelSettings | null
   /** Null until the first push/poll; `disabled` in a dev run. */
   update: UpdateState | null
   error: string | null
   dismissError(): void
-  startWorkspace(profileId: string): void
+  /** Start a workspace; a non-empty goal is seeded into the orchestrator (H2). */
+  startWorkspace(profileId: string, goal?: string): void
+  /**
+   * H2 refill: hand a bare-started run its goal now. The card offers this only
+   * while the run has none — a goal is the orchestrator's first user turn.
+   */
+  assignGoal(workspaceId: string, goal: string): void
+  /** E3: start a workspace briefed on the profile's newest journaled run. */
+  resumeWorkspace(profileId: string): void
   stopWorkspace(workspaceId: string): void
+  /** C6/S3: replace a dead or silent orchestrator; the run itself continues. */
+  succeedOrchestrator(workspaceId: string): void
+  /** Answer an agent's open question from its `?` badge (H1). */
+  answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): void
+  /** D2: steer a running workspace — wakes the orchestrator's await_events. */
+  sendUserMessage(workspaceId: string, text: string): void
+  /** E1 Promote: merge this agent's branch into the repo's own checkout. */
+  promoteAgent(workspaceId: string, agentId: string): void
+  /** Reveal this run's artefacts (spill/, tasks.json, events.jsonl) on disk. */
+  openRunFolder(workspaceId: string): void
   focusAgent(agentId: string): void
+  /** Close a finished agent's CLI window; the row and last task stay. */
+  closeAgentWindow(agentId: string): void
   /** Bring this workspace's CLI windows forward; minimize the others. */
   focusWorkspace(workspaceId: string): void
-  editProfile(profileId?: string): void
+  /**
+   * Open the profile editor. `providerId` (WP-7) preselects the orchestrator
+   * of a NEW profile — the first-run card passes the CLI that answered.
+   */
+  editProfile(profileId?: string, providerId?: string): void
+  /** WP-7: close the first-run card for good (`ui.onboardingDismissed`). */
+  dismissOnboarding(): void
   openSettings(): void
   toggleYolo(): void
+  toggleVoice(): void
   hideAll(): void
   /** The head's − : put the panel itself down to the taskbar. */
   minimizePanel(): void
@@ -52,6 +84,7 @@ export interface PanelData {
 export function usePanelData(): PanelData {
   const bridge = useMemo(() => window.vertragus?.app, [])
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [profilesLoaded, setProfilesLoaded] = useState(false)
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
   const [settings, setSettings] = useState<PanelSettings | null>(null)
   const [update, setUpdate] = useState<UpdateState | null>(null)
@@ -69,7 +102,9 @@ export function usePanelData(): PanelData {
       }, fail)
     }
     bridge.listProfiles().then((next) => {
-      if (alive) setProfiles(next)
+      if (!alive) return
+      setProfiles(next)
+      setProfilesLoaded(true)
     }, fail)
     bridge.getSettings().then((next) => {
       if (alive) setSettings(next)
@@ -85,17 +120,24 @@ export function usePanelData(): PanelData {
     )
     loadWorkspaces()
 
-    const offProfiles = bridge.onProfiles((next) => setProfiles(next))
+    const offProfiles = bridge.onProfiles((next) => {
+      // A push is an answer too — a save that lands before the initial read
+      // must not leave the list marked "still loading".
+      setProfiles(next)
+      setProfilesLoaded(true)
+    })
     const offWorkspaces = bridge.onWorkspaces((next) => setWorkspaces(next))
     const offUpdate = bridge.onUpdate((next) => setUpdate(next))
-    const timer = setInterval(loadWorkspaces, WORKSPACE_POLL_MS)
+    const offSettings = bridge.onSettings((next) => setSettings(next))
+    window.addEventListener('focus', loadWorkspaces)
 
     return () => {
       alive = false
       offProfiles()
       offWorkspaces()
       offUpdate()
-      clearInterval(timer)
+      offSettings()
+      window.removeEventListener('focus', loadWorkspaces)
     }
   }, [bridge, fail])
 
@@ -111,14 +153,25 @@ export function usePanelData(): PanelData {
   return {
     bridge,
     profiles,
+    profilesLoaded,
     workspaces,
     settings,
     update,
     error,
     dismissError: () => setError(null),
-    startWorkspace: (profileId) =>
+    startWorkspace: (profileId, goal) =>
       run(async (api) => {
-        await api.startWorkspace(profileId)
+        await api.startWorkspace(profileId, goal)
+        setWorkspaces(await api.listWorkspaces())
+      }),
+    assignGoal: (workspaceId, goal) =>
+      run(async (api) => {
+        await api.assignWorkspaceGoal(workspaceId, goal)
+        setWorkspaces(await api.listWorkspaces())
+      }),
+    resumeWorkspace: (profileId) =>
+      run(async (api) => {
+        await api.resumeWorkspace(profileId)
         setWorkspaces(await api.listWorkspaces())
       }),
     stopWorkspace: (workspaceId) =>
@@ -126,15 +179,41 @@ export function usePanelData(): PanelData {
         await api.stopWorkspace(workspaceId)
         setWorkspaces(await api.listWorkspaces())
       }),
+    succeedOrchestrator: (workspaceId) =>
+      run(async (api) => {
+        await api.succeedOrchestrator(workspaceId)
+        setWorkspaces(await api.listWorkspaces())
+      }),
+    answerQuestion: (workspaceId, agentId, questionId, text) =>
+      run(async (api) => {
+        await api.answerQuestion(workspaceId, agentId, questionId, text)
+        setWorkspaces(await api.listWorkspaces())
+      }),
+    sendUserMessage: (workspaceId, text) =>
+      run((api) => api.sendUserMessage(workspaceId, text)),
+    promoteAgent: (workspaceId, agentId) =>
+      run((api) => api.promoteAgentBranch(workspaceId, agentId)),
+    openRunFolder: (workspaceId) => run((api) => api.openRunFolder(workspaceId)),
     focusAgent: (agentId) => run((api) => api.focusAgent(agentId)),
+    closeAgentWindow: (agentId) => run((api) => api.closeAgentWindow(agentId)),
     focusWorkspace: (workspaceId) => run((api) => api.focusWorkspace(workspaceId)),
-    editProfile: (profileId) => run((api) => api.openProfileEditor(profileId)),
+    editProfile: (profileId, providerId) =>
+      run((api) => api.openProfileEditor(profileId, providerId)),
+    dismissOnboarding: () =>
+      run(async (api) => {
+        setSettings(await api.setSetting('onboardingDismissed', true))
+      }),
     openSettings: () => run((api) => api.openSettings()),
     installUpdate: () => run((api) => api.installUpdate()),
     toggleYolo: () =>
       run(async (api) => {
         const next = await api.setYoloMaster(!(settings?.yoloMaster ?? false))
         setSettings(next)
+      }),
+    toggleVoice: () =>
+      run(async (api) => {
+        await api.setVoiceEnabled(!(settings?.voiceEnabled ?? false))
+        setSettings(await api.getSettings())
       }),
     hideAll: () => run((api) => api.hideAllWindows()),
     minimizePanel: () => run((api) => api.minimizePanel()),

@@ -34,6 +34,7 @@ export const TERMINAL_CHANNELS = {
   resize: 'terminal:resize',
   data: 'terminal:data',
   exit: 'terminal:exit',
+  task: 'terminal:task',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -77,6 +78,17 @@ export interface TerminalAttachResult {
    * reloaded renderer has no memory of the click that maximized it.
    */
   maximized: boolean
+  /**
+   * The agent's current task note at attach time, for the title bar's hover
+   * card. Later changes arrive over {@link TERMINAL_CHANNELS.task}.
+   */
+  task?: string
+}
+
+/** Push payload of {@link TERMINAL_CHANNELS.task} — a new current-task note. */
+export interface TerminalTaskEvent {
+  agentId: string
+  task?: string
 }
 
 export interface TerminalDataEvent {
@@ -99,9 +111,61 @@ export interface AgentRegistry {
   getAgent(agentId: string): RegisteredAgent | undefined
   removeAgent(agentId: string): void
   listAgents(): RegisteredAgent[]
+  /**
+   * Update the agent's current-task note shown by its window's hover card.
+   * Unknown agents and unchanged notes are no-ops; an attached window is
+   * pushed the change, a detached one picks it up with its next attach.
+   */
+  setAgentTask(agentId: string, task: string | undefined): void
   /** Window gone — stop pushing until it attaches again. */
   markDetached(agentId: string): void
+  /**
+   * A second consumer of the same PTYs, independent of the CLI windows: the
+   * remote server streams terminals to a browser through this. Each subscriber
+   * gets its own snapshot-then-stream, so a phone attaching never disturbs the
+   * desktop window on the same agent.
+   */
+  terminals(): TerminalDirectory
   dispose(): void
+}
+
+/** One agent as the remote terminal bridge lists it. */
+export interface TerminalListing {
+  agentId: string
+  meta: AgentMeta
+  /** Set once the process has ended. */
+  exit: PtyExitInfo | null
+}
+
+/** A live subscription to one agent's terminal, for a non-window consumer. */
+export interface TerminalSubscription {
+  snapshot: string
+  cols: number
+  rows: number
+  meta: AgentMeta
+  exit: PtyExitInfo | null
+  /** Stop receiving data/exit. Idempotent. */
+  detach(): void
+}
+
+/** Sink a remote subscriber hands in; each callback is best-effort. */
+export interface TerminalSink {
+  onData(data: string): void
+  onExit(info: PtyExitInfo): void
+}
+
+/**
+ * The PTY stream as a non-window consumer sees it. Backed by the same registry
+ * the CLI windows use, but with independent subscriptions — no `attached` flag
+ * shared with a window, no cross-talk. Input goes through the same `pty.write`
+ * path, so a remote keystroke is indistinguishable from a local one.
+ */
+export interface TerminalDirectory {
+  list(): TerminalListing[]
+  get(agentId: string): TerminalListing | undefined
+  attach(agentId: string, sink: TerminalSink): TerminalSubscription | undefined
+  write(agentId: string, data: string): boolean
+  resize(agentId: string, cols: number, rows: number): boolean
 }
 
 type IpcListener = (event: { sender: { id: number } }, ...args: never[]) => unknown
@@ -138,11 +202,29 @@ interface AgentRecord {
   pending: string
   timer: ReturnType<typeof setTimeout> | undefined
   exit: PtyExitInfo | null
+  /** Current task note; rides on attach and is pushed on change. */
+  task: string | undefined
   unsubscribe: (() => void)[]
 }
 
 function isPositiveInt(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
+/**
+ * Observer of user PTY input (`terminal:input` and {@link TerminalDirectory.write}).
+ * Late-bound because `registerTerminalIpc()` runs before WorkspaceManager exists;
+ * ipc.ts must not import the manager. A missing sink is a no-op.
+ *
+ * Seed writes and `sendToAgent` go through `pty.write` directly and never
+ * reach this — they are plumbing, not the user's assignment.
+ */
+export type TerminalInputSink = (agentId: string, data: string) => void
+
+let terminalInputSink: TerminalInputSink | undefined
+
+export function setTerminalInputSink(sink: TerminalInputSink | undefined): void {
+  terminalInputSink = sink
 }
 
 export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
@@ -211,10 +293,18 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       meta: record.entry.meta,
       exit: record.exit,
       maximized: host.isWindowMaximized(agentId),
+      ...(record.task !== undefined ? { task: record.task } : {}),
       ...(host.locale ? { locale: host.locale() } : {}),
       ...(host.theme ? { theme: host.theme() } : {})
     }
   }) as IpcListener)
+
+  const writeUserInput = (record: AgentRecord, data: string): void => {
+    record.entry.pty.write(data)
+    // Any agent: the sink decides orchestrator vs not. Seed writes never pass
+    // through this path, so they cannot be mistaken for the user's goal.
+    terminalInputSink?.(record.entry.meta.agentId, data)
+  }
 
   host.ipcMain.on(TERMINAL_CHANNELS.input, ((
     event: { sender: { id: number } },
@@ -222,7 +312,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
   ): void => {
     const record = resolveRecord(event)
     if (!record || typeof data !== 'string' || !data) return
-    record.entry.pty.write(data)
+    writeUserInput(record, data)
   }) as IpcListener)
 
   host.ipcMain.on(TERMINAL_CHANNELS.resize, ((
@@ -294,6 +384,9 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
         pending: '',
         timer: undefined,
         exit: null,
+        // A re-registration under the same id keeps the note — same PTY-swap
+        // semantics as the rest of the record.
+        task: previous?.task,
         unsubscribe: []
       }
       agents.set(agentId, record)
@@ -324,6 +417,19 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
     listAgents(): RegisteredAgent[] {
       return [...agents.values()].map((record) => record.entry)
     },
+    setAgentTask(agentId: string, task: string | undefined): void {
+      const record = agents.get(agentId)
+      if (!record || record.task === task) return
+      record.task = task
+      if (!record.attached) return
+      // Same vanished-window guard as flush: never talk to a dead renderer.
+      if (host.hasWindow && !host.hasWindow(agentId)) {
+        record.attached = false
+        return
+      }
+      const payload: TerminalTaskEvent = { agentId, ...(task !== undefined ? { task } : {}) }
+      host.send(agentId, TERMINAL_CHANNELS.task, payload)
+    },
     markDetached(agentId: string): void {
       const record = agents.get(agentId)
       if (!record) return
@@ -332,6 +438,56 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       if (record.timer) {
         clearTimeout(record.timer)
         record.timer = undefined
+      }
+    },
+    terminals(): TerminalDirectory {
+      const listingOf = (record: AgentRecord): TerminalListing => ({
+        agentId: record.entry.meta.agentId,
+        meta: record.entry.meta,
+        exit: record.exit
+      })
+      return {
+        list: () => [...agents.values()].map(listingOf),
+        get: (agentId) => {
+          const record = agents.get(agentId)
+          return record ? listingOf(record) : undefined
+        },
+        attach(agentId, sink) {
+          const record = agents.get(agentId)
+          if (!record) return undefined
+          // Direct PTY subscriptions, independent of the window's `attached`
+          // flag: a remote viewer and the desktop window can watch the same
+          // agent at once without either disturbing the other's stream.
+          const offData = record.entry.pty.onData((data) => sink.onData(data))
+          const offExit = record.entry.pty.onExit((info) => sink.onExit(info))
+          let live = true
+          return {
+            snapshot: record.entry.pty.snapshot(),
+            cols: record.entry.pty.cols,
+            rows: record.entry.pty.rows,
+            meta: record.entry.meta,
+            exit: record.exit,
+            detach() {
+              if (!live) return
+              live = false
+              offData()
+              offExit()
+            }
+          }
+        },
+        write(agentId, data) {
+          const record = agents.get(agentId)
+          if (!record || !data) return false
+          // Same path as `terminal:input` — remote steering is user input too.
+          writeUserInput(record, data)
+          return true
+        },
+        resize(agentId, cols, rows) {
+          const record = agents.get(agentId)
+          if (!record || !isPositiveInt(cols) || !isPositiveInt(rows)) return false
+          record.entry.pty.resize(Math.floor(cols), Math.floor(rows))
+          return true
+        }
       }
     },
     dispose(): void {

@@ -20,7 +20,16 @@ import { getAgentRegistry } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { closeCliWindow, createCliWindow } from './windows/cliWindow'
 import { setReflowNeighborsGetter } from './windows/placement'
-import { effectiveProviders, getRoleTemplates, getSettings, settings } from './store/settings'
+import { enabledExtraMcpServers } from '@shared/schema/mcpServer'
+import {
+  effectiveAgentPolicy,
+  effectiveProviders,
+  getRoleTemplates,
+  getSettings,
+  settings
+} from './store/settings'
+import { createRunJournal } from './workspace/journal'
+import { createTaskBoard } from './workspace/taskBoard'
 import { createRetroSink } from './workspace/retroSink'
 import { createWorkspaceManager, type WorkspaceManager } from './workspace/WorkspaceManager'
 import type { Workspace } from './workspace/Workspace'
@@ -29,6 +38,12 @@ import { profileSchema, type Profile } from '@shared/schema/profile'
 
 /** Env var that arms the dev run; its value is the repository path. */
 export const DEV_RUN_ENV = 'VERTRAGUS_DEV_RUN'
+
+/**
+ * D1: optional goal for the dev run — seeded into the orchestrator exactly
+ * like the panel's goal field, so a headless run needs no TUI typing either.
+ */
+export const DEV_GOAL_ENV = 'VERTRAGUS_DEV_GOAL'
 
 export const DEV_PROFILE_ID = 'dev-run'
 
@@ -76,9 +91,17 @@ export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManage
     saveProfile: (profile) => {
       settings().saveProfile(profile)
     },
+    // D4: the tier wins over the boolean; read fresh so a settings change
+    // reaches the next workspace without a restart.
+    agentPolicy: () => effectiveAgentPolicy(getSettings()),
+    extraMcpServers: () => enabledExtraMcpServers(getSettings().mcpServers),
     // The retro loop: run stats and learnings land in the settings store, and
     // the accumulated knowledge returns via the next orchestrator prompt.
-    retro: createRetroSink({ store: settings() })
+    retro: createRetroSink({ store: settings() }),
+    // E3: the durable per-run event journal in the repository's .vertragus/.
+    journal: (repoPath, workspaceId) => createRunJournal(repoPath, workspaceId),
+    // S4: the task board next to it — the run's plan as host state.
+    taskBoard: (repoPath, workspaceId) => createTaskBoard(repoPath, workspaceId)
   })
 }
 
@@ -126,7 +149,11 @@ export async function maybeStartDevWorkspace(
 
   const manager = (options.createManager ?? createAppWorkspaceManager)(mcp)
   try {
-    const running = await manager.startWorkspace(buildDevProfile(repoPath))
+    const goal = env[DEV_GOAL_ENV]?.trim()
+    const profile = buildDevProfile(repoPath)
+    const running = await (goal
+      ? manager.startWorkspace(profile, { goal })
+      : manager.startWorkspace(profile))
     log(
       `[dev-run] workspace "${running.workspace.name}" on ${repoPath} — ` +
         `orchestrator ${running.orchestrator.name}, MCP on port ${mcp.port}`
