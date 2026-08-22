@@ -8,10 +8,10 @@ import {
   VOICE_TOOLS,
   type VoiceHost,
   type VoiceLocale
-} from './commands'
-import { buildVoiceInstructions } from './instructions'
+} from '@shared/voice/commands'
+import { buildVoiceInstructions } from '@shared/voice/instructions'
 import { createVad, type Vad, type VadEvent } from './vad'
-import { matchWakePhrase } from './wakePhrase'
+import { matchWakePhrase } from '@shared/voice/wakePhrase'
 import { XaiError, type XaiClient, type XaiFunctionCall, type XaiRealtimeHandlers } from './xai'
 
 export type VoicePhase = 'idle' | 'listening' | 'engaged' | 'error'

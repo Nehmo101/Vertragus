@@ -14,7 +14,8 @@ import {
   type VoiceStatusPayload,
   type WorkspaceDirectory
 } from './appIpc'
-import type { VoiceHost, VoiceHostProfile, VoiceHostWorkspace } from './voice/commands'
+import { mainMessages, readLocale } from '@shared/mainMessages'
+import type { VoiceHost, VoiceHostProfile, VoiceHostWorkspace } from '@shared/voice/commands'
 import { createVoiceSession, type VoicePhase, type VoiceSession } from './voice/session'
 import {
   createXaiClient,
@@ -34,9 +35,7 @@ function keyStamp(apiKey: string): string {
 }
 
 export function missingApiKeyMessage(locale: AppSettings['ui']['locale']): string {
-  return locale === 'en'
-    ? 'No xAI API key. Set it under Settings or XAI_API_KEY.'
-    : 'Kein xAI-API-Key. Unter Einstellungen eintragen oder XAI_API_KEY setzen.'
+  return mainMessages(readLocale(() => locale)).voiceMissingApiKey
 }
 
 /** media/microphone only for the panel; every other permission stays as before. */
@@ -93,8 +92,7 @@ export function createVoiceCommandHost(deps: VoiceCommandHostDeps): VoiceHost {
       }))
     },
     async startWorkspace(profileId, goal) {
-      if (goal) await deps.directory.start(profileId, { goal })
-      else await deps.directory.start(profileId)
+      await deps.directory.start(profileId, goal)
     },
     async stopWorkspace(workspaceId) {
       await deps.directory.stop(workspaceId)

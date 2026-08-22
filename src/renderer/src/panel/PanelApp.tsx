@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import HoundLogo from './HoundLogo'
+import { OnboardingCard } from './OnboardingCard'
+import { shouldShowOnboarding } from './onboardingViewModel'
 import { PanelFooter } from './PanelFooter'
 import { ProfileRow } from './ProfileRow'
 import { WorkspaceCard } from './WorkspaceCard'
@@ -18,6 +20,7 @@ import {
   resolveSelectedProfileId,
   shouldFocusWorkspaceOnToggle,
   workspaceCountByProfile,
+  workspaceIdToFocusForProfile,
   type SelectedWorkspaceId
 } from './viewModel'
 import './panel.css'
@@ -101,6 +104,24 @@ export function PanelApp(): React.JSX.Element {
       <div className="panel-divider" />
 
       <div className="panel-scroll">
+        {/*
+          WP-7: the first-run card. Mounted only while there is no profile, so
+          its two shell-outs (provider health, login status) run when somebody
+          is actually looking at them and never on a panel render.
+        */}
+        {panel.bridge &&
+        shouldShowOnboarding(
+          panel.profiles,
+          panel.settings?.onboardingDismissed ?? false,
+          panel.profilesLoaded && panel.settings !== null
+        ) ? (
+          <OnboardingCard
+            bridge={panel.bridge}
+            onNewProfile={(providerId) => panel.editProfile(undefined, providerId)}
+            onDismiss={panel.dismissOnboarding}
+          />
+        ) : null}
+
         <section className="panel-section">
           <h2 className="panel-label">
             {t('panel.profilesLabel')}
@@ -118,10 +139,15 @@ export function PanelApp(): React.JSX.Element {
                   profile={profile}
                   count={countsByProfile.get(profile.id) ?? 0}
                   selected={profile.id === activeProfileId}
-                  onSelect={(profileId) =>
-                    setSelectedProfileId(nextSelectedProfileId(activeProfileId, profileId))
-                  }
+                  onSelect={(profileId) => {
+                    const next = nextSelectedProfileId(activeProfileId, profileId)
+                    setSelectedProfileId(next)
+                    if (next === null) return
+                    const workspaceId = workspaceIdToFocusForProfile(workspaces, next)
+                    if (workspaceId) panel.focusWorkspace(workspaceId)
+                  }}
                   onStart={panel.startWorkspace}
+                  onResume={panel.resumeWorkspace}
                   onEdit={panel.editProfile}
                   cleanupOpen={cleanupProfileId === profile.id}
                   onToggleCleanup={(profileId) =>
@@ -187,7 +213,14 @@ export function PanelApp(): React.JSX.Element {
                     }
                   }}
                   onStop={panel.stopWorkspace}
+                  onSucceedOrchestrator={panel.succeedOrchestrator}
                   onFocusAgent={panel.focusAgent}
+                  onCloseAgentWindow={panel.closeAgentWindow}
+                  onAssignGoal={panel.assignGoal}
+                  onAnswerQuestion={panel.answerQuestion}
+                  onUserMessage={panel.sendUserMessage}
+                  onPromoteAgent={panel.promoteAgent}
+                  onOpenRunFolder={panel.openRunFolder}
                 />
               ))}
             </div>

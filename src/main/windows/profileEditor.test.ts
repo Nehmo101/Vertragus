@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -98,6 +96,24 @@ describe('openProfileEditorWindow', () => {
     expect(editor.profileEditorKey('  ')).toBe(editor.NEW_PROFILE_KEY)
   })
 
+  it('carries the WP-7 orchestrator hint on the new-profile route only', () => {
+    editor.openProfileEditorWindow(undefined, 'codex')
+    expect(loadRoute).toHaveBeenCalledWith(expect.anything(), '/profile-editor?provider=codex')
+
+    // An existing profile names its own orchestrator; a query parameter that
+    // repointed a saved record would be data loss dressed up as convenience.
+    editor.openProfileEditorWindow('p1', 'codex')
+    expect(loadRoute).toHaveBeenLastCalledWith(expect.anything(), '/profile-editor/p1')
+  })
+
+  it('escapes and drops a blank hint instead of emitting a broken route', () => {
+    expect(editor.profileEditorRoute(editor.NEW_PROFILE_KEY, 'a b&c')).toBe(
+      '/profile-editor?provider=a%20b%26c'
+    )
+    expect(editor.profileEditorRoute(editor.NEW_PROFILE_KEY, '  ')).toBe('/profile-editor')
+    expect(editor.profileEditorRoute(editor.NEW_PROFILE_KEY)).toBe('/profile-editor')
+  })
+
   it('refocuses the editor of the same profile instead of opening a second one', () => {
     const first = editor.openProfileEditorWindow('p1') as unknown as FakeBrowserWindow
     first.minimized = true
@@ -160,14 +176,5 @@ describe('editor window registry', () => {
   })
 })
 
-describe('security posture', () => {
-  it('never weakens the sandbox flags', () => {
-    const source = readFileSync(join(__dirname, 'profileEditor.ts'), 'utf8')
-    expect(source).not.toMatch(/sandbox:\s*false/)
-    expect(source).not.toMatch(/contextIsolation:\s*false/)
-    expect(source).not.toMatch(/nodeIntegration:\s*true/)
-    expect(source).not.toMatch(/webSecurity:\s*false/)
-    expect(source).toMatch(/glassWindowOptions\(\)/)
-    expect(source).toMatch(/secureWindow\(win\)/)
-  })
-})
+// The sandbox/secureWindow posture of this window is pinned centrally by
+// base.securityContract.test.ts, which derives its file list from the directory.

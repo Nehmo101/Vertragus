@@ -72,6 +72,28 @@ describe('slotSchema', () => {
       slotSchema.safeParse({ id: 's', roleId: 'r', providerId: 'p', effort: 'ultra' }).success
     ).toBe(false)
   })
+
+  it('E6: takes extra MCP servers with TOML-safe names and http urls', () => {
+    const slot = slotSchema.parse({
+      id: 's',
+      roleId: 'r',
+      providerId: 'p',
+      extraMcp: [{ name: 'browser_tools', url: 'http://127.0.0.1:9200/mcp' }]
+    })
+    expect(slot.extraMcp).toEqual([{ name: 'browser_tools', url: 'http://127.0.0.1:9200/mcp' }])
+  })
+
+  it('E6: refuses the reserved name, unsafe names and non-urls', () => {
+    const attempt = (entry: unknown): boolean =>
+      slotSchema.safeParse({ id: 's', roleId: 'r', providerId: 'p', extraMcp: [entry] }).success
+    // The reporting channel must be unshadowable, in any casing.
+    expect(attempt({ name: 'vertragus', url: 'http://localhost:1/mcp' })).toBe(false)
+    expect(attempt({ name: 'VERTRAGUS', url: 'http://localhost:1/mcp' })).toBe(false)
+    // Names become Codex `-c mcp_servers.<name>` keys and Grok TOML tables.
+    expect(attempt({ name: 'has space', url: 'http://localhost:1/mcp' })).toBe(false)
+    expect(attempt({ name: 'dots.break.toml', url: 'http://localhost:1/mcp' })).toBe(false)
+    expect(attempt({ name: 'browser', url: 'not a url' })).toBe(false)
+  })
 })
 
 describe('profileSchema', () => {

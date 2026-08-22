@@ -34,6 +34,15 @@ win:
   target:
     - nsis
   artifactName: ${productName}-${version}-setup.${ext}
+  # Azure Trusted Signing, gated on the environment. electron-builder 26 has
+  # native `azureSignOptions`, but the mere presence of that key switches the
+  # signing manager and fails every build without Azure credentials — it cannot
+  # be secrets-gated from a static config. The hook keeps the gate in the
+  # environment instead: with the AZURE_* variables set (docs/SIGNING.md,
+  # .github/workflows/release.yml) it signs via Invoke-TrustedSigning, without
+  # them it no-ops loudly and the build stays green and unsigned.
+  signtoolOptions:
+    sign: ./scripts/azure-sign.mjs
 
 nsis:
   # Per-user by design: Vertragus needs no elevation, and an installer that asks
@@ -49,6 +58,19 @@ nsis:
 mac:
   icon: build/icon.icns
   category: public.app-category.developer-tools
+  # Signing and notarization are secrets-gated: without a Developer ID
+  # certificate (CSC_LINK) electron-builder skips signing entirely, and
+  # `notarize: true` only acts when APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
+  # APPLE_TEAM_ID are in the environment — a cert-less build stays exactly as
+  # unsigned as before. The release workflow keeps unsigned macOS builds out
+  # of releases because Squirrel.Mac refuses unsigned updates (docs/SIGNING.md).
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  notarize: true
+  # Electron's V8 JIT and @lydell/node-pty's native binding do not survive a
+  # plain hardened runtime; these entitlements are the documented Electron set.
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
   # @lydell/node-pty ships prebuilt per-arch packages whose darwin binaries are
   # byte-identical across x64 and arm64; @electron/universal rejects that unless
   # the pattern is declared here. The package picks its sub-binary at runtime.

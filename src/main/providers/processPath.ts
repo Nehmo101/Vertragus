@@ -38,7 +38,12 @@ export function darwinLoginShellExecutable(configuredShell: string | undefined):
   return candidate && TRUSTED_DARWIN_LOGIN_SHELLS.has(candidate) ? candidate : '/bin/zsh'
 }
 
-function safeDarwinDiscoveredPath(value: string | undefined): string {
+/**
+ * Drop world-writable roots from a login shell's PATH. Anyone able to write
+ * `/tmp/claude` would otherwise get it executed by the health probe, and a
+ * shell startup file is not a trustworthy source for entries this process runs.
+ */
+export function safeDarwinDiscoveredPath(value: string | undefined): string {
   return (value?.split(':') ?? [])
     .map((entry) => entry.trim().replace(/[\\/]+$/, ''))
     .filter((entry) => {

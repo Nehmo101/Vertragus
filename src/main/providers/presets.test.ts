@@ -9,9 +9,16 @@ function preset(id: string): ProviderConfig {
 }
 
 describe('providerPresets', () => {
-  it('ships the five built-ins, each carrying its preset id', () => {
+  it('ships the six built-ins, each carrying its preset id', () => {
     const presets = providerPresets()
-    expect(presets.map((entry) => entry.id)).toEqual(['claude', 'codex', 'kimi', 'cursor', 'ollama'])
+    expect(presets.map((entry) => entry.id)).toEqual([
+      'claude',
+      'codex',
+      'kimi',
+      'cursor',
+      'grok',
+      'ollama'
+    ])
     for (const entry of presets) expect(entry.presetId).toBe(entry.id)
   })
 
@@ -34,6 +41,24 @@ describe('providerPresets', () => {
     expect(providerPreset('copilot')).toBeUndefined()
   })
 
+  /**
+   * A raised MCP tool timeout is a claim about a mechanism someone verified on
+   * that CLI. Only Claude Code has one here (its env pair); every other preset
+   * stays on the 60 s default, because a CLI that kills the call mid-poll is
+   * worse than a short poll.
+   */
+  it('claims a raised MCP tool timeout for Claude Code only', () => {
+    const claiming = providerPresets().filter((entry) => entry.mcpToolTimeoutSec !== undefined)
+    expect(claiming.map((entry) => entry.id)).toEqual(['claude'])
+  })
+
+  it('declares a spawn-time first prompt for Grok only — others stay on the PTY fallback', () => {
+    const claiming = providerPresets().filter((entry) => entry.initialPromptDelivery)
+    expect(claiming.map((entry) => [entry.id, entry.initialPromptDelivery])).toEqual([
+      ['grok', { kind: 'positional' }]
+    ])
+  })
+
   it('probes every provider with --version', () => {
     for (const entry of providerPresets()) expect(entry.versionArgs).toEqual(['--version'])
   })
@@ -50,10 +75,11 @@ describe('providerPresets', () => {
   })
 
   /**
-   * Seeds exist for the two providers whose discovery can come back empty on a
+   * Seeds exist for the providers whose discovery can come back empty on a
    * perfectly healthy machine: Claude caches only the account's EXTRA options,
-   * and Cursor needs a logged-in account to answer at all. Every other source
-   * is wide enough to stand alone, and a seed there would only be noise.
+   * Cursor needs a logged-in account to answer at all, and Grok's `grok models`
+   * likewise needs a session or API key. Every other source is wide enough to
+   * stand alone, and a seed there would only be noise.
    */
   it('seeds only the providers whose source can legitimately answer nothing', () => {
     const seeded = Object.fromEntries(
@@ -61,7 +87,11 @@ describe('providerPresets', () => {
         .filter((entry) => entry.seedModels.length > 0)
         .map((entry) => [entry.id, entry.seedModels])
     )
-    expect(seeded).toEqual({ claude: ['opus', 'sonnet', 'haiku'], cursor: ['auto'] })
+    expect(seeded).toEqual({
+      claude: ['opus', 'sonnet', 'haiku'],
+      cursor: ['auto'],
+      grok: ['grok-build']
+    })
   })
 })
 
@@ -86,6 +116,16 @@ describe('claude preset', () => {
       strictArg: '--strict-mcp-config',
       allowedToolsArg: '--allowedTools'
     })
+  })
+
+  /**
+   * The one preset that claims a raised MCP tool timeout: Claude Code takes it
+   * from the environment, so the spawn layer can raise it per process. Ten
+   * minutes is what turns the orchestrator's `await_events` from a 50 s
+   * metronome into a single blocking wait.
+   */
+  it('claims a ten-minute MCP tool timeout — the long-poll budget', () => {
+    expect(claude.mcpToolTimeoutSec).toBe(600)
   })
 
   it('discovers models from the local account cache only — never an API key', () => {
@@ -128,6 +168,16 @@ describe('codex preset', () => {
   it('keeps the distinct OpenAI attach surface (no Anthropic flags)', () => {
     expect(codex.systemPromptDelivery).toEqual({ kind: 'codex-config' })
     expect(codex.mcp).toEqual({ kind: 'codex-overrides' })
+  })
+
+  /**
+   * Deliberately no raised tool timeout: `tool_timeout_sec` is a newer Codex
+   * key and an older build meeting an unknown `mcp_servers.*` key could refuse
+   * the launch. The attach layer emits the override the moment this is set —
+   * the claim is what stays unverified, not the mechanism.
+   */
+  it('makes no MCP tool-timeout claim — unverified on older codex builds', () => {
+    expect(codex.mcpToolTimeoutSec).toBeUndefined()
   })
 
   it('reads the account catalogue cache', () => {
@@ -193,6 +243,36 @@ describe('cursor preset', () => {
   it('reads the line-based model list of the CLI', () => {
     expect(cursor.modelDiscovery).toEqual({ kind: 'cli', args: ['models'], parse: 'lines' })
     expect(cursor.auth?.statusArgs).toEqual(['status'])
+  })
+})
+
+describe('grok preset', () => {
+  const grok = preset('grok')
+
+  it('carries the documented launch flags', () => {
+    expect(grok.command).toBe('grok')
+    expect(grok.yoloArgs).toEqual(['--always-approve'])
+    expect(grok.modelArg).toBe('--model')
+    expect(grok.effortArg).toEqual({ style: 'flag', flag: '--effort' })
+    expect(grok.systemPromptDelivery).toEqual({
+      kind: 'arg',
+      flag: '--append-system-prompt'
+    })
+    expect(grok.initialPromptDelivery).toEqual({ kind: 'positional' })
+    expect(grok.mcp).toEqual({ kind: 'grok-project' })
+  })
+
+  it('reads the line-based model list of the CLI', () => {
+    expect(grok.modelDiscovery).toEqual({ kind: 'cli', args: ['models'], parse: 'lines' })
+  })
+
+  it('has a login flow but no status probe', () => {
+    expect(grok.auth).toEqual({ loginArgs: ['login'] })
+  })
+
+  it('seeds the rolling grok-build alias — and nothing versioned', () => {
+    expect(grok.seedModels).toEqual(['grok-build'])
+    for (const seed of grok.seedModels) expect(seed).not.toMatch(/\d/)
   })
 })
 

@@ -36,6 +36,12 @@ export interface ZoneEditorState {
   error: string | null
   saving: boolean
   demo: boolean
+  /** True while this overlay is the multi-monitor picker. */
+  selectingDisplay: boolean
+  displayLabel: string
+  displayPrimary: boolean
+  displayCount: number
+  displays: ZoneEditorPayload['displays']
   addZone(roleId: string): void
   removeZone(id: string): void
   moveZone(id: string, rect: PxRect): void
@@ -44,6 +50,8 @@ export interface ZoneEditorState {
   autoLayout(): void
   /** Called at the end of a gesture — main only needs the settled rectangles. */
   commit(): void
+  /** Pin Vertragus to this monitor, then edit zones on it. */
+  pickDisplay(displayId: number): void
   save(): void
   cancel(): void
 }
@@ -51,6 +59,8 @@ export interface ZoneEditorState {
 export interface UseZoneEditorInput {
   displayId: number
   demo?: boolean
+  /** Route flag: several monitors start as a picker. */
+  pick?: boolean
 }
 
 function viewportNow(): Viewport {
@@ -74,14 +84,23 @@ function toDrafts(loaded: ZoneEditorPayload, viewport: Viewport, offset: number)
   })
 }
 
-export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): ZoneEditorState {
+export function useZoneEditor({
+  displayId,
+  demo = false,
+  pick = false
+}: UseZoneEditorInput): ZoneEditorState {
   const { t } = useTranslation()
   const bridge = useMemo(() => window.vertragus?.zones, [])
   /**
-   * The overlay is not resizable, so its work area is fixed for the lifetime of
-   * the window — a constant, not state that could go stale mid-drag.
+   * Starts as the overlay's current size. Pinning the window to another
+   * monitor fires `resize`; new zones and auto-layout must use that size.
    */
-  const viewport = useMemo<Viewport>(() => viewportNow(), [])
+  const [viewport, setViewport] = useState<Viewport>(() => viewportNow())
+  useEffect(() => {
+    const onResize = (): void => setViewport(viewportNow())
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
   // The demo layout (screenshot hook) needs no round trip: it is the initial
   // state, which also keeps the load effect free of a synchronous setState.
   const seed = useMemo(() => (demo ? demoZoneEditorPayload(displayId) : null), [demo, displayId])
@@ -93,8 +112,14 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
     bridge || demo ? null : t('common.bridgeMissing')
   )
   const [saving, setSaving] = useState(false)
+  /**
+   * Multi-monitor picker vs rectangle editor. Starts from the route flag and
+   * flips locally on pick — the overlay is not remounted.
+   */
+  const [selecting, setSelecting] = useState(Boolean(pick))
   /** Monotonic counter for local zone keys and the new-zone cascade. */
   const created = useRef(seed ? seed.zones.length : 0)
+  const activeDisplayId = payload?.displayId ?? displayId
 
   // --- load ---------------------------------------------------------------
   useEffect(() => {
@@ -108,9 +133,14 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
         // zones:load handler). Later flips still arrive via `ev:settings`.
         void applyLocale(loaded.locale)
         applyTheme(loaded.theme)
+        const view = viewportNow()
+        setViewport(view)
         setPayload(loaded)
-        setZones(toDrafts(loaded, viewport, created.current))
+        setZones(toDrafts(loaded, view, created.current))
         created.current += loaded.zones.length
+        // Stay in the picker only while both the route and this payload say so.
+        // After a local pick, a late load must not flip the editor back.
+        setSelecting((current) => current && loaded.selectingDisplay)
       },
       (cause) => {
         if (alive) setError(errorText(cause))
@@ -119,7 +149,7 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
     return () => {
       alive = false
     }
-  }, [bridge, demo, viewport])
+  }, [bridge, demo])
 
   // --- Esc closes the whole session, saving nothing ------------------------
   const cancel = useCallback(() => {
@@ -139,19 +169,54 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
 
   const commit = useCallback(() => {
     if (!bridge || demo) return
-    bridge.draft(draftsToZones(zones, displayId, viewport))
-  }, [bridge, demo, displayId, viewport, zones])
+    bridge.draft(draftsToZones(zones, activeDisplayId, viewport))
+  }, [bridge, demo, activeDisplayId, viewport, zones])
+
+  const applyPayload = useCallback((loaded: ZoneEditorPayload): void => {
+    const view = viewportNow()
+    setViewport(view)
+    setPayload(loaded)
+    setZones(toDrafts(loaded, view, 0))
+    created.current = loaded.zones.length
+  }, [])
+
+  const pickDisplay = useCallback(
+    (nextDisplayId: number) => {
+      setSelecting(false)
+      if (!bridge || demo) return
+      void bridge.pickDisplay(nextDisplayId).then(
+        (loaded) => {
+          void applyLocale(loaded.locale)
+          applyTheme(loaded.theme)
+          applyPayload(loaded)
+          setSelecting(false)
+        },
+        (cause) => {
+          setSelecting(true)
+          setError(errorText(cause))
+        }
+      )
+    },
+    [applyPayload, bridge, demo]
+  )
 
   return {
     ready: payload !== null,
     profileName: payload?.profileName ?? '',
-    displayId,
+    displayId: activeDisplayId,
     viewport,
     roles: payload?.roles ?? [],
     zones,
     error,
     saving,
     demo,
+    selectingDisplay: selecting,
+    displayLabel:
+      (payload?.displays ?? []).find((entry) => entry.id === activeDisplayId)?.label ?? '',
+    displayPrimary:
+      (payload?.displays ?? []).find((entry) => entry.id === activeDisplayId)?.primary ?? false,
+    displayCount: payload?.displays.length ?? 0,
+    displays: payload?.displays ?? [],
 
     addZone(roleId) {
       const role = payload?.roles.find((entry) => entry.roleId === roleId)
@@ -198,10 +263,12 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
       setZones(next)
       // Push immediately — `commit()` would still see the previous `zones` closure.
       if (!bridge || demo) return
-      bridge.draft(draftsToZones(next, displayId, viewport))
+      bridge.draft(draftsToZones(next, activeDisplayId, viewport))
     },
 
     commit,
+
+    pickDisplay,
 
     save() {
       if (demo) return
@@ -211,7 +278,7 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
       }
       setSaving(true)
       setError(null)
-      bridge.save(payload.profileId, draftsToZones(zones, displayId, viewport)).then(
+      bridge.save(payload.profileId, draftsToZones(zones, activeDisplayId, viewport)).then(
         () => {
           // The overlay closes from main; nothing left to do here.
         },

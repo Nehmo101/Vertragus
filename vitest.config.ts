@@ -29,10 +29,13 @@ export default defineConfig({
        * Measured at M6a (891 tests): statements/lines 63.1, branches 89.6,
        * functions 80.0. The statement figure is dominated by React components
        * — there is no DOM test runner in this project, so every `.tsx` file
-       * counts as uncovered while its extracted logic (`viewModel`, `model`,
-       * `geometry`, `useSettings`'s validation) is tested at close to 100 %.
-       * That is why the branch and function numbers are the meaningful ones,
-       * and why the statement gate is the loosest of the four.
+       * counts as uncovered while its extracted logic (`panel/viewModel`,
+       * `settings/model`, `zones/geometry`, `zones/autoLayout`) is tested at
+       * close to 100 %. Note what is NOT in that list: the hooks themselves
+       * (`useSettings` and friends) hold their validation inline and are
+       * untested — extracting one is the cheapest way to raise the statement
+       * number. That is why the branch and function numbers are the meaningful
+       * ones, and why the statement gate is the loosest of the four.
        */
       thresholds: {
         statements: 61,

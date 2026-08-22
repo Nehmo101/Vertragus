@@ -4,7 +4,7 @@
  * `input_audio_buffer.append` (base64 PCM16) because that frame is easy
  * to assert without a binary transport.
  */
-import { VOICE_TOOLS, type VoiceFunctionTool } from './commands'
+import { VOICE_TOOLS, type VoiceFunctionTool } from '@shared/voice/commands'
 import { base64ToPcm16, encodeWavPcm16, PCM_SAMPLE_RATE, pcm16ToBase64 } from './pcm'
 
 export const XAI_STT_URL = 'https://api.x.ai/v1/stt'

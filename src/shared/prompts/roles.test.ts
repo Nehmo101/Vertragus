@@ -14,13 +14,15 @@ function wordCount(text: string): number {
 }
 
 describe('BUILTIN_ROLE_TEMPLATES', () => {
-  it('ships exactly the five documented roles with unique ids', () => {
+  it('ships exactly the seven documented roles with unique ids', () => {
     expect(BUILTIN_ROLE_TEMPLATES.map((template) => template.id)).toEqual([
       'worker',
       'reviewer',
       'tester',
       'architect',
-      'docs'
+      'docs',
+      'janitor',
+      'explorer'
     ])
   })
 
@@ -49,7 +51,7 @@ describe('BUILTIN_ROLE_TEMPLATES', () => {
   })
 
   it('forbids the read-only roles from editing anything', () => {
-    for (const id of ['reviewer', 'architect']) {
+    for (const id of ['reviewer', 'architect', 'explorer']) {
       expect(builtinRoleTemplate(id)!.prompt).toMatch(/CHANGE NOTHING/)
     }
   })
@@ -77,12 +79,13 @@ describe('roleColor', () => {
   })
 
   it('assigns custom roles from the pool without colliding with Worker', () => {
-    expect(roleColor('security-auditor', 0)).toBe(ROLE_COLOR_POOL[5])
-    expect(roleColor('security-auditor', 1)).toBe(ROLE_COLOR_POOL[6])
-    expect(roleColor('custom', -3)).toBe(ROLE_COLOR_POOL[5])
+    // Seven built-ins reserve pool[0..6]; custom roles start at pool[7].
+    expect(roleColor('security-auditor', 0)).toBe(ROLE_COLOR_POOL[7])
+    expect(roleColor('custom', -3)).toBe(ROLE_COLOR_POOL[7])
     // Wrapping is fine; a collision with the built-in block only happens after
     // the pool is exhausted.
-    expect(roleColor('custom', 3)).toBe(ROLE_COLOR_POOL[0])
+    expect(roleColor('security-auditor', 1)).toBe(ROLE_COLOR_POOL[0])
+    expect(roleColor('custom', 3)).toBe(ROLE_COLOR_POOL[2])
   })
 
   it('offers eight muted hex tones (no neon on glass)', () => {

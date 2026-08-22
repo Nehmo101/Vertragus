@@ -15,6 +15,7 @@ vi.mock('electron', () => ({
 vi.mock('@main/store/settings', async () => await vi.importActual('@main/store/settings'))
 vi.mock('@main/providers/discovery', () => ({ discoverModels: vi.fn() }))
 vi.mock('@main/providers/health', () => ({ checkAllProviders: vi.fn() }))
+vi.mock('@main/providers/authStatus', () => ({ checkAllProviderAuth: vi.fn() }))
 vi.mock('@main/windows/cliWindow', () => ({
   focusCliWindow: vi.fn(),
   listCliWindows: vi.fn(() => [])
@@ -95,7 +96,15 @@ function stubDirectory(): WorkspaceDirectory & {
     sendToOrchestrator: vi.fn(async (workspaceId: string, text: string) => {
       sent.push({ workspaceId, text })
     }),
+    assignGoal: vi.fn(async () => undefined),
+    resume: vi.fn(async () => undefined),
+    succeedOrchestrator: vi.fn(async () => undefined),
+    answerQuestion: vi.fn(async () => undefined),
+    postUserMessage: vi.fn(),
+    promoteAgentBranch: vi.fn(async () => undefined),
+    openRunFolder: vi.fn(async () => undefined),
     focusAgent: vi.fn(),
+    closeAgentWindow: vi.fn(),
     focusWorkspace: vi.fn(),
     listStaleWorktrees: async () => [],
     removeWorktree: async () => []
@@ -126,10 +135,10 @@ describe('createVoiceCommandHost', () => {
     })
 
     await host.startWorkspace('p1')
-    expect(directory.start).toHaveBeenCalledWith('p1')
+    expect(directory.start).toHaveBeenCalledWith('p1', undefined)
 
     await host.startWorkspace('p1', 'fix the tests')
-    expect(directory.start).toHaveBeenCalledWith('p1', { goal: 'fix the tests' })
+    expect(directory.start).toHaveBeenCalledWith('p1', 'fix the tests')
 
     await host.sendToOrchestrator('w1', 'go on')
     expect(directory.sent).toEqual([{ workspaceId: 'w1', text: 'go on' }])

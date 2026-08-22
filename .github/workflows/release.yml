@@ -21,6 +21,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Runs before anything is created: a tag whose name disagrees with
+  # package.json must produce no release object and no artifacts, because both
+  # are named from package.json and `latest.yml` is what every installed stable
+  # app compares itself against (scripts/release-version.mjs has the full
+  # argument). Deliberately no job-level `if:` — the script itself no-ops on a
+  # branch push, whereas a SKIPPED `needs` dependency would block `prepare` and
+  # `release` on every main push. Plain node, no install: the guard must not be
+  # able to fail for reasons of its own.
+  guard:
+    name: guard tag vs package version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: node scripts/release-version.mjs
+
   # The release shell is created once, centrally, before any build publishes.
   # electron-builder otherwise creates a GitHub publisher per target; two of
   # them racing in "release doesn't exist" makes the loser get a 422
@@ -28,6 +44,7 @@ jobs:
   # has to find it.
   prepare:
     name: prepare release
+    needs: guard
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -35,6 +52,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The committed patch is a BASE, not a count: the run number is ADDED to
+      # it, so main builds of 1.1.0 are 1.1.<run>-main.… — strictly increasing
+      # without anyone editing package.json between releases. The convention
+      # that keeps this honest (and that scripts/release-version.mjs enforces
+      # on every tag) is: tag X.Y.0, then immediately open main at X.(Y+1).0.
+      # After tagging 1.0.0 the main prereleases 1.1.<run>-main.… sort ABOVE
+      # the stable 1.0.0, which is intended and harmless: the two audiences are
+      # separated by CHANNEL, not by version order — a stable installation
+      # reads `latest.yml` and never sees a `main*.yml` prerelease at all (see
+      # `applyChannel` in src/main/updater.ts). Do not "fix" the overlap by
+      # merging the channels; that is what would actually push prereleases onto
+      # stable users.
       - name: Determine main-channel version
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         id: main-version
@@ -58,12 +87,19 @@ jobs:
           MAIN_VERSION: ${{ steps.main-version.outputs.version }}
         with:
           script: |
+            // On a tag push the version comes from package.json, NOT from the
+            // tag string: package.json is what electron-builder puts into the
+            // artifact names and into `latest.yml`, so tag and package must
+            // share one source of truth. Deriving it from the tag here would
+            // only paper over a mismatch — the release object would say 1.0.0
+            // while the files inside it said something else. The `guard` job
+            // has already asserted that the two agree.
             const version = process.env.MAIN_VERSION || require('./package.json').version
             const tag = `v${version}`
             const { owner, repo } = context.repo
             const { data: releases } = await github.rest.repos.listReleases({ owner, repo, per_page: 100 })
             if (releases.some((release) => release.tag_name === tag)) {
-              core.info(`Release ${tag} existiert bereits — nichts anzulegen.`)
+              core.info(`Release ${tag} already exists — nothing to create.`)
               return
             }
             try {
@@ -76,21 +112,23 @@ jobs:
                 draft: true,
                 prerelease: Boolean(process.env.MAIN_VERSION)
               })
-              core.info(`Entwurfs-Release ${tag} angelegt.`)
+              core.info(`Draft release ${tag} created.`)
             } catch (error) {
               if (error.status !== 422) throw error
-              core.info(`Release ${tag} wurde parallel angelegt — weiter.`)
+              core.info(`Release ${tag} was created concurrently — continuing.`)
             }
 
   release:
     name: build installers (${{ matrix.os }})
-    needs: prepare
+    needs: [guard, prepare]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # 45 instead of 30: a signing-enabled macOS build waits on Apple's
+    # notarization service, which can take a while on a bad day.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -118,6 +156,15 @@ jobs:
             ~\AppData\Local\electron-builder\Cache
           key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
+      - name: Cache Electron binaries
+        if: runner.os == 'macOS'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -125,9 +172,84 @@ jobs:
       - name: Verify, typecheck, test, build
         run: pnpm run ci
 
-      # main channel: prerelease, channel file `main*.yml`.
+      # Code signing is entirely secrets-gated (docs/SIGNING.md). Secrets that
+      # do not exist arrive as empty strings, so "is signing configured" is a
+      # non-emptiness check over the platform's full secret set. Only when the
+      # whole set exists is the signing environment exported for the steps
+      # below — a repo (or fork) without certificates builds exactly as
+      # before: green and unsigned. Exporting e.g. an empty CSC_LINK
+      # unconditionally would not be harmless: electron-builder treats an
+      # empty string as "set" and tries to import it as a certificate.
+      - name: Detect signing secrets
+        id: signing
+        shell: bash
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_CODE_SIGNING_ENDPOINT: ${{ secrets.AZURE_CODE_SIGNING_ENDPOINT }}
+          AZURE_CODE_SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT_NAME }}
+          AZURE_CODE_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ secrets.AZURE_CODE_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          enabled=false
+          export_env() {
+            for name in "$@"; do
+              { echo "${name}<<VERTRAGUS_SECRET_EOF"; printf '%s\n' "${!name}"; echo "VERTRAGUS_SECRET_EOF"; } >> "$GITHUB_ENV"
+            done
+          }
+          all_set() {
+            for name in "$@"; do
+              [ -n "${!name}" ] || return 1
+            done
+          }
+          case "$RUNNER_OS" in
+            Windows)
+              # Consumed by scripts/azure-sign.mjs (the win.signtoolOptions.sign
+              # hook) and the TrustedSigning module's EnvironmentCredential.
+              vars='AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET
+                    AZURE_CODE_SIGNING_ENDPOINT AZURE_CODE_SIGNING_ACCOUNT_NAME
+                    AZURE_CODE_SIGNING_CERTIFICATE_PROFILE_NAME'
+              ;;
+            macOS)
+              # Consumed by electron-builder: CSC_* for the Developer ID
+              # certificate, APPLE_* by `mac.notarize` for notarytool.
+              vars='CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID'
+              ;;
+            *)
+              vars=''
+              ;;
+          esac
+          if [ -n "$vars" ] && all_set $vars; then
+            enabled=true
+            export_env $vars
+          else
+            # Nothing may go looking for a certificate that is not there.
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            for name in $vars; do
+              if [ -n "${!name}" ]; then
+                echo "::warning::signing secrets are only partially configured on $RUNNER_OS — building unsigned (docs/SIGNING.md lists the full set)"
+                break
+              fi
+            done
+          fi
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+          echo "signing on $RUNNER_OS: $enabled"
+
+      # main channel: prerelease, channel file `main*.yml`. An unsigned macOS
+      # build never publishes (here and for tags below): Squirrel.Mac refuses
+      # to apply unsigned updates, so an unsigned mac release would ship a
+      # dead auto-updater — the mac artifacts only join a release once the
+      # signing secrets exist (docs/SIGNING.md). Windows and Linux keep
+      # publishing unsigned, exactly as before.
       - name: Package and publish main update
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: >-
+          github.event_name == 'push' && github.ref == 'refs/heads/main'
+          && (runner.os != 'macOS' || steps.signing.outputs.enabled == 'true')
         run: >-
           pnpm exec electron-builder
           --config electron-builder.main.yml
@@ -135,23 +257,66 @@ jobs:
           --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Nothing is signed yet. Windows SmartScreen will warn on first run;
-          # that is a known, accepted cost until a certificate exists.
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       # stable channel: a tagged, non-prerelease build, channel file `latest*.yml`.
       - name: Package and publish tagged release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: >-
+          startsWith(github.ref, 'refs/tags/')
+          && (runner.os != 'macOS' || steps.signing.outputs.enabled == 'true')
         run: pnpm exec electron-builder --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      # Cert-less macOS still packages — packaging regressions should not wait
+      # for a certificate to surface — the result just stays out of the release
+      # and only lands in the workflow artifacts below.
+      - name: Package macOS without publishing (unsigned)
+        if: >-
+          github.event_name == 'push' && runner.os == 'macOS'
+          && steps.signing.outputs.enabled != 'true'
+        run: pnpm exec electron-builder --publish never
 
       - name: Package installers for a manual run
         if: github.event_name == 'workflow_dispatch'
         run: pnpm exec electron-builder --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      # Post-package proof, not vibes: when signing was enabled the artifacts
+      # must actually carry a valid signature — a silent fall-through to
+      # unsigned would otherwise only be noticed by SmartScreen or Gatekeeper
+      # on a user's machine. When signing was not enabled there is nothing to
+      # verify and the steps are skipped.
+      - name: Verify Windows signature
+        if: runner.os == 'Windows' && steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          # Only the installer users download; helper binaries inside the
+          # unpacked dir are not all signed by us (e.g. bundled helpers).
+          $exes = Get-ChildItem -Path release -Recurse -Filter '*-setup.exe'
+          if ($exes.Count -eq 0) { throw 'no *-setup.exe under release/ to verify' }
+          foreach ($exe in $exes) {
+            $sig = Get-AuthenticodeSignature -FilePath $exe.FullName
+            if ($sig.Status -ne 'Valid') {
+              throw "unsigned or invalid signature: $($exe.FullName) -> $($sig.Status): $($sig.StatusMessage)"
+            }
+            Write-Host "signed OK: $($exe.FullName) by $($sig.SignerCertificate.Subject)"
+          }
+
+      - name: Verify macOS signature and notarization
+        if: runner.os == 'macOS' && steps.signing.outputs.enabled == 'true'
+        run: |
+          # electron-builder notarizes and staples the .app, not the .dmg —
+          # a dmg-level `stapler validate` fails on every correctly built
+          # release. So mount the dmg and assess the app inside it, which is
+          # exactly what Gatekeeper judges when a user launches the download.
+          dmg=$(find release -name '*.dmg' | head -n 1)
+          if [ -z "$dmg" ]; then echo 'no .dmg under release/ to verify'; exit 1; fi
+          mount=$(mktemp -d)
+          hdiutil attach "$dmg" -mountpoint "$mount" -nobrowse -readonly
+          app=$(find "$mount" -maxdepth 1 -name '*.app' | head -n 1)
+          if [ -z "$app" ]; then hdiutil detach "$mount"; echo "no .app inside $dmg"; exit 1; fi
+          spctl -a -vv -t execute "$app"
+          xcrun stapler validate "$app"
+          hdiutil detach "$mount"
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
@@ -161,6 +326,8 @@ jobs:
             release/**/*.exe
             release/**/*.AppImage
             release/**/*.deb
+            release/**/*.dmg
+            release/**/*.zip
             release/**/*.yml
             release/**/*.blockmap
           if-no-files-found: error
@@ -168,7 +335,9 @@ jobs:
   # Only once every platform has put its artifacts into the draft does it become
   # a visible prerelease. If one platform fails, the draft stays unpublished and
   # the `main` updater keeps seeing the last complete state instead of a release
-  # that is missing a channel file.
+  # that is missing a channel file. macOS is part of the gate: its leg must be
+  # green too, but without signing secrets it completes without uploading, so
+  # the release simply carries no mac files until signing exists (docs/SIGNING.md).
   #
   # Tag releases stay drafts on purpose — a human publishes those.
   publish:
@@ -188,11 +357,11 @@ jobs:
             const { data: releases } = await github.rest.repos.listReleases({ owner, repo, per_page: 100 })
             const release = releases.find((candidate) => candidate.tag_name === tag)
             if (release == null) {
-              core.setFailed(`Release ${tag} nicht gefunden.`)
+              core.setFailed(`Release ${tag} not found.`)
               return
             }
             if (!release.draft) {
-              core.info(`Release ${tag} ist bereits veröffentlicht.`)
+              core.info(`Release ${tag} is already published.`)
               return
             }
             await github.rest.repos.updateRelease({
@@ -202,4 +371,4 @@ jobs:
               draft: false,
               prerelease: true
             })
-            core.info(`Prerelease ${tag} veröffentlicht.`)
+            core.info(`Prerelease ${tag} published.`)

@@ -22,7 +22,9 @@
 
 .st button,
 .st input,
-.st select {
+.st select,
+.st a,
+.st textarea {
   -webkit-app-region: no-drag;
   font-family: inherit;
 }
@@ -121,6 +123,29 @@
 }
 
 .st-mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.st-textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 3.6em;
+  padding: 7px 9px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-chip);
+  background: var(--glass-input);
+  color: var(--text);
+  font: 400 12.5px var(--font-body);
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.st-textarea:hover {
+  border-color: rgba(var(--ink-rgb), 0.2);
+}
+
+.st-textarea.st-mono {
   font-family: var(--font-mono);
   font-size: 11.5px;
 }
@@ -257,6 +282,91 @@
   cursor: default;
 }
 
+/* --- extra MCP servers --------------------------------------------------- */
+
+.st-mcp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 11px 12px 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-chip);
+  background: rgba(234, 230, 219, 0.03);
+}
+
+.st-mcp-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.st-mcp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-chip);
+  background: var(--glass-input);
+}
+
+.st-mcp-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.st-mcp-row-label {
+  font: 500 12.5px var(--font-body);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.st-mcp-row-id {
+  font: 400 11px var(--font-mono);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.st-mcp-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-chip);
+  font: 600 9px var(--font-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.st-mcp-row .st-switch {
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.st-mcp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 0 0;
+}
+
+.st-mcp-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* --- updates ------------------------------------------------------------- */
 
 .st-updates {
@@ -314,6 +424,10 @@
 
 .st-dot.is-error {
   background: var(--err-text);
+}
+
+.st-dot.is-warn {
+  background: var(--warn-text);
 }
 
 .st-version {
@@ -377,4 +491,148 @@
   gap: 8px;
   padding: 10px 16px 12px;
   border-top: 1px solid var(--hairline);
+}
+
+/* --- remote access (Tailscale) ------------------------------------------ */
+
+/*
+ * A bordered card like glass/updates, and the first block in the body: the
+ * gear used to open onto hotkey + four appearance sliders, with Tailscale
+ * below the fold. Setup belongs on the first screen.
+ */
+.st-remote {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 11px 12px 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-chip);
+  background: rgba(234, 230, 219, 0.03);
+}
+
+.st-remote-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-chip);
+}
+
+.st-remote-status.is-ready {
+  border-color: rgba(140, 180, 150, 0.35);
+}
+
+.st-remote-status.is-missing {
+  border-color: rgba(247, 201, 107, 0.4);
+  background: rgba(247, 201, 107, 0.06);
+}
+
+.st-remote-status .st-dot {
+  margin-top: 5px;
+}
+
+.st-remote-status-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.st-remote-status-text {
+  font: 500 12.5px var(--font-body);
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.st-remote-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.st-link {
+  color: var(--bronze-bright);
+  font: 500 12px var(--font-body);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.st-link:hover {
+  color: var(--text);
+}
+
+.st-remote-refresh {
+  padding: 4px 10px;
+  font-size: 11.5px;
+}
+
+.st-remote-danger {
+  padding: 8px 10px;
+  border: 1px solid rgba(217, 115, 92, 0.4);
+  border-radius: 8px;
+  background: rgba(217, 115, 92, 0.08);
+}
+
+.st-remote-pairing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.st-remote-pairing .st-input {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.st-remote-pairing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.st-qr {
+  width: 160px;
+  height: 160px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #ffffff;
+  --qr-bg: #ffffff;
+  --qr-fg: #05130d;
+}
+
+.st-qr svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.st-remote-clients {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.st-client-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.st-client {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
 }

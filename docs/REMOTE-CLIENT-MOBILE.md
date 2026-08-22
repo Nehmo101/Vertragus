@@ -1,0 +1,103 @@
+English | [Deutsch](REMOTE-CLIENT-MOBILE.de.md)
+
+# Remote Client (phone / Tailscale)
+
+Analysis of the previous Tailgate client, what this PR changes, and what
+deliberately stays open afterwards. The client lives in `src/remoteClient`
+and is served as `out/remote` by the remote server.
+
+## What went wrong before
+
+The client was a **scaled-down desktop panel**, not a phone UI.
+
+### Readability
+
+- Its own colour world (`#0f1512`, garish verdigris), not the
+  bronze/graphite language of the panel. Figtree/JetBrains Mono were
+  referenced but **never loaded** — system UI, and the 16px fields were
+  missing.
+- Goal, task and orchestrator questions sat on **one line with ellipsis**
+  (`white-space: nowrap`). Unreadable at 390px width.
+- Agents were **chips without status**. `statusText` already came from the
+  host; the type and the UI ignored it. Working/waiting looked identical,
+  except stopped was transparent.
+- The `?` badges were 20×20px (Apple HIG: 44px). Questions to the human
+  were a grey one-liner, not a banner.
+- Fixed 12.5px terminal font, no A+/A− step.
+
+### Scrolling
+
+Causes, not "too much content":
+
+1. `html, body, #root, .app { height: 100% }` **nailed** the page to the
+   viewport height.
+2. `.workspace-list { flex: 1; overflow-y: auto }` was the intended
+   scroller, but **without `min-height: 0`**. Flex children then never
+   shrink; `overflow-y: auto` never engages.
+3. iOS Safari pans **document scroll** reliably, inner overflow boxes
+   often not — and `-webkit-overflow-scrolling` was missing.
+4. The safe area was wrongly attached to the header **bottom**; the list
+   had no bottom inset. The software keyboard (`visualViewport`) was
+   ignored; composer and terminal bar sat under the keys.
+
+### A new pairing link on every restart
+
+Not a UI bug. In `createRemoteController`:
+
+- With an OS keyring: token encrypted in `vertragus-v2.json`.
+- **Without a keyring** (common on Linux, and on Windows/macOS when
+  `safeStorage` is not yet unlocked at boot): token only in RAM. Every
+  start executed `if (!token()) persistToken(mintPairingToken())` — new
+  QR, old phone dead.
+- Even with the same token: sessions live only in the process. After a
+  desktop restart the phone got `session_revoked`, but the hash was
+  already stripped from the URL (`sessionStorage`). Scan again.
+
+## What this PR does
+
+| Topic | Change |
+| --- | --- |
+| Stable link | Token additionally in `userData/remote-pairing.token` (0600). Never silently overwrite when the ciphertext cannot be unlocked. `Regenerate` remains the only rotation path. |
+| Phone stays paired | Pairing token + session in `localStorage`. After a desktop restart: silent re-pair via the stored token. |
+| Scrolling | Document scroll, sticky header, no inner overflow on the list. Terminal as `position: fixed` on `visualViewport.height`. |
+| Reading | 17px body, 16px inputs, goals wrap, agent rows with role·status, 44px touch, warning banner for `ask_user`. |
+| Brand | Caprasimo/Figtree/JetBrains Mono, bronze/verdigris, the Fusione mark. |
+| Terminal | Larger default font, A+/A−, Esc/Tab/Enter/Ctrl-C/arrows, no auto-focus of the hidden xterm textarea on the phone. |
+
+The gateway allow-list stays at six verbs. No promote, no settings, no CLI
+permission TUIs on the phone.
+
+## Design ideas (implemented vs. later)
+
+### In now, because they make the phone usable
+
+- Cards collapse/expand; ended workspaces behind a toggle.
+- Start form as `<details>`, closed when a run is already alive.
+- Stop only on the second tap.
+- Sticky header with connection status.
+- Locale from `hello.locale`.
+
+### Next stage, without widening the allow-list
+
+- **PWA manifest + icon**, "Add to Home Screen" — the stable link is what
+  makes that worthwhile.
+- **Pull-to-refresh** (the ⟳ stays).
+- **Haptics** on stop / answers (`navigator.vibrate`).
+- **Question inbox** at the top, independent of the card — `ask_user` must
+  not disappear under the fold.
+- Terminal: optional **wrap** instead of horizontal xterm scrolling;
+  snapshot search.
+- Override light/dark locally instead of only following the desktop.
+
+### Needs a new gateway verb — not in v1
+
+- Promote / worktree cleanup (deliberately desktop-only, see the handbook).
+- Mirroring CLI permission dialogs to the phone (`ask-user` tier).
+- Live `statusText` push finer than the workspace summary cadence.
+- Reading retro / briefing.
+
+### Do not
+
+- A second MCP server or a mirror of all `APP_CHANNELS`.
+- Rebuilding raw xterm as the primary phone keyboard.
+- Putting the token into `electron-store` as plain text.

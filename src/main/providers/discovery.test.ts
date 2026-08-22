@@ -18,7 +18,8 @@ import {
   normalizeModelMemory,
   parseLineModels,
   parseTomlModelKeys,
-  type DiscoveryDependencies
+  type DiscoveryDependencies,
+  type ProviderCliRuntime
 } from './discovery'
 
 vi.mock('@main/agents/resolveCommand', () => ({
@@ -383,6 +384,30 @@ describe('discoverModels — cli sources', () => {
     )
     expect(result.models).toEqual(['auto'])
   })
+
+  it('reads the Grok model list line by line', async () => {
+    const exec = vi.fn(async () => fixture('grok-models.txt'))
+    const { deps: overrides } = deps({ exec })
+    const result = await discoverModels(preset('grok'), overrides)
+    expect(exec).toHaveBeenCalledWith('grok', ['models'], 8_000)
+    expect(result.source).toBe('live')
+    expect(result.models).toEqual(['grok-build', 'grok-4.6', 'grok-4.5', 'grok-4.3'])
+  })
+
+  it('keeps grok-build startable when grok models needs a login', async () => {
+    const { deps: overrides } = deps({
+      exec: async () => {
+        throw new Error('Error: Authentication required. Run grok login or set XAI_API_KEY.')
+      }
+    })
+    const result = await discoverModels(preset('grok'), overrides)
+    expect(result.detail).toBe(
+      'grok models: nicht angemeldet — \'grok login\' ausführen ' +
+        '(Error: Authentication required. Run grok login or set XAI_API_KEY.)'
+    )
+    expect(result.models).toEqual(['grok-build'])
+    expect(result.source).toBe('seed')
+  })
 })
 
 describe('authFailureHint', () => {
@@ -410,6 +435,17 @@ describe('authFailureHint', () => {
     const config = { ...preset('cursor'), auth: undefined }
     expect(authFailureHint(config, 'Not logged in')).toBe(
       'nicht angemeldet — bitte anmelden (Not logged in)'
+    )
+  })
+
+  /** The hint lands inside an ENGLISH profile-editor sentence when ui.locale is en. */
+  it('speaks the stored locale instead of gluing German into an English sentence', () => {
+    expect(authFailureHint(preset('cursor'), 'Not logged in', 'en')).toMatch(
+      /^not logged in — run '.+' \(Not logged in\)$/
+    )
+    const config = { ...preset('cursor'), auth: undefined }
+    expect(authFailureHint(config, 'Not logged in', 'en')).toBe(
+      'not logged in — please log in (Not logged in)'
     )
   })
 })
@@ -658,5 +694,131 @@ describe('discoverModels — failure handling', () => {
       source: 'none',
       detail: 'kimi provider list --json: keine Modelle in der Antwort'
     })
+  })
+})
+
+/**
+ * The Finder/Dock launch on macOS. A GUI app inherits only
+ * `/usr/bin:/bin:/usr/sbin:/sbin`, so `execFile('claude', …)` is ENOENT while
+ * Claude Code sits installed in `/opt/homebrew/bin` — and because this one
+ * function backs the health probe, the auth probe and model discovery, the
+ * first-run card would report "no CLI found" to a user who has one.
+ *
+ * CI can never catch that: every runner starts with a full PATH. These cases
+ * are the only guard, so they drive the real mechanism — `process.env.PATH`
+ * mutated by the refresh, exactly as `refreshProcessPathFromSystem` does it.
+ */
+describe('execProviderCli PATH recovery', () => {
+  const FINDER_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
+  const HOMEBREW = '/opt/homebrew/bin'
+  const realPath = process.env['PATH']
+
+  afterEach(() => {
+    process.env['PATH'] = realPath
+  })
+
+  /** A CLI that only exists on the login shell's PATH, plus its call counters. */
+  function homebrewCli(loginPath = `${FINDER_PATH}:${HOMEBREW}`): {
+    runtime: Pick<ProviderCliRuntime, 'exec' | 'refreshPath'>
+    counts: { exec: number; refresh: number }
+  } {
+    process.env['PATH'] = FINDER_PATH
+    const counts = { exec: 0, refresh: 0 }
+    return {
+      counts,
+      runtime: {
+        exec: async () => {
+          counts.exec += 1
+          if (!(process.env['PATH'] ?? '').split(':').includes(HOMEBREW)) {
+            throw Object.assign(new Error('spawn claude ENOENT'), {
+              code: 'ENOENT',
+              stdout: '',
+              stderr: ''
+            })
+          }
+          return { stdout: 'claude 2.1.0 (Claude Code)\n', stderr: '' }
+        },
+        refreshPath: async () => {
+          counts.refresh += 1
+          process.env['PATH'] = loginPath
+        }
+      }
+    }
+  }
+
+  it('refreshes the login-shell PATH once on darwin and answers from the retry', async () => {
+    const cli = homebrewCli()
+    const stdout = await execProviderCli('claude', ['--version'], 6_000, 'en', {
+      platform: 'darwin',
+      ...cli.runtime
+    })
+    expect(stdout).toBe('claude 2.1.0 (Claude Code)\n')
+    expect(cli.counts).toEqual({ exec: 2, refresh: 1 })
+  })
+
+  /**
+   * The login-shell read costs a full shell startup, so it must stay a
+   * recovery — a probe that succeeds may never pay for it.
+   */
+  it('does not touch the login shell when the command was found', async () => {
+    const cli = homebrewCli()
+    process.env['PATH'] = `${FINDER_PATH}:${HOMEBREW}`
+    await execProviderCli('claude', ['--version'], 6_000, 'en', {
+      platform: 'darwin',
+      ...cli.runtime
+    })
+    expect(cli.counts).toEqual({ exec: 1, refresh: 0 })
+  })
+
+  /**
+   * Windows resolves shims through `resolveLaunch` and Linux app launchers do
+   * inherit the user's PATH; neither has a login shell to re-read, and both
+   * would pay a shell startup per failed probe for nothing.
+   */
+  it.each(['win32', 'linux'] as const)('never refreshes on %s', async (platform) => {
+    const cli = homebrewCli()
+    await expect(
+      execProviderCli('kimi', ['--version'], 6_000, 'en', { platform, ...cli.runtime })
+    ).rejects.toThrow('spawn claude ENOENT')
+    expect(cli.counts).toEqual({ exec: 1, refresh: 0 })
+  })
+
+  /**
+   * A refreshed PATH that still misses means the CLI is genuinely not
+   * installed. The user sees the error their command produced, not a second
+   * one from an internal retry they never asked for.
+   */
+  it('surfaces the original error when the refreshed PATH still misses', async () => {
+    const cli = homebrewCli(FINDER_PATH)
+    await expect(
+      execProviderCli('claude', ['--version'], 6_000, 'en', {
+        platform: 'darwin',
+        ...cli.runtime
+      })
+    ).rejects.toThrow('spawn claude ENOENT')
+    expect(cli.counts).toEqual({ exec: 2, refresh: 1 })
+  })
+
+  /** Only a missing binary is a PATH problem — a CLI that ran and failed is not. */
+  it('does not refresh when the CLI ran and exited non-zero', async () => {
+    process.env['PATH'] = FINDER_PATH
+    const counts = { exec: 0, refresh: 0 }
+    await expect(
+      execProviderCli('claude', ['--version'], 6_000, 'en', {
+        platform: 'darwin',
+        exec: async () => {
+          counts.exec += 1
+          throw Object.assign(new Error('Command failed: claude --version'), {
+            code: 1,
+            stdout: '',
+            stderr: 'Error: Authentication required.\n'
+          })
+        },
+        refreshPath: async () => {
+          counts.refresh += 1
+        }
+      })
+    ).rejects.toThrow('Error: Authentication required.')
+    expect(counts).toEqual({ exec: 1, refresh: 0 })
   })
 })

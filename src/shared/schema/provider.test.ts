@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildEffortArgs,
+  buildInitialPromptArgs,
   buildModelArgs,
   mergeProviderConfigs,
   modelMemorySchema,
@@ -67,6 +68,22 @@ describe('providerConfigSchema', () => {
     ).toBe(false)
   })
 
+  it('accepts positional first-prompt delivery and rejects an unknown kind', () => {
+    expect(
+      providerConfigSchema.safeParse({
+        ...minimal,
+        initialPromptDelivery: { kind: 'positional' }
+      }).success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({
+        ...minimal,
+        initialPromptDelivery: { kind: 'flag', flag: '-p' }
+      }).success
+    ).toBe(false)
+    expect(config().initialPromptDelivery).toBeUndefined()
+  })
+
   it('requires the config flag on a claude-json MCP attach', () => {
     expect(providerConfigSchema.safeParse({ ...minimal, mcp: { kind: 'claude-json' } }).success).toBe(
       false
@@ -85,6 +102,9 @@ describe('providerConfigSchema', () => {
     ).toBe(true)
     expect(
       providerConfigSchema.safeParse({ ...minimal, mcp: { kind: 'cursor-project' } }).success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, mcp: { kind: 'grok-project' } }).success
     ).toBe(true)
     expect(
       providerConfigSchema.safeParse({ ...minimal, mcp: { kind: 'cursor-json' } }).success
@@ -113,6 +133,22 @@ describe('providerConfigSchema', () => {
         modelDiscovery: { kind: 'http', url: 'http://127.0.0.1:11434/api/tags' }
       }).success
     ).toBe(false)
+  })
+
+  /**
+   * The capability claim behind the long `await_events` poll. Absent means "the
+   * CLI keeps its 60 s default" — so a zero, a fraction or an hour-plus value
+   * must not parse into a claim nobody can honour.
+   */
+  it('accepts a raised MCP tool timeout as a bounded positive integer', () => {
+    expect(config().mcpToolTimeoutSec).toBeUndefined()
+    expect(config({ mcpToolTimeoutSec: 600 }).mcpToolTimeoutSec).toBe(600)
+    expect(config({ mcpToolTimeoutSec: 3600 }).mcpToolTimeoutSec).toBe(3600)
+    for (const value of [0, -1, 1.5, 3601, '600']) {
+      expect(
+        providerConfigSchema.safeParse({ ...minimal, mcpToolTimeoutSec: value }).success
+      ).toBe(false)
+    }
   })
 
   it('accepts optional seed-handshake overrides and rejects junk', () => {
@@ -240,6 +276,16 @@ describe('launch argument helpers', () => {
     expect(buildEffortArgs(config({ effortArg: { style: 'flag', flag: '--effort' } }), undefined)).toEqual(
       []
     )
+  })
+
+  it('emits a trailing positional first prompt only when the provider declares it', () => {
+    expect(
+      buildInitialPromptArgs(config({ initialPromptDelivery: { kind: 'positional' } }), '  Fix login  ')
+    ).toEqual(['Fix login'])
+    expect(
+      buildInitialPromptArgs(config({ initialPromptDelivery: { kind: 'positional' } }), '   ')
+    ).toEqual([])
+    expect(buildInitialPromptArgs(config(), 'Fix login')).toEqual([])
   })
 })
 

@@ -18,6 +18,15 @@
  * Everything else follows `./ipc.ts`: `createAppIpc(host)` is the testable core,
  * `registerAppIpc()` is the production wiring, and the channel names are
  * duplicated in preload with a parity test that fails on drift.
+ *
+ * The `… rejected — <reason>` throws in this file are RAW ENGLISH ON PURPOSE
+ * and must not be moved into `mainMessages`. Every one of them is a payload or
+ * sender assertion — a missing id, a wrong window type, a malformed zone list —
+ * that no button press can produce; reaching one means the renderer or the
+ * preload contract is broken, and the reader is whoever debugs that. Localized
+ * copy here would only make a bug report harder to search for. Anything a
+ * correct renderer CAN provoke belongs in the locale table like everything
+ * else — see the stub refusal below.
  */
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { profileRoleIds, type Profile, type RoleTemplate } from '@shared/schema/profile'
@@ -33,14 +42,20 @@ import {
   ORCHESTRATOR_ROLE_ID,
   roleColor
 } from '@shared/prompts/roles'
+import type { ExtraMcpServer } from '@shared/schema/mcpServer'
+import { parseExtraMcpServersForWrite } from '@shared/schema/mcpServer'
 import type { ProviderConfig } from '@shared/schema/provider'
 import { normalizeAppearance, type Appearance } from '@shared/appearance'
+import { mainMessages, readLocale } from '@shared/mainMessages'
 import type { AppSettings, SettingsStore, VoiceSettings } from '@main/store/settings'
+import { effectiveAgentPolicy, settings } from '@main/store/settings'
+import type { AgentPolicy } from '@shared/agentPolicy'
+import { AGENT_POLICIES } from '@shared/agentPolicy'
 import type { VoicePhase } from '@main/voice/session'
-import { settings } from '@main/store/settings'
 import { discoverModels, type ModelDiscoveryResult } from '@main/providers/discovery'
+import { checkAllProviderAuth, type ProviderAuthStatus } from '@main/providers/authStatus'
 import { checkAllProviders, type ProviderHealth } from '@main/providers/health'
-import { focusCliWindow, listCliWindows } from '@main/windows/cliWindow'
+import { closeCliWindow, focusCliWindow, listCliWindows } from '@main/windows/cliWindow'
 import {
   hideAllHotkeyStatus,
   reRegisterHideAllShortcut,
@@ -70,9 +85,12 @@ import { appUpdater, onUpdateState } from '@main/updater'
 import {
   closeZoneOverlayWindows,
   isZoneOverlaySender,
+  listZoneDisplays,
   listZoneOverlayWindows,
   openZoneOverlayWindows,
+  selectZoneOverlayDisplay,
   zoneOverlayDisplayIds,
+  type ZoneDisplayInfo,
   type ZoneOverlaySender
 } from '@main/windows/zoneOverlay'
 import type { MinimalIpcMain } from './ipc'
@@ -84,20 +102,49 @@ export const APP_CHANNELS = {
   rolesList: 'roles:list',
   rolesSave: 'roles:save',
   providersList: 'providers:list',
+  /**
+   * WP-7: login state per provider, read on demand by the panel's first-run
+   * card. Separate from `providers:list` because it is a different kind of
+   * cost — `list` probes `--version` on every editor open, this one shells out
+   * to the CLIs' own status commands and is only ever run while somebody is
+   * looking at the answer.
+   */
+  providersAuthStatus: 'providers:authStatus',
   providersSave: 'providers:save',
   providersDelete: 'providers:delete',
   modelsDiscover: 'models:discover',
   workspacesList: 'workspaces:list',
   workspacesStart: 'workspaces:start',
+  /**
+   * H2 refill: hand a run that was started bare its goal now. Separate from
+   * `workspaces:userMessage` on purpose — a goal is the orchestrator's FIRST
+   * user turn (it starts the loop), a user message steers a loop that runs.
+   */
+  workspacesGoal: 'workspaces:goal',
+  workspacesResume: 'workspaces:resume',
   workspacesSendToOrchestrator: 'workspaces:sendToOrchestrator',
   workspacesStop: 'workspaces:stop',
+  workspacesSucceedOrchestrator: 'workspaces:succeedOrchestrator',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
+  workspacesCloseAgent: 'workspaces:closeAgent',
+  workspacesAnswerQuestion: 'workspaces:answerQuestion',
+  workspacesUserMessage: 'workspaces:userMessage',
+  workspacesPromoteAgent: 'workspaces:promoteAgent',
+  /**
+   * S1/S4: reveal one run's artefact folder (`spill/`, `tasks.json`,
+   * `events.jsonl`) in the OS file manager. Panel-only and deliberately absent
+   * from the remote gateway — opening a folder is meaningful on the machine
+   * the app runs on and nowhere else.
+   */
+  workspacesOpenRunFolder: 'workspaces:openRunFolder',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
   retroLearnings: 'retro:learnings',
   retroDeleteLearning: 'retro:deleteLearning',
+  retroRepoNotes: 'retro:repoNotes',
+  retroDeleteRepoNote: 'retro:deleteRepoNote',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
@@ -129,6 +176,7 @@ export const APP_CHANNELS = {
   zonesDraft: 'zones:draft',
   zonesSave: 'zones:save',
   zonesCancel: 'zones:cancel',
+  zonesPickDisplay: 'zones:pickDisplay',
   eventProfiles: 'ev:profiles',
   eventProviders: 'ev:providers',
   eventWorkspaces: 'ev:workspaces',
@@ -176,8 +224,68 @@ export interface WorkspaceAgentSummary {
   state: PanelAgentState
   /** Short activity note ("plant", "T-142"). Absent = derived from `state`. */
   statusText?: string
+  /**
+   * Current task for the row's hover card. Subagents: last `start_agent` /
+   * follow-up `send_to_agent`. Orchestrator: latest submitted user CLI note.
+   */
+  taskText?: string
+  /**
+   * True while this agent's CLI window is on screen. A finished agent whose
+   * window is still open can be dismissed with ✕; a closed one stays listed
+   * so the last task remains readable, and a click reopens the scrollback.
+   */
+  windowOpen?: boolean
+  /**
+   * F: 'orchestrator' for the root row, 'lead' for sub-orchestrators, the
+   * role id otherwise. Drives the panel's indentation and lead styling.
+   */
+  kind?: string
+  /** F: the lead this agent works under; absent for direct children. */
+  parentId?: string
   /** Set while the agent waits for an answer — drives the `?` badge. */
   pendingQuestion?: string
+  /**
+   * Registry id of that open question — what the badge's answer field sends
+   * back over `workspaces:answerQuestion`. Always set together with
+   * {@link pendingQuestion}.
+   */
+  pendingQuestionId?: string
+}
+
+/**
+ * S4: one row of the run's task board, as the card paints it. Mirrors
+ * `Workspace.listTasks()`; see {@link PANEL_TASKS_MAX} for why the card only
+ * ever sees a prefix of the board.
+ */
+export interface WorkspaceTaskSummary {
+  taskId: string
+  subject: string
+  /** Tombstones never travel — the summary carries the living plan only. */
+  status: 'pending' | 'in_progress' | 'completed'
+  /** Agent id of the owner; resolved to its Commedia name from `agents`. */
+  ownerAgentId?: string
+  blockedBy: string[]
+  /** pending AND every blockedBy completed — the board's own readiness rule. */
+  ready: boolean
+}
+
+/**
+ * How many board rows one card carries. The board itself allows 200; this
+ * payload is re-broadcast on every change and travels to the phone as well, so
+ * it stays a bounded prefix. The whole board remains readable in `tasks.json`
+ * and through the orchestrator's `task_list`.
+ */
+export const PANEL_TASKS_MAX = 30
+
+/**
+ * Current-task fields the panel paints on an agent row and its hover card.
+ * One note fills both so the status line and the lore card cannot disagree.
+ */
+export function agentCurrentTaskFields(
+  task: string | undefined
+): Pick<WorkspaceAgentSummary, 'taskText' | 'statusText'> {
+  if (!task?.trim()) return {}
+  return { taskText: task, statusText: task }
 }
 
 /** One workspace card. */
@@ -189,9 +297,51 @@ export interface WorkspaceSummary {
   profileName?: string
   /** False once the orchestrator is gone — the card greys out but stays. */
   active: boolean
-  /** Latest assignment the orchestrator handed out — the tooltip's task line. */
+  /**
+   * Last delegated assignment, when still populated. The workspace hover uses
+   * {@link goalText}, not this.
+   */
   taskText?: string
+  /**
+   * The user's workspace goal — first submitted orchestrator CLI note, or the
+   * start-with-goal once delivered. Full text; the hover card quotes it.
+   * Absent on a bare Play: the card then shows "no goal — the orchestrator
+   * is waiting".
+   */
+  goalText?: string
+  /**
+   * C5: the orchestrator process lives but has stopped calling its tools —
+   * the card shows an idle hint distinct from the greyed-out exited state.
+   */
+  orchestratorIdle?: boolean
+  /**
+   * C6: a successor orchestrator is being spawned for this workspace. The card
+   * shows a badge — mid-cutover is neither the working state nor the dead one,
+   * and the replace button must not be offered twice.
+   */
+  successionInProgress?: true
+  /**
+   * D3: the orchestrator's open `ask_user` question — the workspace-level
+   * badge. Answered over the same `workspaces:answerQuestion` channel with
+   * the reserved agent id `user`.
+   */
+  userQuestion?: { questionId: string; question: string }
   agents: WorkspaceAgentSummary[]
+  /**
+   * S4: the run's task board, capped at {@link PANEL_TASKS_MAX} and free of
+   * tombstones. Absent while the run has no plan — an empty board draws no
+   * section at all.
+   */
+  tasks?: WorkspaceTaskSummary[]
+  /**
+   * S4: rows in the WHOLE living plan, and how many of them are completed —
+   * counts over the board, not over {@link tasks}. The window is a display
+   * decision; "30/45 done" is a fact about the run, and a card that recomputed
+   * it from the rows that happened to fit would read an unfinished plan as
+   * finished. Present exactly when {@link tasks} is.
+   */
+  taskTotal?: number
+  taskDone?: number
 }
 
 /** One stale worktree the panel's cleanup view offers for removal. */
@@ -210,19 +360,72 @@ export interface WorkspaceDirectory {
   /**
    * Play: open a new workspace for this profile. The return value is ignored
    * (and typed loosely) so a manager whose `startWorkspace` resolves with its
-   * own runtime object needs no adapter lambda here.
-   * `options.goal` is typed into the orchestrator after spawn; omit it for the
-   * Play-button path.
+   * own runtime object needs no adapter lambda here. `goal` (H2) is seeded
+   * into the orchestrator once it is up; absent = classic bare Play.
    */
-  start(profileId: string, options?: { goal?: string }): void | Promise<unknown>
+  start(profileId: string, goal?: string): void | Promise<unknown>
+  /**
+   * H2 refill: the goal for a run that was started without one. Rejects with a
+   * readable message when the workspace is unknown, already carries a goal, or
+   * its CLI refused the text — the run keeps going in every case.
+   */
+  assignGoal(workspaceId: string, goal: string): Promise<void>
+  /**
+   * E3: start a NEW workspace of this profile briefed on the repository's
+   * newest journaled run (worktrees/branches survive; processes do not).
+   * Rejects with a readable message when the repo holds no journaled run.
+   */
+  resume(profileId: string): void | Promise<unknown>
   stop(workspaceId: string): void | Promise<unknown>
-  /** Type a follow-up into the running orchestrator of this workspace. */
+  /**
+   * C6/S3: replace this workspace's root orchestrator with a fresh one that
+   * continues the same run — the user's escape hatch when the orchestrator
+   * died or went silent. Keeps subagents, worktrees, questions and the task
+   * board; rejects with a readable message when there is nothing to replace.
+   */
+  succeedOrchestrator(workspaceId: string): void | Promise<unknown>
+  /**
+   * Answer one agent question (H1) — the SAME host path the orchestrator's
+   * `send_to_agent{questionId}` takes, so panel, remote and MCP tool share one
+   * question registry. Rejects with a readable message on failure (unknown
+   * question, wrong agent, PTY delivery failed — the question stays open then).
+   */
+  answerQuestion(
+    workspaceId: string,
+    agentId: string,
+    questionId: string,
+    text: string
+  ): Promise<void>
+  /**
+   * D2: steer the run — the text appears in the orchestrator's terminal and
+   * lands as a `user_message` event that wakes its parked `await_events`.
+   */
+  postUserMessage(workspaceId: string, text: string): void | Promise<unknown>
+  /**
+   * E1 Promote — the user's explicit click: merge this agent's branch into
+   * the repository's own checkout. Must reject with a readable message on a
+   * dirty main checkout or a merge conflict (the merge is aborted then).
+   */
+  promoteAgentBranch(workspaceId: string, agentId: string): Promise<void>
+  /**
+   * Reveal this run's artefact folder in the OS file manager — the journal,
+   * the task board and the spill files the tools wrote. Rejects readably when
+   * the workspace is unknown or the OS refused to open the path.
+   */
+  openRunFolder(workspaceId: string): Promise<void>
+  /** Panel-only: type a follow-up into the running orchestrator (voice). */
   sendToOrchestrator(workspaceId: string, text: string): void | Promise<unknown>
   /** Bring an agent's CLI window to the front. */
   focusAgent(agentId: string): void
   /**
-   * Bring one workspace's CLI windows forward and minimize every other
-   * agent's — positions stay; see {@link focusWorkspaceAgents}.
+   * Close one agent's CLI window. The agent (and its last task) stay listed —
+   * a finished worker that occupied the screen can be dismissed without
+   * forgetting what it did.
+   */
+  closeAgentWindow(agentId: string): void
+  /**
+   * Bring one workspace's CLI windows forward into its zone layout and hide
+   * every other agent's — see {@link focusWorkspaceAgents}.
    */
   focusWorkspace(workspaceId: string): void
   /**
@@ -246,17 +449,34 @@ export interface WorkspaceDirectory {
  * and `focusAgent` still works (the CLI window registry exists), but `start`,
  * `stop` and `sendToOrchestrator` REFUSE loudly: a Play button that quietly
  * does nothing is the worst possible placeholder.
+ *
+ * `bootError` is what the app entry caught when the MCP server failed to
+ * start. Carried into the refusal because the panel is the only surface the
+ * user has: without it every workspace channel blames an unfinished feature
+ * while the actual cause reaches nothing but `console.error`.
  */
-export function createStubWorkspaceDirectory(): WorkspaceDirectory {
+export function createStubWorkspaceDirectory(
+  locale: () => string | undefined = () => undefined,
+  bootError?: string
+): WorkspaceDirectory {
   const refuse = (): never => {
-    throw new Error('Workspace-Manager ist noch nicht verdrahtet.')
+    const messages = mainMessages(readLocale(locale))
+    throw new Error(bootError ? messages.stubBootFailed(bootError) : messages.stubNotWired)
   }
   return {
     list: () => [],
     start: refuse,
+    assignGoal: async () => refuse(),
+    resume: refuse,
     stop: refuse,
+    succeedOrchestrator: refuse,
+    answerQuestion: async () => refuse(),
+    postUserMessage: refuse,
+    promoteAgentBranch: async () => refuse(),
+    openRunFolder: async () => refuse(),
     sendToOrchestrator: refuse,
     focusAgent: (agentId) => focusCliWindow(agentId),
+    closeAgentWindow: (agentId) => closeCliWindow(agentId),
     // No manager → no workspace→agent map; quiet no-op like focusAgent on a ghost.
     focusWorkspace() {},
     listStaleWorktrees: async () => refuse(),
@@ -280,6 +500,8 @@ export type AppSettingsPort = Pick<
   | 'getRunRetros'
   | 'getModelLearnings'
   | 'deleteModelLearning'
+  | 'getRepoNotes'
+  | 'deleteRepoNote'
   | 'getSettings'
   | 'setSetting'
 >
@@ -296,11 +518,15 @@ export interface ProviderListEntry {
  */
 export interface PanelSettings {
   yoloMaster: boolean
+  /** D4: the effective tier — stored policy, or derived from `yoloMaster`. */
+  agentPolicy: AgentPolicy
   hideAllHotkey: string
   locale: AppSettings['ui']['locale']
   theme: AppSettings['ui']['theme']
   /** Opacity and glass transparency; see shared/appearance.ts. */
   appearance: Appearance
+  /** WP-7: the first-run card was closed by hand — the panel honours it. */
+  onboardingDismissed: boolean
   autostart: boolean
   updateChannel: AppSettings['updateChannel']
   /**
@@ -323,6 +549,8 @@ export interface PanelSettings {
    * `ev:settings` — a renderer that displayed it would leak it into logs.
    */
   voiceApiKeySet: boolean
+  /** Extra MCP servers attached next to Vertragus on the next spawn. */
+  mcpServers: ExtraMcpServer[]
 }
 
 export type { VoicePhase }
@@ -362,7 +590,10 @@ export const WRITABLE_SETTINGS = [
   'theme',
   'locale',
   'appearance',
-  'voice'
+  'voice',
+  'agentPolicy',
+  'onboardingDismissed',
+  'mcpServers'
 ] as const
 export type WritableSetting = (typeof WRITABLE_SETTINGS)[number]
 
@@ -395,8 +626,15 @@ export interface ZoneEditorPayload {
   profileName: string
   displayId: number
   roles: ZoneEditorRole[]
-  /** Only the zones of THIS display; the other overlays own the rest. */
+  /** Only the zones of THIS display. */
   zones: Zone[]
+  /**
+   * Attached monitors — the picker lists them so the user can choose a
+   * screen even when the overlay itself could not be placed on it.
+   */
+  displays: ZoneDisplayInfo[]
+  /** True while this overlay is asking which screen Vertragus should use. */
+  selectingDisplay: boolean
   /**
    * UI language / appearance for this overlay. Added by the `zones:load`
    * handler, not by {@link zoneEditorPayload} — an overlay cannot call
@@ -416,7 +654,9 @@ export interface ZoneEditorPayload {
 export function zoneEditorPayload(
   profile: Profile,
   roleTemplates: readonly RoleTemplate[],
-  displayId: number
+  displayId: number,
+  displays: readonly ZoneDisplayInfo[] = [],
+  selectingDisplay = false
 ): ZoneEditorPayload {
   const templates = allRoleTemplates(roleTemplates)
   const roleIds = profileRoleIds(profile)
@@ -432,7 +672,9 @@ export function zoneEditorPayload(
         color: roleColor(roleId, index)
       }))
     ],
-    zones: (profile.zones?.zones ?? []).filter((zone) => zone.displayId === displayId)
+    zones: (profile.zones?.zones ?? []).filter((zone) => zone.displayId === displayId),
+    displays: [...displays],
+    selectingDisplay
   }
 }
 
@@ -448,7 +690,8 @@ export function zoneEditorPayload(
 export function mergeZoneLayout(
   existing: ZoneLayout | undefined,
   drafts: ReadonlyMap<number, readonly Zone[]>,
-  coveredDisplayIds: readonly number[]
+  coveredDisplayIds: readonly number[],
+  targetDisplayId?: number
 ): ZoneLayout {
   const covered = new Set([...coveredDisplayIds, ...drafts.keys()])
   const kept = (existing?.zones ?? []).filter((zone) => !covered.has(zone.displayId))
@@ -457,7 +700,13 @@ export function mergeZoneLayout(
   const drawn = [...drafts.entries()]
     .sort(([left], [right]) => left - right)
     .flatMap(([, zones]) => zones)
-  return zoneLayoutSchema.parse({ zones: [...kept, ...drawn] })
+  const target =
+    targetDisplayId ??
+    (coveredDisplayIds.length === 1 ? coveredDisplayIds[0] : existing?.targetDisplayId)
+  return zoneLayoutSchema.parse({
+    zones: [...kept, ...drawn],
+    ...(target !== undefined ? { targetDisplayId: target } : {})
+  })
 }
 
 // --- quitting ------------------------------------------------------------
@@ -479,14 +728,23 @@ export function runningAgentCount(workspaces: readonly WorkspaceSummary[]): numb
 }
 
 /** Copy of the native quit confirmation; exported so the wording is testable. */
-export function quitConfirmationText(runningAgents: number): {
+export function quitConfirmationText(
+  runningAgents: number,
+  locale?: string
+): {
+  title: string
   message: string
   detail: string
+  confirm: string
+  cancel: string
 } {
-  const subject = runningAgents === 1 ? '1 Agent läuft' : `${runningAgents} Agenten laufen`
+  const messages = mainMessages(locale)
   return {
-    message: `${subject} noch — Vertragus beenden?`,
-    detail: 'Alle Agenten-Prozesse werden gestoppt.'
+    title: messages.quitTitle,
+    message: messages.quitMessage(runningAgents),
+    detail: messages.quitDetail,
+    confirm: messages.quitConfirm,
+    cancel: messages.quitCancel
   }
 }
 
@@ -508,8 +766,17 @@ export interface AppIpcHost {
   providerEditorSender(webContentsId: number): string | null
   discoverModels(config: ProviderConfig): Promise<ModelDiscoveryResult>
   checkProviders(configs: readonly ProviderConfig[]): Promise<ProviderHealth[]>
+  /** WP-7: login state per provider; see `@main/providers/authStatus`. */
+  checkProviderAuth(configs: readonly ProviderConfig[]): Promise<ProviderAuthStatus[]>
   pickDirectory(webContentsId: number, defaultPath?: string): Promise<string | null>
-  openProfileEditor(profileId?: string): void
+  /**
+   * `providerId` (WP-7) preselects the orchestrator of a NEW profile — the
+   * first-run card knows which CLI actually answered its health probe, and
+   * dropping the user into a form defaulted to a provider that is not
+   * installed is how a guided first run stops being guided. A hint, never a
+   * write: an existing profile carries its own provider and ignores it.
+   */
+  openProfileEditor(profileId?: string, providerId?: string): void
   closeProfileEditor(webContentsId: number): void
   openProviderEditor(providerId?: string): void
   closeProviderEditor(webContentsId: number): void
@@ -537,9 +804,16 @@ export interface AppIpcHost {
   confirmQuit(runningAgents: number): Promise<boolean>
   /** Shut the app down. `before-quit` is what stops the agents cleanly. */
   quit(): void
-  /** Open the zone overlay on every display for this profile. */
+  /** Open the zone overlay for this profile (picker when several monitors). */
   openZoneOverlays(profileId: string): void
   closeZoneOverlays(): void
+  /**
+   * Bind the live overlay to this display and leave picker mode. Optional so
+   * a test host that never opens overlays does not have to stub it.
+   */
+  selectZoneOverlayDisplay?(displayId: number): boolean
+  /** Attached monitors as the picker labels them. */
+  listZoneDisplays?(): ZoneDisplayInfo[]
   /** Profile + display behind this webContents, or null for anything else. */
   zoneOverlaySender(webContentsId: number): ZoneOverlaySender | null
   /** Displays currently covered by an overlay — see {@link mergeZoneLayout}. */
@@ -595,10 +869,12 @@ export function toPanelSettings(
 ): PanelSettings {
   return {
     yoloMaster: value.yoloMaster,
+    agentPolicy: effectiveAgentPolicy(value),
     hideAllHotkey: value.hideAllHotkey,
     locale: value.ui.locale,
     theme: value.ui.theme,
     appearance: value.ui.appearance,
+    onboardingDismissed: value.ui.onboardingDismissed,
     autostart: value.autostart,
     updateChannel: value.updateChannel,
     autostartSupported,
@@ -606,6 +882,7 @@ export function toPanelSettings(
     voiceWakePhrase: value.voice.wakePhrase,
     voiceVoiceId: value.voice.voiceId,
     voiceApiKeySet: value.voice.apiKey.trim().length > 0,
+    mcpServers: value.mcpServers,
     ...(hotkey && !hotkey.registered ? { hideAllHotkeyError: hotkey.error ?? '' } : {})
   }
 }
@@ -762,9 +1039,17 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
 
   // --- providers & models ------------------------------------------------
 
-  handle(APP_CHANNELS.providersList, requireAppWindow, async () => {
+  handle(APP_CHANNELS.providersList, requireAppWindow, async (_event, payload) => {
     const configs = host.store.effectiveProviders()
-    const cached = healthCache && now() - healthCache.at <= PROVIDER_HEALTH_TTL_MS
+    // `{ refresh: true }` is the first-run card's ⟳ (WP-7). The TTL exists for
+    // the picker, which reads this on every editor open; but a user who just
+    // installed a CLI and pressed the one button the copy told them to press
+    // would otherwise be served the same "not found" for up to 30 s — a cache
+    // hit does not even refresh its own timestamp, so pressing again changes
+    // nothing. An explicit gesture may therefore skip the cache and overwrite
+    // it; nothing that reads on a render is allowed to pass this flag.
+    const refresh = (payload as { refresh?: unknown } | undefined)?.refresh === true
+    const cached = !refresh && healthCache && now() - healthCache.at <= PROVIDER_HEALTH_TTL_MS
     // Probes run in parallel inside checkProviders — one dead CLI must not
     // serialize the picker behind its timeout.
     const health = cached ? healthCache!.health : await host.checkProviders(configs)
@@ -775,6 +1060,24 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
       health: byId.get(config.id)
     }))
   })
+
+  /**
+   * WP-7: who is logged in where.
+   *
+   * Guarded like `providers:list` and not more narrowly: both reads feed the
+   * same first-run card, and giving the two halves of one card two different
+   * sender rules would be a trap for whoever adds the third. It answers a
+   * descriptor-derived login command and whatever the CLI printed about
+   * itself — no credentials, no tokens, nothing a provider list does not
+   * already imply.
+   *
+   * Deliberately uncached: the whole point is to be re-run right after the
+   * user typed the login command in their own terminal, and a TTL would make
+   * "I just logged in" a wait instead of a click.
+   */
+  handle(APP_CHANNELS.providersAuthStatus, requireAppWindow, () =>
+    host.checkProviderAuth(host.store.effectiveProviders())
+  )
 
   /**
    * Announce the effective provider list. Every window that shows providers
@@ -833,17 +1136,34 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   handle(APP_CHANNELS.workspacesList, requirePanel, () => host.directory.list())
 
   handle(APP_CHANNELS.workspacesStart, requirePanel, async (_event, payload) => {
+    const body =
+      typeof payload === 'string'
+        ? { profileId: payload }
+        : ((payload ?? {}) as { profileId?: string; goal?: unknown })
+    if (!body.profileId) throw new Error('workspaces:start rejected — missing profile id')
+    // Goal is optional (back-compat bare Play); anything non-string or blank
+    // is treated as absent rather than refused — an empty field is not an error.
+    const goal = typeof body.goal === 'string' && body.goal.trim() ? body.goal.trim() : undefined
+    await (goal ? host.directory.start(body.profileId, goal) : host.directory.start(body.profileId))
+    emitWorkspaces()
+  })
+
+  // H2 refill: unlike the start goal above, THIS one is the whole point of the
+  // call — a blank field is refused instead of quietly starting nothing.
+  handle(APP_CHANNELS.workspacesGoal, requirePanel, async (_event, payload) => {
+    const body = (payload ?? {}) as { workspaceId?: string; goal?: unknown }
+    if (!body.workspaceId) throw new Error('workspaces:goal rejected — missing workspace id')
+    const goal = typeof body.goal === 'string' ? body.goal.trim() : ''
+    if (!goal) throw new Error('workspaces:goal rejected — missing goal text')
+    await host.directory.assignGoal(body.workspaceId, goal)
+    emitWorkspaces()
+  })
+
+  handle(APP_CHANNELS.workspacesResume, requirePanel, async (_event, payload) => {
     const profileId =
       typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
-    if (!profileId) throw new Error('workspaces:start rejected — missing profile id')
-    const goal =
-      payload &&
-      typeof payload === 'object' &&
-      typeof (payload as { goal?: unknown }).goal === 'string'
-        ? (payload as { goal: string }).goal
-        : undefined
-    if (goal !== undefined) await host.directory.start(profileId, { goal })
-    else await host.directory.start(profileId)
+    if (!profileId) throw new Error('workspaces:resume rejected — missing profile id')
+    await host.directory.resume(profileId)
     emitWorkspaces()
   })
 
@@ -865,6 +1185,16 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     emitWorkspaces()
   })
 
+  handle(APP_CHANNELS.workspacesSucceedOrchestrator, requirePanel, async (_event, payload) => {
+    const workspaceId =
+      typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
+    if (!workspaceId) {
+      throw new Error('workspaces:succeedOrchestrator rejected — missing workspace id')
+    }
+    await host.directory.succeedOrchestrator(workspaceId)
+    emitWorkspaces()
+  })
+
   handle(APP_CHANNELS.workspacesFocusAgent, requirePanel, (_event, payload) => {
     const agentId =
       typeof payload === 'string' ? payload : (payload as { agentId?: string })?.agentId
@@ -877,6 +1207,57 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
       typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
     if (!workspaceId) throw new Error('workspaces:focus rejected — missing workspace id')
     host.directory.focusWorkspace(workspaceId)
+  })
+
+  handle(APP_CHANNELS.workspacesCloseAgent, requirePanel, (_event, payload) => {
+    const agentId =
+      typeof payload === 'string' ? payload : (payload as { agentId?: string })?.agentId
+    if (!agentId) throw new Error('workspaces:closeAgent rejected — missing agent id')
+    host.directory.closeAgentWindow(agentId)
+    emitWorkspaces()
+  })
+
+  handle(APP_CHANNELS.workspacesAnswerQuestion, requirePanel, async (_event, payload) => {
+    const body = (payload ?? {}) as {
+      workspaceId?: string
+      agentId?: string
+      questionId?: string
+      text?: string
+    }
+    if (!body.workspaceId) throw new Error('workspaces:answerQuestion rejected — missing workspace id')
+    if (!body.agentId) throw new Error('workspaces:answerQuestion rejected — missing agent id')
+    if (!body.questionId) throw new Error('workspaces:answerQuestion rejected — missing question id')
+    if (!body.text?.trim()) throw new Error('workspaces:answerQuestion rejected — missing answer text')
+    await host.directory.answerQuestion(body.workspaceId, body.agentId, body.questionId, body.text)
+    // The badge derives from the question registry; answering mutates it and
+    // the registry's onMutate feed pushes — this emit only covers a directory
+    // without a push channel.
+    emitWorkspaces()
+  })
+
+  handle(APP_CHANNELS.workspacesUserMessage, requirePanel, async (_event, payload) => {
+    const body = (payload ?? {}) as { workspaceId?: string; text?: string }
+    if (!body.workspaceId) throw new Error('workspaces:userMessage rejected — missing workspace id')
+    if (!body.text?.trim()) throw new Error('workspaces:userMessage rejected — missing text')
+    await host.directory.postUserMessage(body.workspaceId, body.text.trim())
+  })
+
+  handle(APP_CHANNELS.workspacesPromoteAgent, requirePanel, async (_event, payload) => {
+    const body = (payload ?? {}) as { workspaceId?: string; agentId?: string }
+    if (!body.workspaceId) throw new Error('workspaces:promoteAgent rejected — missing workspace id')
+    if (!body.agentId) throw new Error('workspaces:promoteAgent rejected — missing agent id')
+    await host.directory.promoteAgentBranch(body.workspaceId, body.agentId)
+  })
+
+  // Panel-only by construction: `requirePanel` is the same guard the workspace
+  // lifecycle uses, and the remote gateway holds an allow-list of verbs rather
+  // than a mirror of these channels — so this one cannot be reached from a
+  // paired browser at all.
+  handle(APP_CHANNELS.workspacesOpenRunFolder, requirePanel, async (_event, payload) => {
+    const workspaceId =
+      typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
+    if (!workspaceId) throw new Error('workspaces:openRunFolder rejected — missing workspace id')
+    await host.directory.openRunFolder(workspaceId)
   })
 
   // --- worktree cleanup ----------------------------------------------------
@@ -923,6 +1304,18 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     return host.store.deleteModelLearning(id)
   })
 
+  handle(APP_CHANNELS.retroRepoNotes, requirePanel, (_event, payload) => {
+    const profileId =
+      typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
+    return host.store.getRepoNotes(profileId || undefined)
+  })
+
+  handle(APP_CHANNELS.retroDeleteRepoNote, requirePanel, (_event, payload) => {
+    const id = typeof payload === 'string' ? payload : (payload as { id?: string })?.id
+    if (!id) throw new Error('retro:deleteRepoNote rejected — missing note id')
+    return host.store.deleteRepoNote(id)
+  })
+
   // --- settings & windows ------------------------------------------------
 
   handle(APP_CHANNELS.settingsGet, requireAppWindow, () => panelSettings())
@@ -948,7 +1341,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   /**
    * The settings form's single write path.
    *
-   * Three of the five keys have an effect that must happen NOW, not at the next
+   * Three of the keys have an effect that must happen NOW, not at the next
    * boot — the hotkey, the login item and the update channel. They are applied
    * here rather than in the renderer, so the same guarantee holds no matter who
    * calls the channel.
@@ -1000,6 +1393,13 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
           const ui = { ...host.store.getSettings().ui, appearance: normalizeAppearance(body.value) }
           return panelSettings(host.store.setSetting('ui', ui))
         }
+        case 'onboardingDismissed': {
+          if (typeof body.value !== 'boolean') {
+            throw new Error('settings:set rejected — onboardingDismissed expects a boolean')
+          }
+          const ui = { ...host.store.getSettings().ui, onboardingDismissed: body.value }
+          return panelSettings(host.store.setSetting('ui', ui))
+        }
         case 'theme':
         case 'locale': {
           // `ui` is one strict object in the schema: read, patch, write back.
@@ -1016,6 +1416,26 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
           const stored = host.store.setSetting('voice', merged)
           await host.voice?.setEnabled(stored.voice.enabled)
           return panelSettings(stored)
+        }
+        case 'agentPolicy': {
+          // D4: the store mirrors `yoloMaster` on this write, so the panel's
+          // toggle and this picker can never show two different truths.
+          const policy = AGENT_POLICIES.find((tier) => tier === body.value)
+          if (!policy) {
+            throw new Error(
+              `settings:set rejected — agentPolicy expects ${AGENT_POLICIES.join(', ')}`
+            )
+          }
+          return panelSettings(host.store.setSetting('agentPolicy', policy))
+        }
+        case 'mcpServers': {
+          try {
+            const parsed = parseExtraMcpServersForWrite(body.value)
+            return panelSettings(host.store.setSetting('mcpServers', parsed))
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'invalid mcpServers'
+            throw new Error(`settings:set rejected — ${message}`)
+          }
         }
         default: {
           // Unreachable while WRITABLE_SETTINGS and this switch agree; the
@@ -1094,9 +1514,11 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   })
 
   handle(APP_CHANNELS.profileEditorOpen, requireAppWindow, (_event, payload) => {
-    const profileId =
-      typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
-    host.openProfileEditor(profileId || undefined)
+    const body =
+      typeof payload === 'string'
+        ? { profileId: payload }
+        : ((payload ?? {}) as { profileId?: string; providerId?: string })
+    host.openProfileEditor(body.profileId || undefined, body.providerId || undefined)
   })
 
   host.ipcMain.on(APP_CHANNELS.profileEditorClose, ((event: IpcEvent): void => {
@@ -1169,7 +1591,13 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     // The overlay is not an "app window" on the settings guard, so this is the
     // only channel that can tell it which language and theme to draw in at open.
     return {
-      ...zoneEditorPayload(profile, host.store.getRoleTemplates(), sender.displayId),
+      ...zoneEditorPayload(
+        profile,
+        host.store.getRoleTemplates(),
+        sender.displayId,
+        host.listZoneDisplays?.() ?? [],
+        sender.pick
+      ),
       locale: host.store.getSettings().ui.locale,
       theme: host.store.getSettings().ui.theme
     }
@@ -1188,7 +1616,12 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     // display; the other displays come from the drafts they pushed while the
     // user was dragging.
     zoneDrafts.set(sender.displayId, parseDraftZones(body.zones, sender.displayId))
-    const zones = mergeZoneLayout(profile.zones, zoneDrafts, host.zoneOverlayDisplayIds())
+    const zones = mergeZoneLayout(
+      profile.zones,
+      zoneDrafts,
+      host.zoneOverlayDisplayIds(),
+      sender.displayId
+    )
     const profiles = host.store.saveProfile({ ...profile, zones })
     zoneDrafts.clear()
     emitProfiles(profiles)
@@ -1213,6 +1646,44 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     zoneDrafts.clear()
     host.closeZoneOverlays()
   }) as IpcListener)
+
+  handle(APP_CHANNELS.zonesPickDisplay, requireZoneOverlay, (event, payload) => {
+    const sender = requireZoneOverlay(event, APP_CHANNELS.zonesPickDisplay)
+    const requested =
+      typeof payload === 'number'
+        ? payload
+        : typeof (payload as { displayId?: unknown } | undefined)?.displayId === 'number'
+          ? (payload as { displayId: number }).displayId
+          : sender.displayId
+    if (!Number.isInteger(requested)) {
+      throw new Error('zones:pickDisplay rejected — missing display id')
+    }
+    const displays = host.listZoneDisplays?.() ?? []
+    if (displays.length > 0 && !displays.some((display) => display.id === requested)) {
+      throw new Error(`zones:pickDisplay rejected — unknown display ${requested}`)
+    }
+    if (host.selectZoneOverlayDisplay?.(requested) === false) {
+      throw new Error(`zones:pickDisplay rejected — unknown display ${requested}`)
+    }
+    const profile = host.store.getProfiles().find((entry) => entry.id === sender.profileId)
+    if (!profile) throw new Error(`zones:pickDisplay rejected — unknown profile ${sender.profileId}`)
+    // Stamp the target screen now, not only on Save: auto-tiling must honour
+    // the pick even if the user never draws a rectangle.
+    const zones = mergeZoneLayout(profile.zones, new Map(), [], requested)
+    const profiles = host.store.saveProfile({ ...profile, zones })
+    emitProfiles(profiles)
+    return {
+      ...zoneEditorPayload(
+        { ...profile, zones },
+        host.store.getRoleTemplates(),
+        requested,
+        displays,
+        false
+      ),
+      locale: host.store.getSettings().ui.locale,
+      theme: host.store.getSettings().ui.theme
+    }
+  })
 
   unsubscribeDirectory = host.directory.onChange?.(() => emitWorkspaces())
   unsubscribeUpdates = host.onUpdateState?.((state) => {
@@ -1269,8 +1740,15 @@ function send(targets: readonly (BrowserWindow | null)[], channel: string, paylo
  * stub, which is why the app entry must call this only after the manager is
  * built (or in its catch). Nothing else in the app may call it — window smoke
  * hooks in particular live in the app entry, next to the other boot hooks.
+ *
+ * `bootError` only applies to the stub path: it is the reason the manager does
+ * not exist, and it travels into every workspace refusal.
  */
-export function registerAppIpc(directory?: WorkspaceDirectory, voice?: AppVoicePort): AppIpc {
+export function registerAppIpc(
+  directory?: WorkspaceDirectory,
+  bootError?: string,
+  voice?: AppVoicePort
+): AppIpc {
   if (instance) return instance
   // Every call goes through `settings()` instead of capturing the store once:
   // constructing electron-store touches the config file, and a corrupt file
@@ -1288,18 +1766,26 @@ export function registerAppIpc(directory?: WorkspaceDirectory, voice?: AppVoiceP
     getRunRetros: () => settings().getRunRetros(),
     getModelLearnings: () => settings().getModelLearnings(),
     deleteModelLearning: (id) => settings().deleteModelLearning(id),
+    getRepoNotes: (profileId) => settings().getRepoNotes(profileId),
+    deleteRepoNote: (id) => settings().deleteRepoNote(id),
     getSettings: () => settings().getSettings(),
     setSetting: (key, value) => settings().setSetting(key, value)
   }
   instance = createAppIpc({
     ipcMain: ipcMain as unknown as MinimalIpcMain,
     store,
-    directory: directory ?? createStubWorkspaceDirectory(),
+    directory:
+      directory ??
+      createStubWorkspaceDirectory(() => settings().getSettings().ui.locale, bootError),
     isPanelSender: (id) => isPanelWindowSender(id),
     profileEditorSender: (id) => isProfileEditorWindowSender(id),
     providerEditorSender: (id) => isProviderEditorWindowSender(id),
-    discoverModels: (config) => discoverModels(config),
+    discoverModels: (config) =>
+      discoverModels(config, {
+        locale: () => readLocale(() => settings().getSettings().ui.locale)
+      }),
     checkProviders: (configs) => checkAllProviders(configs),
+    checkProviderAuth: (configs) => checkAllProviderAuth(configs),
     async pickDirectory(webContentsId, defaultPath) {
       // Modal to the asking window, so the dialog cannot end up behind the
       // always-on-top panel.
@@ -1315,8 +1801,8 @@ export function registerAppIpc(directory?: WorkspaceDirectory, voice?: AppVoiceP
         : await dialog.showOpenDialog(options)
       return result.canceled ? null : (result.filePaths[0] ?? null)
     },
-    openProfileEditor: (profileId) => {
-      openProfileEditorWindow(profileId)
+    openProfileEditor: (profileId, providerId) => {
+      openProfileEditorWindow(profileId, providerId)
     },
     closeProfileEditor: (webContentsId) => {
       const key = isProfileEditorWindowSender(webContentsId)
@@ -1352,16 +1838,20 @@ export function registerAppIpc(directory?: WorkspaceDirectory, voice?: AppVoiceP
       getPanelWindow()?.minimize()
     },
     async confirmQuit(runningAgents) {
-      const { message, detail } = quitConfirmationText(runningAgents)
+      const locale = readLocale(() => settings().getSettings().ui.locale)
+      const { title, message, detail, confirm, cancel } = quitConfirmationText(
+        runningAgents,
+        locale
+      )
       const owner = getPanelWindow()
       const options: Electron.MessageBoxOptions = {
         type: 'warning',
         // Cancel is the default: an accidental Enter must not kill a team.
-        buttons: ['Beenden', 'Abbrechen'],
+        buttons: [confirm, cancel],
         defaultId: 1,
         cancelId: 1,
         noLink: true,
-        title: 'Vertragus beenden',
+        title,
         message,
         detail
       }
@@ -1375,6 +1865,8 @@ export function registerAppIpc(directory?: WorkspaceDirectory, voice?: AppVoiceP
       openZoneOverlayWindows(profileId)
     },
     closeZoneOverlays: () => closeZoneOverlayWindows(),
+    selectZoneOverlayDisplay: (displayId) => selectZoneOverlayDisplay(displayId),
+    listZoneDisplays: () => listZoneDisplays(),
     zoneOverlaySender: (id) => isZoneOverlaySender(id),
     zoneOverlayDisplayIds: () => zoneOverlayDisplayIds(),
     hotkeyStatus: () => hideAllHotkeyStatus(),

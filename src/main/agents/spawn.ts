@@ -35,26 +35,44 @@
  * - `<cwd>/.cursor/mcp.json` — Cursor's MCP attachment (merged, not overwritten).
  *   Same working-directory rule as Kimi; the `vertragus` entry is left behind
  *   on purpose so a live CLI cannot lose its server mid-session.
+ * - `<cwd>/.grok/config.toml` — Grok Build's MCP attachment (merged). Same
+ *   working-directory rule; only the `[mcp_servers.vertragus]` table is ours.
+ *   Orchestrator writes `[permission]` deny/allow as well; subagent is URL-only.
+ * - `<cwd>/.grok/agents/vertragus-orchestrator.md` — Grok orchestrator agent
+ *   (tool allowlist + `disallowedTools: Agent`). Subagents do not get this file
+ *   as their session agent.
  *
- *   These two are the only artefacts a Vertragus launch writes into user
- *   territory. Since every agent owns its worktree they can no longer collide
- *   between parallel agents — which is exactly why the worktree became
+ *   These project-file dialects are the only artefacts a Vertragus launch writes
+ *   into user territory. Since every agent owns its worktree they can no longer
+ *   collide between parallel agents — which is exactly why the worktree became
+
  *   mandatory rather than opt-in.
  * - Codex writes nothing at all: every setting is a process-local `-c` override.
  */
 import {
   buildCodexMcpArgs,
+  claudeMcpTimeoutEnv,
   CURSOR_APPROVE_MCPS_FLAG,
+  grokAllowMcpArgs,
+  grokOrchestratorArgv,
+  grokOrchestratorEnv,
   codexDeveloperInstructionsArgs,
+  leadAllowedTools,
+  leadMcpTools,
   orchestratorAllowedTools,
   orchestratorMcpTools,
   writeClaudeMcpConfigFile,
   writeCursorProjectMcpConfig,
+  writeGrokOrchestratorAgentFile,
+  writeGrokProjectMcpConfig,
   writeKimiAgentFile,
   writeKimiProjectMcpConfig
 } from '@main/mcp/attach'
+import type { ExtraMcpServer } from '@shared/schema/mcpServer'
+import type { ExtraMcpServer as SlotExtraMcpServer } from '@shared/schema/profile'
 import {
   buildEffortArgs,
+  buildInitialPromptArgs,
   buildModelArgs,
   type EffortLevel,
   type ProviderConfig
@@ -64,8 +82,12 @@ import { ensureKimiWorkspaceTrust } from './kimiTrust'
 import { PtyAgent, type PtyAgentLike, type PtySpawnOptions } from './PtyAgent'
 import { resolveLaunch, type ResolveLaunchOptions } from './resolveCommand'
 
-/** Orchestrator and subagent differ in exactly two places: yolo and allowlist. */
-export type AgentLaunchKind = 'orchestrator' | 'subagent'
+/**
+ * Orchestrator and subagent differ in exactly two places: yolo and allowlist.
+ * F adds 'lead': launched like an orchestrator (never yolo) but with the lead
+ * allowlist — the scoped down-tools plus the upward reporting tools.
+ */
+export type AgentLaunchKind = 'orchestrator' | 'subagent' | 'lead'
 
 /**
  * The PTY surface the workspace layer needs. Wider than {@link PtyAgentLike}
@@ -97,6 +119,23 @@ export interface AgentLaunchInput {
   configDir: string
   /** Role prompt for a subagent, orchestrator prompt for the orchestrator. */
   systemPrompt?: string
+  /**
+   * First user turn, when the provider declares `initialPromptDelivery`.
+   * Orchestrator start-goal only. Never a headless `-p` / `--single` one-shot.
+   */
+  initialPrompt?: string
+  /**
+   * E6: extra MCP servers from the agent's slot. Honored for `kind:
+   * 'subagent'` ONLY — same construction as the yolo rule: no profile and no
+   * caller can hand an orchestrator or lead a second tool surface.
+   */
+  extraMcp?: readonly SlotExtraMcpServer[]
+  /**
+   * Extra MCP servers from global settings. Honored for `kind: 'subagent'`
+   * ONLY — same rule as {@link extraMcp}: orchestrator and lead stay on the
+   * built-in Vertragus server.
+   */
+  extraMcpServers?: readonly ExtraMcpServer[]
   /** Platform override for testing the Windows resolution off-Windows. */
   platform?: NodeJS.Platform
 }
@@ -110,6 +149,11 @@ export interface AgentArgv {
    * type this before the first task — there is no launch flag for it.
    */
   ptySystemPrompt?: string
+  /**
+   * Extra environment variables for this process. Merged over `process.env` by
+   * PtyAgent. Used by the Grok orchestrator cage (`GROK_SUBAGENTS=0`).
+   */
+  env?: Record<string, string>
 }
 
 export interface ResolvedLaunch extends AgentArgv {
@@ -120,6 +164,12 @@ export interface ResolvedLaunch extends AgentArgv {
   /** The provider's declared command, before resolution — for logs and errors. */
   command: string
   cwd: string
+  /**
+   * Environment overlaid on `process.env` for this launch only. Set when the
+   * provider's MCP dialect spells a setting as an env var; absent otherwise —
+   * see {@link buildAgentEnv}.
+   */
+  env?: Record<string, string>
 }
 
 /**
@@ -134,9 +184,21 @@ export interface ResolvedLaunch extends AgentArgv {
  */
 export function buildMcpArgs(input: AgentLaunchInput): string[] {
   const { provider } = input
+  // Settings extras and E6 slot extras both reach SUBAGENTS only — an
+  // orchestrator or lead with a browser tool is a delegator that starts
+  // doing the work itself.
+  const extras =
+    input.kind === 'subagent'
+      ? [...(input.extraMcpServers ?? []), ...(input.extraMcp ?? [])]
+      : []
   switch (provider.mcp.kind) {
     case 'claude-json': {
-      const configPath = writeClaudeMcpConfigFile(input.mcpUrl, input.configDir, input.fileTag)
+      const configPath = writeClaudeMcpConfigFile(
+        input.mcpUrl,
+        input.configDir,
+        input.fileTag,
+        extras
+      )
       const args = [provider.mcp.configArg, configPath]
       if (provider.mcp.strictArg) args.push(provider.mcp.strictArg)
       // Subagents run WITHOUT an allowlist on purpose: a worker must be able to
@@ -144,6 +206,9 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       // from a tool cage — the cage is what starved the old repo's workers.
       if (input.kind === 'orchestrator' && provider.mcp.allowedToolsArg) {
         args.push(provider.mcp.allowedToolsArg, orchestratorAllowedTools().join(','))
+      }
+      if (input.kind === 'lead' && provider.mcp.allowedToolsArg) {
+        args.push(provider.mcp.allowedToolsArg, leadAllowedTools().join(','))
       }
       return args
     }
@@ -155,7 +220,12 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
         url: input.mcpUrl,
         configDir: input.configDir,
         fileTag: input.fileTag,
-        ...(input.kind === 'orchestrator' ? { allowedTools: orchestratorMcpTools() } : {})
+        extraMcpServers: extras,
+        ...(input.kind === 'orchestrator' ? { allowedTools: orchestratorMcpTools() } : {}),
+        ...(input.kind === 'lead' ? { allowedTools: leadMcpTools() } : {}),
+        // Codex spells the raised tool timeout as one more `-c` override; it
+        // is emitted only when the provider claims the capability.
+        ...(provider.mcpToolTimeoutSec ? { toolTimeoutSec: provider.mcpToolTimeoutSec } : {})
       })
     case 'kimi-project':
       // Kimi has no flag either — the attachment is a file in the agent's own
@@ -164,7 +234,12 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       writeKimiProjectMcpConfig(
         input.mcpUrl,
         input.cwd,
-        input.kind === 'orchestrator' ? orchestratorMcpTools() : undefined
+        input.kind === 'orchestrator'
+          ? orchestratorMcpTools()
+          : input.kind === 'lead'
+            ? leadMcpTools()
+            : undefined,
+        extras
       )
       return []
     case 'cursor-project':
@@ -174,11 +249,53 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       // - no per-server tool filter — orchestrator scoping stays URL-side
       //   (same declared limit as Codex' missing `--strict-mcp-config`);
       // - the flag also approves the user's own project servers for this run.
-      writeCursorProjectMcpConfig(input.mcpUrl, input.cwd)
+      writeCursorProjectMcpConfig(input.mcpUrl, input.cwd, extras)
       return [CURSOR_APPROVE_MCPS_FLAG]
+    case 'grok-project': {
+      // Grok reads `<cwd>/.grok/config.toml` and has no config-file flag.
+      // `--tools` / `--disallowed-tools` are headless-only (ignored in TUI).
+      // Orchestrator: URL + permission deny/allow, plus `--no-subagents` /
+      // `--deny` / `--allow` / `--agent` matching the TOML. Subagent/lead:
+      // URL + `--allow MCPTool(vertragus__*)` so loopback tools skip the TUI
+      // prompt. extras is already empty for orchestrator/lead.
+      const orchestrator = input.kind === 'orchestrator'
+      writeGrokProjectMcpConfig(input.mcpUrl, input.cwd, extras, { orchestrator })
+      if (!orchestrator) return grokAllowMcpArgs()
+      writeGrokOrchestratorAgentFile(input.cwd)
+      return grokOrchestratorArgv()
+    }
     case 'none':
       return []
   }
+}
+
+/**
+ * Per-launch environment for one agent.
+ *
+ * Claude: MCP tool-call timeout, spelled as env vars. The number is the
+ * provider's `mcpToolTimeoutSec` claim; the SPELLING is the dialect's, which
+ * is why the pair itself lives in `mcp/attach` next to every other per-CLI
+ * attachment fact. Claude reads `MCP_TIMEOUT`/`MCP_TOOL_TIMEOUT` from its
+ * environment (milliseconds), so the raise dies with the process — the same
+ * philosophy as Codex' `-c` overrides and the transient config file: a
+ * Vertragus launch never edits a user-global config. Codex takes its raise as
+ * an argument instead (`tool_timeout_sec`, see {@link buildMcpArgs}), and the
+ * remaining dialects have no verified timeout mechanism.
+ *
+ * Every kind of Claude agent gets the timeout, not just the orchestrator:
+ * `await_events` is the orchestrator's loop, but a lead runs the same loop, and
+ * a subagent whose CLI survives a long tool call is never worse off.
+ *
+ * Grok orchestrator: `GROK_SUBAGENTS=0` / `GROK_WORKFLOWS=0` plus the project
+ * agent name. Subagent and lead launches must not get this — native spawn is
+ * how a Grok worker works.
+ */
+export function buildAgentEnv(input: AgentLaunchInput): Record<string, string> | undefined {
+  if (input.kind === 'orchestrator' && input.provider.mcp.kind === 'grok-project') {
+    return grokOrchestratorEnv()
+  }
+  if (input.provider.mcp.kind !== 'claude-json') return undefined
+  return claudeMcpTimeoutEnv(input.provider.mcpToolTimeoutSec)
 }
 
 /**
@@ -213,7 +330,9 @@ export function buildSystemPromptArgs(input: AgentLaunchInput): AgentArgv {
  *
  * Order matters. `provider.args` first (`ollama run`), then the model — which
  * for a provider without `modelArg` is positional and must sit directly behind
- * those args — then effort, yolo, MCP attach and the system prompt.
+ * those args — then effort, yolo, MCP attach, the system prompt, and finally
+ * an optional first-user prompt (trailing positional when the provider
+ * declares it).
  */
 export function buildAgentArgv(input: AgentLaunchInput): AgentArgv {
   const { provider } = input
@@ -224,6 +343,7 @@ export function buildAgentArgv(input: AgentLaunchInput): AgentArgv {
   argv.push(...buildMcpArgs(input))
   const prompt = buildSystemPromptArgs(input)
   argv.push(...prompt.argv)
+  argv.push(...buildInitialPromptArgs(provider, input.initialPrompt))
   return { argv, ptySystemPrompt: prompt.ptySystemPrompt }
 }
 
@@ -254,13 +374,15 @@ export async function buildAgentLaunch(
     requireFaithfulArgs: needsFaithfulArgs(argv),
     ...(input.platform ? { platform: input.platform } : {})
   })
+  const env = buildAgentEnv(input)
   return {
     file: resolved.file,
     args: resolved.args,
     command: input.provider.command,
     argv,
     cwd: input.cwd,
-    ptySystemPrompt
+    ptySystemPrompt,
+    ...(env ? { env } : {})
   }
 }
 
@@ -344,6 +466,10 @@ export async function spawnAgent(
       file: launch.file,
       args: launch.args,
       cwd: launch.cwd,
+      // Overlaid on `process.env` by the PTY; absent for a provider that needs
+      // no environment, so an untouched dialect keeps spawning byte-identically.
+
+      ...(launch.env ? { env: launch.env } : {}),
       ...(deps.cols ? { cols: deps.cols } : {}),
       ...(deps.rows ? { rows: deps.rows } : {})
     })

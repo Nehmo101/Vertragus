@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { CONTRACT_MARKER } from '@shared/prompts/contract'
+import { CONTRACT_MARKER, HANDOFF_MARKER } from '@shared/prompts/contract'
 import { ORCHESTRATOR_TOOL_NAMES, registerOrchestratorTools } from './toolsOrchestrator'
+import { adoptSubtree, queueForAgent } from './types'
 import { callTool, captureTools, FakeAgentHost, fakeRuntime } from './testing'
 
 function setup(options: Parameters<typeof fakeRuntime>[0] = {}) {
@@ -10,7 +11,7 @@ function setup(options: Parameters<typeof fakeRuntime>[0] = {}) {
 }
 
 describe('orchestrator tool surface', () => {
-  it('registers exactly the seven documented tools', () => {
+  it('registers exactly the documented tools', () => {
     const { tools } = setup()
     expect([...tools.keys()].sort()).toEqual([...ORCHESTRATOR_TOOL_NAMES].sort())
   })
@@ -18,6 +19,100 @@ describe('orchestrator tool surface', () => {
   it('describes every tool for the model', () => {
     const { tools } = setup()
     for (const tool of tools.values()) expect(tool.description?.length ?? 0).toBeGreaterThan(40)
+  })
+})
+
+describe('ask_user — D3', () => {
+  it('parks a question for the human, pushes user_question once, and resumes by ticket', async () => {
+    const { runtime, tools } = setup()
+
+    // First call times out (nobody answered) and hands out a ticket.
+    runtime.ctx.askTimeoutMs = 10
+    const first = await callTool(tools, 'ask_user', { question: 'Ship v1 without dark mode?' })
+    expect(first.json.answer).toBeNull()
+    const ticket = String(first.json.ticket)
+    expect(ticket).toBeTruthy()
+
+    const events = runtime.events.all().filter((event) => event.type === 'user_question')
+    expect(events).toHaveLength(1)
+    // S2 quiet: the badge signal must not wake the asker's own parked loop.
+    expect(events[0]).toMatchObject({
+      questionId: ticket,
+      question: 'Ship v1 without dark mode?',
+      quiet: true
+    })
+
+    // A repeated ask without a ticket reuses the SAME open question — one
+    // blocking prompt for the human, not a pile.
+    const repeat = await callTool(tools, 'ask_user', { question: 'Ship v1 without dark mode?' })
+    expect(repeat.json.ticket).toBe(ticket)
+    expect(runtime.events.all().filter((event) => event.type === 'user_question')).toHaveLength(1)
+
+    // The panel/gateway answers under the reserved agent id `user` (H1 path);
+    // the ticket resume then delivers it.
+    runtime.questions.answer(ticket, 'Yes, ship it.')
+    const resumed = await callTool(tools, 'ask_user', { question: 'unchanged', ticket })
+    expect(resumed.json).toMatchObject({ answer: 'Yes, ship it.', ticket })
+  })
+
+  it('blocks per the raised orchestrator window instead of the 50 s ticket carousel', async () => {
+    // awaitTimeout is the orchestrator CLI's raised window — ask_user runs on
+    // that same CLI, so with no explicit askTimeoutMs the call must block
+    // maxSec (here 1 s), not the 50 s default (which would fail this test).
+    const { tools } = setup({ awaitTimeout: { defaultSec: 1, maxSec: 1 } })
+    const begun = Date.now()
+    const first = await callTool(tools, 'ask_user', { question: 'Q?' })
+    expect(Date.now() - begun).toBeLessThan(5_000)
+    expect(first.json.answer).toBeNull()
+    expect(first.json.ticket).toBeTruthy()
+  })
+
+  it('answers immediately when the user is faster than the timeout', async () => {
+    const { runtime, tools } = setup()
+    runtime.ctx.askTimeoutMs = 5_000
+    const pending = callTool(tools, 'ask_user', { question: 'Which name?' })
+    await vi.waitFor(() => {
+      expect(runtime.questions.openForAgent('user')).toBeTruthy()
+    })
+    const open = runtime.questions.openForAgent('user')!
+    runtime.questions.answer(open.questionId, 'Vertragus.')
+    expect((await pending).json).toMatchObject({ answer: 'Vertragus.' })
+  })
+
+  it('send_to_agent cannot answer the user’s question by accident', async () => {
+    const { runtime, tools } = setup()
+    runtime.ctx.askTimeoutMs = 10
+    const first = await callTool(tools, 'ask_user', { question: 'Q?' })
+    const ticket = String(first.json.ticket)
+
+    const wrong = await callTool(tools, 'send_to_agent', {
+      agentId: 'agent-1',
+      text: 'answer',
+      questionId: ticket
+    })
+    expect(wrong.isError).toBe(true)
+    expect(wrong.json.error).toBe('question_agent_mismatch')
+    expect(runtime.questions.openForAgent('user')?.questionId).toBe(ticket)
+  })
+})
+
+describe('C5 idle-watchdog touch', () => {
+  it('every tool call touches the runtime hook on entry AND exit', async () => {
+    const { runtime, tools } = setup()
+    let touches = 0
+    runtime.onOrchestratorToolCall = () => {
+      touches += 1
+    }
+
+    await callTool(tools, 'list_agents', {})
+    expect(touches).toBe(2)
+
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(touches).toBe(4)
+
+    // Errors touch too — a refused call is still activity.
+    await callTool(tools, 'start_agent', { role: 'ghost', task: 't' })
+    expect(touches).toBe(6)
   })
 })
 
@@ -36,6 +131,21 @@ describe('start_agent', () => {
     const events = runtime.events.all()
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({ type: 'agent_started', agentId: 'agent-1', roleId: 'worker' })
+  })
+
+  it('D4: appends the approval rule only under the ask-orchestrator tier', async () => {
+    const gated = setup()
+    gated.runtime.ctx.agentPolicy = 'ask-orchestrator'
+    await callTool(gated.tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(gated.runtime.host.seeded[0]!.task).toContain(
+      'call ask_orchestrator and wait for the approval'
+    )
+
+    // The other tiers (and a context without the field) keep the contract as-is.
+    const plain = setup()
+    plain.runtime.ctx.agentPolicy = 'ask-user'
+    await callTool(plain.tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(plain.runtime.host.seeded[0]!.task).not.toContain('approval')
   })
 
   it('passes the model through and reports the agent’s own worktree and branch back', async () => {
@@ -68,6 +178,90 @@ describe('start_agent', () => {
     })
 
     expect(baseBranches).toEqual([undefined, 'vertragus/arsenale/agent-1'])
+  })
+
+  it('Track 4: hands slotId and providerId through to the host untouched', async () => {
+    const choices: Array<{ slotId?: string; providerId?: string }> = []
+    const host = new FakeAgentHost({
+      onStart: (input) => choices.push({ slotId: input.slotId, providerId: input.providerId })
+    })
+    const { tools } = setup({ host })
+
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't', providerId: 'codex' })
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't', slotId: 'slot-2' })
+
+    expect(choices).toEqual([
+      { slotId: undefined, providerId: 'codex' },
+      { slotId: 'slot-2', providerId: undefined }
+    ])
+  })
+
+  it('C4: a baseBranch with a reported done gets a handoff block between task and contract', async () => {
+    const { runtime, tools } = setup()
+    runtime.events.push({
+      type: 'agent_done',
+      agentId: 'agent-0',
+      name: 'Caronte',
+      roleId: 'worker',
+      summary: 'Rewired the parser and ran the tests.',
+      status: 'success',
+      branch: 'vertragus/arsenale/agent-0',
+      headSha: 'cafebabe',
+      uncommitted: false,
+      changedFiles: ['src/parser.ts', 'src/parser.test.ts'],
+      diffStat: '2 files changed'
+    })
+    // A later done on the SAME branch supersedes the earlier one.
+    runtime.events.push({
+      type: 'agent_done',
+      agentId: 'agent-0',
+      name: 'Caronte',
+      roleId: 'worker',
+      summary: 'Fixed the review findings.',
+      status: 'success',
+      branch: 'vertragus/arsenale/agent-0',
+      headSha: 'deadbeef',
+      changedFiles: ['src/parser.ts']
+    })
+
+    await callTool(tools, 'start_agent', {
+      role: 'reviewer',
+      task: 'Review the parser work.',
+      baseBranch: 'vertragus/arsenale/agent-0'
+    })
+
+    const seeded = runtime.host.seeded[0]!.task
+    expect(seeded).toContain(HANDOFF_MARKER)
+    expect(seeded).toContain('Caronte (worker)')
+    expect(seeded).toContain('Fixed the review findings.')
+    expect(seeded).toContain('deadbeef')
+    expect(seeded).not.toContain('Rewired the parser')
+    // Order: task, then handoff, then contract.
+    expect(seeded.indexOf('Review the parser work.')).toBeLessThan(seeded.indexOf(HANDOFF_MARKER))
+    expect(seeded.indexOf(HANDOFF_MARKER)).toBeLessThan(seeded.indexOf(CONTRACT_MARKER))
+  })
+
+  it('C4: no handoff without a matching done — and none without baseBranch', async () => {
+    const { runtime, tools } = setup()
+    runtime.events.push({
+      type: 'agent_done',
+      agentId: 'agent-0',
+      name: 'Caronte',
+      roleId: 'worker',
+      summary: 'Other work.',
+      status: 'success',
+      branch: 'vertragus/arsenale/other'
+    })
+
+    await callTool(tools, 'start_agent', { role: 'worker', task: 'Fresh work.' })
+    await callTool(tools, 'start_agent', {
+      role: 'reviewer',
+      task: 'Review.',
+      baseBranch: 'vertragus/arsenale/agent-ghost'
+    })
+
+    expect(runtime.host.seeded[0]!.task).not.toContain(HANDOFF_MARKER)
+    expect(runtime.host.seeded[1]!.task).not.toContain(HANDOFF_MARKER)
   })
 
   it('rejects an unknown role and names the valid ones', async () => {
@@ -130,19 +324,149 @@ describe('start_agent', () => {
     expect(runtime.events.all()).toHaveLength(0)
     // A task that never started is not the workspace's current task.
     expect(runtime.latestTask).toBeUndefined()
+    expect(runtime.agentTasks.size).toBe(0)
   })
 
-  it('records the first task line as the workspace\'s current task, shortened', async () => {
+  it('records the first task line as the agent\'s current task, shortened', async () => {
     const { runtime, tools } = setup()
     await callTool(tools, 'start_agent', {
       role: 'worker',
       task: '  Fix the parser\nDefinition of done: tests green'
     })
     expect(runtime.latestTask).toBe('Fix the parser')
+    expect(runtime.agentTasks.get('agent-1')).toBe('Fix the parser')
+    expect(runtime.agentTasks.get('agent-1')).not.toMatch(/report_done/)
 
     await callTool(tools, 'start_agent', { role: 'worker', task: `${'x'.repeat(200)}\nrest` })
     expect(runtime.latestTask).toHaveLength(140)
     expect(runtime.latestTask!.endsWith('…')).toBe(true)
+  })
+
+  it('records each agent\'s own current task and announces the change', async () => {
+    const { runtime, tools } = setup()
+    let notified = 0
+    runtime.onTasksChanged = () => {
+      notified += 1
+    }
+
+    await callTool(tools, 'start_agent', { role: 'worker', task: 'Fix the parser\ndetails' })
+    await callTool(tools, 'start_agent', { role: 'reviewer', task: 'Review the parser fix' })
+
+    expect(runtime.agentTasks.get('agent-1')).toBe('Fix the parser')
+    expect(runtime.agentTasks.get('agent-2')).toBe('Review the parser fix')
+    expect(notified).toBe(2)
+    // latestTask is last delegated, not a captured user goal — this layer
+    // does not own goalText, and start_agent must not mint one.
+    expect(runtime.latestTask).toBe('Review the parser fix')
+    expect((runtime as { goalText?: string }).goalText).toBeUndefined()
+  })
+})
+
+describe('start_agent — S3 resultSchema', () => {
+  const schema = {
+    type: 'object',
+    required: ['pass'],
+    properties: { pass: { type: 'boolean' } }
+  }
+
+  it('vets the schema fail-loud BEFORE anything is reserved', async () => {
+    const { runtime, tools } = setup()
+    const result = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      resultSchema: { type: 'object', oneOf: [] }
+    })
+    expect(result.isError).toBe(true)
+    expect(result.json.error).toBe('invalid_result_schema')
+    expect((result.json.problems as string[])[0]).toContain('resultSchema.oneOf')
+    // Nothing was started, reserved or recorded.
+    expect(runtime.host.agents.size).toBe(0)
+    expect(runtime.resultSchemas.size).toBe(0)
+    expect(runtime.events.all()).toHaveLength(0)
+  })
+
+  it('rejects a non-object root and an oversized schema the same way', async () => {
+    const { runtime, tools } = setup()
+    const scalarRoot = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      resultSchema: { type: 'string' }
+    })
+    expect(scalarRoot.json.error).toBe('invalid_result_schema')
+
+    const oversized = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      resultSchema: {
+        type: 'object',
+        properties: { x: { type: 'string', description: 'y'.repeat(4_000) } }
+      }
+    })
+    expect(oversized.json.error).toBe('invalid_result_schema')
+    expect(String((oversized.json.problems as string[])[0])).toContain('4000')
+    expect(runtime.host.agents.size).toBe(0)
+  })
+
+  it('registers the schema for the agent and teaches it in the contract', async () => {
+    const { runtime, tools } = setup()
+    const result = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      resultSchema: schema
+    })
+    expect(result.isError).toBe(false)
+    expect(runtime.resultSchemas.get(String(result.json.agentId))).toEqual(schema)
+    const seeded = runtime.host.seeded[0]!.task
+    expect(seeded).toContain('matching exactly this schema')
+    expect(seeded).toContain(JSON.stringify(schema))
+    // A start without a schema keeps the contract untouched.
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(runtime.host.seeded[1]!.task).not.toContain('matching exactly this schema')
+  })
+
+  it('refuses a schema for a sentinel-reporting role — a promise nobody could keep', async () => {
+    const host = new FakeAgentHost({ reportingMode: () => 'sentinel' })
+    const { runtime, tools } = setup({ host })
+    const result = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      resultSchema: schema
+    })
+    expect(result.isError).toBe(true)
+    expect(result.json.error).toBe('invalid_result_schema')
+    expect(String((result.json.problems as string[])[0])).toContain('sentinel')
+    expect(runtime.host.agents.size).toBe(0)
+  })
+
+  it('drops the schema again when the start pipeline fails', async () => {
+    const host = new FakeAgentHost({ readyError: 'spawn died' })
+    const { runtime, tools } = setup({ host })
+    const result = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      resultSchema: schema
+    })
+    const agentId = String(result.json.agentId)
+    // Registered with the reservation, gone once the pipeline rejected (the
+    // rejection handler runs on a microtask, so only the end state is stable
+    // to observe) and agent_start_failed was pushed.
+    await vi.waitFor(() => {
+      expect(runtime.events.all().at(-1)).toMatchObject({ type: 'agent_start_failed', agentId })
+    })
+    expect(runtime.resultSchemas.has(agentId)).toBe(false)
+  })
+
+  it('drops the schema in stop_agent — a stopped agent reports nothing more', async () => {
+    const { runtime, tools } = setup()
+    const started = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      resultSchema: schema
+    })
+    const agentId = String(started.json.agentId)
+    expect(runtime.resultSchemas.has(agentId)).toBe(true)
+    await callTool(tools, 'stop_agent', { agentId })
+    expect(runtime.resultSchemas.has(agentId)).toBe(false)
   })
 })
 
@@ -188,6 +512,9 @@ describe('send_to_agent', () => {
     const { runtime, tools, agentId } = await withAgent()
     await callTool(tools, 'send_to_agent', { agentId, text: 'also update the docs' })
     expect(runtime.latestTask).toBe('also update the docs')
+    // The agent's own note follows the follow-up — this is what the panel row
+    // and the CLI window's hover card show for it.
+    expect(runtime.agentTasks.get(agentId)).toBe('also update the docs')
 
     const question = runtime.questions.create(agentId, 'zod or valibot?')
     await callTool(tools, 'send_to_agent', {
@@ -196,6 +523,7 @@ describe('send_to_agent', () => {
       questionId: question.questionId
     })
     expect(runtime.latestTask).toBe('also update the docs')
+    expect(runtime.agentTasks.get(agentId)).toBe('also update the docs')
   })
 
   it('answers an open question instead of typing it', async () => {
@@ -325,15 +653,49 @@ describe('await_events', () => {
 
   it('keeps the cursor and demands a re-call when nothing happened', async () => {
     const { tools } = setup()
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
     const result = await callTool(tools, 'await_events', { cursor: 7, timeoutSec: 1 })
     expect(result.json.events).toEqual([])
     expect(result.json.cursor).toBe(7)
     expect(String(result.json.note)).toMatch(/call await_events again/i)
+    // Nothing happened, so nothing about the agents changed either — the empty
+    // answer stays as small as the loop's most repeated result deserves.
+    expect(result.json.agentsSummary).toBeUndefined()
+  })
+
+  it('answers in compact JSON — no pretty-printing anywhere in the loop', async () => {
+    const { tools } = setup()
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const result = await callTool(tools, 'await_events', { cursor: 0, timeoutSec: 1 })
+    expect(result.text).not.toMatch(/\n/)
+    expect(result.text.startsWith('{"events":[{')).toBe(true)
   })
 
   it('clamps the timeout to 55 s by rejecting anything larger', async () => {
     const { tools } = setup()
     await expect(callTool(tools, 'await_events', { timeoutSec: 900 })).rejects.toThrow()
+  })
+
+  it('honours an injected long-poll window for its default and its ceiling', async () => {
+    // Small seconds so the assertion is a real wait and the suite stays fast.
+    const { tools } = setup({ awaitTimeout: { defaultSec: 2, maxSec: 3 } })
+    const timeout = tools.get('await_events')!.inputSchema.timeoutSec as {
+      description?: string
+    }
+    expect(String(timeout.description)).toContain('default 2')
+    expect(String(timeout.description)).toContain('max 3')
+
+    // Above the injected ceiling the schema refuses — even though the built-in
+    // fallback (55 s) would have accepted it.
+    await expect(callTool(tools, 'await_events', { timeoutSec: 10 })).rejects.toThrow()
+
+    // No timeoutSec at all blocks for the injected default, not the 50 s one.
+    const started = Date.now()
+    const result = await callTool(tools, 'await_events', { cursor: 0 })
+    const elapsed = Date.now() - started
+    expect(result.json.events).toEqual([])
+    expect(elapsed).toBeGreaterThanOrEqual(1_800)
+    expect(elapsed).toBeLessThan(3_000)
   })
 
   it('returns as soon as an event is pushed while it waits', async () => {
@@ -365,6 +727,50 @@ describe('await_events', () => {
       pendingQuestionId: question.questionId
     })
   })
+
+  it('S2: a timeout with a quiet-only backlog still delivers it, with agentsSummary', async () => {
+    const { runtime, tools } = setup()
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    runtime.events.push(
+      { type: 'agent_progress', agentId: 'a', name: 'A', roleId: 'worker', note: 'milestone' },
+      { quiet: true }
+    )
+
+    // Past agent_started only the quiet event remains — the call parks and
+    // returns it on timeout instead of losing it behind a stuck cursor.
+    const result = await callTool(tools, 'await_events', { cursor: 1, timeoutSec: 1 })
+    const events = result.json.events as Array<{ type: string; quiet?: boolean }>
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ type: 'agent_progress', quiet: true })
+    expect(result.json.cursor).toBe(2)
+    // Non-empty result → the summary comes along, exactly like a woken return.
+    expect(result.json.agentsSummary).toBeDefined()
+    expect(result.json.note).toBeUndefined()
+  })
+
+  it('drops the static per-agent fields from its summary rows', async () => {
+    const { tools } = setup()
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't', model: 'opus' })
+
+    const result = await callTool(tools, 'await_events', { cursor: 0, timeoutSec: 1 })
+    const row = (result.json.agentsSummary as Array<Record<string, unknown>>)[0]!
+    // Fixed at birth and already delivered by start_agent / agent_started —
+    // repeating them every loop turn is pure token waste.
+    expect(row).not.toHaveProperty('worktreePath')
+    expect(row).not.toHaveProperty('model')
+    expect(row).not.toHaveProperty('reporting')
+    // What actually changes stays.
+    expect(row).toMatchObject({ status: 'running', branch: expect.any(String) })
+    expect(row).toHaveProperty('lastOutputAgeSec')
+
+    // list_agents remains the full one-off overview.
+    const listed = await callTool(tools, 'list_agents')
+    expect((listed.json.agents as Array<Record<string, unknown>>)[0]).toMatchObject({
+      model: 'opus',
+      worktreePath: '/tmp/worktrees/agent-1',
+      reporting: 'mcp'
+    })
+  })
 })
 
 describe('list_agents / stop_agent / read_output', () => {
@@ -385,7 +791,12 @@ describe('list_agents / stop_agent / read_output', () => {
     const result = await callTool(tools, 'stop_agent', { agentId })
     expect(result.json.ok).toBe(true)
     expect(runtime.questions.openCount).toBe(0)
-    expect(runtime.events.all().at(-1)).toMatchObject({ type: 'agent_stopped', agentId })
+    // S2 quiet: an echo of the caller's own stop must not wake its loop.
+    expect(runtime.events.all().at(-1)).toMatchObject({
+      type: 'agent_stopped',
+      agentId,
+      quiet: true
+    })
   })
 
   it('reports a no-op stop without inventing an event', async () => {
@@ -424,6 +835,199 @@ describe('list_agents / stop_agent / read_output', () => {
     const result = await callTool(tools, 'read_output', { agentId: 'ghost' })
     expect(result.isError).toBe(true)
     expect(result.json).toMatchObject({ error: 'read_failed' })
+  })
+})
+
+describe('inspect_agent', () => {
+  it('returns host-truth facts from the agent worktree', async () => {
+    const { runtime, tools } = setup()
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const agentId = String(started.json.agentId)
+    runtime.host.snapshots.set(agentId, {
+      branch: 'vertragus/arsenale/caronte',
+      headSha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      uncommitted: true,
+      changedFiles: ['src/a.ts'],
+      diffStat: ' src/a.ts | 2 +-\n'
+    })
+
+    const result = await callTool(tools, 'inspect_agent', { agentId, view: 'status' })
+    expect(result.isError).toBe(false)
+    expect(result.json).toMatchObject({
+      agentId,
+      view: 'status',
+      branch: 'vertragus/arsenale/caronte',
+      uncommitted: true,
+      changedFiles: ['src/a.ts'],
+      body: '(fake status)'
+    })
+  })
+
+  it('refuses an agent that is still starting', async () => {
+    const host = new FakeAgentHost()
+    const begun = host.beginAgent({ role: 'worker', task: 't' })
+    host.agents.set(begun.agentId, { ...host.agents.get(begun.agentId)!, status: 'starting' })
+    const { tools } = setup({ host })
+
+    const result = await callTool(tools, 'inspect_agent', { agentId: begun.agentId, view: 'diff' })
+    expect(result.isError).toBe(true)
+    expect(result.json).toMatchObject({ error: 'inspect_failed' })
+    expect(String(result.json.message)).toMatch(/still starting/)
+  })
+
+  it('turns an unknown agent into a tool error', async () => {
+    const { tools } = setup()
+    const result = await callTool(tools, 'inspect_agent', { agentId: 'ghost', view: 'log' })
+    expect(result.isError).toBe(true)
+    expect(result.json).toMatchObject({ error: 'inspect_failed' })
+  })
+
+  it('requires a path for the file view', async () => {
+    const { tools } = setup()
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const result = await callTool(tools, 'inspect_agent', {
+      agentId: String(started.json.agentId),
+      view: 'file'
+    })
+    expect(result.isError).toBe(true)
+    expect(String(result.json.message)).toMatch(/needs path/)
+  })
+
+  it('rejects an invented view at the schema', async () => {
+    const { tools } = setup()
+    await expect(
+      callTool(tools, 'inspect_agent', { agentId: 'a', view: 'blame' })
+    ).rejects.toThrow()
+  })
+})
+
+describe('spill — S1', () => {
+  /** A fake SpillStore: records saves, answers a fixed path (or undefined). */
+  function spillRecorder(result: string | undefined) {
+    const calls: Array<{ name: string; content: string }> = []
+    return {
+      calls,
+      store: {
+        save: async (name: string, content: string) => {
+          calls.push({ name, content })
+          return result
+        }
+      }
+    }
+  }
+
+  async function startedAgent(tools: Awaited<ReturnType<typeof setup>>['tools']): Promise<string> {
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    return String(started.json.agentId)
+  }
+
+  it('keeps read_output full: true inline at or under the threshold — no save', async () => {
+    const recorder = spillRecorder('/abs/spill/1-x.txt')
+    const { runtime, tools } = setup({ spill: recorder.store })
+    const agentId = await startedAgent(tools)
+    runtime.host.output.set(agentId, 'small full buffer')
+
+    const result = await callTool(tools, 'read_output', { agentId, full: true })
+    expect(result.text).toBe('small full buffer')
+    expect(recorder.calls).toHaveLength(0)
+  })
+
+  it('spills an oversized full buffer and returns banner + head + tail', async () => {
+    const path = '/repo/.vertragus/runs/ws-test/spill/1-read-output.txt'
+    const recorder = spillRecorder(path)
+    const { runtime, tools } = setup({ spill: recorder.store })
+    const agentId = await startedAgent(tools)
+    const big = 'H'.repeat(2_500) + 'M'.repeat(3_000) + 'T'.repeat(1_500)
+    runtime.host.output.set(agentId, big)
+
+    const result = await callTool(tools, 'read_output', { agentId, full: true })
+    expect(result.isError).toBe(false)
+    // The banner names the char count, the absolute path and the retrieval hint.
+    expect(result.text).toContain('[output too large: 7_000 chars — full text at')
+    expect(result.text).toContain(path)
+    expect(result.text).toContain('read or grep that file for the full output]')
+    // Preview: the first 2000 chars, an ellipsis line, the last 1000 chars.
+    expect(result.text).toContain(`\n${'H'.repeat(2_000)}\n…\n${'T'.repeat(1_000)}`)
+    // The FILE got the untruncated text, keyed by the tool and agent.
+    expect(recorder.calls).toEqual([{ name: `read-output-${agentId}`, content: big }])
+  })
+
+  it('degrades a failed save to truncated inline text plus a note — never an error', async () => {
+    const recorder = spillRecorder(undefined)
+    const { runtime, tools } = setup({ spill: recorder.store })
+    const agentId = await startedAgent(tools)
+    runtime.host.output.set(agentId, 'x'.repeat(10_000))
+
+    const result = await callTool(tools, 'read_output', { agentId, full: true })
+    expect(result.isError).toBe(false)
+    expect(result.text).toContain('…')
+    expect(result.text).toContain('note: full output unavailable (spill failed)')
+    expect(result.text).not.toContain('output too large')
+  })
+
+  it('keeps today’s inline behaviour when no spill store is configured', async () => {
+    const { runtime, tools } = setup()
+    const agentId = await startedAgent(tools)
+    const big = 'x'.repeat(10_000)
+    runtime.host.output.set(agentId, big)
+
+    const result = await callTool(tools, 'read_output', { agentId, full: true })
+    expect(result.text).toBe(big)
+  })
+
+  it('turns an oversized inspect_agent diff into the compact spillPath shape', async () => {
+    const path = '/repo/.vertragus/runs/ws-test/spill/1-inspect-diff.txt'
+    const recorder = spillRecorder(path)
+    const { runtime, tools } = setup({ spill: recorder.store })
+    const agentId = await startedAgent(tools)
+    const body = 'D'.repeat(7_000)
+    runtime.host.inspectBodies.set(agentId, body)
+
+    const result = await callTool(tools, 'inspect_agent', { agentId, view: 'diff' })
+    expect(result.isError).toBe(false)
+    // Exact shape: no body, no git facts — the head/tail and the path carry it.
+    expect(result.json).toEqual({
+      agentId,
+      view: 'diff',
+      truncated: true,
+      spillPath: path,
+      head: 'D'.repeat(2_000),
+      tail: 'D'.repeat(1_000)
+    })
+    expect(recorder.calls).toEqual([{ name: `inspect-diff-${agentId}`, content: body }])
+  })
+
+  it('keeps a failed inspect spill inline: truncated head/tail plus a note field', async () => {
+    const recorder = spillRecorder(undefined)
+    const { runtime, tools } = setup({ spill: recorder.store })
+    const agentId = await startedAgent(tools)
+    runtime.host.inspectBodies.set(agentId, 'D'.repeat(7_000))
+
+    const result = await callTool(tools, 'inspect_agent', { agentId, view: 'file', path: 'a.ts' })
+    expect(result.isError).toBe(false)
+    expect(result.json).toMatchObject({
+      agentId,
+      view: 'file',
+      truncated: true,
+      note: 'full output unavailable (spill failed)'
+    })
+    expect(result.json.spillPath).toBeUndefined()
+  })
+
+  it('leaves small inspect results and the status view exactly as today', async () => {
+    const recorder = spillRecorder('/abs/spill/1-x.txt')
+    const { runtime, tools } = setup({ spill: recorder.store })
+    const agentId = await startedAgent(tools)
+
+    const small = await callTool(tools, 'inspect_agent', { agentId, view: 'diff' })
+    expect(small.json).toMatchObject({ agentId, view: 'diff', body: '(fake diff)' })
+    expect(small.json.truncated).toBeUndefined()
+
+    // status is small by construction and never spills, even with a big body.
+    runtime.host.inspectBodies.set(agentId, 'S'.repeat(7_000))
+    const status = await callTool(tools, 'inspect_agent', { agentId, view: 'status' })
+    expect(status.json.body).toBe('S'.repeat(7_000))
+    expect(recorder.calls).toHaveLength(0)
   })
 })
 
@@ -486,5 +1090,662 @@ describe('record_retro', () => {
     const result = await callTool(tools, 'record_retro', { summary: 'Kein Befund.' })
     expect(result.isError).toBe(false)
     expect(port.recordLearnings).toHaveBeenCalledWith([])
+  })
+})
+
+describe('multi-orchestration — F', () => {
+  it('root registers every documented tool; a lead scope registers only the down-tools', () => {
+    const { tools } = setup()
+    expect([...tools.keys()].sort()).toEqual([...ORCHESTRATOR_TOOL_NAMES].sort())
+
+    const runtime = fakeRuntime()
+    const leadTools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId: 'lead-1' })
+    )
+    // S4: the task tools are shared with the root — same board, fenced owners.
+    expect([...leadTools.keys()].sort()).toEqual(
+      ['start_agent', 'send_to_agent', 'await_events', 'list_agents', 'stop_agent', 'read_output', 'inspect_agent', 'integrate_branch', 'task_create', 'task_update', 'task_list'].sort()
+    )
+    // Depth 1 and root-only surface enforced by ABSENCE, not by prompt.
+    expect(leadTools.has('start_orchestrator')).toBe(false)
+    expect(leadTools.has('record_retro')).toBe(false)
+    expect(leadTools.has('ask_user')).toBe(false)
+  })
+
+  it('start_orchestrator reserves a lead with its own queue and reports to the root queue', async () => {
+    const { runtime, tools } = setup()
+    const created: string[] = []
+    runtime.onLeadCreated = (lead) => created.push(lead.agentId)
+
+    const result = await callTool(tools, 'start_orchestrator', {
+      area: 'payments',
+      task: 'Own the payments rework.',
+      maxSubagents: 2
+    })
+
+    expect(result.isError).toBe(false)
+    const leadId = String(result.json.agentId)
+    expect(result.json).toMatchObject({ area: 'payments', state: 'starting', maxSubagents: 2 })
+    expect(runtime.leads.get(leadId)).toMatchObject({ area: 'payments', maxSubagents: 2 })
+    expect(created).toEqual([leadId])
+    // The lead itself is a direct child: its agent_started lands in the ROOT queue.
+    await vi.waitFor(() => {
+      expect(
+        runtime.events.all().some((event) => event.type === 'agent_started' && event.agentId === leadId)
+      ).toBe(true)
+    })
+    // The seed carried the lead contract.
+    expect(runtime.host.seeded[0]!.task).toContain(CONTRACT_MARKER)
+  })
+
+  it('caps leads at MAX_LEADS and counts leads toward the global agent cap', async () => {
+    const { tools } = setup()
+    for (let index = 0; index < 4; index += 1) {
+      const ok = await callTool(tools, 'start_orchestrator', { area: `a${index}`, task: 't' })
+      expect(ok.isError).toBe(false)
+    }
+    const fifth = await callTool(tools, 'start_orchestrator', { area: 'a4', task: 't' })
+    expect(fifth.isError).toBe(true)
+    expect(fifth.json).toMatchObject({ error: 'limit_exceeded', scope: 'leads', max: 4 })
+
+    // Global cap: fakeRuntime maxTotal defaults — check via a tight runtime.
+    const tight = fakeRuntime({ maxTotal: 1 })
+    const tightTools = captureTools((server) => registerOrchestratorTools(server, tight))
+    await callTool(tightTools, 'start_orchestrator', { area: 'x', task: 't' })
+    const over = await callTool(tightTools, 'start_orchestrator', { area: 'y', task: 't' })
+    expect(over.isError).toBe(true)
+    expect(over.json).toMatchObject({ error: 'limit_exceeded', scope: 'workspace' })
+    const agentOver = await callTool(tightTools, 'start_agent', { role: 'worker', task: 't' })
+    expect(agentOver.isError).toBe(true)
+    expect(agentOver.json).toMatchObject({ error: 'limit_exceeded', scope: 'workspace' })
+  })
+
+  it('fan-in: a lead-started agent parents to the lead and its events bypass the root queue', async () => {
+    const runtime = fakeRuntime()
+    const rootTools = captureTools((server) => registerOrchestratorTools(server, runtime))
+    await callTool(rootTools, 'start_orchestrator', { area: 'payments', task: 't' })
+    const leadId = [...runtime.leads.keys()][0]!
+    const lead = runtime.leads.get(leadId)!
+    const leadTools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId })
+    )
+
+    const started = await callTool(leadTools, 'start_agent', { role: 'worker', task: 'Do it.' })
+    const childId = String(started.json.agentId)
+    expect(runtime.parentOf.get(childId)).toBe(leadId)
+
+    await vi.waitFor(() => {
+      expect(
+        lead.events.all().some((event) => event.type === 'agent_started' && event.agentId === childId)
+      ).toBe(true)
+    })
+    // Grandchild events NEVER land in the root queue.
+    expect(
+      runtime.events.all().some((event) => event.type === 'agent_started' && event.agentId === childId)
+    ).toBe(false)
+
+    // The lead's own list shows only its subtree; the root's shows only the lead.
+    const leadList = await callTool(leadTools, 'list_agents', {})
+    expect((leadList.json.agents as Array<{ agentId: string }>).map((row) => row.agentId)).toEqual([
+      childId
+    ])
+    const rootList = await callTool(rootTools, 'list_agents', {})
+    const rootRows = rootList.json.agents as Array<{ agentId: string; childCount?: number }>
+    expect(rootRows.map((row) => row.agentId)).toEqual([leadId])
+    expect(rootRows[0]!.childCount).toBe(1)
+  })
+
+  it('enforces the subtree budget the root handed down', async () => {
+    const runtime = fakeRuntime()
+    const rootTools = captureTools((server) => registerOrchestratorTools(server, runtime))
+    await callTool(rootTools, 'start_orchestrator', { area: 'x', task: 't', maxSubagents: 1 })
+    const leadId = [...runtime.leads.keys()][0]!
+    const leadTools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId })
+    )
+
+    expect((await callTool(leadTools, 'start_agent', { role: 'worker', task: 't' })).isError).toBe(false)
+    const over = await callTool(leadTools, 'start_agent', { role: 'worker', task: 't' })
+    expect(over.isError).toBe(true)
+    expect(over.json).toMatchObject({ error: 'limit_exceeded', scope: 'subtree', max: 1 })
+  })
+
+  it('fences every agent-addressing tool to the caller’s own subtree — no skip-level', async () => {
+    const runtime = fakeRuntime()
+    const rootTools = captureTools((server) => registerOrchestratorTools(server, runtime))
+    // A root-started worker and a lead with one child.
+    const rootChild = await callTool(rootTools, 'start_agent', { role: 'worker', task: 't' })
+    const rootChildId = String(rootChild.json.agentId)
+    await callTool(rootTools, 'start_orchestrator', { area: 'x', task: 't' })
+    const leadId = [...runtime.leads.keys()][0]!
+    const leadTools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId })
+    )
+    const grandchild = await callTool(leadTools, 'start_agent', { role: 'worker', task: 't' })
+    const grandchildId = String(grandchild.json.agentId)
+
+    // Root cannot reach the grandchild…
+    for (const [tool, args] of [
+      ['send_to_agent', { agentId: grandchildId, text: 'x' }],
+      ['stop_agent', { agentId: grandchildId }],
+      ['read_output', { agentId: grandchildId }],
+      ['inspect_agent', { agentId: grandchildId, view: 'status' }]
+    ] as const) {
+      const result = await callTool(rootTools, tool, args as Record<string, unknown>)
+      expect(result.isError, `root ${tool}`).toBe(true)
+      expect(result.json.error, `root ${tool}`).toBe('unknown_agent')
+    }
+    // …and the lead cannot reach the root's child.
+    const wrong = await callTool(leadTools, 'send_to_agent', { agentId: rootChildId, text: 'x' })
+    expect(wrong.isError).toBe(true)
+    expect(wrong.json.error).toBe('unknown_agent')
+    // In scope both directions still work.
+    expect((await callTool(rootTools, 'send_to_agent', { agentId: rootChildId, text: 'x' })).isError).toBe(false)
+    expect((await callTool(leadTools, 'send_to_agent', { agentId: grandchildId, text: 'x' })).isError).toBe(false)
+  })
+
+  it('adoptSubtree reparents children, closes the lead queue and tells the root once', async () => {
+    const runtime = fakeRuntime()
+    const rootTools = captureTools((server) => registerOrchestratorTools(server, runtime))
+    await callTool(rootTools, 'start_orchestrator', { area: 'payments', task: 't' })
+    const leadId = [...runtime.leads.keys()][0]!
+    const lead = runtime.leads.get(leadId)!
+    const leadTools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId })
+    )
+    const child = await callTool(leadTools, 'start_agent', { role: 'worker', task: 't' })
+    const childId = String(child.json.agentId)
+    const parked = lead.events.wait(lead.events.cursor, 5_000)
+
+    adoptSubtree(runtime, leadId)
+
+    expect(runtime.leads.has(leadId)).toBe(false)
+    expect(runtime.parentOf.has(childId)).toBe(false)
+    expect(lead.events.isClosed).toBe(true)
+    await expect(parked).resolves.toEqual([])
+    const adopted = runtime.events.all().filter((event) => event.type === 'subtree_adopted')
+    expect(adopted).toHaveLength(1)
+    expect(adopted[0]).toMatchObject({
+      leadAgentId: leadId,
+      area: 'payments',
+      adoptedAgentIds: [childId]
+    })
+    // The orphan now routes to the root queue.
+    expect(queueForAgent(runtime, childId)).toBe(runtime.events)
+    // Adopting twice is a no-op.
+    adoptSubtree(runtime, leadId)
+    expect(runtime.events.all().filter((event) => event.type === 'subtree_adopted')).toHaveLength(1)
+  })
+})
+
+describe('integrate_branch — E1', () => {
+  it('merges via the host, pushes integrate_ok, and warns when nobody reported done on the branch', async () => {
+    const { runtime, tools } = setup()
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const agentId = String(started.json.agentId)
+
+    const result = await callTool(tools, 'integrate_branch', {
+      agentId,
+      branch: 'vertragus/arsenale/other'
+    })
+
+    expect(result.isError).toBe(false)
+    expect(runtime.host.integrations).toEqual([{ agentId, branch: 'vertragus/arsenale/other' }])
+    expect(String(result.json.warning)).toMatch(/nobody verified/i)
+    expect(runtime.events.all().at(-1)).toMatchObject({
+      type: 'integrate_ok',
+      agentId,
+      branch: 'vertragus/arsenale/other',
+      // S2 quiet: the tool result above already carried the same data.
+      quiet: true
+    })
+  })
+
+  it('does not warn when the branch carries a clean success report', async () => {
+    const { runtime, tools } = setup()
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const agentId = String(started.json.agentId)
+    runtime.events.push({
+      type: 'agent_done',
+      agentId: 'agent-0',
+      name: 'Caronte',
+      roleId: 'worker',
+      summary: 'done',
+      status: 'success',
+      branch: 'vertragus/arsenale/other',
+      uncommitted: false
+    })
+
+    const result = await callTool(tools, 'integrate_branch', {
+      agentId,
+      branch: 'vertragus/arsenale/other'
+    })
+    expect(result.json.warning).toBeUndefined()
+  })
+
+  it('a conflict aborts, reports the files, and pushes integrate_conflict', async () => {
+    const { runtime, tools } = setup()
+    runtime.host.integrateConflict = { conflictFiles: ['src/a.ts'], message: 'CONFLICT' }
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const agentId = String(started.json.agentId)
+
+    const result = await callTool(tools, 'integrate_branch', { agentId, branch: 'other' })
+
+    expect(result.isError).toBe(true)
+    expect(result.json).toMatchObject({ error: 'integrate_conflict', conflictFiles: ['src/a.ts'] })
+    expect(runtime.events.all().at(-1)).toMatchObject({
+      type: 'integrate_conflict',
+      agentId,
+      conflictFiles: ['src/a.ts'],
+      quiet: true
+    })
+  })
+
+  it('S2: does not wake a parked await_events waiter — the tool result already told the caller', async () => {
+    const { runtime, tools } = setup()
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const agentId = String(started.json.agentId)
+
+    // Park the loop past agent_started, then merge: the quiet integrate_ok
+    // must leave the waiter asleep.
+    const parked = callTool(tools, 'await_events', { cursor: 1, timeoutSec: 5 })
+    await Promise.resolve()
+    expect(runtime.events.waiterCount).toBe(1)
+    await callTool(tools, 'integrate_branch', { agentId, branch: 'other' })
+    expect(runtime.events.waiterCount).toBe(1)
+
+    // A real event ends the wait and delivers BOTH — quiet rides along.
+    runtime.events.push({
+      type: 'agent_done',
+      agentId,
+      name: 'A',
+      roleId: 'worker',
+      summary: 'done',
+      status: 'success'
+    })
+    const result = await parked
+    const events = result.json.events as Array<{ type: string; quiet?: boolean }>
+    expect(events.map((e) => e.type)).toEqual(['integrate_ok', 'agent_done'])
+    expect(events.map((e) => e.quiet ?? false)).toEqual([true, false])
+    expect(result.json.cursor).toBe(3)
+  })
+
+  it('stays fenced to the caller’s subtree — the root cannot merge into a grandchild', async () => {
+    const runtime = fakeRuntime()
+    const rootTools = captureTools((server) => registerOrchestratorTools(server, runtime))
+    await callTool(rootTools, 'start_orchestrator', { area: 'x', task: 't' })
+    const leadId = [...runtime.leads.keys()][0]!
+    const leadTools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId })
+    )
+    const child = await callTool(leadTools, 'start_agent', { role: 'worker', task: 't' })
+    const grandchildId = String(child.json.agentId)
+
+    const result = await callTool(rootTools, 'integrate_branch', {
+      agentId: grandchildId,
+      branch: 'b'
+    })
+    expect(result.isError).toBe(true)
+    expect(result.json.error).toBe('unknown_agent')
+    // The lead itself may integrate within its subtree.
+    expect(
+      (await callTool(leadTools, 'integrate_branch', { agentId: grandchildId, branch: 'b' })).isError
+    ).toBe(false)
+  })
+})
+
+describe('budget — E4', () => {
+  it('refuses new starts once the budget is spent and announces it exactly once', async () => {
+    const { runtime, tools } = setup()
+    runtime.host.budgetState = { usedSec: 601, limitSec: 600, exhausted: true }
+
+    const refused = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(refused.isError).toBe(true)
+    expect(refused.json).toMatchObject({ error: 'budget_exhausted', limitSec: 600 })
+
+    const refusedLead = await callTool(tools, 'start_orchestrator', { area: 'x', task: 't' })
+    expect(refusedLead.isError).toBe(true)
+
+    const warnings = runtime.events.all().filter((event) => event.type === 'budget_warning')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({ exhausted: true, usedSec: 601, limitSec: 600 })
+
+    // Everything that is not a new start keeps working — wrap-up needs tools.
+    expect((await callTool(tools, 'list_agents', {})).isError).toBe(false)
+  })
+
+  it('announces the 80% threshold once without refusing anything', async () => {
+    const { runtime, tools } = setup()
+    runtime.host.budgetState = { usedSec: 500, limitSec: 600, exhausted: false }
+
+    expect((await callTool(tools, 'start_agent', { role: 'worker', task: 't' })).isError).toBe(false)
+    expect((await callTool(tools, 'start_agent', { role: 'worker', task: 't' })).isError).toBe(false)
+
+    const warnings = runtime.events.all().filter((event) => event.type === 'budget_warning')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({ exhausted: false })
+  })
+
+  it('no budget configured → no gate, no events', async () => {
+    const { runtime, tools } = setup()
+    expect((await callTool(tools, 'start_agent', { role: 'worker', task: 't' })).isError).toBe(false)
+    expect(runtime.events.all().some((event) => event.type === 'budget_warning')).toBe(false)
+  })
+})
+
+describe('record_retro repoNotes — E2', () => {
+  it('hands repo notes to the retro port and reports the applied count', async () => {
+    const recorded: string[][] = []
+    const runtime = fakeRuntime({
+      retro: {
+        recordLearnings: () => ({ applied: 0 }),
+        recordSummary: () => undefined,
+        recordRepoNotes: (notes) => {
+          recorded.push([...notes])
+          return { applied: notes.length }
+        }
+      }
+    })
+    const tools = captureTools((server) => registerOrchestratorTools(server, runtime))
+
+    const result = await callTool(tools, 'record_retro', {
+      summary: 'Went fine.',
+      repoNotes: ['tests need pnpm run ci']
+    })
+
+    expect(result.isError).toBe(false)
+    expect(result.json.appliedRepoNotes).toBe(1)
+    expect(recorded).toEqual([['tests need pnpm run ci']])
+  })
+})
+
+describe('search_runs — S5', () => {
+  it('is registered root-only — absent on a lead registration', () => {
+    const { tools } = setup()
+    expect(tools.has('search_runs')).toBe(true)
+
+    const runtime = fakeRuntime()
+    const leadTools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId: 'lead-1' })
+    )
+    expect(leadTools.has('search_runs')).toBe(false)
+  })
+
+  it('answers an empty result with an honest coverage note', async () => {
+    const { tools } = setup()
+    // fakeRuntime's repoPath has no journals on the real fs — the fail-soft
+    // reader reports zero searched runs instead of throwing.
+    const result = await callTool(tools, 'search_runs', { query: 'flaky test' })
+    expect(result.isError).toBe(false)
+    expect(result.json).toMatchObject({ hits: [], searchedRuns: 0, skipped: [] })
+    expect(String(result.json.note)).toBe('searched 0 runs, no match')
+  })
+
+  it('rejects a too-short query at the schema', async () => {
+    const { tools } = setup()
+    await expect(callTool(tools, 'search_runs', { query: 'ab' })).rejects.toThrow()
+  })
+})
+
+describe('request_succession', () => {
+  it('returns succession_started and does not wait for the successor spawn', async () => {
+    const { runtime, tools } = setup()
+    const result = await callTool(tools, 'request_succession', {
+      reason: 'context_full',
+      nextActions: ['answer the open question']
+    })
+    expect(result.isError).toBe(false)
+    expect(result.json).toMatchObject({
+      state: 'succession_started',
+      predecessorAgentId: 'orch-live',
+      eventCursor: 0
+    })
+    expect(runtime.host.successionCalls).toHaveLength(1)
+    expect(runtime.host.successionCalls[0]).toMatchObject({ reason: 'context_full' })
+  })
+
+  it('refuses a second succession and mutating tools while one is in flight', async () => {
+    const host = new FakeAgentHost({ holdSuccession: true })
+    const { tools } = setup({ host, retro: { recordLearnings: () => ({ applied: 0 }), recordSummary: () => undefined } })
+
+    const first = await callTool(tools, 'request_succession', { reason: 'long_run' })
+    expect(first.isError).toBe(false)
+
+    const second = await callTool(tools, 'request_succession', { reason: 'other' })
+    expect(second.isError).toBe(true)
+    expect(second.json.error).toBe('already_in_progress')
+
+    const start = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(start.json.error).toBe('succession_in_progress')
+    const retro = await callTool(tools, 'record_retro', { summary: 'done' })
+    expect(retro.json.error).toBe('succession_in_progress')
+    const send = await callTool(tools, 'send_to_agent', { agentId: 'x', text: 'hi' })
+    expect(send.json.error).toBe('succession_in_progress')
+
+    host.completeSuccession()
+  })
+
+  it('still allows list_agents during succession', async () => {
+    const host = new FakeAgentHost({ holdSuccession: true })
+    const { tools } = setup({ host })
+    await callTool(tools, 'request_succession', { reason: 'context_full' })
+    const listed = await callTool(tools, 'list_agents')
+    expect(listed.isError).toBe(false)
+    host.completeSuccession()
+  })
+})
+
+describe('task board — S4', () => {
+  function leadSetup() {
+    const runtime = fakeRuntime()
+    const tools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId: 'lead-1' })
+    )
+    return { runtime, tools }
+  }
+
+  it('task_create → task_list roundtrip with ready flags (deleted deps ignored)', async () => {
+    const { runtime, tools } = setup()
+    const first = await callTool(tools, 'task_create', { subject: 'Build parser' })
+    expect(first.json).toMatchObject({ taskId: 'task-1', revision: 1 })
+    await callTool(tools, 'task_create', { subject: 'Doomed' })
+    await callTool(tools, 'task_create', { subject: 'Test parser', blockedBy: ['task-1', 'task-2'] })
+
+    let rows = (await callTool(tools, 'task_list')).json.tasks as Array<Record<string, unknown>>
+    expect(rows.map((row) => [row.taskId, row.ready])).toEqual([
+      ['task-1', true],
+      ['task-2', true],
+      ['task-3', false]
+    ])
+    // The compact row: no description, no timestamps — task_list stays cheap.
+    expect(rows[2]).toEqual({
+      taskId: 'task-3',
+      revision: 1,
+      subject: 'Test parser',
+      status: 'pending',
+      blockedBy: ['task-1', 'task-2'],
+      ready: false
+    })
+
+    await callTool(tools, 'task_update', { taskId: 'task-1', expectedRevision: 1, action: 'complete' })
+    await callTool(tools, 'task_update', { taskId: 'task-2', expectedRevision: 1, action: 'delete' })
+    rows = (await callTool(tools, 'task_list', { status: 'pending' })).json.tasks as Array<
+      Record<string, unknown>
+    >
+    // Ready now: task-1 completed, the tombstone task-2 is ignored, not cascaded.
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ taskId: 'task-3', ready: true })
+    expect(runtime.taskBoard!.get('task-3')!.blockedBy).toEqual(['task-1', 'task-2'])
+  })
+
+  it('announces every accepted board mutation on the assignment feed — the panel shows the plan', async () => {
+    const { tools, runtime } = setup()
+    let notified = 0
+    runtime.onTasksChanged = () => {
+      notified += 1
+    }
+
+    await callTool(tools, 'task_create', { subject: 'Build parser' })
+    await callTool(tools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 1,
+      action: 'complete'
+    })
+    expect(notified).toBe(2)
+
+    // Refusals change nothing, so they must wake nothing — a repaint per
+    // rejected CAS retry would be pure noise on the rail.
+    await callTool(tools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 1,
+      action: 'reopen'
+    })
+    await callTool(tools, 'task_create', { subject: 'Nowhere', blockedBy: ['task-9'] })
+    await callTool(tools, 'task_list')
+    expect(notified).toBe(2)
+  })
+
+  it('stale_revision rides the CURRENT task in the tool error payload', async () => {
+    const { tools } = setup()
+    await callTool(tools, 'task_create', { subject: 'S' })
+    await callTool(tools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 1,
+      action: 'edit',
+      subject: 'Renamed'
+    })
+    const stale = await callTool(tools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 1,
+      action: 'complete'
+    })
+    expect(stale.isError).toBe(true)
+    expect(stale.json.error).toBe('stale_revision')
+    expect(stale.json.task).toMatchObject({ taskId: 'task-1', revision: 2, subject: 'Renamed' })
+  })
+
+  it('fences a lead: owners only from its own subtree (or itself)', async () => {
+    const { runtime, tools } = leadSetup()
+    runtime.parentOf.set('agent-mine', 'lead-1')
+    await callTool(tools, 'task_create', { subject: 'S' })
+
+    // A root child (no parentOf entry) is out of the lead's subtree.
+    const foreign = await callTool(tools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 1,
+      action: 'claim',
+      ownerAgentId: 'agent-of-root'
+    })
+    expect(foreign.isError).toBe(true)
+    expect(foreign.json.error).toBe('owner_out_of_scope')
+
+    const own = await callTool(tools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 1,
+      action: 'claim',
+      ownerAgentId: 'agent-mine'
+    })
+    expect(own.isError).toBe(false)
+    // The lead itself is a legal owner too.
+    const created = await callTool(tools, 'task_create', { subject: 'Own', ownerAgentId: 'lead-1' })
+    expect(created.isError).toBe(false)
+  })
+
+  it('delete and reassign are root-only; the root may do both', async () => {
+    const { tools } = leadSetup()
+    await callTool(tools, 'task_create', { subject: 'S' })
+    for (const action of ['delete', 'reassign'] as const) {
+      const refused = await callTool(tools, 'task_update', {
+        taskId: 'task-1',
+        expectedRevision: 1,
+        action,
+        ownerAgentId: 'lead-1'
+      })
+      expect(refused.isError).toBe(true)
+      expect(refused.json.error).toBe('root_only_action')
+    }
+
+    const { tools: rootTools } = setup()
+    await callTool(rootTools, 'task_create', { subject: 'S', ownerAgentId: 'agent-x' })
+    const reassigned = await callTool(rootTools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 1,
+      action: 'reassign',
+      ownerAgentId: 'agent-y'
+    })
+    expect(reassigned.isError).toBe(false)
+    expect(reassigned.json.task).toMatchObject({ ownerAgentId: 'agent-y' })
+    const deleted = await callTool(rootTools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 2,
+      action: 'delete'
+    })
+    expect(deleted.isError).toBe(false)
+  })
+
+  it('start_agent{taskId} claims the task for the new agent and seeds its text before the contract', async () => {
+    const { runtime, tools } = setup()
+    await callTool(tools, 'task_create', { subject: 'Fix the parser', description: 'See src/parser.' })
+    const started = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 'Work on your board task.',
+      taskId: 'task-1'
+    })
+    expect(started.isError).toBe(false)
+    expect(started.json.taskId).toBe('task-1')
+
+    const task = runtime.taskBoard!.get('task-1')!
+    expect(task).toMatchObject({
+      status: 'in_progress',
+      ownerAgentId: started.json.agentId,
+      revision: 2
+    })
+
+    const seed = runtime.host.seeded[0]!.task
+    const taskContext = 'Task task-1: Fix the parser\nSee src/parser.'
+    expect(seed).toContain(taskContext)
+    expect(seed.indexOf(taskContext)).toBeGreaterThan(seed.indexOf('Work on your board task.'))
+    expect(seed.indexOf(taskContext)).toBeLessThan(seed.indexOf(CONTRACT_MARKER))
+  })
+
+  it('start_agent{taskId} fails loud BEFORE the reservation for unclaimable tasks', async () => {
+    const { runtime, tools } = setup()
+    const unknown = await callTool(tools, 'start_agent', { role: 'worker', task: 't', taskId: 'task-9' })
+    expect(unknown.isError).toBe(true)
+    expect(unknown.json.error).toBe('unknown_task')
+
+    await callTool(tools, 'task_create', { subject: 'Taken', ownerAgentId: 'agent-elsewhere' })
+    const taken = await callTool(tools, 'start_agent', { role: 'worker', task: 't', taskId: 'task-1' })
+    expect(taken.isError).toBe(true)
+    expect(taken.json).toMatchObject({ error: 'invalid_transition', status: 'in_progress' })
+
+    await callTool(tools, 'task_create', { subject: 'Gone' })
+    await callTool(tools, 'task_update', { taskId: 'task-2', expectedRevision: 1, action: 'delete' })
+    const gone = await callTool(tools, 'start_agent', { role: 'worker', task: 't', taskId: 'task-2' })
+    expect(gone.isError).toBe(true)
+    expect(gone.json.error).toBe('task_deleted')
+
+    // Fail-loud means BEFORE beginAgent: no reservation, no seed, no agent.
+    expect(runtime.host.seeded).toHaveLength(0)
+    expect(runtime.host.listAgents()).toHaveLength(0)
+  })
+
+  it('answers task_board_unavailable on a runtime without a board (old fakes)', async () => {
+    const runtime = fakeRuntime({ taskBoard: null })
+    const tools = captureTools((server) => registerOrchestratorTools(server, runtime))
+    for (const [name, args] of [
+      ['task_create', { subject: 'S' }],
+      ['task_update', { taskId: 'task-1', expectedRevision: 1, action: 'complete' }],
+      ['task_list', {}]
+    ] as const) {
+      const result = await callTool(tools, name, args as Record<string, unknown>)
+      expect(result.isError).toBe(true)
+      expect(result.json.error).toBe('task_board_unavailable')
+    }
+    // start_agent{taskId} refuses too — but a plain start still works.
+    const withTask = await callTool(tools, 'start_agent', { role: 'worker', task: 't', taskId: 'task-1' })
+    expect(withTask.json.error).toBe('task_board_unavailable')
+    const plain = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(plain.isError).toBe(false)
   })
 })

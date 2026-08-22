@@ -130,4 +130,11 @@ describe('PendingQuestions', () => {
     // MCP-created questions leave the callback unset.
     expect(questions.create('a2', 'plain?').deliverAnswer).toBeUndefined()
   })
+
+  it('lists every open question for a succession package', () => {
+    const questions = registry()
+    questions.create('a1', 'one?')
+    questions.create('a2', 'two?')
+    expect(questions.listOpen().map((entry) => entry.question)).toEqual(['one?', 'two?'])
+  })
 })

@@ -1,0 +1,8 @@
+Available models
+
+grok-build - Grok Build (default)
+grok-4.6 - Grok 4.6
+grok-4.5 - Grok 4.5
+grok-4.3 - Grok 4.3
+
+Tip: use --model <id> (or /model <id> in interactive mode) to switch.

@@ -18,7 +18,7 @@
 import { z } from 'zod'
 
 /** Editable built-ins. A stored config with the same id overrides its preset. */
-export const PROVIDER_PRESET_IDS = ['claude', 'codex', 'kimi', 'cursor', 'ollama'] as const
+export const PROVIDER_PRESET_IDS = ['claude', 'codex', 'kimi', 'cursor', 'grok', 'ollama'] as const
 export type ProviderPresetId = (typeof PROVIDER_PRESET_IDS)[number]
 export const providerPresetIdSchema = z.enum(PROVIDER_PRESET_IDS)
 
@@ -81,6 +81,18 @@ export const systemPromptDeliverySchema = z.discriminatedUnion('kind', [
 export type SystemPromptDelivery = z.infer<typeof systemPromptDeliverySchema>
 
 /**
+ * How a first user prompt (the workspace start-goal) is passed at spawn.
+ * Absent = the host types it into the PTY after boot (`assignGoal`).
+ *
+ * - `positional`: trailing argv string. That is an interactive first turn,
+ *   not headless `-p` / `--single` (those exit after one turn).
+ */
+export const initialPromptDeliverySchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('positional') }).strict()
+])
+export type InitialPromptDelivery = z.infer<typeof initialPromptDeliverySchema>
+
+/**
  * How the Vertragus MCP server is attached. Every spawn makes this decision
  * explicitly — `none` is a declaration, never an accident (that omission is the
  * old repo's communicatively dead subagent bug).
@@ -101,6 +113,13 @@ export const mcpAttachSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('kimi-project') }).strict(),
   /** Project-scoped `.cursor/mcp.json` merge + `--approve-mcps` (see mcp/attach). */
   z.object({ kind: z.literal('cursor-project') }).strict(),
+  /**
+   * Project-scoped `.grok/config.toml` merge of `[mcp_servers.vertragus]` plus
+   * `--allow MCPTool(vertragus__*)` so the loopback server is usable without a
+   * TUI approval. Orchestrator launches also get a permission cage (see mcp/attach).
+   */
+
+  z.object({ kind: z.literal('grok-project') }).strict(),
   z.object({ kind: z.literal('none') }).strict()
 ])
 export type McpAttach = z.infer<typeof mcpAttachSchema>
@@ -220,7 +239,33 @@ export const providerConfigSchema = z
     versionArgs: argListSchema.default(['--version']),
     auth: providerAuthSchema.optional(),
     systemPromptDelivery: systemPromptDeliverySchema.default({ kind: 'pty' }),
+    /** Spawn-time first user prompt. Absent = PTY `assignGoal` after boot. */
+    initialPromptDelivery: initialPromptDeliverySchema.optional(),
     mcp: mcpAttachSchema.default({ kind: 'none' }),
+    /**
+     * How long ONE MCP tool call may run on this CLI, in seconds, once the
+     * launch layer has raised the limit. Absent = the CLI keeps its own default
+     * (60 s in every CLI shipped here), which is what caps the orchestrator's
+     * `await_events` long poll at 50 s.
+     *
+     * A capability claim, not a wish: setting it means "the spawn/attach layer
+     * knows how to raise THIS CLI's tool timeout, process-locally" — Claude's
+     * `MCP_TIMEOUT`/`MCP_TOOL_TIMEOUT` env pair, Codex' per-server
+     * `tool_timeout_sec` override. A dialect with no known mechanism ignores
+     * the number, and nothing is ever written to a user-global config.
+     *
+     * It lives here and not inside `mcp` because that union is strict and
+     * per-dialect: the field would have to be repeated in every variant
+     * (including `none`, where it means nothing) or force a narrowing at every
+     * read site. It stays DATA on the provider so a custom Claude-compatible
+     * CLI can opt in without a Vertragus release.
+     *
+     * Why it matters: every empty `await_events` return costs the orchestrator
+     * a full model pass over its whole context. A ten-minute poll is an order
+     * of magnitude fewer idle turns than a fifty-second one — the single
+     * biggest token lever in the loop.
+     */
+    mcpToolTimeoutSec: z.number().int().positive().max(3600).optional(),
     modelDiscovery: modelDiscoverySchema.default({ kind: 'none' }),
     /**
      * Ids that are ALWAYS offered, merged behind whatever discovery found.
@@ -315,6 +360,22 @@ export function buildEffortArgs(
   if (!effort || !config.effortArg) return []
   if (config.effortArg.style === 'flag') return [config.effortArg.flag, effort]
   return [config.effortArg.flag, config.effortArg.template.replace('{effort}', effort)]
+}
+
+/**
+ * First-user-prompt arguments for a launch. Empty when the provider has no
+ * spawn-time surface or the prompt is blank. Never emits `-p` / `--single`.
+ */
+export function buildInitialPromptArgs(
+  config: Pick<ProviderConfig, 'initialPromptDelivery'>,
+  prompt: string | undefined
+): string[] {
+  const text = prompt?.trim()
+  if (!text || !config.initialPromptDelivery) return []
+  switch (config.initialPromptDelivery.kind) {
+    case 'positional':
+      return [text]
+  }
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { VoiceHost, VoiceHostWorkspace } from './commands'
+import type { VoiceHost, VoiceHostWorkspace } from '@shared/voice/commands'
 import { concatInt16 } from './pcm'
 import { createVoiceSession, type VoicePhase } from './session'
 import type {

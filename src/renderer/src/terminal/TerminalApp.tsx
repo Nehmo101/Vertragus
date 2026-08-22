@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { loreBlurb } from '@shared/lore'
-import { applyLocale } from '../i18n'
+import { activeLocale, applyLocale } from '../i18n'
 import { LoreTip } from '../lore/LoreTip'
 import { applyTheme } from '../theme'
+import { metaBlurb } from './titleBlurb'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
+import { WebLinksAddon } from '@xterm/addon-web-links'
+import type { Locale, Translate } from '../i18n'
 import type { TerminalAgentMeta, TerminalExitEvent } from '../../../preload'
 import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
-import { trackWindowFocus } from './windowFocus'
+import { shouldFocusTerminal, trackWindowFocus } from './windowFocus'
 import { XTERM_THEME } from './xtermTheme'
 
 /**
@@ -44,12 +47,18 @@ function loadRenderer(term: Terminal): void {
  * — this window IS "Fortuna", and the one place a user asks who that is, is the
  * bar with the name in it.
  */
-function metaLabel(meta: TerminalAgentMeta | null, agentId: string): React.JSX.Element {
+function metaLabel(
+  t: Translate,
+  locale: Locale,
+  meta: TerminalAgentMeta | null,
+  agentId: string,
+  task: string | undefined
+): React.JSX.Element {
   if (!meta) return <span className="cli-label-dim">{agentId}</span>
   const engine = [meta.provider, meta.model].filter(Boolean).join(' ')
   return (
     <>
-      <LoreTip name={meta.name} blurb={loreBlurb(meta.name)} />
+      <LoreTip className="cli-name" name={meta.name} blurb={metaBlurb(t, locale, meta, task)} />
       <span className="cli-label-dim">
         {' · '}
         {meta.role}
@@ -92,13 +101,18 @@ function MaximizeGlyph({ maximized }: { maximized: boolean }): React.JSX.Element
  * the main process, this attaches to it, replays the scrollback and streams.
  */
 export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const hostRef = useRef<HTMLDivElement>(null)
   const [meta, setMeta] = useState<TerminalAgentMeta | null>(null)
+  const [task, setTask] = useState<string | undefined>(undefined)
   const [exit, setExit] = useState<TerminalExitEvent | { exitCode: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   /** Mirrors the window's real state; main answers with it on every toggle. */
   const [maximized, setMaximized] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchRef = useRef<SearchAddon | null>(null)
+  const termRef = useRef<Terminal | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   // The bridge is injected by preload before the bundle runs — stable for the
   // lifetime of the window, so it is read during render, not in the effect.
@@ -140,6 +154,24 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
+    // Agent CLIs print auth and PR URLs constantly; a link that cannot be
+    // clicked is a login the user retypes by hand. The default handler calls
+    // window.open, which the navigation lockdown routes to shell.openExternal
+    // (https/mailto only) — nothing navigates inside this window.
+    term.loadAddon(new WebLinksAddon())
+    const search = new SearchAddon()
+    term.loadAddon(search)
+    searchRef.current = search
+    termRef.current = term
+    // Ctrl+F belongs to the 5000-line scrollback, not to the PTY (where it is
+    // merely cursor-forward). Everything else passes through untouched.
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type === 'keydown' && event.key === 'f' && (event.ctrlKey || event.metaKey)) {
+        setSearchOpen(true)
+        return false
+      }
+      return true
+    })
     term.open(host)
     loadRenderer(term)
 
@@ -164,10 +196,18 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       setExit(event)
       term.write(`\r\n\x1b[90m${t('terminal.exitLine', { code: event.exitCode })}\x1b[0m\r\n`)
     })
+    const offTask = bridge.onTask((event) => setTask(event.task))
     const offInput = term.onData((data) => bridge.input(data))
 
     const observer = new ResizeObserver(() => applyFit())
     observer.observe(host)
+
+    // Panel click / later OS focus after showInactive: attach skipped term.focus().
+    const onWindowFocus = (): void => {
+      if (disposed) return
+      if (shouldFocusTerminal(document.hasFocus())) term.focus()
+    }
+    window.addEventListener('focus', onWindowFocus)
 
     void bridge
       .attach(agentId)
@@ -177,6 +217,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
         if (result.locale) void applyLocale(result.locale)
         if (result.theme) applyTheme(result.theme)
         setMeta(result.meta)
+        setTask(result.task)
         setMaximized(result.maximized)
         if (result.exit) setExit(result.exit)
         term.write(result.snapshot)
@@ -184,7 +225,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
         for (const chunk of queued) term.write(chunk)
         queued.length = 0
         applyFit()
-        term.focus()
+        if (shouldFocusTerminal(document.hasFocus())) term.focus()
       })
       .catch((cause: unknown) => {
         if (disposed) return
@@ -193,13 +234,44 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
 
     return () => {
       disposed = true
+      window.removeEventListener('focus', onWindowFocus)
       observer.disconnect()
       offData()
       offExit()
+      offTask()
       offInput.dispose()
+      searchRef.current = null
+      termRef.current = null
       term.dispose()
     }
   }, [agentId, bridge, t])
+
+  // The bar renders after the state flip; focus it once it exists.
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus()
+  }, [searchOpen])
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false)
+    searchRef.current?.clearDecorations()
+    termRef.current?.focus()
+  }, [])
+
+  const onSearchKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      const query = event.currentTarget.value
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeSearch()
+        return
+      }
+      if (event.key !== 'Enter' || query === '') return
+      event.preventDefault()
+      if (event.shiftKey) searchRef.current?.findPrevious(query)
+      else searchRef.current?.findNext(query)
+    },
+    [closeSearch]
+  )
 
   const roleColor = meta?.roleColor ?? 'var(--verdigris)'
   const running = exit === null
@@ -214,7 +286,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
             running ? t('terminal.running') : t('terminal.stopped', { code: exit?.exitCode })
           }
         />
-        <span className="cli-label">{metaLabel(meta, agentId)}</span>
+        <span className="cli-label">{metaLabel(t, activeLocale(i18n.language), meta, agentId, task)}</span>
         <button
           className="cli-minimize"
           onClick={minimize}
@@ -242,6 +314,30 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
         </button>
       </header>
       {notice ? <div className="cli-error">{notice}</div> : null}
+      {searchOpen ? (
+        <div className="cli-search">
+          <input
+            ref={searchInputRef}
+            className="cli-search-input"
+            type="text"
+            placeholder={t('terminal.searchPlaceholder')}
+            onKeyDown={onSearchKeyDown}
+            onChange={(event) => {
+              const query = event.currentTarget.value
+              if (query) searchRef.current?.findNext(query, { incremental: true })
+              else searchRef.current?.clearDecorations()
+            }}
+          />
+          <button
+            className="cli-search-close"
+            onClick={closeSearch}
+            title={t('terminal.searchClose')}
+            aria-label={t('terminal.searchClose')}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       <div className="cli-terminal" ref={hostRef} />
     </div>
   )

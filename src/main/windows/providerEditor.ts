@@ -15,6 +15,8 @@
  * key, mirroring `isProfileEditorWindowSender`.
  */
 import { BrowserWindow } from 'electron'
+import { mainMessages, readLocale } from '@shared/mainMessages'
+import { getSettings } from '@main/store/settings'
 import { glassWindowOptions, loadRoute, secureWindow } from './base'
 import { armWindowCapture } from './smokeCapture'
 
@@ -108,7 +110,8 @@ export function openProviderEditorWindow(providerId?: string): BrowserWindow {
     resizable: true,
     // Never always-on-top: the editor is a task, not a HUD.
     alwaysOnTop: false,
-    title: 'Vertragus — Provider'
+    // OS-chrome title in the stored locale (see settingsWindow.ts).
+    title: mainMessages(readLocale(() => getSettings().ui.locale)).providerEditorTitle
   })
   secureWindow(win)
   loadRoute(

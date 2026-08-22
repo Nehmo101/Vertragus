@@ -50,7 +50,15 @@ export interface ProfileEditorState {
   saveCustomRole(template: RoleTemplate): Promise<RoleTemplate | null>
 }
 
-export function useProfileEditor(profileId?: string): ProfileEditorState {
+export function useProfileEditor(
+  profileId?: string,
+  /**
+   * WP-7: which provider a NEW profile's orchestrator starts on. The first-run
+   * card passes the CLI whose health probe actually answered, so the form does
+   * not open defaulted to a provider that is not installed on this machine.
+   */
+  providerHint?: string
+): ProfileEditorState {
   const { t } = useTranslation()
   const bridge = useMemo(() => window.vertragus?.app, [])
   const [draft, setDraft] = useState<ProfileDraft | null>(null)
@@ -73,7 +81,7 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
         if (!alive) return
         setRoles(allRoleTemplates(custom))
         if (!profileId) {
-          setDraft(emptyDraft(FALLBACK_PROVIDER_ID))
+          setDraft(emptyDraft(providerHint?.trim() || FALLBACK_PROVIDER_ID))
           return
         }
         const profile = profiles.find((entry) => entry.id === profileId)
@@ -87,7 +95,7 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
     return () => {
       alive = false
     }
-  }, [bridge, profileId, t])
+  }, [bridge, profileId, providerHint, t])
 
   // Zones are saved by the overlay, not by this form. When that write lands,
   // fold the fresh layout into the draft so a later "Save" cannot ship a stale

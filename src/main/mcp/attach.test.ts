@@ -1,7 +1,11 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+  extraMcpServerSchema,
+  type ExtraMcpServer
+} from '@shared/schema/mcpServer'
 import {
   assertWrittenClaudeMcpConfig,
   assertWrittenCursorMcpConfig,
@@ -16,10 +20,35 @@ import {
   buildKimiMcpArgs,
   buildKimiOrchestratorArgs,
   buildKimiSubagentArgs,
+  claudeMcpTimeoutEnv,
+  CLAUDE_MCP_TIMEOUT_ENV,
+  CLAUDE_MCP_TOOL_TIMEOUT_ENV,
   codexDeveloperInstructionsArgs,
+  codexExtraServerOverrides,
   CURSOR_APPROVE_MCPS_FLAG,
   CURSOR_MCP_FILE,
   CURSOR_PROJECT_DIR,
+  GROK_AGENT_FILE,
+  GROK_AGENT_NAME,
+  GROK_ALLOW_MCP_FLAG,
+  GROK_CONFIG_FILE,
+  GROK_NO_SUBAGENTS_FLAG,
+  GROK_ORCHESTRATOR_ALLOW,
+  GROK_ORCHESTRATOR_DENY,
+  GROK_PROJECT_DIR,
+  assertWrittenGrokMcpConfig,
+  buildGrokMcpArgs,
+  buildGrokOrchestratorArgs,
+  buildGrokSubagentArgs,
+  grokAllowMcpRule,
+  grokMcpServerBlock,
+  grokOrchestratorAgentFileText,
+  grokOrchestratorArgv,
+  grokOrchestratorEnv,
+  mergeGrokConfigToml,
+  renderGrokProjectMcpConfig,
+  writeGrokOrchestratorAgentFile,
+  writeGrokProjectMcpConfig,
   KIMI_AGENT_NAME,
   kimiAgentFileText,
   orchestratorAllowedTools,
@@ -31,6 +60,7 @@ import {
   toCursorMcpConfig,
   toKimiMcpConfig,
   tomlString,
+  usableExtraMcp,
   withoutKimiAgentFileArgs,
   writeClaudeMcpConfigFile,
   writeCursorProjectMcpConfig,
@@ -99,12 +129,35 @@ describe('buildClaudeMcpArgs', () => {
   })
 })
 
+/**
+ * The long-poll budget. `await_events` can only block for minutes if the CLI
+ * stops killing the tool call at 60 s — Claude reads that limit from its
+ * environment, in milliseconds, and a provider that makes no claim must keep
+ * spawning with a clean environment.
+ */
+describe('claude MCP tool timeout', () => {
+  it('translates declared seconds into the millisecond env pair', () => {
+    expect(claudeMcpTimeoutEnv(600)).toEqual({
+      [CLAUDE_MCP_TIMEOUT_ENV]: '600000',
+      [CLAUDE_MCP_TOOL_TIMEOUT_ENV]: '600000'
+    })
+    // Startup AND tool call: raising one of the two is a 60 s failure that
+    // nobody can place.
+    expect(Object.keys(claudeMcpTimeoutEnv(600) ?? {})).toEqual(['MCP_TIMEOUT', 'MCP_TOOL_TIMEOUT'])
+  })
+
+  it('stays silent for a provider that makes no claim', () => {
+    expect(claudeMcpTimeoutEnv(undefined)).toBeUndefined()
+    expect(claudeMcpTimeoutEnv(0)).toBeUndefined()
+  })
+})
+
 describe('allowlists', () => {
   it('qualifies tool names into the mcp__vertragus__ namespace', () => {
     expect(qualifiedToolName('start_agent')).toBe('mcp__vertragus__start_agent')
   })
 
-  it('gives the orchestrator exactly its seven tools plus the read-only built-ins', () => {
+  it('gives the orchestrator exactly its tools plus the read-only built-ins', () => {
     expect(orchestratorAllowedTools()).toEqual([
       ...ORCHESTRATOR_TOOL_NAMES.map((tool) => `mcp__vertragus__${tool}`),
       ...READONLY_CLAUDE_TOOLS
@@ -195,6 +248,24 @@ describe('codex attach', () => {
     const args = buildCodexSubagentArgs({ url: URL, configDir, fileTag: 'sub' })
     expect(args.some((arg) => arg.includes('enabled_tools'))).toBe(false)
     expect(args).toContain(`mcp_servers.vertragus.url="${URL}"`)
+  })
+
+  /**
+   * Codex spells the raised timeout as one more process-local override. It is
+   * emitted ONLY on demand: no shipped preset claims it, because an older codex
+   * meeting an unknown `mcp_servers.*` key could refuse to start — and a launch
+   * that never starts is worse than a 50 s poll.
+   */
+  it('adds tool_timeout_sec only when the provider declares one', () => {
+    const plain = buildCodexMcpArgs({ url: URL, configDir, fileTag: 'c' })
+    expect(plain.some((arg) => arg.includes('tool_timeout_sec'))).toBe(false)
+
+    const raised = buildCodexMcpArgs({ url: URL, configDir, fileTag: 'c', toolTimeoutSec: 600 })
+    expect(raised).toContain('mcp_servers.vertragus.tool_timeout_sec=600')
+    // Seconds here, unlike Claude's millisecond env pair.
+    expect(raised).not.toContain('mcp_servers.vertragus.tool_timeout_sec=600000')
+    // Everything else about the attachment is untouched.
+    expect(raised.slice(0, plain.length)).toEqual(plain)
   })
 
   it('omits developer_instructions when there is no prompt', () => {
@@ -363,5 +434,418 @@ describe('cursor attach', () => {
   it('exports the launch flag that pre-approves project MCP servers', () => {
     // Cursor has no verified per-server tool filter; approval is this flag alone.
     expect(CURSOR_APPROVE_MCPS_FLAG).toBe('--approve-mcps')
+  })
+})
+
+describe('grok attach', () => {
+  it('installs .grok/config.toml in the WORKING directory with a TOML url', () => {
+    const path = writeGrokProjectMcpConfig(URL, workspaceDir)
+    expect(path).toBe(join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE))
+    expect(readFileSync(path, 'utf8')).toBe(grokMcpServerBlock(URL))
+  })
+
+  it('merges vertragus into an existing file and preserves foreign tables', () => {
+    const dir = join(workspaceDir, GROK_PROJECT_DIR)
+    writeGrokProjectMcpConfig('http://127.0.0.1:1/old', workspaceDir)
+    writeFileSync(
+      join(dir, GROK_CONFIG_FILE),
+      [
+        '[plugins]',
+        'enabled = ["mine"]',
+        '',
+        '[mcp_servers.user-server]',
+        'url = "http://127.0.0.1:9/user"',
+        '',
+        '[mcp_servers.vertragus]',
+        'url = "http://127.0.0.1:1/stale"',
+        '',
+        '[permission]',
+        'allow = ["Read"]',
+        ''
+      ].join('\n')
+    )
+
+    const path = writeGrokProjectMcpConfig(URL, workspaceDir)
+    const written = readFileSync(path, 'utf8')
+    expect(written).toContain('[plugins]')
+    expect(written).toContain('enabled = ["mine"]')
+    expect(written).toContain('[mcp_servers.user-server]')
+    expect(written).toContain('url = "http://127.0.0.1:9/user"')
+    expect(written).toContain('[permission]')
+    expect(written).toContain('allow = ["Read"]')
+    expect(written).toContain(grokMcpServerBlock(URL).trim())
+    expect(written).not.toContain('stale')
+  })
+
+  it('replaces a quoted [mcp_servers."vertragus"] header too', () => {
+    expect(
+      mergeGrokConfigToml('[mcp_servers."vertragus"]\nurl = "old"\n', URL)
+    ).toBe(grokMcpServerBlock(URL))
+  })
+
+  it('appends when the file has no vertragus table yet', () => {
+    const existing = '[mcp_servers.other]\ncommand = "npx"\n'
+    expect(mergeGrokConfigToml(existing, URL)).toBe(
+      `${existing.trimEnd()}\n\n${grokMcpServerBlock(URL)}`
+    )
+  })
+
+  it('rejects a project config that lost its server entry', () => {
+    const path = writeGrokProjectMcpConfig(URL, workspaceDir)
+    writeFileSync(path, '[mcp_servers.other]\nurl = "http://127.0.0.1:9/x"\n')
+    expect(() => assertWrittenGrokMcpConfig(path, URL)).toThrow(/Invalid Vertragus Grok MCP config/)
+  })
+
+  it('pre-allows the Vertragus MCP tools on the command line', () => {
+    const args = buildGrokMcpArgs({ url: URL, workspaceDir })
+    expect(args).toEqual([GROK_ALLOW_MCP_FLAG, grokAllowMcpRule()])
+    expect(args).toEqual(['--allow', 'MCPTool(vertragus__*)'])
+    expect(existsSync(join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE))).toBe(true)
+  })
+
+  it('writes deny+allow for the orchestrator so MCP tools are approved and edit/run are not', () => {
+    const path = writeGrokProjectMcpConfig(URL, workspaceDir, undefined, { orchestrator: true })
+    const raw = readFileSync(path, 'utf8')
+    expect(raw).toContain('[mcp_servers.vertragus]')
+    expect(raw).toContain(tomlString(URL))
+    expect(raw).toContain('[permission]')
+    for (const rule of GROK_ORCHESTRATOR_DENY) expect(raw).toContain(tomlString(rule))
+    for (const rule of GROK_ORCHESTRATOR_ALLOW) expect(raw).toContain(tomlString(rule))
+  })
+
+  it('unions the orchestrator cage into an existing [permission] table', () => {
+    mkdirSync(join(workspaceDir, GROK_PROJECT_DIR), { recursive: true })
+    writeFileSync(
+      join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE),
+      ['[permission]', 'allow = ["Bash(git *)"]', 'ask = ["Edit"]', ''].join('\n')
+    )
+    const raw = readFileSync(
+      writeGrokProjectMcpConfig(URL, workspaceDir, undefined, { orchestrator: true }),
+      'utf8'
+    )
+    expect(raw).toContain(tomlString('Bash(git *)'))
+    expect(raw).toContain('ask = ["Edit"]')
+    for (const rule of GROK_ORCHESTRATOR_DENY) expect(raw).toContain(tomlString(rule))
+    expect(raw).toContain(tomlString('MCPTool(vertragus__*)'))
+  })
+
+  it('replaces a non-TOML existing file instead of guessing', () => {
+    mkdirSync(join(workspaceDir, GROK_PROJECT_DIR), { recursive: true })
+    writeFileSync(
+      join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE),
+      JSON.stringify({ mcpServers: { vertragus: { url: 'stale' } } })
+    )
+    const raw = readFileSync(writeGrokProjectMcpConfig(URL, workspaceDir), 'utf8')
+    expect(raw).toContain('[mcp_servers.vertragus]')
+    expect(raw).toContain(tomlString(URL))
+    expect(raw).not.toContain('mcpServers')
+  })
+
+  it('still merges a file we wrote — multiline permission arrays stay TOML', () => {
+    writeGrokProjectMcpConfig(URL, workspaceDir, undefined, { orchestrator: true })
+    const raw = readFileSync(
+      writeGrokProjectMcpConfig(URL, workspaceDir, undefined, { orchestrator: true }),
+      'utf8'
+    )
+    expect(raw).toContain(tomlString(URL))
+    expect(raw).toContain('[permission]')
+    for (const rule of GROK_ORCHESTRATOR_DENY) expect(raw).toContain(tomlString(rule))
+  })
+
+  it('replaces non-JSON garbage instead of merging it as a TOML preamble', () => {
+    mkdirSync(join(workspaceDir, GROK_PROJECT_DIR), { recursive: true })
+    writeFileSync(
+      join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE),
+      'this is not a config file\nhello world\n<!DOCTYPE html>\n'
+    )
+    const raw = readFileSync(
+      writeGrokProjectMcpConfig(URL, workspaceDir, undefined, { orchestrator: true }),
+      'utf8'
+    )
+    expect(raw).toBe(renderGrokProjectMcpConfig(URL, true))
+    expect(raw).not.toContain('hello world')
+    expect(raw).not.toContain('this is not a config file')
+    expect(raw).not.toContain('<!DOCTYPE html>')
+    expect(raw).toContain('[mcp_servers.vertragus]')
+    expect(raw).toContain('[permission]')
+  })
+
+  it('writes the orchestrator agent file with the TUI tool allowlist and Agent denylist', () => {
+    const path = writeGrokOrchestratorAgentFile(workspaceDir)
+    expect(path).toBe(join(workspaceDir, GROK_PROJECT_DIR, 'agents', GROK_AGENT_FILE))
+    const text = grokOrchestratorAgentFileText()
+    expect(readFileSync(path, 'utf8')).toBe(text)
+    expect(text).toContain(`name: ${GROK_AGENT_NAME}`)
+    expect(text).toContain('tools: read_file, list_dir, grep, search_tool, use_tool, todo_write')
+    expect(text).toContain('disallowedTools: Agent')
+  })
+
+  it('gives the orchestrator cage argv and env, and does not yolo', () => {
+    const args = buildGrokOrchestratorArgs({ url: URL, workspaceDir })
+    expect(args[0]).toBe(GROK_NO_SUBAGENTS_FLAG)
+    expect(args).toEqual(grokOrchestratorArgv())
+    expect(args).not.toContain('--always-approve')
+    expect(args).not.toContain('--yolo')
+    expect(args).not.toContain('--tools')
+    expect(args).not.toContain('--disallowed-tools')
+    expect(grokOrchestratorEnv()).toEqual({
+      GROK_SUBAGENTS: '0',
+      GROK_WORKFLOWS: '0',
+      GROK_AGENT: GROK_AGENT_NAME
+    })
+    expect(existsSync(join(workspaceDir, GROK_PROJECT_DIR, 'agents', GROK_AGENT_FILE))).toBe(true)
+  })
+
+  it('attaches a subagent without a cage, without the orchestrator agent file', () => {
+    const args = buildGrokSubagentArgs({ url: URL, workspaceDir })
+    expect(args).toEqual([GROK_ALLOW_MCP_FLAG, grokAllowMcpRule()])
+    const raw = readFileSync(join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE), 'utf8')
+    expect(raw).toContain(tomlString(URL))
+    expect(raw).not.toContain('[permission]')
+    expect(existsSync(join(workspaceDir, GROK_PROJECT_DIR, 'agents', GROK_AGENT_FILE))).toBe(false)
+  })
+})
+
+describe('E6 extra MCP servers', () => {
+  const EXTRA = [{ name: 'browser', url: 'http://127.0.0.1:9200/mcp' }]
+
+  it('claude: extra servers land in the same strict transient file', () => {
+    expect(toClaudeMcpConfig(URL, EXTRA)).toEqual({
+      mcpServers: {
+        vertragus: { type: 'http', url: URL },
+        browser: { type: 'http', url: 'http://127.0.0.1:9200/mcp' }
+      }
+    })
+    const path = writeClaudeMcpConfigFile(URL, configDir, 'extra', EXTRA)
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(toClaudeMcpConfig(URL, EXTRA))
+  })
+
+  it('codex: one url override per server, nothing else', () => {
+    expect(codexExtraServerOverrides(EXTRA)).toEqual([
+      '-c',
+      `mcp_servers.browser.url=${tomlString('http://127.0.0.1:9200/mcp')}`
+    ])
+    expect(codexExtraServerOverrides(undefined)).toEqual([])
+  })
+
+  it('kimi: extra servers join the project file next to vertragus', () => {
+    expect(toKimiMcpConfig(URL, undefined, EXTRA)).toEqual({
+      mcpServers: {
+        vertragus: { url: URL },
+        browser: { url: 'http://127.0.0.1:9200/mcp' }
+      }
+    })
+  })
+
+  it('cursor: extra servers merge without touching foreign entries', () => {
+    const existing = { mcpServers: { theirs: { url: 'http://example.test/mcp' } } }
+    expect(toCursorMcpConfig(existing, URL, EXTRA).mcpServers).toEqual({
+      theirs: { url: 'http://example.test/mcp' },
+      vertragus: { url: URL },
+      browser: { url: 'http://127.0.0.1:9200/mcp' }
+    })
+  })
+
+  it('grok: one table per extra server, replaced on re-run, foreign tables intact', () => {
+    const existing = '[permission]\nmode = "ask"\n\n[mcp_servers.browser]\nurl = "http://old"\n'
+    const merged = mergeGrokConfigToml(existing, URL, EXTRA)
+    expect(merged).toContain('[permission]')
+    expect(merged).toContain(grokMcpServerBlock(URL).trim())
+    expect(merged).toContain('url = "http://127.0.0.1:9200/mcp"')
+    expect(merged).not.toContain('http://old')
+    // Idempotent: a second merge changes nothing.
+    expect(mergeGrokConfigToml(merged, URL, EXTRA)).toBe(merged)
+  })
+
+  it('defence-in-depth: a server named vertragus is dropped by every writer', () => {
+    const shadow = [{ name: 'Vertragus', url: 'http://evil.test/mcp' }]
+    expect(usableExtraMcp(shadow)).toEqual([])
+    expect(toClaudeMcpConfig(URL, shadow).mcpServers).toEqual({
+      vertragus: { type: 'http', url: URL }
+    })
+    expect(codexExtraServerOverrides(shadow)).toEqual([])
+  })
+})
+
+const GITHUB = extraMcpServerSchema.parse({
+  id: 'github',
+  label: 'GitHub',
+  transport: 'stdio',
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-github'],
+  env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'secret' }
+})
+
+const LINEAR = extraMcpServerSchema.parse({
+  id: 'linear',
+  label: 'Linear',
+  transport: 'http',
+  url: 'https://mcp.linear.app/mcp',
+  headers: { Authorization: 'Bearer x' }
+})
+
+const DISABLED: ExtraMcpServer = extraMcpServerSchema.parse({
+  ...GITHUB,
+  id: 'off',
+  enabled: false
+})
+
+const RESERVED: ExtraMcpServer = { ...GITHUB, id: 'vertragus' }
+
+describe('extra MCP servers', () => {
+  it('puts extras next to vertragus in the Claude config', () => {
+    expect(toClaudeMcpConfig(URL, [GITHUB, LINEAR])).toEqual({
+      mcpServers: {
+        vertragus: { type: 'http', url: URL },
+        github: {
+          type: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-github'],
+          env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'secret' }
+        },
+        linear: {
+          type: 'http',
+          url: 'https://mcp.linear.app/mcp',
+          headers: { Authorization: 'Bearer x' }
+        }
+      }
+    })
+  })
+
+  it('skips disabled and reserved extras and never replaces vertragus', () => {
+    const claude = toClaudeMcpConfig(URL, [DISABLED, RESERVED, GITHUB])
+    expect(claude.mcpServers.vertragus).toEqual({ type: 'http', url: URL })
+    expect(claude.mcpServers).not.toHaveProperty('off')
+    expect(Object.keys(claude.mcpServers)).toEqual(['vertragus', 'github'])
+
+    const kimi = toKimiMcpConfig(URL, undefined, [RESERVED, GITHUB])
+    expect(kimi.mcpServers.vertragus).toEqual({ url: URL })
+    expect(kimi.mcpServers.github).toEqual({
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-github'],
+      env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'secret' }
+    })
+  })
+
+  it('writes extras into Claude’s transient file under strict mode', () => {
+    const path = writeClaudeMcpConfigFile(URL, configDir, 'extra', [GITHUB])
+    const written = JSON.parse(readFileSync(path, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(written.mcpServers.vertragus).toEqual({ type: 'http', url: URL })
+    expect(written.mcpServers.github).toMatchObject({ type: 'stdio', command: 'npx' })
+  })
+
+  it('keeps Claude orchestrator on vertragus only even if extras are passed', () => {
+    const orch = buildClaudeOrchestratorArgs({
+      url: URL,
+      configDir,
+      fileTag: 'orch',
+      extraMcpServers: [GITHUB]
+    })
+    const list = orch[orch.indexOf('--allowedTools') + 1]!
+    expect(list).not.toContain('mcp__github')
+    expect(list).toContain('mcp__vertragus__await_events')
+    const orchPath = orch[orch.indexOf('--mcp-config') + 1]!
+    const orchFile = JSON.parse(readFileSync(orchPath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(Object.keys(orchFile.mcpServers)).toEqual(['vertragus'])
+
+    const sub = buildClaudeSubagentArgs({
+      url: URL,
+      configDir,
+      fileTag: 'sub',
+      extraMcpServers: [GITHUB]
+    })
+    expect(sub).not.toContain('--allowedTools')
+    const subPath = sub[sub.indexOf('--mcp-config') + 1]!
+    const subFile = JSON.parse(readFileSync(subPath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(subFile.mcpServers.github).toMatchObject({ type: 'stdio', command: 'npx' })
+  })
+
+  it('adds Codex extra overrides without required=true or enabled_tools', () => {
+    const extras = codexExtraServerOverrides([GITHUB, LINEAR])
+    expect(extras).toContain('mcp_servers.github.command="npx"')
+    expect(extras).toContain(
+      `mcp_servers.github.args=${JSON.stringify(['-y', '@modelcontextprotocol/server-github'])}`
+    )
+    expect(extras).toContain('mcp_servers.github.env.GITHUB_PERSONAL_ACCESS_TOKEN="secret"')
+    expect(extras).toContain('mcp_servers.linear.url="https://mcp.linear.app/mcp"')
+    expect(extras.join(' ')).not.toMatch(/mcp_servers\.(github|linear)\.required/)
+    expect(extras.join(' ')).not.toContain('enabled_tools')
+
+    const args = buildCodexMcpArgs({
+      url: URL,
+      configDir,
+      fileTag: 'c',
+      extraMcpServers: [GITHUB]
+    })
+    expect(args).toContain('mcp_servers.vertragus.required=true')
+    expect(args).toContain('mcp_servers.github.command="npx"')
+  })
+
+  it('merges extras into Kimi next to vertragus without enabledTools on extras', () => {
+    expect(toKimiMcpConfig(URL, orchestratorAllowedTools(), [GITHUB, LINEAR])).toEqual({
+      mcpServers: {
+        vertragus: { url: URL, enabledTools: [...ORCHESTRATOR_TOOL_NAMES] },
+        github: {
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-github'],
+          env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'secret' }
+        },
+        linear: {
+          url: 'https://mcp.linear.app/mcp',
+          headers: { Authorization: 'Bearer x' }
+        }
+      }
+    })
+  })
+
+  it('writes HTTP headers into Kimi and Cursor project files, not into Codex overrides', () => {
+    const kimiPath = writeKimiProjectMcpConfig(URL, workspaceDir, undefined, [LINEAR])
+    const kimi = JSON.parse(readFileSync(kimiPath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(kimi.mcpServers.linear).toEqual({
+      url: 'https://mcp.linear.app/mcp',
+      headers: { Authorization: 'Bearer x' }
+    })
+    expect(kimi.mcpServers.linear).not.toHaveProperty('type')
+
+    const cursorPath = writeCursorProjectMcpConfig(URL, workspaceDir, [LINEAR])
+    const cursor = JSON.parse(readFileSync(cursorPath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(cursor.mcpServers.linear).toEqual({
+      url: 'https://mcp.linear.app/mcp',
+      headers: { Authorization: 'Bearer x' }
+    })
+    expect(cursor.mcpServers.linear).not.toHaveProperty('type')
+
+    const extras = codexExtraServerOverrides([LINEAR]).join(' ')
+    expect(extras).toContain('mcp_servers.linear.url="https://mcp.linear.app/mcp"')
+    expect(extras).not.toMatch(/header/i)
+  })
+
+  it('preserves a foreign Cursor server, lets extras win collisions, keeps vertragus last', () => {
+    const existing = {
+      mcpServers: {
+        'user-server': { url: 'http://127.0.0.1:9/user' },
+        github: { url: 'http://127.0.0.1:9/old-github' },
+        vertragus: { url: 'http://127.0.0.1:1/stale' }
+      }
+    }
+    const merged = toCursorMcpConfig(existing, URL, [GITHUB, RESERVED])
+    expect(merged.mcpServers['user-server']).toEqual({ url: 'http://127.0.0.1:9/user' })
+    expect(merged.mcpServers.github).toEqual({
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-github'],
+      env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'secret' }
+    })
+    expect(merged.mcpServers.vertragus).toEqual({ url: URL })
+    expect(Object.keys(merged.mcpServers).at(-1)).toBe('vertragus')
   })
 })

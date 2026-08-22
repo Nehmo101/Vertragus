@@ -7,6 +7,7 @@ import type { AgentRegistry, RegisteredAgent } from '@main/ipc'
 import type { PtyExitInfo, PtySpawnOptions } from '@main/agents/PtyAgent'
 import type { AgentLaunchInput, AgentPty, ResolvedLaunch, SpawnedAgent } from '@main/agents/spawn'
 import type { SeedWithReadyOptions } from '@main/agents/interactiveReady'
+import { worktreePathFor } from '@main/agents/worktree'
 import { profileSchema, type Profile, type ProfileInput } from '@shared/schema/profile'
 import { providerPresets } from '@main/providers/presets'
 import type { ProviderConfig } from '@shared/schema/provider'
@@ -102,6 +103,7 @@ export class FakeRegistry implements AgentRegistry {
   readonly registered: RegisteredAgent[] = []
   readonly removed: string[] = []
   readonly detached: string[] = []
+  readonly tasks = new Map<string, string | undefined>()
   private readonly agents = new Map<string, RegisteredAgent>()
 
   registerAgent(entry: RegisteredAgent): void {
@@ -120,6 +122,49 @@ export class FakeRegistry implements AgentRegistry {
   }
   markDetached(agentId: string): void {
     this.detached.push(agentId)
+  }
+  setAgentTask(agentId: string, task: string | undefined): void {
+    this.tasks.set(agentId, task)
+  }
+  terminals(): import('@main/ipc').TerminalDirectory {
+    const agents = this.agents
+    return {
+      list: () =>
+        [...agents.values()].map((entry) => ({ agentId: entry.meta.agentId, meta: entry.meta, exit: null })),
+      get: (agentId) => {
+        const entry = agents.get(agentId)
+        return entry ? { agentId, meta: entry.meta, exit: null } : undefined
+      },
+      attach: (agentId, sink) => {
+        const entry = agents.get(agentId)
+        if (!entry) return undefined
+        const offData = entry.pty.onData((data) => sink.onData(data))
+        const offExit = entry.pty.onExit((info) => sink.onExit(info))
+        return {
+          snapshot: entry.pty.snapshot(),
+          cols: entry.pty.cols,
+          rows: entry.pty.rows,
+          meta: entry.meta,
+          exit: null,
+          detach: () => {
+            offData()
+            offExit()
+          }
+        }
+      },
+      write: (agentId, data) => {
+        const entry = agents.get(agentId)
+        if (!entry || !data) return false
+        entry.pty.write(data)
+        return true
+      },
+      resize: (agentId, cols, rows) => {
+        const entry = agents.get(agentId)
+        if (!entry) return false
+        entry.pty.resize(cols, rows)
+        return true
+      }
+    }
   }
   dispose(): void {
     this.agents.clear()
@@ -253,7 +298,10 @@ export function fakeWorktrees(): {
     calls,
     createWorktree: async (repoPath, agentId, branchName, options) => {
       calls.push({ repoPath, agentId, branchName, ...(options?.startPoint ? { startPoint: options.startPoint } : {}) })
-      return { path: `${repoPath}/.vertragus/worktrees/${agentId}`, branch: branchName }
+      // Same convention as production `createWorktree` / `beginAgent`, including
+      // Windows separators. A POSIX-only string here makes spawn cwd disagree
+      // with `worktreePathFor` and fails CI on windows-latest.
+      return { path: worktreePathFor(repoPath, agentId), branch: branchName }
     }
   }
 }

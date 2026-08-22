@@ -15,6 +15,7 @@
  * never deleted — committed work survives every cleanup.
  */
 import { join } from 'node:path'
+import { mainMessages } from '@shared/mainMessages'
 import {
   listWorktrees,
   removeWorktree,
@@ -37,6 +38,12 @@ export interface WorktreeCleanupDeps {
   list?: typeof listWorktrees
   remove?: typeof removeWorktree
   worktreeDeps?: WorktreeDeps
+  /**
+   * Stored UI locale for the two refusals below — both reach the panel's error
+   * row verbatim. A function, not a value, so a locale changed after boot is
+   * honoured; absent (tests) falls back to the schema default.
+   */
+  locale?(): string | undefined
 }
 
 export interface WorktreeCleanup {
@@ -59,10 +66,11 @@ export function worktreePathKey(value: string): string {
 export function createWorktreeCleanup(deps: WorktreeCleanupDeps): WorktreeCleanup {
   const list = deps.list ?? listWorktrees
   const remove = deps.remove ?? removeWorktree
+  const messages = (): ReturnType<typeof mainMessages> => mainMessages(deps.locale?.())
 
   function requireRepoPath(profileId: string): string {
     const repoPath = deps.repoPathFor(profileId)
-    if (!repoPath) throw new Error(`Unbekanntes Profil ${profileId}`)
+    if (!repoPath) throw new Error(messages().unknownProfile(profileId))
     return repoPath
   }
 
@@ -89,11 +97,7 @@ export function createWorktreeCleanup(deps: WorktreeCleanupDeps): WorktreeCleanu
       const stale = await listStale(profileId)
       const key = worktreePathKey(worktreePath)
       const target = stale.find((entry) => worktreePathKey(entry.path) === key)
-      if (!target) {
-        throw new Error(
-          `Worktree ${worktreePath} ist nicht entfernbar — er ist aktiv, fremd oder existiert nicht.`
-        )
-      }
+      if (!target) throw new Error(messages().worktreeNotRemovable(worktreePath))
       await remove(repoPath, target.path, deps.worktreeDeps)
       return listStale(profileId)
     }
