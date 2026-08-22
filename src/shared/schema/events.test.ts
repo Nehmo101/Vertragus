@@ -45,15 +45,14 @@ describe('agent event schema', () => {
     ).toMatchObject({ target: 'checkout' })
     // Absent stays legal: every integrate event written before A3 was a
     // worktree merge and must keep parsing.
-    expect(
-      agentEventPayloadSchema.parse({
-        type: 'integrate_conflict',
-        ...identity,
-        branch: 'vertragus/x/y',
-        conflictFiles: [],
-        message: 'CONFLICT'
-      }).target
-    ).toBeUndefined()
+    const legacy = agentEventPayloadSchema.parse({
+      type: 'integrate_conflict',
+      ...identity,
+      branch: 'vertragus/x/y',
+      conflictFiles: [],
+      message: 'CONFLICT'
+    })
+    expect(legacy.type === 'integrate_conflict' && legacy.target).toBeUndefined()
     expect(
       agentEventPayloadSchema.safeParse({
         type: 'integrate_ok',

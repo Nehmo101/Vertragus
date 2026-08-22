@@ -34,7 +34,9 @@ import {
   workspaceCanReplaceOrchestrator,
   workspaceCardClass,
   workspaceCountByProfile,
+  workspaceGoalLine,
   workspaceHasWaitingSubagent,
+  workspaceIdToFocusForProfile,
   workspaceNeedsAttention,
   workspacePlaceTooltip,
   workspaceSuccessionLabel,
@@ -150,7 +152,7 @@ describe('tooltips', () => {
   })
 
   it('appends the agent\'s current task to its hover card', () => {
-    const withTask = agent({ statusText: 'Parser-Bug in tokenizer.ts fixen' })
+    const withTask = agent({ taskText: 'Parser-Bug in tokenizer.ts fixen' })
     expect(agentTooltip(t, 'de', withTask)).toMatch(/Fährmann/)
     expect(agentTooltip(t, 'de', withTask)).toContain(
       'Aktuelle Aufgabe: Parser-Bug in tokenizer.ts fixen'
@@ -159,21 +161,21 @@ describe('tooltips', () => {
       'Current task: Parser-Bug in tokenizer.ts fixen'
     )
     // Whitespace is not a task — the blurb stands alone.
-    expect(agentTooltip(t, 'de', agent({ statusText: '   ' }))).not.toContain('Aufgabe')
+    expect(agentTooltip(t, 'de', agent({ taskText: '   ' }))).not.toContain('Aufgabe')
     // A name outside the roster still gets a card once there is a task.
-    expect(agentTooltip(t, 'de', agent({ name: 'Nobody', statusText: 'Docs schreiben' }))).toBe(
+    expect(agentTooltip(t, 'de', agent({ name: 'Nobody', taskText: 'Docs schreiben' }))).toBe(
       'Aktuelle Aufgabe: Docs schreiben'
     )
   })
 
-  it('labels the orchestrator\'s task line as delegated, not as its own', () => {
+  it('shows the orchestrator\'s current task the same way as a subagent', () => {
     const orchestrator = agent({
       name: 'Virgilio',
       roleId: 'orchestrator',
-      statusText: 'Parser-Bug fixen'
+      taskText: 'Parser-Bug fixen'
     })
-    expect(agentTooltip(t, 'de', orchestrator)).toContain('Zuletzt delegiert: Parser-Bug fixen')
-    expect(agentTooltip(en, 'en', orchestrator)).toContain('Last delegated: Parser-Bug fixen')
+    expect(agentTooltip(t, 'de', orchestrator)).toContain('Aktuelle Aufgabe: Parser-Bug fixen')
+    expect(agentTooltip(en, 'en', orchestrator)).toContain('Current task: Parser-Bug fixen')
   })
 
   it('reveals what kind of place a workspace is, cycle suffix included', () => {
@@ -187,21 +189,64 @@ describe('tooltips', () => {
     expect(workspaceTooltip(t, 'de', workspace({ name: 'Eigenbau' }))).toBeUndefined()
   })
 
-  it('appends the current task to the workspace hover card once one exists', () => {
-    const withTask = workspace({ taskText: 'Parser-Bug in tokenizer.ts fixen' })
-    expect(workspaceTooltip(t, 'de', withTask)).toMatch(/Himmelssphären/)
-    expect(workspaceTooltip(t, 'de', withTask)).toContain(
-      'Aktuelle Aufgabe: Parser-Bug in tokenizer.ts fixen'
+  it('appends the user goal to the workspace hover card, not the current task', () => {
+    const withGoal = workspace({
+      goalText: 'Parser-Bug in tokenizer.ts fixen',
+      taskText: 'handed to a worker'
+    })
+    expect(workspaceTooltip(t, 'de', withGoal)).toMatch(/Himmelssphären/)
+    expect(workspaceTooltip(t, 'de', withGoal)).toContain(
+      'Ziel: Parser-Bug in tokenizer.ts fixen'
     )
-    expect(workspaceTooltip(en, 'en', withTask)).toContain(
-      'Current task: Parser-Bug in tokenizer.ts fixen'
+    expect(workspaceTooltip(t, 'de', withGoal)).not.toContain('Aktuelle Aufgabe')
+    expect(workspaceTooltip(t, 'de', withGoal)).not.toContain('handed to a worker')
+    expect(workspaceTooltip(en, 'en', withGoal)).toContain(
+      'Goal: Parser-Bug in tokenizer.ts fixen'
     )
-    // Whitespace is not a task — the blurb stands alone.
-    expect(workspaceTooltip(t, 'de', workspace({ taskText: '   ' }))).not.toContain('Aufgabe')
-    // An unknown name with a task still gets a card — the task carries it.
+    // A delegated assignment on the card is not a goal — the blurb stands alone.
+    expect(workspaceTooltip(t, 'de', workspace({ taskText: 'handed to a worker' }))).not.toContain(
+      'handed to a worker'
+    )
+    // A multi-line goal stays whole — the card is pre-line, not a one-liner.
     expect(
-      workspaceTooltip(t, 'de', workspace({ name: 'Eigenbau', taskText: 'Docs schreiben' }))
-    ).toBe('Aktuelle Aufgabe: Docs schreiben')
+      workspaceTooltip(t, 'de', workspace({ goalText: 'Fix the parser\nDefinition of done' }))
+    ).toContain('Fix the parser\nDefinition of done')
+    // Whitespace is not a goal — the blurb stands alone.
+    expect(workspaceTooltip(t, 'de', workspace({ goalText: '   ' }))).not.toContain('Ziel')
+    // An unknown name with a goal still gets a card — the goal carries it.
+    expect(
+      workspaceTooltip(t, 'de', workspace({ name: 'Eigenbau', goalText: 'Docs schreiben' }))
+    ).toBe('Ziel: Docs schreiben')
+  })
+})
+
+describe('goal line', () => {
+  it('quotes a delivered goal from the summary — expansion is a card concern', () => {
+    expect(workspaceGoalLine(t, workspace({ goalText: 'Parser-Bug in tokenizer.ts fixen' }))).toBe(
+      'Ziel: Parser-Bug in tokenizer.ts fixen'
+    )
+    expect(workspaceGoalLine(t, workspace({ goalText: '  trim me  ' }))).toBe('Ziel: trim me')
+    expect(workspaceGoalLine(en, workspace({ goalText: 'Fix the parser' }))).toBe(
+      'Goal: Fix the parser'
+    )
+  })
+
+  it('says so when a running workspace has no goal yet', () => {
+    expect(workspaceGoalLine(t, workspace())).toBe('Kein Ziel — Orchestrator wartet')
+    expect(workspaceGoalLine(en, workspace())).toBe('No goal — the orchestrator is waiting')
+    expect(workspaceGoalLine(t, workspace({ goalText: '   ' }))).toBe(
+      'Kein Ziel — Orchestrator wartet'
+    )
+    expect(workspaceGoalLine(t, workspace({ goalText: '' }))).toBe(
+      'Kein Ziel — Orchestrator wartet'
+    )
+  })
+
+  it('omits the line on a finished workspace without a goal', () => {
+    expect(workspaceGoalLine(t, workspace({ active: false }))).toBeUndefined()
+    expect(
+      workspaceGoalLine(t, workspace({ active: false, goalText: 'Keep showing this' }))
+    ).toBe('Ziel: Keep showing this')
   })
 })
 
@@ -338,6 +383,15 @@ describe('profile workspace filter', () => {
     expect(expandedWorkspaceId(filtered, 'w1')).toBeNull()
     expect(nextSelectedWorkspaceId(filtered, undefined, 'w3')).toBe('w3')
     expect(expandedWorkspaceId(filtered, 'w3')).toBe('w3')
+  })
+
+  it('picks the workspace to focus when a profile is selected', () => {
+    expect(workspaceIdToFocusForProfile([a1, a2, b1], 'p1')).toBe('w1')
+    expect(workspaceIdToFocusForProfile([a2, a1, b1], 'p1')).toBe('w1')
+    expect(workspaceIdToFocusForProfile([a2, b1], 'p1')).toBe('w2')
+    expect(workspaceIdToFocusForProfile([a1, a2, b1], 'p2')).toBe('w3')
+    expect(workspaceIdToFocusForProfile([a1, a2, b1], 'gone')).toBeNull()
+    expect(workspaceIdToFocusForProfile([], 'p1')).toBeNull()
   })
 })
 

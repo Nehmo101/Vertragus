@@ -478,8 +478,9 @@ export interface WorkspaceRuntime {
   onLeadCreated?: (lead: LeadRuntime) => void
   /**
    * The latest assignment the orchestrator handed out, shortened via
-   * {@link taskNote}. The panel shows it in the workspace tooltip — it lives
-   * here because only the MCP layer sees the raw task before the contract is
+   * {@link taskNote}. Last delegated work, not the user's workspace goal —
+   * the panel workspace hover reads the Workspace's `goalText`. Lives here
+   * because only the MCP layer sees the raw task before the contract is
    * appended.
    */
   latestTask?: string
@@ -487,8 +488,10 @@ export interface WorkspaceRuntime {
    * Current assignment per subagent, shortened via {@link taskNote}. Written by
    * `start_agent` and follow-up `send_to_agent` calls (never by question
    * answers), read by the panel's agent rows and the CLI windows' hover cards.
-   * Entries outlive a stopped agent on purpose — "what was it working on?" is
-   * exactly the question a hover over a finished agent answers.
+   * The orchestrator is not in this map — its current task is the latest user
+   * CLI submit on the Workspace. Entries outlive a stopped agent on purpose —
+   * "what was it working on?" is exactly the question a hover over a finished
+   * agent answers.
    */
   agentTasks: Map<string, string>
   /**
@@ -531,9 +534,9 @@ export const USER_QUESTION_AGENT_ID = 'user'
 export const TASK_NOTE_MAX = 140
 
 /**
- * Shorten an assignment to its first non-empty line for the workspace tooltip.
+ * Shorten an assignment to its first non-empty line for an agent hover.
  * Undefined for whitespace-only text — a blank note must not overwrite a
- * meaningful one.
+ * meaningful one. Workspace goals do not go through this.
  */
 export function taskNote(task: string): string | undefined {
   const line = task
@@ -546,8 +549,9 @@ export function taskNote(task: string): string | undefined {
 
 /**
  * Record one handed-out assignment: the agent's own current task and the
- * workspace's latest one, in one step, with one notification. A whitespace-only
- * text records nothing — a blank note must not overwrite a meaningful one.
+ * workspace's latest delegated one, in one step, with one notification. Does
+ * not touch the user's workspace goal. A whitespace-only text records nothing
+ * — a blank note must not overwrite a meaningful one.
  */
 export function recordAssignment(runtime: WorkspaceRuntime, agentId: string, task: string): void {
   const note = taskNote(task)

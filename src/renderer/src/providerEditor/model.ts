@@ -19,6 +19,7 @@ import {
   providerConfigSchema,
   type McpAttach,
   type ModelDiscovery,
+  type InitialPromptDelivery,
   type ProviderConfig,
   type ProviderPresetId,
   type ProviderSeed,
@@ -68,6 +69,11 @@ export interface ProviderDraft {
    * Ollama's `keyboardWaitMs: 0` are what make the assignment arrive at all.
    */
   seed?: ProviderSeed
+  /**
+   * Carried, not edited: how a start-goal rides argv. Dropping it on save
+   * re-breaks Grok (welcome screen swallows a PTY Enter).
+   */
+  initialPromptDelivery?: InitialPromptDelivery
 }
 
 /** Field-keyed errors: `label`, `command`, `mcpConfigArg`, `form`. */
@@ -161,7 +167,10 @@ export function draftFromProvider(config: ProviderConfig): ProviderDraft {
     discoveryUrl: discovery.kind === 'http' ? discovery.url : '',
     seedModels: fromLines(config.seedModels),
     enabled: config.enabled,
-    ...(config.seed ? { seed: config.seed } : {})
+    ...(config.seed ? { seed: config.seed } : {}),
+    ...(config.initialPromptDelivery
+      ? { initialPromptDelivery: config.initialPromptDelivery }
+      : {})
   }
 }
 
@@ -253,7 +262,10 @@ export function toProviderInput(draft: ProviderDraft): unknown {
     modelDiscovery: modelDiscoveryInput(draft),
     seedModels: toLines(draft.seedModels),
     enabled: draft.enabled,
-    ...(draft.seed ? { seed: draft.seed } : {})
+    ...(draft.seed ? { seed: draft.seed } : {}),
+    ...(draft.initialPromptDelivery
+      ? { initialPromptDelivery: draft.initialPromptDelivery }
+      : {})
   }
 }
 

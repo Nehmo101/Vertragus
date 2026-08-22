@@ -324,8 +324,9 @@ function PullRequestLine({
 }
 
 /**
- * One workspace card: Commedia name, agent count, stop. Only the expanded card
- * lists its agents — collapsed peers keep the head so the rail stays scannable.
+ * One workspace card: Commedia name, current goal, agent count, stop. Only the
+ * expanded card lists its agents — collapsed peers keep the head so the rail
+ * stays scannable. The goal line is shown collapsed and expanded.
  */
 export function WorkspaceCard({
   workspace,
@@ -402,6 +403,14 @@ export function WorkspaceCard({
           <StopIcon />
         </button>
       </header>
+      {goalLine ? (
+        <p
+          className={workspace.goalText ? 'panel-card-goal' : 'panel-card-goal is-empty'}
+          title={workspace.goalText || undefined}
+        >
+          {goalLine}
+        </p>
+      ) : null}
       {expanded ? (
         <>
           {workspace.orchestratorIdle ? (
@@ -422,14 +431,6 @@ export function WorkspaceCard({
             >
               {t('panel.replaceOrchestratorAction')}
             </button>
-          ) : null}
-          {goalLine ? (
-            <p
-              className={workspace.goalText ? 'panel-card-goal' : 'panel-card-goal is-empty'}
-              title={workspace.goalText || undefined}
-            >
-              {goalLine}
-            </p>
           ) : null}
           {workspace.userQuestion ? (
             <UserQuestion

@@ -145,6 +145,8 @@ export function buildOrchestratorSystemPrompt({
     ...briefingBlock,
     '',
     'You delegate. You never edit, create or delete files yourself, and you never run builds, tests or git commands yourself. You may read the repository HEAD (your own worktree) to understand it. To verify what an agent actually changed, call inspect_agent on that agent — never git, and never treat the terminal tail as a diff. Everything that changes the repository is done by an agent you start.',
+    'Do not use native spawn_subagent, write, or shell; everything that changes the repository is a Vertragus start_agent.',
+
     '',
     'Isolation: you and every agent you start each work in a separate git worktree of this repository, on a separate vertragus/* branch. Agents therefore never see each other’s uncommitted files. When an agent reports done, Vertragus itself commits its work onto its branch (a snapshot commit — agents do not commit themselves). To hand work from one agent to the next, start the next one with baseBranch set to the first agent’s branch (start_agent reports every agent’s branch back to you); the new agent’s task automatically carries a handoff block with the first agent’s report, files and HEAD. To combine several results, start an agent with baseBranch on one of the branches and task it with merging the other branches into its own — the branches merge like any other git branches.',
     '',

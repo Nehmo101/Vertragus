@@ -91,9 +91,10 @@ export interface StopOptions {
 /** Options for {@link WorkspaceManager.startWorkspace}. */
 export interface StartWorkspaceOptions {
   /**
-   * Goal to seed into the orchestrator once it is up (H2) — same handshake as
-   * every assignment. Absent = the classic bare Play: allowed, the card shows
-   * "no goal" until someone types one into the TUI.
+   * Goal for the orchestrator's first user turn (H2). Providers that declare
+   * `initialPromptDelivery` receive it at spawn; others are PTY-seeded after
+   * boot via the assignment handshake. Absent = the classic bare Play: allowed,
+   * the card shows "no goal" until someone types one into the TUI.
    */
   goal?: string
   /**
@@ -136,6 +137,14 @@ export interface WorkspaceManager {
    * single notification. This is what lets the panel stop polling.
    */
   onChange(listener: () => void): () => void
+  /**
+   * Feed a user-input chunk from an agent's CLI. Only the workspace whose
+   * orchestrator owns `agentId` is considered; a subagent is a no-op. First
+   * successful note sticks on {@link Workspace.goalText}; a start-with-goal
+   * is never overwritten. Later submits update the orchestrator's current
+   * task only. Fires {@link onChange} when either field changes.
+   */
+  noteOrchestratorGoal(agentId: string, chunk: string): boolean
 }
 
 function resolveValue<T>(source: T | (() => T)): T {
@@ -299,15 +308,18 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     notifyChange()
 
     try {
-      const orchestrator = await workspace.startOrchestrator()
-      notifyChange()
-      // Goal AFTER the orchestrator is up, over the same seed handshake as any
-      // assignment. A failed delivery does NOT tear the workspace down — the
-      // orchestrator is running and the user can still type into its terminal;
-      // the error travels to the caller (panel banner / gateway error) and the
-      // card truthfully shows "no goal".
       const goal = options?.goal?.trim()
-      if (goal) {
+      const orchestrator = await workspace.startOrchestrator(
+        goal ? { initialPrompt: goal } : undefined
+      )
+      notifyChange()
+      // Providers that take a first user prompt at spawn already have the goal
+      // (goalText is set) — do not type a second copy into the TUI. Everyone
+      // else still uses the assignment handshake. A failed PTY delivery does
+      // NOT tear the workspace down: the orchestrator is running and the user
+      // can still type into its terminal; the error travels to the caller
+      // (panel banner / gateway error) and the card truthfully shows "no goal".
+      if (goal && !workspace.goalText) {
         await workspace.assignGoal(goal)
         notifyChange()
       }
@@ -382,6 +394,14 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       return () => {
         changeListeners.delete(listener)
       }
+    },
+
+    noteOrchestratorGoal(agentId: string, chunk: string): boolean {
+      const workspace = [...workspaces.values()].find((ws) => ws.orchestrator?.agentId === agentId)
+      if (!workspace) return false
+      if (!workspace.noteOrchestratorGoal(chunk)) return false
+      notifyChange()
+      return true
     }
   }
 }

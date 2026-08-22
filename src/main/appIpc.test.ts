@@ -79,6 +79,7 @@ import { openProfileEditorWindow } from '@main/windows/profileEditor'
 import { settings } from '@main/store/settings'
 import {
   APP_CHANNELS,
+  agentCurrentTaskFields,
   createAppIpc,
   createStubWorkspaceDirectory,
   disposeAppIpc,
@@ -166,7 +167,8 @@ const SETTINGS: AppSettings = {
   hideAllHotkey: 'Control+Alt+V',
   autostart: false,
   updateChannel: 'main',
-  modelMemory: {}
+  modelMemory: {},
+  mcpServers: []
 }
 
 /** An in-memory stand-in for the settings store, with the same write rules. */
@@ -278,7 +280,8 @@ function workspace(id: string, active = true): WorkspaceSummary {
         roleLabel: 'Orchestrator',
         roleColor: '#cba35a',
         state: 'working',
-        statusText: 'plant'
+        statusText: 'plant',
+        taskText: 'Fix the parser'
       }
     ],
     // S4: present here so the preload parity check below covers the board row
@@ -1203,7 +1206,8 @@ describe('settings and windows', () => {
       updateChannel: 'main',
       autostartSupported: true,
       appearance: DEFAULT_APPEARANCE,
-      onboardingDismissed: false
+      onboardingDismissed: false,
+      mcpServers: []
     })
     // Never the app's own bookkeeping — model memory and panel bounds are
     // written by the app and have no form.
@@ -1420,8 +1424,42 @@ describe('settings:set', () => {
       'locale',
       'appearance',
       'agentPolicy',
-      'onboardingDismissed'
+      'onboardingDismissed',
+      'mcpServers'
     ])
+  })
+
+  it('round-trips extra MCP servers and rejects a reserved id', async () => {
+    const servers = [
+      {
+        id: 'github',
+        label: 'GitHub',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: [] as string[],
+        enabled: true
+      }
+    ]
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'mcpServers',
+      value: servers
+    })) as PanelSettings
+    expect(next.mcpServers).toEqual(servers)
+    expect(h.store.settings.mcpServers).toEqual(servers)
+    expect(h.broadcasts.some((entry) => entry.channel === APP_CHANNELS.eventSettings)).toBe(true)
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+        key: 'mcpServers',
+        value: [{ id: 'vertragus', label: 'Nope', transport: 'stdio', command: 'npx' }]
+      })
+    ).rejects.toThrow(/reserved/)
+
+    for (const sender of [CLI_ID, EDITOR_ID]) {
+      expect(() =>
+        h.ipc.invoke(APP_CHANNELS.settingsSet, sender, { key: 'mcpServers', value: [] })
+      ).toThrow(/not the panel or the settings window/)
+    }
   })
 
   it('takes a new hotkey immediately instead of at the next boot', async () => {
@@ -2054,5 +2092,16 @@ describe('preload parity', () => {
     const toPreload: PreloadWorkspaceSummary = fromMain
     const backAgain: WorkspaceSummary = toPreload
     expect(backAgain).toBe(fromMain)
+  })
+})
+
+describe('agentCurrentTaskFields', () => {
+  it('fills taskText and statusText from one current-task note', () => {
+    expect(agentCurrentTaskFields('Fix the parser')).toEqual({
+      taskText: 'Fix the parser',
+      statusText: 'Fix the parser'
+    })
+    expect(agentCurrentTaskFields(undefined)).toEqual({})
+    expect(agentCurrentTaskFields('   ')).toEqual({})
   })
 })

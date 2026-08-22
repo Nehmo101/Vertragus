@@ -40,6 +40,12 @@ import {
   type RoleTemplate
 } from '@shared/schema/profile'
 import {
+  extraMcpServerSchema,
+  parseExtraMcpServers,
+  parseExtraMcpServersForWrite,
+  type ExtraMcpServer
+} from '@shared/schema/mcpServer'
+import {
   mergeProviderConfigs,
   modelMemorySchema,
   parseProviderConfigs,
@@ -158,11 +164,18 @@ export const appSettingsSchema = z
      */
     updateChannel: z.enum(['main', 'stable']).default('main'),
     /** `{ providerId: { modelId: lastSeenAtMs } }` — see providers/discovery. */
-    modelMemory: modelMemorySchema.default({})
+    modelMemory: modelMemorySchema.default({}),
+    /**
+     * Extra MCP servers attached next to Vertragus on the next spawn.
+     * Preprocess drops a bad row so one hand-edited entry cannot reset the
+     * rest of settings; {@link setSetting} still validates strictly on write.
+     */
+    mcpServers: z.preprocess(parseExtraMcpServers, z.array(extraMcpServerSchema))
   })
   .strict()
 export type AppSettings = z.infer<typeof appSettingsSchema>
 export type UpdateChannel = AppSettings['updateChannel']
+export type { ExtraMcpServer }
 
 /** Keys of the store's top-level sections. */
 export const SETTINGS_KEYS = [
@@ -173,7 +186,8 @@ export const SETTINGS_KEYS = [
   'hideAllHotkey',
   'autostart',
   'updateChannel',
-  'modelMemory'
+  'modelMemory',
+  'mcpServers'
 ] as const
 
 /**
@@ -509,6 +523,12 @@ export function createSettingsStore({ backend, warn = console.warn }: SettingsSt
     getSettings: readSettings,
 
     setSetting(key, value) {
+      if (key === 'mcpServers') {
+        // Preprocess on the field is fail-soft (a bad row must not reset the
+        // rest of settings on READ). Writes stay fail-closed.
+        backend.set(key, parseExtraMcpServersForWrite(value))
+        return readSettings()
+      }
       const field = appSettingsSchema.shape[key] as z.ZodTypeAny
       backend.set(key, field.parse(value))
       // D4: one truth, two representations. The panel's yolo toggle writes the

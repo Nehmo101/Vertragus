@@ -81,6 +81,18 @@ export const systemPromptDeliverySchema = z.discriminatedUnion('kind', [
 export type SystemPromptDelivery = z.infer<typeof systemPromptDeliverySchema>
 
 /**
+ * How a first user prompt (the workspace start-goal) is passed at spawn.
+ * Absent = the host types it into the PTY after boot (`assignGoal`).
+ *
+ * - `positional`: trailing argv string. That is an interactive first turn,
+ *   not headless `-p` / `--single` (those exit after one turn).
+ */
+export const initialPromptDeliverySchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('positional') }).strict()
+])
+export type InitialPromptDelivery = z.infer<typeof initialPromptDeliverySchema>
+
+/**
  * How the Vertragus MCP server is attached. Every spawn makes this decision
  * explicitly — `none` is a declaration, never an accident (that omission is the
  * old repo's communicatively dead subagent bug).
@@ -104,8 +116,9 @@ export const mcpAttachSchema = z.discriminatedUnion('kind', [
   /**
    * Project-scoped `.grok/config.toml` merge of `[mcp_servers.vertragus]` plus
    * `--allow MCPTool(vertragus__*)` so the loopback server is usable without a
-   * TUI approval (see mcp/attach).
+   * TUI approval. Orchestrator launches also get a permission cage (see mcp/attach).
    */
+
   z.object({ kind: z.literal('grok-project') }).strict(),
   z.object({ kind: z.literal('none') }).strict()
 ])
@@ -226,6 +239,8 @@ export const providerConfigSchema = z
     versionArgs: argListSchema.default(['--version']),
     auth: providerAuthSchema.optional(),
     systemPromptDelivery: systemPromptDeliverySchema.default({ kind: 'pty' }),
+    /** Spawn-time first user prompt. Absent = PTY `assignGoal` after boot. */
+    initialPromptDelivery: initialPromptDeliverySchema.optional(),
     mcp: mcpAttachSchema.default({ kind: 'none' }),
     /**
      * How long ONE MCP tool call may run on this CLI, in seconds, once the
@@ -345,6 +360,22 @@ export function buildEffortArgs(
   if (!effort || !config.effortArg) return []
   if (config.effortArg.style === 'flag') return [config.effortArg.flag, effort]
   return [config.effortArg.flag, config.effortArg.template.replace('{effort}', effort)]
+}
+
+/**
+ * First-user-prompt arguments for a launch. Empty when the provider has no
+ * spawn-time surface or the prompt is blank. Never emits `-p` / `--single`.
+ */
+export function buildInitialPromptArgs(
+  config: Pick<ProviderConfig, 'initialPromptDelivery'>,
+  prompt: string | undefined
+): string[] {
+  const text = prompt?.trim()
+  if (!text || !config.initialPromptDelivery) return []
+  switch (config.initialPromptDelivery.kind) {
+    case 'positional':
+      return [text]
+  }
 }
 
 /**

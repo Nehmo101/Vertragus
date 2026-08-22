@@ -1,4 +1,8 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { buildAgentArgv } from '@main/agents/spawn'
 import type { McpServerHandle, RegisteredWorkspace } from '@main/mcp/server'
 import type { WorkspaceMcpContext } from '@main/mcp/types'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
@@ -325,6 +329,30 @@ describe('startWorkspace', () => {
 
     expect(running.workspace.goalText).toBe('Fix the login bug')
     expect(spawns[0]!.pty.written).toContain('Fix the login bug')
+    expect(spawns[0]!.input.initialPrompt).toBeUndefined()
+  })
+
+  it('delivers a grok start-goal as a trailing positional argv, without PTY-seeding it', async () => {
+    const { manager, spawns } = harness()
+    const running = await manager.startWorkspace(
+      testProfile({ orchestrator: { providerId: 'grok' } }),
+      { goal: '  Fix the login bug  ' }
+    )
+
+    expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(spawns[0]!.input.initialPrompt).toBe('Fix the login bug')
+    expect(spawns[0]!.pty.written).not.toContain('Fix the login bug')
+
+    const cwd = mkdtempSync(join(tmpdir(), 'vertragus-ws-grok-goal-'))
+    try {
+      const { argv } = buildAgentArgv({ ...spawns[0]!.input, cwd })
+      expect(argv.at(-1)).toBe('Fix the login bug')
+      expect(argv).not.toContain('-p')
+      expect(argv).not.toContain('--single')
+      expect(argv).not.toContain('--max-turns')
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
   })
 
   it('a bare start stays a bare start — no goal, no seed, no crash', async () => {
@@ -333,9 +361,27 @@ describe('startWorkspace', () => {
     expect(running.workspace.goalText).toBeUndefined()
     // Nothing was typed into the orchestrator (fake launch has no ptySystemPrompt).
     expect(spawns[0]!.pty.written).toEqual([])
+    expect(spawns[0]!.input.initialPrompt).toBeUndefined()
 
     const blank = await manager.startWorkspace(testProfile(), { goal: '   ' })
     expect(blank.workspace.goalText).toBeUndefined()
+  })
+
+  it('a grok start without a goal does not add a positional prompt', async () => {
+    const { manager, spawns } = harness()
+    const running = await manager.startWorkspace(
+      testProfile({ orchestrator: { providerId: 'grok' } })
+    )
+    expect(running.workspace.goalText).toBeUndefined()
+    expect(spawns[0]!.input.initialPrompt).toBeUndefined()
+    expect(spawns[0]!.pty.written).toEqual([])
+
+    const blank = await manager.startWorkspace(
+      testProfile({ orchestrator: { providerId: 'grok' } }),
+      { goal: '   ' }
+    )
+    expect(blank.workspace.goalText).toBeUndefined()
+    expect(spawns[1]!.input.initialPrompt).toBeUndefined()
   })
 
   it('a failed goal delivery surfaces the error but keeps the workspace running', async () => {
@@ -369,6 +415,29 @@ describe('startWorkspace', () => {
     expect(ctx.roles).toEqual(['worker', 'reviewer'])
     expect(ctx.limits.maxTotal).toBe(3)
     expect(ctx.limits.perRole.get('worker')).toBe(2)
+  })
+
+  it('resolves extra MCP servers on subagent spawn, not orchestrator', async () => {
+    const extras = [
+      {
+        id: 'github',
+        label: 'GitHub',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: [] as string[],
+        enabled: true
+      }
+    ]
+    const extraMcpServers = vi.fn(() => extras)
+    const { manager, spawns } = harness({ extraMcpServers })
+    const running = await manager.startWorkspace(testProfile())
+    expect(spawns[0]!.input.kind).toBe('orchestrator')
+    expect(spawns[0]!.input.extraMcpServers).toBeUndefined()
+
+    await running.workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(extraMcpServers).toHaveBeenCalled()
+    expect(spawns[1]!.input.kind).toBe('subagent')
+    expect(spawns[1]!.input.extraMcpServers).toEqual(extras)
   })
 
   it('reads providers, role templates and yolo fresh on every start', async () => {
@@ -639,6 +708,31 @@ describe('onChange — the push channel that replaced the panel poll', () => {
     expect(fired).toBe(afterOff)
   })
 
+  it('fires when the first orchestrator CLI submit lands as goalText', async () => {
+    const { manager } = harness()
+    const running = await manager.startWorkspace(testProfile())
+    let fired = 0
+    const off = manager.onChange(() => {
+      fired += 1
+    })
+
+    expect(running.workspace.goalText).toBeUndefined()
+    expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'Fix the panel\r')).toBe(true)
+    await Promise.resolve()
+    expect(fired).toBe(1)
+    expect(running.workspace.goalText).toBe('Fix the panel')
+    expect(running.workspace.orchestratorTaskText).toBe('Fix the panel')
+
+    const after = fired
+    expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'later steering\r')).toBe(true)
+    await Promise.resolve()
+    expect(fired).toBe(after + 1)
+    expect(running.workspace.goalText).toBe('Fix the panel')
+    expect(running.workspace.orchestratorTaskText).toBe('later steering')
+
+    off()
+  })
+
   it('S4: a board mutation reaches the feed too — the card carries the plan now', async () => {
     const board = memoryTaskBoard()
     const { manager, mcp } = harness({ taskBoard: () => board })
@@ -659,5 +753,83 @@ describe('onChange — the push channel that replaced the panel poll', () => {
     expect(running.workspace.listTasks()).toMatchObject([{ taskId: 'task-1', ready: true }])
 
     off()
+  })
+})
+
+describe('noteOrchestratorGoal — CLI capture without clobbering start-with-goal', () => {
+  it('looks up the workspace by orchestrator.agentId, not a subagent', async () => {
+    const { manager } = harness()
+    const running = await manager.startWorkspace(testProfile())
+    await running.workspace.startAgent({ role: 'worker', task: 'Do a thing.' })
+    const sub = running.workspace.listAgents()[0]
+    expect(sub).toBeDefined()
+
+    expect(manager.noteOrchestratorGoal(sub!.agentId, 'not the goal\r')).toBe(false)
+    expect(running.workspace.goalText).toBeUndefined()
+    expect(manager.noteOrchestratorGoal('ghost', 'nope\r')).toBe(false)
+
+    expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'Fix the panel\r')).toBe(true)
+    expect(running.workspace.goalText).toBe('Fix the panel')
+    expect(running.workspace.orchestratorTaskText).toBe('Fix the panel')
+  })
+
+  it('does not overwrite a start-with-goal already on goalText', async () => {
+    const { manager } = harness()
+    const running = await manager.startWorkspace(testProfile(), { goal: 'Fix the login bug' })
+    expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'later steering\r')).toBe(
+      true
+    )
+    expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(running.workspace.orchestratorTaskText).toBe('later steering')
+  })
+
+  it('does not overwrite a grok argv-delivered start-with-goal', async () => {
+    const { manager } = harness()
+    const running = await manager.startWorkspace(
+      testProfile({ orchestrator: { providerId: 'grok' } }),
+      { goal: 'Fix the login bug' }
+    )
+    expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'later steering\r')).toBe(
+      true
+    )
+    expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(running.workspace.orchestratorTaskText).toBe('later steering')
+  })
+
+  it('drops the assembler on stop so a reused run does not inherit', async () => {
+    const { manager } = harness()
+    const first = await manager.startWorkspace(testProfile())
+    expect(manager.noteOrchestratorGoal(first.orchestrator.agentId, 'leftover partial')).toBe(false)
+    await manager.stopWorkspace(first.workspace.workspaceId)
+
+    const again = await manager.startWorkspace(testProfile())
+    expect(again.workspace.goalText).toBeUndefined()
+    expect(manager.noteOrchestratorGoal(again.orchestrator.agentId, 'new assignment\r')).toBe(true)
+    expect(again.workspace.goalText).toBe('new assignment')
+  })
+
+  it('lets a re-started workspace capture a new goal after a committed one', async () => {
+    const { manager } = harness()
+    const first = await manager.startWorkspace(testProfile())
+    expect(manager.noteOrchestratorGoal(first.orchestrator.agentId, 'first goal\r')).toBe(true)
+    expect(first.workspace.goalText).toBe('first goal')
+    await manager.stopWorkspace(first.workspace.workspaceId)
+
+    const again = await manager.startWorkspace(testProfile())
+    expect(again.workspace.goalText).toBeUndefined()
+    expect(manager.noteOrchestratorGoal(again.orchestrator.agentId, 'second goal\r')).toBe(true)
+    expect(again.workspace.goalText).toBe('second goal')
+  })
+
+  it('leaves start_agent latestTask as the delegated assignment, not the user goal', async () => {
+    const { manager, mcp } = harness()
+    const running = await manager.startWorkspace(testProfile())
+    expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'User goal\r')).toBe(true)
+    mcp.lastRuntime!.latestTask = 'handed to a worker'
+    expect(running.workspace.goalText).toBe('User goal')
+    expect(running.workspace.orchestratorTaskText).toBe('User goal')
+    expect(mcp.workspaceTask(running.workspace.workspaceId)).toBe('handed to a worker')
   })
 })

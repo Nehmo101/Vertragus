@@ -17,7 +17,8 @@
  * after that generation: its flags come from the published CLI reference
  * (https://docs.x.ai/build/cli/reference) and the MCP / settings docs, which
  * list `--always-approve`, `--model`, `--effort`, `--append-system-prompt`
- * (alias of `--rules`), `grok --version`, `grok login` and `grok models`.
+ * (alias of `--rules`), a positional string as the interactive first prompt
+ * (never `-p`/`--single`), `grok --version`, `grok login` and `grok models`.
  */
 import {
   providerConfigSchema,
@@ -224,6 +225,10 @@ const PRESETS: readonly ProviderConfig[] = [
     // `--rules`: extra instructions appended for this session, not a replacement
     // of the coding-agent prompt (`--system-prompt-override` would drop it).
     systemPromptDelivery: { kind: 'arg', flag: '--append-system-prompt' },
+    // `grok` with no args opens the welcome screen; a trailing positional
+    // string is the interactive first turn. Never `-p`/`--single` — those
+    // are headless and exit after one turn.
+    initialPromptDelivery: { kind: 'positional' },
     mcp: { kind: 'grok-project' },
     modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },
     /**
