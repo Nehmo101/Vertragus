@@ -34,6 +34,19 @@ function terminalEffectDeps(): string[] {
     .filter((entry) => entry !== '')
 }
 
+/**
+ * The body of the animation frame the coalesced fit runs in — everything
+ * between opening the frame and closing its callback.
+ */
+function fitFrameBody(): string {
+  const open = 'fitFrameRef.current = window.requestAnimationFrame(() => {'
+  const start = source.indexOf(open)
+  if (start < 0) throw new Error('self-check: the coalesced fit no longer opens a frame')
+  const end = source.indexOf('\n    })', start)
+  if (end < 0) throw new Error('self-check: the fit frame callback is not closed')
+  return source.slice(start + open.length, end)
+}
+
 describe('the terminal is built once per agent', () => {
   it('finds a dependency array to check at all', () => {
     // Self-check for every assertion below: the scan above has to be pointing
@@ -119,7 +132,111 @@ describe('a resize is a decision, not a side effect of every fit', () => {
   it('asks whether the view is laid out rather than catching a throw', () => {
     // `FitAddon.fit()` returns silently when it cannot propose dimensions, so
     // a try/catch around it guards nothing while xterm's 80x24 goes to the host.
-    expect(source).toContain('fit.proposeDimensions()')
-    expect(source).not.toMatch(/catch\s*\{\s*\n\s*return \/\* The view is not laid out/)
+    //
+    // The negative here is about the code, not about a comment somebody may
+    // once have written next to it: it scans the body that does the fitting and
+    // requires that there be no exception handling anywhere in it. The two
+    // assertions before it are its self-check — the scan has to be pointing at
+    // the fit before its verdict on the fit means anything.
+    const body = fitFrameBody()
+    expect(body).toContain('fit.proposeDimensions()')
+    expect(body).toContain('fit.fit()')
+    // Matched as syntax, not as prose: the comment two lines above the fit in
+    // that body says the words "try/catch" and is the reason they are wrong.
+    expect(body).not.toMatch(/\btry\s*\{|\bcatch\s*[({]/)
+  })
+})
+
+describe('a software keyboard reshapes this phone, never the shared PTY', () => {
+  it('keeps the on-screen keyboard off the hidden textarea xterm types into', () => {
+    // The whole reason a tap on the output does not halve the viewport. It is
+    // an attribute, set on an element this component does not own, that no
+    // type checker and no other test looks at.
+    const guard = "if (isCoarsePointer()) term.textarea?.setAttribute('inputmode', 'none')"
+    expect(source).toContain(guard)
+    // Self-check on the scan above: the two halves of that line, found
+    // independently, so a reformat fails here as a reformat and not as a
+    // missing rule.
+    expect(source).toContain("setAttribute('inputmode', 'none')")
+    expect(source).toContain('isCoarsePointer()')
+  })
+
+  it('measures the viewport rather than trusting the fields of this view', () => {
+    // WebKit honours `inputmode` only from Safari 16.4. On an older iOS the
+    // keyboard still comes up, and it comes up with xterm's own textarea
+    // focused — so neither `composing` nor `searchOpen` is true, the ~12-row
+    // fit clears MIN_HOST_ROWS, and the desktop's TUI repaints. The
+    // measurement is the half of the rule that covers that route.
+    //
+    // Both halves are stated as positives on purpose. A negative against the
+    // old `transient: transientRef.current` could never be the assertion that
+    // failed — the positive above it goes first for the same edit — and an
+    // assertion that cannot be the one to fail is not coverage.
+    const body = fitFrameBody()
+    expect(body).toContain('transient: isTransientViewport({')
+    expect(body).toContain('displacement: viewportDisplacement()')
+  })
+})
+
+describe('the clipboard fallback is the only path the phone ever takes', () => {
+  /** Every helper the fallback is made of, up to the component itself. */
+  function clipboardFallback(): string {
+    const start = source.indexOf('function copyThroughEvent(')
+    if (start < 0) throw new Error('self-check: the fallback no longer starts at copyThroughEvent')
+    const end = source.indexOf('\nexport function RemoteTerminal(', start)
+    if (end < 0) throw new Error('self-check: the fallback is no longer followed by the component')
+    return source.slice(start, end)
+  }
+
+  it('takes the payload from the copy event rather than from the selection', () => {
+    // Whether an engine serialises a given selection the way this meant it is
+    // the part no reading of a spec settles. Answering the event settles it:
+    // the bytes come from here, and the selection only has to exist.
+    const fallback = clipboardFallback()
+    expect(fallback).toContain("document.addEventListener('copy', onCopy)")
+    expect(fallback).toContain("event.clipboardData.setData('text/plain', text)")
+    expect(fallback).toContain('event.preventDefault()')
+  })
+
+  it('reports a copy nobody handled as a failure', () => {
+    // `execCommand` answers true for a command that ran; it does not answer
+    // for what reached the clipboard. Reporting success over an empty
+    // clipboard is worse than the note that says it failed.
+    expect(clipboardFallback()).toContain("document.execCommand('copy') && handled")
+  })
+
+  it('gives the second attempt the focus its mechanism needs', () => {
+    // `setSelectionRange` on an unfocused textarea writes two numbers onto the
+    // element and nothing else: a text control's selection becomes the frame's
+    // — which is what the copy command reads — only while it has focus. Losing
+    // that call is how this broke the last time.
+    const fallback = clipboardFallback()
+    const start = fallback.indexOf('function copyFromTextarea(')
+    expect(start).toBeGreaterThan(-1)
+    const attempt = fallback.slice(start)
+    expect(attempt).toContain('carrier.focus({ preventScroll: true })')
+    expect(attempt).toContain('carrier.select()')
+  })
+
+  it('touches nothing between installing the selection and copying', () => {
+    // Changing `contentEditable` or `readOnly` rebuilds WebKit's editing state
+    // and takes the selection with it — which is exactly what the circulated
+    // iOS recipe does, one line before the copy it is trying to enable.
+    const fallback = clipboardFallback()
+    const install = 'selection.addRange(range)'
+    const start = fallback.indexOf(install)
+    expect(start).toBeGreaterThan(-1)
+    const copy = fallback.indexOf('return copyThroughEvent(text)', start)
+    expect(copy).toBeGreaterThan(start)
+    expect(fallback.slice(start + install.length, copy).trim()).toBe('')
+  })
+
+  it('never hides a carrier in a way that takes its renderer away', () => {
+    // `opacity: 0`, `visibility: hidden` and `display: none` each leave text
+    // with no renderer, and text with no renderer has nothing to select. The
+    // carrier is clipped to 1x1 instead.
+    const fallback = clipboardFallback()
+    expect(fallback).toContain("style.overflow = 'hidden'")
+    expect(fallback).not.toMatch(/style\.(opacity|visibility|display)\s*=/)
   })
 })

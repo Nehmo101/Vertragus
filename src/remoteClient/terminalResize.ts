@@ -62,3 +62,55 @@ export function hostResize(input: ResizeInput): TerminalSize | undefined {
   }
   return { cols: fitted.cols, rows: fitted.rows }
 }
+
+/**
+ * How much of the viewport an overlay has to take before it reads as a
+ * software keyboard rather than as this screen's shape. The smallest phone
+ * keyboard is around 260 CSS px; browser chrome collapsing and expanding is
+ * under 100, and a rubber-band scroll less again. The gap between them is
+ * wide, so the threshold sits in the gap rather than at 1 px.
+ */
+export const KEYBOARD_MIN_PX = 120
+
+export interface TransientInput {
+  /**
+   * A coarse pointer. Nothing else has a software keyboard, and a laptop
+   * window being dragged smaller means exactly what it says.
+   */
+  coarse: boolean
+  /** One of this view's own fields — the composer, the search bar — has focus. */
+  ownField: boolean
+  /**
+   * How far the visible viewport is displaced inside the layout viewport, in
+   * CSS pixels: `viewportDisplacementPx`, which counts an iOS shrink and an
+   * iOS shift alike.
+   */
+  displacement: number
+}
+
+/**
+ * Is the fit this viewport is producing a transient — a keyboard's doing
+ * rather than the screen's?
+ *
+ * The measured half is the load-bearing one, and it is measured rather than
+ * inferred on purpose. `inputmode="none"` keeps the on-screen keyboard off
+ * xterm's hidden textarea, but WebKit has only honoured that attribute since
+ * Safari 16.4: on an older iOS a tap on the *output* still raises the
+ * keyboard, and a keyboard raised that way sets none of this view's own flags.
+ * The ~12-row fit that follows clears `MIN_HOST_ROWS`, so with nothing but the
+ * flags the shared PTY takes a 12-row `SIGWINCH` and the agent's TUI repaints
+ * on the desktop user's screen — the exact failure `inputmode` was added to
+ * stop, reached by the one route `inputmode` does not close.
+ *
+ * The `ownField` half stays because it is true *earlier*: focus lands before
+ * the viewport has moved, and the first fit after it would otherwise go out.
+ * It is also the only signal Android gives, where
+ * `interactive-widget=resizes-content` shrinks the layout viewport together
+ * with the visible one and leaves the displacement at zero — and where nothing
+ * but our own fields raises a keyboard anyway, `inputmode` having been honoured
+ * there since Chrome 66.
+ */
+export function isTransientViewport(input: TransientInput): boolean {
+  if (!input.coarse) return false
+  return input.ownField || input.displacement >= KEYBOARD_MIN_PX
+}

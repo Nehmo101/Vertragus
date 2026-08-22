@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { MIN_HOST_COLS, MIN_HOST_ROWS, hostResize, type ResizeInput } from './terminalResize'
+import {
+  KEYBOARD_MIN_PX,
+  MIN_HOST_COLS,
+  MIN_HOST_ROWS,
+  hostResize,
+  isTransientViewport,
+  type ResizeInput,
+  type TransientInput
+} from './terminalResize'
 
 function input(overrides: Partial<ResizeInput> = {}): ResizeInput {
   return {
@@ -59,5 +67,38 @@ describe('hostResize', () => {
     )
     // Keyboard down: back to the size the host already has.
     expect(hostResize(input({ fitted: steady, sent }))).toBeUndefined()
+  })
+})
+
+describe('isTransientViewport', () => {
+  function transient(overrides: Partial<TransientInput> = {}): TransientInput {
+    return { coarse: true, ownField: false, displacement: 0, ...overrides }
+  }
+
+  it('reads a steady phone viewport as the shape of this screen', () => {
+    expect(isTransientViewport(transient())).toBe(false)
+  })
+
+  it('takes the fields of this view at their word before the viewport moves', () => {
+    expect(isTransientViewport(transient({ ownField: true }))).toBe(true)
+  })
+
+  it('catches a keyboard this view did not raise', () => {
+    // The gap the `inputmode="none"` attribute leaves on Safari below 16.4: a
+    // tap on the terminal output focuses xterm's own textarea, so neither the
+    // composer nor the search bar is open and only the measurement knows.
+    expect(isTransientViewport(transient({ displacement: 300 }))).toBe(true)
+  })
+
+  it('does not mistake browser chrome for a keyboard', () => {
+    expect(isTransientViewport(transient({ displacement: KEYBOARD_MIN_PX - 1 }))).toBe(false)
+    expect(isTransientViewport(transient({ displacement: KEYBOARD_MIN_PX }))).toBe(true)
+  })
+
+  it('leaves a mouse-and-window desktop alone', () => {
+    // A window dragged smaller is a resize, not an overlay, and a desktop
+    // sharing this PTY is entitled to have said so.
+    expect(isTransientViewport(transient({ coarse: false, displacement: 300 }))).toBe(false)
+    expect(isTransientViewport(transient({ coarse: false, ownField: true }))).toBe(false)
   })
 })

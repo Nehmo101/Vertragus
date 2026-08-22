@@ -43,9 +43,11 @@ import { haptic } from './haptics'
 import type { RemoteCopy } from './i18n'
 import type { RemoteApi } from './useRemote'
 import { attachScroll, planAttach, trackWritten } from './terminalAttach'
+import { safeRoleColor } from './viewModel'
 import { bufferPlainText, unwrapRows, type BufferRow } from './terminalBuffer'
 import { clampFontSize, localFontStore, readFontSize, writeFontSize } from './terminalFont'
-import { hostResize, type TerminalSize } from './terminalResize'
+import { viewportDisplacementPx } from './revealPolicy'
+import { hostResize, isTransientViewport, type TerminalSize } from './terminalResize'
 import {
   bufferCanScroll,
   flingVelocity,
@@ -63,6 +65,14 @@ const XTERM_THEME = {
   cursor: '#cba35a',
   selectionBackground: 'rgba(203,163,90,0.3)'
 }
+
+/**
+ * The role tint until a snapshot names one — and again if a snapshot names
+ * something that is not a colour. `safeRoleColor` is the same guard `App.tsx`
+ * puts in front of the same wire value: it reaches a style attribute, and a
+ * style attribute is not a place to put a string off a socket unchecked.
+ */
+const DEFAULT_ROLE_COLOR = '#cba35a'
 
 /**
  * xterm's `lineHeight` multiplier, and nothing more. It is deliberately not
@@ -142,67 +152,228 @@ function prefersReducedMotion(): boolean {
 }
 
 /**
- * The clipboard over a plain-HTTP tailnet address: `navigator.clipboard` only
- * exists in a secure context, which `http://host.ts.net` is not, so the
- * deprecated selection path is the one that actually runs on the phone — and
- * it has to be the *exact* selection path iOS Safari honours, which the
- * familiar `readonly` + `select()` two-liner is not.
+ * How far the visible viewport is displaced inside the layout viewport, right
+ * now. Sampled at the moment of the fit rather than during render, because the
+ * event this exists to catch — a keyboard raised by a tap on the terminal
+ * output — changes nothing this component renders on, so a value read during
+ * render would always be the one from before the keyboard.
  */
-async function writeClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    /* Fall through. The rejection above is synchronous on plain HTTP, so the
-       user activation this tap still holds carries into the path below. */
+function viewportDisplacement(): number {
+  const viewport = window.visualViewport
+  if (!viewport) return 0
+  return viewportDisplacementPx({
+    innerHeight: window.innerHeight,
+    height: viewport.height,
+    offsetTop: viewport.offsetTop
+  })
+}
+
+/**
+ * The clipboard on a plain-HTTP tailnet address, and why it is built the way
+ * it is.
+ *
+ * `navigator.clipboard` exists only in a secure context, and `http://host.ts.net`
+ * is not one. So `execCommand('copy')` is not a fallback here — on the phone it
+ * is the only path that ever runs, and it has to be right.
+ *
+ * What that command copies is the *frame's* selection, and there are exactly
+ * two ways to hand it one:
+ *
+ *  - a DOM `Range` over rendered text. This is what a reader's own long-press
+ *    produces, it needs no focus, and the engine asks only that the selection
+ *    be a non-collapsed range outside a password field.
+ *  - a text control's own selection, which becomes the frame's selection only
+ *    while that control has focus. `setSelectionRange()` on an unfocused
+ *    `<textarea>` writes two numbers onto the element and nothing else — which
+ *    is why the familiar recipe works (`select()` focuses as a side effect)
+ *    and why replacing `select()` with `setSelectionRange()` alone breaks it.
+ *
+ * The two do not compose. `range.selectNodeContents(textarea)` selects the
+ * textarea's light-DOM child text node, which has no renderer: an empty
+ * selection that copies nothing, and that *replaces* a good one. So each
+ * attempt below uses one mechanism and only one.
+ *
+ * `contentEditable` belongs to the text-control case alone. It is in the
+ * circulated iOS recipe because iOS refused to select inside a `readonly`
+ * field — a plain element needs nothing of the sort. And setting it and then
+ * unsetting it before the copy, as that recipe does, is the flakiest part of
+ * it: changing `contentEditable` rebuilds WebKit's editing state and takes the
+ * selection with it. The rule here is that nothing touches a carrier between
+ * installing its selection and invoking the copy.
+ *
+ * None of which decides what actually lands on the clipboard, because the
+ * `copy` handler below does, by writing the text into `clipboardData` itself.
+ * The selection's only remaining job is to make the copy command *enabled* so
+ * that the event fires at all. That is also what makes the answer honest: a
+ * copy nobody handled did not happen, and this reports it rather than
+ * returning a cheerful `true` over an empty clipboard.
+ */
+
+/**
+ * Run the copy command with a handler that supplies the payload, and answer
+ * whether the clipboard really took it.
+ */
+function copyThroughEvent(text: string): boolean {
+  let handled = false
+  const onCopy = (event: ClipboardEvent): void => {
+    handled = true
+    // No `clipboardData`: leave the default alone. It serialises the selection
+    // this was called with, which is the carrier's own text — the carriers
+    // below are built so that both outcomes are the same string.
+    if (!event.clipboardData) return
+    event.clipboardData.setData('text/plain', text)
+    event.preventDefault()
   }
-  // Whatever the reader was typing in, to be handed back at the end: selecting
-  // the carrier takes focus, and a composer left blurred mid-sentence collapses
-  // the keyboard and reflows the column under the thumb.
-  const restore = document.activeElement
-  const carrier = document.createElement('textarea')
-  carrier.textContent = text
-  carrier.value = text
-  // A real 1×1 box at a defined position. `position: fixed` with no offsets
-  // leaves the element wherever static flow would have put it — often below
-  // the fold, which iOS then scrolls to — and `opacity: 0` is one of the
-  // states Safari refuses to copy from.
-  carrier.readOnly = true
-  carrier.style.position = 'fixed'
-  carrier.style.top = '0'
-  carrier.style.left = '0'
-  carrier.style.width = '1px'
-  carrier.style.height = '1px'
-  carrier.style.padding = '0'
-  carrier.style.border = 'none'
-  carrier.style.outline = 'none'
-  carrier.style.boxShadow = 'none'
-  carrier.style.background = 'transparent'
+  // Listening for the length of one synchronous call, so no copy of the
+  // reader's own can land inside the window where this is registered.
+  document.addEventListener('copy', onCopy)
+  try {
+    // `execCommand` dispatches the event synchronously, so `handled` is
+    // settled by the time it returns. A disabled command — nothing selected —
+    // returns false, and that is the case worth reporting.
+    return document.execCommand('copy') && handled
+  } catch {
+    return false
+  } finally {
+    document.removeEventListener('copy', onCopy)
+  }
+}
+
+/** A 1×1 box at a defined position: out of the way, and genuinely rendered. */
+function placeCarrier(carrier: HTMLElement): void {
+  carrier.setAttribute('aria-hidden', 'true')
+  const style = carrier.style
+  // `position: fixed` with no offsets leaves the element wherever static flow
+  // would have put it — often below the fold, which iOS then scrolls to.
+  style.position = 'fixed'
+  style.top = '0'
+  style.left = '0'
+  style.width = '1px'
+  style.height = '1px'
+  style.padding = '0'
+  style.border = 'none'
+  style.outline = 'none'
+  style.boxShadow = 'none'
+  style.background = 'transparent'
+  // Clipped, never hidden: `opacity: 0`, `visibility: hidden` and
+  // `display: none` all take the renderer away, and text with no renderer is
+  // text with nothing to select.
+  style.overflow = 'hidden'
   // Under 16px iOS zooms the page the instant a field takes focus.
-  carrier.style.fontSize = '16px'
+  style.fontSize = '16px'
+  // `styles.css` turns selection off on buttons only, and nothing on <body>
+  // reaches this element today. Saying it here means nothing has to keep on
+  // not reaching it.
+  style.setProperty('-webkit-user-select', 'text')
+  style.setProperty('user-select', 'text')
+}
+
+/**
+ * First attempt: a plain, non-editable element and a `Range` over its text.
+ * Nothing is focused, so no keyboard rises, no field is blurred, the page does
+ * not zoom, and there is no `readonly` to fight because there is no text
+ * control to be read-only.
+ */
+function copyFromRange(text: string): boolean {
+  const selection = window.getSelection()
+  if (!selection) return false
+  const carrier = document.createElement('div')
+  placeCarrier(carrier)
+  // The default serialisation of this selection is the answer for an engine
+  // that fires `copy` without a `clipboardData`, so the newlines have to
+  // survive as newlines rather than collapse into spaces.
+  carrier.style.whiteSpace = 'pre'
+  carrier.textContent = text
   document.body.appendChild(carrier)
   try {
-    // iOS copies nothing from a `readonly` field, and nothing from
-    // `select()` alone. It wants an editable element, a real `Range` over its
-    // contents *and* the textarea's own selection — then read-only again
-    // before the copy, so no keyboard comes up for a button the reader tapped
-    // once.
-    carrier.contentEditable = 'true'
-    carrier.readOnly = false
     const range = document.createRange()
     range.selectNodeContents(carrier)
-    const selection = window.getSelection()
-    selection?.removeAllRanges()
-    selection?.addRange(range)
-    carrier.setSelectionRange(0, text.length)
-    carrier.contentEditable = 'false'
-    carrier.readOnly = true
-    return document.execCommand('copy')
+    selection.removeAllRanges()
+    selection.addRange(range)
+    return copyThroughEvent(text)
+  } catch {
+    return false
+  } finally {
+    // The carrier leaves with its selection. A range over a removed node is
+    // dead anyway; clearing it keeps a stale highlight off the page.
+    selection.removeAllRanges()
+    carrier.remove()
+  }
+}
+
+/**
+ * Second attempt, and the reason there is one: this is the recipe every engine
+ * has been tested against for a decade. It costs a focus — the one thing the
+ * first attempt avoids — so it runs only when the first came back false.
+ *
+ * No `readonly`. A read-only field is the documented way to keep iOS's
+ * keyboard down and the documented reason iOS then refuses to select the
+ * field's text. The keyboard is answered instead by the element being gone and
+ * focus being handed back before this task ends, which is before the keyboard
+ * would have been raised.
+ */
+function copyFromTextarea(text: string): boolean {
+  const carrier = document.createElement('textarea')
+  placeCarrier(carrier)
+  carrier.value = text
+  document.body.appendChild(carrier)
+  try {
+    carrier.focus({ preventScroll: true })
+    // `select()` is focus-and-select in both engines, and it is the call the
+    // rewrite before this one dropped. The explicit range is its belt: the
+    // textarea normalises line endings, so the length comes from the value it
+    // ended up holding rather than from the string that was handed in.
+    carrier.select()
+    carrier.setSelectionRange(0, carrier.value.length)
+    return copyThroughEvent(text)
   } catch {
     return false
   } finally {
     carrier.remove()
-    if (restore instanceof HTMLElement) restore.focus({ preventScroll: true })
+  }
+}
+
+async function writeClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      /* Fall through — but note this one crosses a microtask boundary, so
+         WebKit's "inside a user gesture" check may already have lapsed. On the
+         deployment that matters `navigator.clipboard` is undefined and the
+         path below is reached with no `await` in between, which is the case
+         this is written for. */
+    }
+  }
+  // Whatever the reader was typing in, handed back at the end: the second
+  // attempt takes focus, and a composer left blurred mid-sentence collapses
+  // the keyboard and reflows the column under the thumb.
+  const active = document.activeElement
+  const restore = active instanceof HTMLElement ? active : null
+  const field =
+    restore instanceof HTMLInputElement || restore instanceof HTMLTextAreaElement ? restore : null
+  const caret =
+    field && field.selectionStart !== null && field.selectionEnd !== null
+      ? { start: field.selectionStart, end: field.selectionEnd }
+      : null
+  try {
+    // Least invasive first. Both attempts are synchronous, so both are still
+    // inside the tap that asked for them.
+    return copyFromRange(text) || copyFromTextarea(text)
+  } finally {
+    if (restore) restore.focus({ preventScroll: true })
+    if (field && caret) {
+      try {
+        // Focusing re-installs a control's own selection as the frame's, so
+        // the caret has to be put back rather than left wherever clearing the
+        // carrier's selection left it.
+        field.setSelectionRange(caret.start, caret.end)
+      } catch {
+        /* Not every input type has a selection to restore; the focus above is
+           the part that mattered. */
+      }
+    }
   }
 }
 
@@ -227,7 +398,7 @@ export function RemoteTerminal({
   const followRef = useRef(true)
 
   const [title, setTitle] = useState(agentId)
-  const [roleColor, setRoleColor] = useState('#cba35a')
+  const [roleColor, setRoleColor] = useState(DEFAULT_ROLE_COLOR)
   const [exited, setExited] = useState<number | null>(null)
   const [line, setLine] = useState('')
   const [fontSize, setFontSize] = useState(() => readFontSize(localFontStore()))
@@ -255,15 +426,17 @@ export function RemoteTerminal({
   const agentIdRef = useRef(agentId)
   const fontSizeRef = useRef(fontSize)
   /**
-   * A software keyboard is occupying the viewport, so the fit it produces is a
-   * transient and not a size worth sending anywhere.
+   * One of this view's own fields has focus. Half of the transient test — the
+   * half that is true before the viewport has moved. The other half is
+   * measured at fit time, because a keyboard raised by a tap on the output
+   * sets no flag here at all; `isTransientViewport` weighs the two.
    */
-  const transientRef = useRef(false)
+  const ownFieldRef = useRef(false)
   useEffect(() => {
     apiRef.current = api
     copyRef.current = copy
     agentIdRef.current = agentId
-    transientRef.current = (composing || searchOpen) && isCoarsePointer()
+    ownFieldRef.current = composing || searchOpen
   })
 
   /** The size this client last asked the host for; reset with the terminal. */
@@ -300,7 +473,11 @@ export function RemoteTerminal({
         fitted,
         sent: sentSizeRef.current,
         local,
-        transient: transientRef.current
+        transient: isTransientViewport({
+          coarse: isCoarsePointer(),
+          ownField: ownFieldRef.current,
+          displacement: viewportDisplacement()
+        })
       })
       if (size) {
         sentSizeRef.current = size
@@ -319,6 +496,14 @@ export function RemoteTerminal({
     const term = new Terminal({
       allowTransparency: true,
       theme: XTERM_THEME,
+      // Stated here rather than read from `--font-mono` in `styles.css`, which
+      // says the same list. xterm wants a font *string* at construction, so
+      // consuming the token means `getComputedStyle`, and an empty answer —
+      // the sheet not applied yet, or not applied at all — does not fall back
+      // to this list: it falls back to xterm's own `courier-new`, whose cell
+      // is a different width, which is a wrong `cols` sent to a PTY the
+      // desktop shares. A literal cannot come back empty. The duplicate is the
+      // cheaper of the two risks, and it is a duplicate of one line.
       fontFamily: "'JetBrains Mono', ui-monospace, Menlo, monospace",
       fontSize: fontSizeRef.current,
       lineHeight: LINE_HEIGHT,
@@ -346,6 +531,13 @@ export function RemoteTerminal({
      * textarea stays focusable, so xterm's focus tracking, its selection and a
      * hardware keyboard on a tablet all keep working; only the on-screen
      * keyboard, which this view replaces with its own composer, stays down.
+     *
+     * WebKit has only honoured the attribute since Safari 16.4, though, and
+     * this client is reached from whatever phone the reader has. So it is not
+     * allowed to be the only thing standing there: `isTransientViewport`
+     * measures the viewport at every fit, and a keyboard that comes up here
+     * anyway is caught by the measurement rather than by a flag this view sets
+     * about its own fields. Both are pinned in `RemoteTerminal.test.ts`.
      */
     if (isCoarsePointer()) term.textarea?.setAttribute('inputmode', 'none')
 
@@ -536,7 +728,7 @@ export function RemoteTerminal({
        */
       onSnapshot: (snapshot, _cols, _rows, name, color, exitCode?: number | null) => {
         setTitle(name)
-        setRoleColor(color)
+        setRoleColor(safeRoleColor(color) ?? DEFAULT_ROLE_COLOR)
         const plan = planAttach({ snapshot, written })
         if (plan.kind === 'replay') {
           term.reset()
