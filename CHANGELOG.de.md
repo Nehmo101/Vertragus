@@ -111,6 +111,13 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   immer offen ließ. Ein schlafendes Handy verbindet jetzt beim Aufwachen neu,
   statt die Backoff-Obergrenze abzuwarten, und ein Socket, den der Browser
   noch `OPEN` nennt, wird per `refresh`-Umlauf als tot nachgewiesen.
+- Ein Handy beim Neuverbinden konnte die Desktop-App fünfzehn Sekunden lang
+  einfrieren. Die Fortsetzungsmarke, die verhindern sollte, dass der Client
+  seinen ganzen Scrollback erneut lädt, gab dem Hauptprozess eine naive
+  Teilstringsuche über zwei Millionen Zeichen; ein sich wiederholender Lauf und
+  eine verfehlte Marke — ein Fortschrittsbalken und ein neu gestarteter Agent
+  genügen — blockierten jede PTY, jedes Fenster und jeden geparkten
+  Tool-Aufruf zugleich. Die Suche ist jetzt auf beiden Seiten linear.
 - Ein Handy, das den Remote-Client ohne Route zum Desktop öffnete, hing für
   immer an einem Spinner: die Kopplungsanfrage schlug im Netz fehl und nichts
   versuchte es erneut. Ein nicht erreichbarer Desktop wird jetzt von einem

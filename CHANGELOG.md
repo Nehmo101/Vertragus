@@ -102,6 +102,12 @@ No release has been tagged yet; everything lives under Unreleased.
   sleeps now reconnects on wake instead of waiting out the backoff ceiling,
   and a socket the browser still calls `OPEN` is proven dead by a `refresh`
   round-trip.
+- A phone reconnecting could freeze the desktop app for fifteen seconds. The
+  resume marker added to stop the client re-downloading its whole scrollback
+  handed the main process a naive substring search over a two-million-character
+  buffer; a repetitive run plus a marker miss — a progress bar and a restarted
+  agent will do it — blocked every PTY, window and parked tool call at once.
+  The search is linear now, on both sides of the wire.
 - A phone opening the remote client with no route to the desktop hung on a
   spinner forever: the pairing request rejected on a network failure and
   nothing retried. An unreachable desktop is now told apart from one that
