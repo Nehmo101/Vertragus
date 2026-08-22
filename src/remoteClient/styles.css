@@ -61,6 +61,14 @@
   unicode-range: U+0100-024F;
   font-display: swap;
 }
+/*
+ * The mono face is loaded here and NAMED in `RemoteTerminal.tsx`, and there is
+ * deliberately no `--font-mono` token: its only would-be consumer is xterm's
+ * `fontFamily` option, and xterm renders into a canvas that no CSS rule can
+ * reach. A token nothing can read is the `--bronze-bright` defect — the same
+ * list written twice in two languages, free to drift — so the stack is stated
+ * once, on the side that can act on it.
+ */
 @font-face {
   font-family: 'JetBrains Mono';
   src: url('../renderer/src/assets/fonts/jetbrains-mono-latin.woff2') format('woff2');
@@ -79,8 +87,6 @@
 :root[data-theme='dark'] {
   --font-heading: 'Caprasimo', Georgia, serif;
   --font-body: 'Figtree', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-  --ink-rgb: 234, 230, 219;
   --text: #eae6db;
   --text-2: #c4c0b4;
   /* was #9a968b — 5.40:1 on --surface-2, legal but thin in sunlight. */
@@ -109,8 +115,6 @@
   --surface: #16191f;
   --surface-2: #1e222a;
   --hairline: rgba(234, 230, 219, 0.12);
-  --accent: var(--bronze);
-  --sage: var(--verdigris);
   /* Derived, not respelled: the same colour written out as rgba() three times
      per theme is three places to forget when --bronze moves. Numerically
      identical to the rgba() literals these replace. Both themes share these
@@ -127,7 +131,6 @@
 }
 
 :root[data-theme='light'] {
-  --ink-rgb: 29, 26, 18;
   --text: #1d1a12;
   --text-2: #3f3b32;
   /* was #5c584e — 5.96:1 on --surface-2; the same sunlight margin as dark. */

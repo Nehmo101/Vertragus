@@ -1,9 +1,14 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { isRequestAllowed, refreshesIdleTimer, startRemoteServer } from './server'
 import type { RemoteGatewayHost } from './gateway'
 import type { TerminalDirectory } from '@main/ipc'
-import type { ServerMessage } from '@shared/remote/protocol'
+import { clientMessageSchema, type ClientMessage, type ServerMessage } from '@shared/remote/protocol'
 
 describe('isRequestAllowed', () => {
   it('accepts the bind host and loopback, rejects a foreign Host (rebinding)', () => {
@@ -47,6 +52,28 @@ describe('refreshesIdleTimer', () => {
     // timer, forever, on any tab left open. Treating it as activity means
     // SESSION_IDLE_MS can never elapse for a connected client.
     expect(refreshesIdleTimer('refresh')).toBe(false)
+  })
+
+  it('classifies every frame the protocol defines, and nothing by default', () => {
+    // The allow-list's whole point: a verb added to `clientMessageSchema` and
+    // not classified here must show up as a decision to make, not as activity
+    // by default. This enumerates the union from the schema itself, so a new
+    // verb reaches this test without anyone remembering to add it.
+    const types = clientMessageSchema.options.map(
+      (option) => option.shape.type.value as ClientMessage['type']
+    )
+    // Self-check: an empty or truncated enumeration would assert nothing.
+    expect(types).toContain('refresh')
+    expect(types.length).toBeGreaterThanOrEqual(7)
+    const classified = types.filter((type) => refreshesIdleTimer(type))
+    expect([...classified].sort()).toEqual([
+      'attach',
+      'auth',
+      'command',
+      'detach',
+      'input',
+      'resize'
+    ])
   })
 })
 
@@ -263,5 +290,64 @@ describe('startRemoteServer — sessions over a live socket', () => {
         terminalsHolding('a1', scrollback)
       )
     })
+  })
+})
+
+describe('the page it serves names its own WebSocket origin', () => {
+  /*
+   * `withWebSocketConnectSrc` is pinned as a function in `staticFiles.test.ts`.
+   * What that cannot show is that the server calls it — on the file it serves
+   * AND on the SPA fallback, which is the path a deep link takes. A page served
+   * with the untemplated policy is a client that may never connect on the one
+   * device this was written for, so the wiring is worth a real listener.
+   */
+  const page = readFileSync(
+    fileURLToPath(new URL('../../remoteClient/index.html', import.meta.url)),
+    'utf8'
+  )
+
+  it('templates the CSP on the page and on the deep-link fallback', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vertragus-remote-static-'))
+    await writeFile(join(root, 'index.html'), page, 'utf8')
+    const handle = await startRemoteServer({
+      host: '127.0.0.1',
+      port: 0,
+      pairingToken: () => 'pair-secret',
+      gateway: {
+        listWorkspaces: () => [],
+        listProfiles: () => [],
+        startWorkspace: async () => ({ ok: true, result: undefined }),
+        stopWorkspace: async () => ({ ok: true, result: undefined }),
+        answerQuestion: async () => ({ ok: true, result: undefined }),
+        sendUserMessage: async () => ({ ok: true, result: undefined })
+      } as unknown as RemoteGatewayHost,
+      terminals: () => ({
+        list: () => [],
+        get: () => undefined,
+        attach: () => undefined,
+        write: () => false,
+        resize: () => false
+      }),
+      onWorkspaceChange: () => () => undefined,
+      locale: () => 'de',
+      theme: () => 'dark',
+      staticRoot: root
+    })
+    try {
+      const origin = `127.0.0.1:${handle.port}`
+      for (const path of ['/', '/index.html', '/workspace/deep/link']) {
+        const response = await fetch(`http://${origin}${path}`)
+        const body = await response.text()
+        expect(response.status).toBe(200)
+        expect(body).toContain(`; connect-src 'self' ws://${origin};`)
+      }
+      // An asset is served as the bytes on disk — the substitution is for HTML.
+      await writeFile(join(root, 'app.js'), "const csp = \"; connect-src 'self';\"\n", 'utf8')
+      const asset = await fetch(`http://${origin}/app.js`)
+      expect(await asset.text()).toContain("; connect-src 'self';")
+    } finally {
+      await handle.close()
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })

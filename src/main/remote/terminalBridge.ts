@@ -54,6 +54,87 @@ export interface TerminalBridge {
 }
 
 /**
+ * How far back in the scrollback a resume marker is looked for.
+ *
+ * A marker is a claim about where the client stopped reading, so the only
+ * place it can honestly land is near the END of the stream — the delta is
+ * whatever the agent emitted while the phone was away. Searching further back
+ * than that buys nothing: a match 1.9 MB from the end would "save" the last
+ * 100 KB of a 2 MB replay, which is not the bill this feature was written for.
+ *
+ * So the search is given a region rather than the whole buffer, and the region
+ * is what makes its cost a number instead of a product. 256 KB is an eighth of
+ * `SCROLLBACK_LIMIT`: a marker found anywhere inside it still saves at least
+ * seven eighths of a full replay, and a client further behind than that takes
+ * the full replay it would have taken before this feature existed.
+ *
+ * The window is HALF the fix. The other half is {@link lastIndexOfFrom}: a
+ * naive backwards scan (which is what `String.prototype.lastIndexOf` is in V8)
+ * costs `region x marker` comparisons on homogeneous input, so even this
+ * window would cost seconds. `terminalBridge.test.ts` pins both halves.
+ */
+export const MAX_RESUME_DELTA_CHARS = 262_144
+
+/**
+ * Everything {@link lastIndexOfFrom} may do to the text it searches: ask how
+ * long it is and read one character at a time. A `string` satisfies it, and so
+ * does a counting stand-in — which is how the test pins the search's cost
+ * exactly, by the number of characters it reads, instead of with a stopwatch.
+ */
+export interface IndexedChars {
+  readonly length: number
+  charCodeAt(index: number): number
+}
+
+/**
+ * The index of the LAST occurrence of `needle` at or after `from`, or -1.
+ *
+ * Knuth-Morris-Pratt, not `String.prototype.lastIndexOf`, and not for elegance:
+ * V8's is a naive scan that re-compares from scratch after every mismatch, so
+ * a haystack of one repeated character and a marker that nearly matches costs
+ * `haystack x needle` character comparisons. Measured on this project's own
+ * limits — a 2,000,000-character scrollback and a 16,384-character marker that
+ * misses by its last character — that is **15 seconds** of a synchronous freeze
+ * in the Electron main process: every PTY pump, every IPC channel, every
+ * window, the orchestrator's parked awaits. One `attach` frame, from a client
+ * that need not even be hostile (a progress bar or a padded separator makes the
+ * homogeneous run; a restarted agent or a head-trimmed buffer makes the miss),
+ * repeatable as fast as `attach`/`detach` can be cycled.
+ *
+ * KMP never re-reads a haystack character: it reads each one exactly once and
+ * carries the partial match forward, so the cost is `region + needle` rather
+ * than their product, whatever the input looks like. It reports the last match
+ * because the client's position is the most RECENT occurrence of its tail;
+ * resuming from an earlier one would re-send output it has already seen.
+ */
+export function lastIndexOfFrom(haystack: IndexedChars, needle: string, from: number): number {
+  const m = needle.length
+  const start = Math.max(0, from)
+  if (m === 0 || haystack.length - start < m) return -1
+  // The prefix function: failure[i] is the length of the longest proper prefix
+  // of needle[0..i] that is also a suffix of it — how far back to fall on a
+  // mismatch without ever moving backwards through the haystack.
+  const failure = new Int32Array(m)
+  for (let i = 1, k = 0; i < m; i += 1) {
+    while (k > 0 && needle.charCodeAt(i) !== needle.charCodeAt(k)) k = failure[k - 1]
+    if (needle.charCodeAt(i) === needle.charCodeAt(k)) k += 1
+    failure[i] = k
+  }
+  let last = -1
+  for (let i = start, k = 0; i < haystack.length; i += 1) {
+    const code = haystack.charCodeAt(i)
+    while (k > 0 && code !== needle.charCodeAt(k)) k = failure[k - 1]
+    if (code === needle.charCodeAt(k)) k += 1
+    if (k === m) {
+      last = i - m + 1
+      // Keep going: a later occurrence is a better resume point than this one.
+      k = failure[k - 1]
+    }
+  }
+  return last
+}
+
+/**
  * How much of the scrollback an attach has to replay, given what the client
  * says it already has.
  *
@@ -72,17 +153,26 @@ export interface TerminalBridge {
  *
  * Every way of not finding it — no marker, a marker longer than the whole
  * scrollback, a head-trim that ate it, a restarted agent whose output shares
- * nothing with it — returns the full snapshot, so the fallback is the old
- * behaviour rather than a degraded one.
+ * nothing with it, a client more than {@link MAX_RESUME_DELTA_CHARS} behind —
+ * returns the full snapshot, so the fallback is the old behaviour rather than a
+ * degraded one. The search that decides this runs in the main process on a
+ * frame the client chose the size and content of, which is why it is bounded
+ * twice over: {@link MAX_RESUME_DELTA_CHARS} bounds how much of the snapshot it
+ * may touch, and {@link lastIndexOfFrom} bounds what it may do to each
+ * character it touches (read it once).
  *
- * `lastIndexOf`, not `indexOf`: the client's position is the most RECENT
- * occurrence of its tail, and resuming from an earlier one would re-send
- * output it has already seen (harmless on screen, but it would silently give
- * back the bytes this exists to save).
+ * One qualification the scheme has always carried, now written down: it is
+ * lossless in practice, not in the strict sense. If the same 16 KB block recurs
+ * AFTER the client's true position, the bridge resumes from the later
+ * occurrence and the output in between is silently dropped. It takes a terminal
+ * emitting the same 16 KB twice — `planAttach`'s 8 KB search on the client has
+ * the identical shape and predates this — so the risk is theoretical, but it is
+ * a risk, not an absence of one.
  */
 export function resumeSnapshot(snapshot: string, resume: string | undefined): string {
   if (!resume || resume.length > snapshot.length) return snapshot
-  const at = snapshot.lastIndexOf(resume)
+  const from = snapshot.length - (resume.length + MAX_RESUME_DELTA_CHARS)
+  const at = lastIndexOfFrom(snapshot, resume, from)
   return at <= 0 ? snapshot : snapshot.slice(at)
 }
 

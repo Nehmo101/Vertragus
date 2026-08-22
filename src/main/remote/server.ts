@@ -23,7 +23,7 @@ import { WebSocket, WebSocketServer } from 'ws'
 import { runRemoteCommand, type RemoteGatewayHost } from './gateway'
 import { createTerminalBridge } from './terminalBridge'
 import { RemoteAuthStore, type AuthStoreDeps, type RemoteSession } from './auth'
-import { indexPath, resolveStaticPath } from './staticFiles'
+import { indexPath, resolveStaticPath, withWebSocketConnectSrc } from './staticFiles'
 import type { TerminalDirectory } from '@main/ipc'
 import type { RemoteClientInfo } from '@shared/remote/types'
 import { parseClientMessage, type ClientMessage, type ServerMessage } from '@shared/remote/protocol'
@@ -38,24 +38,46 @@ const SOCKET_BUFFER_CEILING_BYTES = 8 * 1024 * 1024
 export const REMOTE_DEFAULT_PORT = 9482
 
 /**
- * Does this frame count as the client being USED, for the session's idle
- * timer, or is it only the client checking that the wire still works?
+ * Which frames count as the client being USED, for the session's idle timer,
+ * as opposed to the client checking that the wire still works.
  *
- * `refresh` is both the overview's reload and the client's liveness probe —
- * the same frame, because a browser cannot send a WebSocket ping and the
- * protocol deliberately has no verb to spare. That makes it the one message
- * the server cannot read as evidence of a human: a phone with the tab open
- * probes every 30 s forever, so touching the session on `refresh` would mean
- * {@link SESSION_IDLE_MS} could never elapse for any client that stayed
- * connected — an idle expiry that expires nothing.
+ * An ALLOW-LIST, and deliberately so. The rule this encodes is "only frames a
+ * human caused", and an exclusion list gets that backwards: it makes activity
+ * the default, so the next liveness-ish verb — a ping, a presence beat, a
+ * pull-to-refresh under another name — silently counts as a human and breaks
+ * the expiry again without anyone editing this function. A new verb now has to
+ * be classified here before it can renew anything.
+ *
+ * `refresh` is the frame the rule exists for: it is both the overview's reload
+ * and the client's liveness probe — the same frame, because a browser cannot
+ * send a WebSocket ping and the protocol deliberately has no verb to spare. A
+ * phone with the tab open probes every 30 s forever, so touching the session on
+ * `refresh` would mean {@link SESSION_IDLE_MS} could never elapse for any
+ * client that stayed connected — an idle expiry that expires nothing.
  *
  * The cost of that choice is explicit: a user who does nothing but pull to
  * refresh does not extend their session. Opening the client does (`auth`
- * touches), and so does every attach, input, resize and command. Seven days
- * without any of those is exactly the case the idle timer is for.
+ * touches), and so does every attach, input, resize and command.
+ *
+ * One honest residual: `attach` is on the list because opening a terminal is a
+ * human act, but the client also re-attaches every watched agent automatically
+ * on every reconnect. A tab left open on a terminal through enough network
+ * churn therefore renews the window without a human. Given that the client
+ * re-pairs straight through an expiry anyway (see {@link SESSION_IDLE_MS}),
+ * that is a smaller hole than it looks, and closing it would need the protocol
+ * to say which attaches were asked for.
  */
+const USER_ACTIVITY_TYPES = new Set<ClientMessage['type']>([
+  'auth',
+  'attach',
+  'detach',
+  'input',
+  'resize',
+  'command'
+])
+
 export function refreshesIdleTimer(type: ClientMessage['type']): boolean {
-  return type !== 'refresh'
+  return USER_ACTIVITY_TYPES.has(type)
 }
 
 /** True for a bare IP literal (v4 or v6) — never a DNS name. */
@@ -226,13 +248,26 @@ export async function startRemoteServer(
       res.writeHead(403).end()
       return
     }
+    // HTML is the one thing served with a substitution in it: the page's CSP
+    // names its own WebSocket origin, which only the request knows. See
+    // `withWebSocketConnectSrc` — everything else goes out as the bytes on
+    // disk.
+    const sendHtml = (contentType: string, html: Buffer): void => {
+      res
+        .writeHead(200, { 'Content-Type': contentType })
+        .end(withWebSocketConnectSrc(html.toString('utf8'), req.headers.host))
+    }
     try {
       const file = await readFile(resolution.absolutePath)
+      if (resolution.contentType.startsWith('text/html')) {
+        sendHtml(resolution.contentType, file)
+        return
+      }
       res.writeHead(200, { 'Content-Type': resolution.contentType }).end(file)
     } catch {
       try {
         const fallback = await readFile(indexPath(options.staticRoot))
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(fallback)
+        sendHtml('text/html; charset=utf-8', fallback)
       } catch {
         res.writeHead(404).end()
       }

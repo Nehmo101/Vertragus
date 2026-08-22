@@ -57,9 +57,14 @@ export type RemoteCommand = (typeof REMOTE_COMMANDS)[number]
  *
  * Sized at twice the client's own alignment window (`OVERLAP_TAIL_CHARS`,
  * 8192) so the marker is always a superset of the tail the client aligns on —
- * `connection.test.ts` pins that relationship. The cap is also the schema's,
- * which bounds the substring search a hostile frame can ask the main process
- * for.
+ * `connection.test.ts` pins that relationship.
+ *
+ * The cap is also the schema's, but it is NOT what bounds the work the frame
+ * asks of the main process: this length multiplied by a 2,000,000-character
+ * scrollback is a product, and under a naive backwards scan that product was
+ * fifteen seconds of synchronous freeze from a single `attach`. The bound that
+ * matters lives with the search — `MAX_RESUME_DELTA_CHARS` and
+ * `lastIndexOfFrom` in `terminalBridge.ts`, both pinned by its tests.
  */
 export const MAX_RESUME_TAIL_CHARS = 16_384
 
@@ -197,6 +202,13 @@ export type ServerMessage =
        * place, this is the stream from that marker on — still a view of the
        * same stream, still containing the client's own tail, so a client that
        * aligns on its tail and appends what follows behaves identically.
+       *
+       * Lossless in practice rather than by construction: the bridge resumes
+       * from the LAST place the marker occurs, so a marker that recurs after
+       * the client's true position would drop the output in between. It takes
+       * a terminal emitting the same 16 KB twice, and the client's own 8 KB
+       * aligner has the identical shape, so this is a stated residual risk and
+       * not a new one — see `resumeSnapshot` in `terminalBridge.ts`.
        */
       agentId: string
       snapshot: string
@@ -223,6 +235,25 @@ export type ServerMessage =
    * Optional so an older client — which ignores unknown fields and re-pairs
    * either way — is not broken by a newer host; a client that understands it
    * treats a missing value as `'expired'`.
+   *
+   * ## `'revoked'` is device management, not a security boundary
+   *
+   * Read the paragraph above literally: the revoke holds because the CLIENT
+   * chooses to honour it by deleting its own stored pairing token. Nothing on
+   * the host stops a device from presenting that same token to `/api/auth` a
+   * second later and being issued a fresh session, because the host has no way
+   * to tell one holder of the pairing token from another. So revoking a lost
+   * phone from settings ends its current session and drops it off the
+   * connected-clients list; it does not end its ACCESS. Regenerating the
+   * pairing token is the only revocation that holds against a client that does
+   * not cooperate, and it costs every other device a re-pair.
+   *
+   * The real fix is small and is written down here so the next person does not
+   * have to re-derive it: mint a device id at pair time, return it beside the
+   * session, have the client present it on every subsequent `/api/auth`, and
+   * keep a revoked-device set the host checks before minting. That is a
+   * protocol change on both ends plus persistence for the revoked set, which is
+   * why the shipped fix stops at making the reason honest.
    */
   | { type: 'session_revoked'; reason?: 'revoked' | 'expired' }
 

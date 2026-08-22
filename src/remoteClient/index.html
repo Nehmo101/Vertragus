@@ -9,11 +9,20 @@
       are all same-origin, and nothing here widens `default-src 'self'` — which
       is a claim about the line below, so it has to keep being true of it.
 
-      `connect-src 'self'` covers the WebSocket. It is not an oversight that
-      ws:/wss: are absent: CSP3 matches a ws:/wss: URL against an http/https
-      `'self'` on the same host and port, so the socket is already allowed, and
-      the bare schemes would have allowed a socket to ANY host on the internet
-      — on a page whose localStorage holds the long-lived pairing token.
+      `connect-src 'self'` covers the WebSocket by spec — CSP3 matches a
+      ws:/wss: URL against an http/https `'self'` on the same host and port —
+      but the one device this client was written for is iOS Safari, and WebKit
+      blocked precisely that for years. So the server does NOT rely on the
+      derivation: `withWebSocketConnectSrc` in `staticFiles.ts` templates this
+      directive as it serves the page, appending `ws://<host:port>` taken from
+      the request's own Host header. Editing the text `connect-src 'self'` below
+      changes what that function matches on; `staticFiles.test.ts` fails if it
+      stops matching.
+
+      The bare schemes (`ws:` and `wss:` with no host) stay absent, and
+      templating is why that costs nothing: they would have allowed a socket to
+      ANY host on the internet — on a page whose localStorage holds the
+      long-lived pairing token — where this names one host and one port.
 
       `manifest-src` has no entry of its own on purpose: it falls back to
       `default-src`, which already allows the same origin the manifest is

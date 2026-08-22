@@ -428,14 +428,36 @@ export function useRemote(): RemoteApi {
     rejectCommands(inFlight, message)
   }, [rejectCommands])
 
-  /** Reject whatever has outlived its deadline — queued or in flight. */
+  /**
+   * Reject whatever has outlived its deadline — queued or in flight.
+   *
+   * `connectionLost` and not a timeout of its own, because of what the numbers
+   * make true: `COMMAND_TIMEOUT_MS` (45 s) is longer than the liveness rule
+   * needs to convict a dead route and reconnect (40 s), so anything still
+   * unanswered here has either spent that time with no socket to go out on or
+   * outlived a route that was replaced under it. The one case the string
+   * overclaims is a live socket that silently dropped a malformed frame — which
+   * `commandArgsWithinLimits` exists to prevent, and which is a bug in this
+   * client rather than a state the user can be in.
+   */
   const expireCommands = useCallback(() => {
     const expired = expiredCommandIds(pendingCommands.current, Date.now())
     if (expired.length === 0) return
     rejectCommands(expired, remoteCopy(localeRef.current).connectionLost)
   }, [rejectCommands])
 
-  /** Put the queue on the wire, oldest first. Called when `hello` proves it. */
+  /**
+   * Put the queue on the wire, oldest first. Called when `hello` proves it.
+   *
+   * The deadline is NOT restarted here, and that is the whole point of where it
+   * is set: `COMMAND_TIMEOUT_MS` is a claim about how long the person who
+   * tapped will wait, and `connection.test.ts` pins it against exactly that
+   * ("inside the patience of someone holding a phone"). Restarting the clock at
+   * flush time would make queued-then-flushed cost 45 s + 45 s, so the number
+   * under test and the number the user experiences would be different numbers.
+   * The cost is real but small: a command flushed in the last second of its
+   * life is rejected a second later even though its answer was on its way.
+   */
   const flushCommandQueue = useCallback(() => {
     for (const parked of pendingCommands.current.values()) {
       if (parked.frame === null) continue
@@ -444,7 +466,6 @@ export function useRemote(): RemoteApi {
       // frame, and a frame recorded as queued but already written would be
       // sent twice on the next flush.
       parked.frame = null
-      parked.expiresAt = Date.now() + COMMAND_TIMEOUT_MS
       sendRaw(frame)
     }
   }, [sendRaw])
@@ -630,10 +651,20 @@ export function useRemote(): RemoteApi {
     attemptPairingRef.current = (token, source) => void attemptPairing(token, source)
   }, [attemptPairing])
 
-  /** Try the paused pairing attempt again now, from the top of the backoff. */
+  /**
+   * Try the paused pairing attempt again now, from the top of the backoff.
+   *
+   * A PAUSED attempt: an exchange already on the wire is not waiting for
+   * anything and cannot be hurried, so it is left alone. The in-flight check
+   * has to happen here rather than inside `attemptPairing`, which returns
+   * early in that case — before this reset, `wake()` fires on every
+   * `visibilitychange`, `pageshow` and `online`, so a phone churning wake
+   * signals during one slow fetch zeroed the counter over and over and the
+   * backoff never grew past its first step, on a route that was not there.
+   */
   const retryPairing = useCallback(() => {
     const pending = pendingPairing.current
-    if (!pending || !aliveRef.current) return
+    if (!pending || !aliveRef.current || pairingInFlight.current) return
     pairingAttempt.current = 0
     void attemptPairing(pending.token, pending.source)
   }, [attemptPairing])
@@ -813,6 +844,13 @@ export function useRemote(): RemoteApi {
       const socket = socketRef.current
       socketRef.current = null
       socket?.close()
+      // Parked commands are deliberately NOT rejected here, and it is the one
+      // path in this hook that leaves a promise unsettled. `socketRef` is
+      // already null, so the close handler's `isCurrent` is false and nothing
+      // else will settle them either — but every holder of one of those
+      // promises is a component in the tree being unmounted, so there is no
+      // one left to tell. Rejecting would only manufacture unhandled
+      // rejections out of a page that is going away.
     }
     // Runs once on mount — beginPairing owns the whole connect lifecycle.
   }, [beginPairing, clearPairingTimer, clearReconnectTimer])
@@ -936,8 +974,11 @@ export function useRemote(): RemoteApi {
       if (!commandArgsWithinLimits(args)) {
         // The gateway drops a frame its schema rejects WITHOUT answering it, so
         // sending this would park a promise nothing can ever settle. Refusing
-        // here is the only way the caller learns anything at all.
-        return Promise.reject(new Error(copy.unknownError))
+        // here is the only way the caller learns anything at all — and the
+        // refusal says WHICH thing went wrong, because the user can act on
+        // "too long" (shorten the paste) and can do nothing at all with
+        // "unknown error" about text they are looking at.
+        return Promise.reject(new Error(copy.commandTooLong))
       }
       const id = `c${(commandSeq.current += 1)}-${Date.now()}`
       const frame = { type: 'command', id, name, arg, args }

@@ -15,7 +15,32 @@
  */
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 
-/** Idle lifetime of a session token before it must re-pair. */
+/**
+ * Idle lifetime of a session token before it must re-pair.
+ *
+ * What this bounds, said plainly: the life of one minted SESSION token. It does
+ * not bound a paired device's access, and the remote client is the proof —
+ * when a session ages out the server sends `session_revoked{reason:'expired'}`,
+ * and `useRemote` answers it by re-pairing from the pairing token in
+ * `localStorage`, with no user action and nothing on screen. End to end, the
+ * expiry rotates a secret; a phone abandoned in a drawer on day 400 still has
+ * access, because it still has the pairing token.
+ *
+ * That is deliberate — the alternative is sending every phone back to the QR
+ * code every seven days, and a desktop restart already drops every in-memory
+ * session — but it means this constant is NOT the answer to "how do I cut a
+ * device off". Regenerating the pairing token is (it calls `revokeAll` and
+ * invalidates every stored copy); see the `session_revoked` note in
+ * `protocol.ts` for why the per-device answer needs a device identity the
+ * protocol does not yet have.
+ *
+ * What it does buy is real but narrower: a session token that leaks on its own
+ * — captured from a client that kept the session but not the pairing token, or
+ * from a stale process — stops working after a week rather than never, and the
+ * connected-clients list stops listing devices that have not been used in one.
+ * `refreshesIdleTimer` (`server.ts`) is what keeps the window from renewing
+ * itself forever on a client's own liveness traffic.
+ */
 export const SESSION_IDLE_MS = 7 * 24 * 60 * 60 * 1_000
 
 /** Login attempts allowed per window before pairing is throttled. */

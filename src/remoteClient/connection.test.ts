@@ -56,7 +56,11 @@ describe('the rate a phone actually pays', () => {
   it('settles a command well after an ordinary reconnect would have finished', () => {
     expect(COMMAND_TIMEOUT_MS).toBeGreaterThan(RECONNECT_MAX_MS)
     expect(COMMAND_TIMEOUT_MS).toBeGreaterThan(LIVENESS_SILENCE_MS + LIVENESS_PROBE_TIMEOUT_MS)
-    // But still inside the patience of someone holding a phone.
+    // But still inside the patience of someone holding a phone — which is a
+    // claim about the wait that starts at the TAP, so `flushCommandQueue` does
+    // not restart the clock when a queued command finally goes out. If it ever
+    // does again, this number stops being the one the user experiences and this
+    // assertion stops meaning what it says.
     expect(COMMAND_TIMEOUT_MS).toBeLessThanOrEqual(60_000)
   })
 })
