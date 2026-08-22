@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { LIVENESS_PROBE_TIMEOUT_MS } from './connection'
 import {
   claimsGesture,
   ownsTouchAsField,
@@ -8,8 +9,12 @@ import {
   pullLabel,
   pullPhase,
   PULL_THRESHOLD_PX,
+  refreshOutstanding,
+  refreshVerdict,
+  REFRESH_VERDICT_MS,
   shouldFireRefresh,
-  type GestureNode
+  type GestureNode,
+  type PullLink
 } from './usePullToRefresh'
 
 describe('pull distance', () => {
@@ -27,14 +32,74 @@ describe('pull distance', () => {
 
 describe('pull phase', () => {
   it('arms exactly at the threshold', () => {
-    expect(pullPhase(0, false)).toBe('idle')
-    expect(pullPhase(PULL_THRESHOLD_PX - 1, false)).toBe('pulling')
-    expect(pullPhase(PULL_THRESHOLD_PX, false)).toBe('armed')
+    expect(pullPhase(0, 'idle')).toBe('idle')
+    expect(pullPhase(PULL_THRESHOLD_PX - 1, 'idle')).toBe('pulling')
+    expect(pullPhase(PULL_THRESHOLD_PX, 'idle')).toBe('armed')
   })
 
   it('lets an in-flight refresh outrank the finger', () => {
-    expect(pullPhase(0, true)).toBe('refreshing')
-    expect(pullPhase(PULL_THRESHOLD_PX, true)).toBe('refreshing')
+    expect(pullPhase(0, 'waiting')).toBe('refreshing')
+    expect(pullPhase(PULL_THRESHOLD_PX, 'waiting')).toBe('refreshing')
+  })
+
+  it('shows an unanswered pull as its own phase, not as a finished one', () => {
+    expect(pullPhase(0, 'unanswered')).toBe('unanswered')
+    expect(pullPhase(PULL_THRESHOLD_PX, 'unanswered')).toBe('unanswered')
+    expect(pullPhase(0, 'unanswered')).not.toBe(pullPhase(0, 'idle'))
+  })
+})
+
+describe('refresh verdict', () => {
+  const link = (over: Partial<PullLink> = {}): PullLink => ({
+    probing: false,
+    ready: true,
+    ...over
+  })
+
+  it('counts a probe and an unfinished reconnect as the same open question', () => {
+    expect(refreshOutstanding(link({ probing: true }))).toBe(true)
+    expect(refreshOutstanding(link({ ready: false }))).toBe(true)
+    expect(refreshOutstanding(link({ probing: true, ready: false }))).toBe(true)
+    expect(refreshOutstanding(link())).toBe(false)
+  })
+
+  it('waits while the probe the pull sent is still out', () => {
+    expect(refreshVerdict(true, false, link({ probing: true }))).toBe('waiting')
+  })
+
+  it('resolves when the probe is answered on a route that stayed up', () => {
+    expect(refreshVerdict(true, false, link())).toBe('answered')
+  })
+
+  it('resolves a pull that had to reconnect, once it is ready again', () => {
+    // A closed socket makes `wake()` reconnect rather than probe; the `hello`
+    // that ends it carries the workspace push the pull asked for.
+    expect(refreshVerdict(true, false, link({ ready: false }))).toBe('waiting')
+    expect(refreshVerdict(true, false, link())).toBe('answered')
+  })
+
+  it('does not call a quiet link an answer to a question never asked', () => {
+    // The old behaviour, in one line: a pull that reached nothing used to end
+    // with the same completed spinner as one that reached the desktop.
+    expect(refreshVerdict(false, false, link())).toBe('waiting')
+    expect(refreshVerdict(false, true, link())).toBe('unanswered')
+  })
+
+  it('convicts a dead route instead of letting the spinner finish', () => {
+    // Probe timed out, client fell back to reconnecting, nothing came back.
+    expect(refreshVerdict(true, false, link({ ready: false }))).toBe('waiting')
+    expect(refreshVerdict(true, true, link({ ready: false }))).toBe('unanswered')
+    expect(refreshVerdict(true, true, link({ probing: true }))).toBe('unanswered')
+  })
+
+  it('still reports an answer that lands in the same tick as the ceiling', () => {
+    expect(refreshVerdict(true, true, link())).toBe('answered')
+  })
+
+  it('waits out the window the client itself needs to convict a route', () => {
+    // Shorter and the strip would give up on a route the client has not; the
+    // probe window plus one liveness tick is when the verdict actually exists.
+    expect(REFRESH_VERDICT_MS).toBeGreaterThanOrEqual(LIVENESS_PROBE_TIMEOUT_MS)
   })
 })
 
@@ -58,7 +123,8 @@ describe('pull label', () => {
   const copy = {
     pullToRefresh: 'Zum Aktualisieren ziehen',
     releaseToRefresh: 'Loslassen zum Aktualisieren',
-    refreshing: 'aktualisiere …'
+    refreshing: 'aktualisiere …',
+    pullNoAnswer: 'keine Antwort — verbinde neu …'
   }
 
   it('says nothing at rest and names every other phase', () => {
@@ -66,6 +132,14 @@ describe('pull label', () => {
     expect(pullLabel('pulling', copy)).toBe(copy.pullToRefresh)
     expect(pullLabel('armed', copy)).toBe(copy.releaseToRefresh)
     expect(pullLabel('refreshing', copy)).toBe(copy.refreshing)
+  })
+
+  it('never signs a pull off as refreshed when nothing answered', () => {
+    // It has its own string now: pinning it rules out the word that would be
+    // a lie AND the borrowed `reconnecting …`, which was true of the client
+    // but silent about the stale list still on the screen.
+    expect(pullLabel('unanswered', copy)).toBe(copy.pullNoAnswer)
+    expect(pullLabel('unanswered', copy)).not.toBe(copy.refreshing)
   })
 })
 
@@ -78,6 +152,10 @@ describe('pull indicator height', () => {
 
   it('holds a strip open while the refresh is in flight', () => {
     expect(pullIndicatorHeight('refreshing', 0)).toBe(34)
+  })
+
+  it('keeps the strip open to say the pull got nothing', () => {
+    expect(pullIndicatorHeight('unanswered', 0)).toBe(34)
   })
 })
 

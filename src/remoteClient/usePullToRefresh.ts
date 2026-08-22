@@ -19,9 +19,10 @@
  * held by a test, and the listeners are kept thin enough to read.
  */
 import { useEffect, useRef, useState } from 'react'
+import { LIVENESS_PROBE_TIMEOUT_MS, LIVENESS_TICK_MS } from './connection'
 import { haptic } from './haptics'
 
-export type PullPhase = 'idle' | 'pulling' | 'armed' | 'refreshing'
+export type PullPhase = 'idle' | 'pulling' | 'armed' | 'refreshing' | 'unanswered'
 
 /** How far the finger must travel before the release fires a refresh. */
 export const PULL_THRESHOLD_PX = 64
@@ -136,31 +137,109 @@ function gestureChain(target: EventTarget | null): GestureNode[] {
 }
 
 /**
- * The `refresh` frame is fire-and-forget — the protocol answers it with a
- * `workspaces` push that is indistinguishable from any other push, so there
- * is nothing to await. The indicator is therefore time-boxed: it acknowledges
- * the gesture rather than claiming the data has arrived.
+ * How the pull finds out whether it got an answer.
+ *
+ * The `refresh` frame is still fire-and-forget — the protocol answers it with
+ * a `workspaces` push indistinguishable from any other push, so there is
+ * nothing to await. But `api.refresh` is `wake()`, and `wake()` leaves a
+ * trace: on an open socket it sends a liveness probe (`probing` goes true
+ * until something comes back), and on a closed one it reconnects (`ready`
+ * goes false until the socket is authenticated again). Either way the link
+ * carries the outcome of the gesture, which is exactly what the indicator
+ * used to invent for itself.
+ *
+ * The defect that closes: `onEnd` cleared the strip after a fixed hold
+ * whatever happened, so on a route that had died without closing its socket
+ * the user watched a spinner run its course and conclude, having refreshed
+ * nothing.
  */
-const REFRESH_HOLD_MS = 700
+export interface PullLink {
+  /** `RemoteApi.probing`: a liveness probe is on the wire, unanswered. */
+  probing: boolean
+  /** `phase === 'ready'`: a socket that is open AND authenticated. */
+  ready: boolean
+}
+
+/**
+ * Whether the question the pull asked is still out. Both halves count: the
+ * probe that has not been answered, and the reconnect that has not finished.
+ */
+export function refreshOutstanding(link: PullLink): boolean {
+  return link.probing || !link.ready
+}
+
+/** What the strip should do next, once a pull has fired. */
+export type RefreshVerdict = 'waiting' | 'answered' | 'unanswered'
+
+/**
+ * Judge a fired pull.
+ *
+ * `asked` is the caller's memory that the question was ever observed on the
+ * wire — without it a link that is quietly `ready` and not probing (a pull
+ * that raced a socket into `CLOSING`, say, so `wake()` had nothing to send)
+ * would read as an instant success. `timedOut` is the ceiling having run out.
+ *
+ * An answer is any of: the probe came back (`probing` fell while the route
+ * stayed ready) or the reconnect completed (`ready` returned, which arrives
+ * with a fresh `workspaces` push — the very thing the pull asked for).
+ */
+export function refreshVerdict(asked: boolean, timedOut: boolean, link: PullLink): RefreshVerdict {
+  if (asked && !refreshOutstanding(link)) return 'answered'
+  return timedOut ? 'unanswered' : 'waiting'
+}
+
+/**
+ * How long the strip waits before saying it got nothing.
+ *
+ * The client convicts a silent route one liveness tick after the probe window
+ * closes, so this is the point past which the pull is not "slow", it is
+ * unanswered — and waiting longer would only be a spinner keeping a secret
+ * the client already knows.
+ */
+export const REFRESH_VERDICT_MS = LIVENESS_PROBE_TIMEOUT_MS + LIVENESS_TICK_MS
+
+/**
+ * A floor under the spinner, not a timeout: a probe answered in 80 ms would
+ * otherwise flash the strip open and shut, which reads as a gesture that
+ * failed to register rather than one that succeeded immediately.
+ */
+const REFRESH_FLOOR_MS = 700
+
+/** Long enough to read the verdict, short enough to stop being in the way. */
+const UNANSWERED_HOLD_MS = 4_000
 
 export function pullDistance(rawDelta: number): number {
   if (rawDelta <= 0) return 0
   return Math.min(PULL_MAX_PX, rawDelta * PULL_RESISTANCE)
 }
 
-export function pullPhase(distance: number, refreshing: boolean): PullPhase {
-  if (refreshing) return 'refreshing'
+/** What a fired pull is doing, as the hook tracks it between renders. */
+export type RefreshStage = 'idle' | 'waiting' | 'unanswered'
+
+export function pullPhase(distance: number, stage: RefreshStage): PullPhase {
+  // Both outcomes outrank the finger: it left the screen when the pull fired.
+  if (stage !== 'idle') return stage === 'waiting' ? 'refreshing' : 'unanswered'
   if (distance >= PULL_THRESHOLD_PX) return 'armed'
   return distance > 0 ? 'pulling' : 'idle'
 }
 
 export function pullLabel(
   phase: PullPhase,
-  copy: { pullToRefresh: string; releaseToRefresh: string; refreshing: string }
+  copy: {
+    pullToRefresh: string
+    releaseToRefresh: string
+    refreshing: string
+    pullNoAnswer: string
+  }
 ): string | undefined {
   if (phase === 'pulling') return copy.pullToRefresh
   if (phase === 'armed') return copy.releaseToRefresh
   if (phase === 'refreshing') return copy.refreshing
+  // This used to borrow `reconnecting …`, which was true of the moment but
+  // said only half of it: the client is indeed reconnecting, and the list in
+  // front of the user is still the stale one they pulled to replace.
+  // `pullNoAnswer` says both.
+  if (phase === 'unanswered') return copy.pullNoAnswer
   return undefined
 }
 
@@ -172,7 +251,7 @@ export function pullLabel(
 const REFRESHING_HEIGHT_PX = 34
 
 export function pullIndicatorHeight(phase: PullPhase, distance: number): number {
-  if (phase === 'refreshing') return REFRESHING_HEIGHT_PX
+  if (phase === 'refreshing' || phase === 'unanswered') return REFRESHING_HEIGHT_PX
   return Math.round(Math.max(0, distance))
 }
 
@@ -195,14 +274,28 @@ export interface PullState {
   distance: number
 }
 
-export function usePullToRefresh(onRefresh: () => void, enabled: boolean): PullState {
+export function usePullToRefresh(
+  onRefresh: () => void,
+  enabled: boolean,
+  link: PullLink
+): PullState {
   const [distance, setDistance] = useState(0)
-  const [refreshing, setRefreshing] = useState(false)
+  const [stage, setStage] = useState<RefreshStage>('idle')
+  const [timedOut, setTimedOut] = useState(false)
   const startY = useRef<number | null>(null)
   const distanceRef = useRef(0)
   const armedRef = useRef(false)
   const refreshRef = useRef(onRefresh)
-  const timerRef = useRef<number | undefined>(undefined)
+  /**
+   * Whether this pull's question has been seen on the wire. A ref, not state:
+   * it is written from the effect that reads the link and must be true for
+   * the SAME pass that then judges it, which a queued `setState` would not be.
+   */
+  const asked = useRef(false)
+  const firedAt = useRef(0)
+  // Primitives, so the effects below depend on what actually changed rather
+  // than on a `link` object the caller rebuilds on every render.
+  const { probing, ready } = link
 
   useEffect(() => {
     refreshRef.current = onRefresh
@@ -263,10 +356,13 @@ export function usePullToRefresh(onRefresh: () => void, enabled: boolean): PullS
       const fire = shouldFireRefresh(distanceRef.current, startY.current !== null)
       reset()
       if (!fire) return
-      setRefreshing(true)
+      // Everything the verdict is measured from is stamped here; the effects
+      // below own the outcome, because only the link knows what it is.
+      asked.current = false
+      firedAt.current = Date.now()
+      setTimedOut(false)
+      setStage('waiting')
       refreshRef.current()
-      window.clearTimeout(timerRef.current)
-      timerRef.current = window.setTimeout(() => setRefreshing(false), REFRESH_HOLD_MS)
     }
 
     window.addEventListener('touchstart', onStart, { passive: true })
@@ -281,7 +377,41 @@ export function usePullToRefresh(onRefresh: () => void, enabled: boolean): PullS
     }
   }, [enabled])
 
-  useEffect(() => () => window.clearTimeout(timerRef.current), [])
+  // The ceiling. Restarted whenever a new pull enters `waiting`, cleared with
+  // it, so a second pull is never convicted by the first one's clock.
+  useEffect(() => {
+    if (stage !== 'waiting') return
+    const timer = window.setTimeout(() => setTimedOut(true), REFRESH_VERDICT_MS)
+    return () => window.clearTimeout(timer)
+  }, [stage])
 
-  return { phase: pullPhase(distance, refreshing), distance }
+  // The verdict. Runs on every change in the link while a pull is waiting.
+  useEffect(() => {
+    if (stage !== 'waiting') return
+    const current = { probing, ready }
+    // Seeing the question go out is what makes a later quiet link an answer
+    // rather than a link that was never asked anything.
+    if (refreshOutstanding(current)) asked.current = true
+    const verdict = refreshVerdict(asked.current, timedOut, current)
+    if (verdict === 'waiting') return
+    if (verdict === 'unanswered') {
+      setStage('unanswered')
+      return
+    }
+    // Answered: close the strip, but never sooner than the floor — an
+    // indicator that vanishes in 80 ms reads as a gesture that did not take.
+    const remaining = Math.max(0, REFRESH_FLOOR_MS - (Date.now() - firedAt.current))
+    const timer = window.setTimeout(() => setStage('idle'), remaining)
+    return () => window.clearTimeout(timer)
+  }, [stage, timedOut, probing, ready])
+
+  // The honest outcome gets read time, then gets out of the way. The header
+  // pill keeps saying what the link is doing after this strip has closed.
+  useEffect(() => {
+    if (stage !== 'unanswered') return
+    const timer = window.setTimeout(() => setStage('idle'), UNANSWERED_HOLD_MS)
+    return () => window.clearTimeout(timer)
+  }, [stage])
+
+  return { phase: pullPhase(distance, stage), distance }
 }

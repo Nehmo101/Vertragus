@@ -2,10 +2,12 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import type { RemoteWorkspaceSummary } from '@shared/remote/protocol'
 import {
   answerDraftKey,
   ARG_MAX_CHARS,
   composerDraftKey,
+  composerWorkspaceIds,
   connectionClass,
   connectionLabel,
   connectionState,
@@ -28,6 +30,14 @@ import {
   writeStored,
   type StorageLike
 } from './navState'
+
+/**
+ * A real `RemoteWorkspaceSummary`, so the liveness tests below run against the
+ * object `useRemote` hands `App` rather than a shape invented for the test.
+ */
+function workspace(workspaceId: string, active: boolean): RemoteWorkspaceSummary {
+  return { workspaceId, name: workspaceId, profileId: 'p1', active, agents: [] }
+}
 
 function memoryStorage(seed: Record<string, string> = {}): StorageLike & { data: Map<string, string> } {
   const data = new Map(Object.entries(seed))
@@ -152,6 +162,12 @@ describe('the draft map', () => {
       'answer:w1:user:q-1'
     ])
   })
+
+  it('counts a composer only for the runs one is drawn for', () => {
+    // The gate `WorkspaceCard` applies, and the reason `liveDraftKeys` cannot
+    // be handed every id the host carries.
+    expect(composerWorkspaceIds([workspace('w1', true), workspace('w2', false)])).toEqual(['w1'])
+  })
 })
 
 describe('text with nowhere left to go', () => {
@@ -159,21 +175,47 @@ describe('text with nowhere left to go', () => {
     // The field unmounts with the inbox entry: until now the half-typed answer
     // left the screen mid-sentence with nothing said about it.
     const drafts = { [answerDraftKey('w1:a1:q-1')]: 'use bcrypt' }
-    const orphans = orphanedDrafts(drafts, liveDraftKeys(['w1'], []), ['w1'])
+    const live = liveDraftKeys(composerWorkspaceIds([workspace('w1', true)]), [])
+    const orphans = orphanedDrafts(drafts, live, ['w1'])
     expect(orphans).toEqual([
       { key: 'answer:w1:a1:q-1', text: 'use bcrypt', kind: 'answer', workspaceId: 'w1' }
     ])
   })
 
   it('surfaces a composer draft for a run that has ended', () => {
+    // The exact call `App` makes, built from a workspace list rather than from
+    // a hand-written key list: liveness narrows to the runs a composer is
+    // drawn for, while the id list stays every run the host still carries so
+    // the notice can name this one. Hand-writing `[GOAL_DRAFT_KEY]` here used
+    // to make this pass over a wiring that shipped `['goal', 'composer:w1']`
+    // and returned no orphans at all — the text then sat in the map,
+    // unreachable and undiscardable, until `pruneDrafts` deleted it unseen.
+    const workspaces = [workspace('w1', false), workspace('w2', true)]
     const drafts = { [composerDraftKey('w1')]: 'try the other branch' }
-    // The run is still on the list, but ended — so no composer is drawn for it.
-    const orphans = orphanedDrafts(drafts, [GOAL_DRAFT_KEY], ['w1'])
-    expect(orphans[0]).toMatchObject({ kind: 'composer', workspaceId: 'w1' })
+    const live = liveDraftKeys(composerWorkspaceIds(workspaces), [])
+    expect(live).toEqual([GOAL_DRAFT_KEY, 'composer:w2'])
+    const orphans = orphanedDrafts(drafts, live, ['w1', 'w2'])
+    expect(orphans).toEqual([
+      {
+        key: 'composer:w1',
+        text: 'try the other branch',
+        kind: 'composer',
+        workspaceId: 'w1'
+      }
+    ])
+  })
+
+  it('leaves a live run\'s composer draft alone', () => {
+    // The other half of the same wiring: narrowing to active ids must not
+    // start calling text a user is still looking at orphaned.
+    const workspaces = [workspace('w1', true)]
+    const drafts = { [composerDraftKey('w1')]: 'still typing' }
+    const live = liveDraftKeys(composerWorkspaceIds(workspaces), [])
+    expect(orphanedDrafts(drafts, live, ['w1'])).toEqual([])
   })
 
   it('says nothing about text a field is still showing, or about whitespace', () => {
-    const live = liveDraftKeys(['w1'], ['w1:a1:q-1'])
+    const live = liveDraftKeys(composerWorkspaceIds([workspace('w1', true)]), ['w1:a1:q-1'])
     const drafts = {
       [GOAL_DRAFT_KEY]: 'a goal',
       [composerDraftKey('w1')]: 'still typing',
@@ -184,11 +226,19 @@ describe('text with nowhere left to go', () => {
   })
 
   it('is ordered, so the notice does not reshuffle under a thumb', () => {
+    // Both runs ended and the question is gone, so nothing but the goal field
+    // is live — which is the emptiest list `liveDraftKeys` can return, and the
+    // reason this asks for it rather than passing a bare `[]` no caller emits.
     const drafts = {
       [composerDraftKey('w2')]: 'b',
       [answerDraftKey('w1:a1:q')]: 'a'
     }
-    expect(orphanedDrafts(drafts, [], ['w1', 'w2']).map((entry) => entry.key)).toEqual([
+    const live = liveDraftKeys(
+      composerWorkspaceIds([workspace('w1', false), workspace('w2', false)]),
+      []
+    )
+    expect(live).toEqual([GOAL_DRAFT_KEY])
+    expect(orphanedDrafts(drafts, live, ['w1', 'w2']).map((entry) => entry.key)).toEqual([
       'answer:w1:a1:q',
       'composer:w2'
     ])
@@ -310,27 +360,51 @@ describe('scroll bookkeeping', () => {
 describe('connection state', () => {
   const copy = {
     connected: 'verbunden',
+    checking: 'Verbindung wird geprüft …',
     connecting: 'verbinde …',
     reconnecting: 'verbinde neu …',
     offline: 'offline'
   }
 
   it('says offline before it promises a reconnect it cannot keep', () => {
-    expect(connectionState('connecting', false, true)).toBe('offline')
-    expect(connectionState('ready', false, true)).toBe('offline')
+    expect(connectionState('connecting', false, true, false)).toBe('offline')
+    expect(connectionState('ready', false, true, false)).toBe('offline')
+    // A probe outstanding on a phone with the radio off is not news the pill
+    // should carry: `offline` is the more specific truth, and it outranks.
+    expect(connectionState('ready', false, true, true)).toBe('offline')
   })
 
   it('separates the first connect from a recovery', () => {
-    expect(connectionState('connecting', true, false)).toBe('connecting')
-    expect(connectionState('connecting', true, true)).toBe('reconnecting')
-    expect(connectionState('ready', true, true)).toBe('connected')
+    expect(connectionState('connecting', true, false, false)).toBe('connecting')
+    expect(connectionState('connecting', true, true, false)).toBe('reconnecting')
+    expect(connectionState('ready', true, true, false)).toBe('connected')
   })
 
-  it('marks the two unhappy states without dropping the healthy class', () => {
+  it('does not call a ready route with an unanswered probe connected', () => {
+    // The defect this exists for: a route that dies without closing its
+    // socket leaves `phase` at 'ready', so the pill claimed "connected" for
+    // the whole 40 s the client needed to convict it. `probing` is the part
+    // of that window the client has evidence about — and it is its own
+    // state, neither of the two it sits between.
+    const checking = connectionState('ready', true, true, true)
+    expect(checking).toBe('checking')
+    expect(checking).not.toBe(connectionState('ready', true, true, false))
+    expect(checking).not.toBe(connectionState('connecting', true, true, false))
+    // Both first-connect and recovery reach it, and it never masks a phase
+    // that is already telling the user something worse.
+    expect(connectionState('ready', true, false, true)).toBe('checking')
+    expect(connectionState('connecting', true, true, true)).toBe('reconnecting')
+    expect(connectionState('connecting', true, false, true)).toBe('connecting')
+  })
+
+  it('marks every unhappy state without dropping the healthy class', () => {
     expect(connectionClass('connected')).toBe('conn ok')
     expect(connectionClass('connecting')).toBe('conn')
+    expect(connectionClass('checking')).toBe('conn is-checking')
     expect(connectionClass('reconnecting')).toBe('conn is-reconnecting')
     expect(connectionClass('offline')).toBe('conn is-offline')
+    // Distinct classes, because the two ambers are not the same claim.
+    expect(connectionClass('checking')).not.toBe(connectionClass('reconnecting'))
   })
 
   it('maps every state onto copy', () => {
@@ -338,5 +412,14 @@ describe('connection state', () => {
     expect(connectionLabel('reconnecting', copy)).toBe('verbinde neu …')
     expect(connectionLabel('connected', copy)).toBe('verbunden')
     expect(connectionLabel('connecting', copy)).toBe('verbinde …')
+  })
+
+  it('never labels a checking link as connected', () => {
+    // `checking` used to borrow `connecting …`; it has its own string now, and
+    // pinning that is the stronger statement — it rules out both the word that
+    // would be a lie and the word that was merely close.
+    expect(connectionLabel('checking', copy)).toBe(copy.checking)
+    expect(connectionLabel('checking', copy)).not.toBe(copy.connected)
+    expect(connectionLabel('checking', copy)).not.toBe(copy.connecting)
   })
 })

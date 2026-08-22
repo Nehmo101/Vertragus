@@ -60,6 +60,7 @@ import {
   answerDraftKey,
   ARG_MAX_CHARS,
   composerDraftKey,
+  composerWorkspaceIds,
   connectionClass,
   connectionLabel,
   connectionState,
@@ -209,6 +210,7 @@ export function App(): React.JSX.Element {
   useVisualViewport()
   useTerminalHistory(openAgent, setOpenAgent)
   useDocumentScrollLock(openAgent !== null)
+  const unconfirmed = useSettledProbing(api.probing)
 
   /*
    * Which runs this client has watched. Adjusted during render rather than in
@@ -303,8 +305,14 @@ export function App(): React.JSX.Element {
    */
   const workspaceKey = JSON.stringify(api.workspaces.map((workspace) => workspace.workspaceId))
   const inboxKey = JSON.stringify(inbox.map((entry) => entry.key))
+  // The runs that still get a composer drawn for them — see the `active` gate
+  // in `WorkspaceCard`. Kept apart from `workspaceKey` because the two answer
+  // different questions: which drafts are worth KEEPING (any run still on the
+  // list) and which drafts are still REACHABLE (only the ones with a field).
+  const activeKey = JSON.stringify(composerWorkspaceIds(api.workspaces))
   const workspaceIds = useMemo(() => JSON.parse(workspaceKey) as string[], [workspaceKey])
   const inboxKeys = useMemo(() => JSON.parse(inboxKey) as string[], [inboxKey])
+  const composerIds = useMemo(() => JSON.parse(activeKey) as string[], [activeKey])
 
   useEffect(() => {
     writeExpansionState(expanded, workspaceIds)
@@ -316,9 +324,17 @@ export function App(): React.JSX.Element {
   const prunedDrafts = pruneDrafts(drafts, workspaceIds)
   if (prunedDrafts !== drafts) setDrafts(prunedDrafts)
 
+  // `workspaceIds` stays the third argument: the notice names the run the text
+  // was meant for, and for an ended run that is exactly the id it has to
+  // resolve. Only the liveness list narrows to the runs with a field.
   const orphans = useMemo(
-    () => orphanedDrafts(prunedDrafts, liveDraftKeys(workspaceIds, inboxKeys), workspaceIds),
-    [prunedDrafts, workspaceIds, inboxKeys]
+    () =>
+      orphanedDrafts(
+        prunedDrafts,
+        liveDraftKeys(composerIds, inboxKeys),
+        workspaceIds
+      ),
+    [prunedDrafts, composerIds, workspaceIds, inboxKeys]
   )
 
   const cycleTheme = (): void => {
@@ -395,7 +411,7 @@ export function App(): React.JSX.Element {
     )
   }
 
-  const connection = connectionState(api.phase, api.online, everConnected)
+  const connection = connectionState(api.phase, api.online, everConnected, unconfirmed)
 
   return (
     <>
@@ -551,6 +567,38 @@ function useScrolledDown(active: boolean): boolean {
   return active && down
 }
 
+/**
+ * How long a probe may be outstanding before the header admits to it.
+ *
+ * `api.probing` on its own is too sharp an edge for a label. The probe fires
+ * on thirty seconds of silence, which on an idle overview is routine, and a
+ * healthy route answers it in tens of milliseconds — so a pill wired straight
+ * to the flag would blink twice a minute on a link with nothing wrong, and
+ * `role="status"` means a screen reader would read each blink out loud.
+ *
+ * The grace is deliberately far shorter than the thing it protects against:
+ * "connected" can now stand for the 30 s silence window plus these two
+ * seconds instead of the silence window alone, inside a probe window of ten.
+ * The route that is actually dead still reaches "checking" with eight seconds
+ * of it left, and "reconnecting …" at the same moment it always did.
+ */
+const PROBE_GRACE_MS = 2_000
+
+/** `api.probing`, once it has lasted long enough to be worth saying. */
+function useSettledProbing(probing: boolean): boolean {
+  const [settled, setSettled] = useState(false)
+  // Cleared during render, the same way `everConnected` is corrected above:
+  // the answer has arrived, and an effect would let the pill paint one more
+  // frame of "checking" after the thing it was hedging about came back.
+  if (!probing && settled) setSettled(false)
+  useEffect(() => {
+    if (!probing) return
+    const timer = window.setTimeout(() => setSettled(true), PROBE_GRACE_MS)
+    return () => window.clearTimeout(timer)
+  }, [probing])
+  return settled
+}
+
 function Header({
   api,
   copy,
@@ -648,7 +696,13 @@ function Overview({
   /** The terminal covers the list: no gestures, no floating controls. */
   paused: boolean
 }): React.JSX.Element {
-  const pull = usePullToRefresh(api.refresh, !paused)
+  // The link is what tells the pull whether it got an answer: `api.refresh` is
+  // the hook's `wake()`, which probes an open socket and reconnects a closed
+  // one, and both outcomes show up here before they show up in the list.
+  const pull = usePullToRefresh(api.refresh, !paused, {
+    probing: api.probing,
+    ready: api.phase === 'ready'
+  })
   const scrolledDown = useScrolledDown(!paused)
   const rows = overviewRows(api.workspaces, seenLive, showEnded)
   const visible = rowWorkspaces(rows)
@@ -663,8 +717,11 @@ function Overview({
     <>
       {/*
        * Silent to assistive technology: this labels a touch gesture, and a
-       * live region would narrate three state changes per pull. The `⟳` in
-       * the header is the same refresh, reachable without one.
+       * live region would narrate four state changes per pull. The `⟳` in
+       * the header is the same refresh, reachable without one — and the
+       * outcome a screen-reader user would actually need, a pull that got no
+       * answer, is announced by the connection pill's `role="status"`, which
+       * has already moved off "connected" by the time this strip says so.
        */}
       <div
         className={`pull-indicator is-${pull.phase}`}
@@ -947,9 +1004,10 @@ function StartForm({
    * `api` is a fresh object on every render of `App`, so `[ready, api]` would
    * re-issue `profiles:list` on every workspace push, every liveness probe and
    * every keystroke that reaches `App` — a command per frame down a socket the
-   * user is trying to type into. `[ready]` alone is the right trigger: the
-   * list is fetched when the connection becomes usable and does not change
-   * again until it stops being usable.
+   * user is trying to type into. `ready` is the right trigger for the first
+   * fetch — the list is fetched when the connection becomes usable — and the
+   * effect below adds the only other moment it can have gone stale in a way
+   * the user would notice.
    *
    * What made the same omission a bug in `RemoteTerminal` was that the stale
    * capture there was READ long after it was taken. This one is not: every
@@ -965,8 +1023,7 @@ function StartForm({
     apiRef.current = api
   })
 
-  useEffect(() => {
-    if (!ready) return
+  const loadProfiles = useCallback((initial: boolean): void => {
     apiRef.current.runCommand('profiles:list').then(
       (result) => {
         const list = Array.isArray(result) ? (result as RemoteProfileSummary[]) : []
@@ -977,9 +1034,45 @@ function StartForm({
         // id the user cannot see anywhere on the screen.
         setProfileId((current) => keepSelectedProfile(current, list))
       },
-      () => setProfiles([])
+      // Only the first fetch may clear the list. A refetch that fails is a
+      // momentary hiccup on a link the user is standing in front of, and
+      // emptying `profiles` would take the whole form off the screen (see the
+      // early return below) over a command that can simply be asked again.
+      () => {
+        if (initial) setProfiles([])
+      }
     )
-  }, [ready])
+  }, [])
+
+  useEffect(() => {
+    if (!ready) return
+    loadProfiles(true)
+  }, [ready, loadProfiles])
+
+  /*
+   * And again whenever the phone comes back to this page.
+   *
+   * `ready` alone is fetched once per connection, and a phone client holds one
+   * for hours — so a profile added or deleted on the desktop in the meantime
+   * did not reach the picker until the next reconnect. Neither direction is
+   * harmless: the deleted one starts a run against an id the user cannot see
+   * and fails with a raw gateway error, and the added one is simply absent
+   * with nothing on the screen that would fetch it (the pull gesture asks the
+   * link for a `workspaces` push, not for this list).
+   *
+   * Foregrounding is the right trigger rather than a poll or a render-time
+   * refetch: the picker is only ever used within a few seconds of the user
+   * picking the phone up, so this is one small command at exactly the moment
+   * it can matter and none at all while the screen is off.
+   */
+  useEffect(() => {
+    if (!ready) return
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') loadProfiles(false)
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [ready, loadProfiles])
 
   if (!ready || profiles.length === 0) return null
 
@@ -1097,7 +1190,18 @@ function LimitedTextarea({
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={onKeyDown}
       />
-      {value.length >= ARG_MAX_CHARS ? (
+      {/*
+       * Two different facts, so two different sentences. At the cap the field
+       * is simply full and the send will go through; PAST it — a paste that
+       * outran `maxLength`, which some browsers allow — the send is the one
+       * the gateway refuses for length, so the field says what the refusal
+       * will say rather than the reassuring "maximum reached".
+       */}
+      {value.length > ARG_MAX_CHARS ? (
+        <p className="form-error" role="status">
+          {copy.commandTooLong}
+        </p>
+      ) : value.length === ARG_MAX_CHARS ? (
         <p className="form-error" role="status">
           {copy.lengthLimit(ARG_MAX_CHARS)}
         </p>

@@ -115,8 +115,18 @@
   font-weight: 700;
 }
 
+/* The link is open but unproven: a question is on the wire and unanswered.
+   Amber like `is-reconnecting`, because it is the same family of trouble, but
+   it keeps the neutral hairline border rather than taking the pill's louder
+   treatment — the socket has not dropped, it is only unconfirmed. The label
+   is what separates the two; the colour only says "not settled". */
+.conn.is-checking {
+  color: var(--warn-text);
+}
+
 .conn.is-reconnecting {
   color: var(--warn-text);
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
 }
 
 .conn.is-offline {
@@ -140,6 +150,14 @@
    family for a control that is saying "release and this will happen". */
 .pull-indicator.is-armed {
   color: var(--verdigris-text);
+}
+
+/* The pull asked and nothing came back. `--warn-text` is the token already
+   carrying "this is not fine" as text on this background (the connection
+   pill and the inbox count use it), so the one place the strip ever reports
+   a failure reads the same as the rest of the app's bad news. */
+.pull-indicator.is-unanswered {
+  color: var(--warn-text);
 }
 
 /* --- workspace list: document scroll, content-sized --- */

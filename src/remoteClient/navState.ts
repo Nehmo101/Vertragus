@@ -220,14 +220,49 @@ export function pruneDrafts(
   return dropped ? kept : drafts
 }
 
-/** Every draft key the screen can still show a field for. */
+/**
+ * The runs a composer is drawn for.
+ *
+ * This exists as a function rather than a `filter` at the call site so that
+ * the gate is one thing in one place: `WorkspaceCard` renders `<Composer>`
+ * under `workspace.active`, and `liveDraftKeys` has to agree with it or text
+ * goes missing (see below). A test that wants the real call shape derives it
+ * from a workspace list through here, instead of hand-writing a key list the
+ * application would never produce.
+ */
+export function composerWorkspaceIds(
+  workspaces: readonly { workspaceId: string; active: boolean }[]
+): string[] {
+  return workspaces
+    .filter((workspace) => workspace.active)
+    .map((workspace) => workspace.workspaceId)
+}
+
+/**
+ * Every draft key the screen can still show a field for.
+ *
+ * The first argument is deliberately NOT every workspace the host carries: it
+ * is the ids that still get a composer drawn for them, which `App` gates on
+ * `workspace.active`. Passing all of them was a data-loss bug rather than a
+ * cosmetic one — an ended-but-still-listed run kept its composer key in this
+ * list, so `orphanedDrafts` counted the text as reachable, while the field it
+ * was typed into had already gone with the run. The sentence then sat in the
+ * map, invisible and undiscardable, until the host dropped the workspace and
+ * `pruneDrafts` deleted it unseen. Liveness has to be decided by the same
+ * condition that decides whether the field is rendered.
+ *
+ * Collapsing a card also unmounts its composer, and that case deliberately
+ * does NOT belong here: the user closed it and can open it again, so the text
+ * is one tap away rather than orphaned. Only ending is irreversible from the
+ * phone.
+ */
 export function liveDraftKeys(
-  workspaceIds: readonly string[],
+  composerIds: readonly string[],
   inboxEntryKeys: readonly string[]
 ): string[] {
   return [
     GOAL_DRAFT_KEY,
-    ...workspaceIds.map(composerDraftKey),
+    ...composerIds.map(composerDraftKey),
     ...inboxEntryKeys.map(answerDraftKey)
   ]
 }
@@ -356,7 +391,7 @@ export function prefersReducedMotion(): boolean {
 
 // --- connection -----------------------------------------------------------
 
-export type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'offline'
+export type ConnectionState = 'connected' | 'checking' | 'connecting' | 'reconnecting' | 'offline'
 
 /**
  * What the header says about the link.
@@ -369,29 +404,63 @@ export type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'off
  * liveness probe, not by this flag. `everConnected` separates the first
  * connect of a session from a recovery, because the two need different
  * reassurance.
+ *
+ * `probing` is the fourth input because `phase` alone cannot tell the truth
+ * here. A route that dies without closing its socket leaves `phase` at
+ * `'ready'` for the whole silence window AND the whole probe window — up to
+ * `LIVENESS_SILENCE_MS + LIVENESS_PROBE_TIMEOUT_MS` (40 s) of a pill reading
+ * "connected" over a link that answers nothing. `probing` marks the part of
+ * that window the client has actual evidence about: a question is on the wire
+ * and unanswered, so the honest word is "checking", not "connected".
+ *
+ * What this does NOT fix, and must not be read as fixing: the first 30 s is
+ * silence nobody has yet asked a question about. The client has no evidence
+ * either way there, so no honest signal exists to show — a pill that hedged
+ * through it would be guessing, which is the same lie in the other direction.
+ * The worst case therefore becomes "connected" for 30 s, then "checking" for
+ * at most 10 s, then "reconnecting …". Shortening the first leg means probing
+ * more often, which is a battery decision in `connection.ts`, not a label one.
+ *
+ * The caller passes a probe that has been outstanding long enough to be worth
+ * saying, not the raw flag — see `useSettledProbing` in `App.tsx`, which keeps
+ * the routine probe on a healthy link from blinking the pill twice a minute.
+ * That grace is two seconds against a ten-second probe window; this function
+ * neither knows nor cares, which is why it stays a boolean.
  */
 export function connectionState(
   phase: RemotePhase,
   online: boolean,
-  everConnected: boolean
+  everConnected: boolean,
+  probing: boolean
 ): ConnectionState {
   if (!online) return 'offline'
-  if (phase === 'ready') return 'connected'
+  if (phase === 'ready') return probing ? 'checking' : 'connected'
   return everConnected ? 'reconnecting' : 'connecting'
 }
 
 export function connectionLabel(
   state: ConnectionState,
-  copy: { connected: string; connecting: string; reconnecting: string; offline: string }
+  copy: {
+    connected: string
+    checking: string
+    connecting: string
+    reconnecting: string
+    offline: string
+  }
 ): string {
+  // Every state now has a string of its own. `checking` used to borrow
+  // `connecting …` — true enough to ship, but it said "in progress" where the
+  // honest thing to say is that a question is on the wire and unanswered.
   return copy[state]
 }
 
 /**
- * `ok` is the class `styles.css` already carries for a healthy link; the two
- * unhappy states get modifiers of their own, and plain `connecting` keeps the
- * neutral base. Colour is not the only signal — the label next to it says the
- * same thing in words.
+ * `ok` is the class `styles.css` already carries for a healthy link; the
+ * three states that are not simply healthy get modifiers of their own, and
+ * plain `connecting` keeps the neutral base. Colour is not the only signal —
+ * the label next to it says the same thing in words, which is what keeps
+ * `checking` distinguishable from `reconnecting` for a user who cannot tell
+ * two ambers apart.
  */
 export function connectionClass(state: ConnectionState): string {
   if (state === 'connected') return 'conn ok'
