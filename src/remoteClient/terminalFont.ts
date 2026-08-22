@@ -4,9 +4,14 @@
  * it again on the next visit, so it survives in `localStorage` under its own
  * key.
  *
- * Every storage access is guarded: Safari's private mode throws on the very
- * property access, and a bookmarked page with site data disabled must degrade
- * to the default rather than to a blank screen.
+ * Every storage access is guarded, and the two guards cover different things.
+ * Reaching for `window.localStorage` at all throws `SecurityError` where the
+ * browser has been told this origin gets no site data — a blocked-cookies
+ * setting, a sandboxed frame — which is what {@link localFontStore} catches.
+ * Modern Safari private mode is the other case: it hands back a perfectly
+ * working store with a zero quota and throws on `setItem`, which is what
+ * {@link writeFontSize} catches. Either way the terminal opens at the default
+ * rather than not at all.
  */
 
 /** Below 11 px the monospace grid stops being legible on a phone at all. */

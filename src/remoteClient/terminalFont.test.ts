@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   FONT_DEFAULT,
   FONT_MAX,
@@ -70,7 +70,7 @@ describe('readFontSize', () => {
   })
 
   it('survives a value that is not a number', () => {
-    expect(readFontSize(fakeStore('groß'))).toBe(FONT_DEFAULT)
+    expect(readFontSize(fakeStore('large'))).toBe(FONT_DEFAULT)
   })
 
   it('survives a store that throws on access — private mode', () => {
@@ -92,7 +92,33 @@ describe('writeFontSize', () => {
 })
 
 describe('localFontStore', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('yields nothing where there is no window at all', () => {
+    expect(localFontStore()).toBeUndefined()
+  })
+
+  it('hands back the browser store on the happy path', () => {
+    const storage = fakeStore()
+    vi.stubGlobal('window', { localStorage: storage })
+    expect(localFontStore()).toBe(storage)
+  })
+
+  it('yields nothing where reaching for the store throws', () => {
+    // Blocked site data and sandboxed frames throw SecurityError on the
+    // property access itself, before any get or set can be guarded.
+    vi.stubGlobal('window', {
+      get localStorage(): FontStore {
+        throw new Error('SecurityError')
+      }
+    })
+    expect(localFontStore()).toBeUndefined()
+  })
+
+  it('survives a browser that has no localStorage at all', () => {
+    vi.stubGlobal('window', {})
     expect(localFontStore()).toBeUndefined()
   })
 })

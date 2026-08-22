@@ -28,9 +28,13 @@
  * habitual pinch landing on nothing would be a dead spot in the app — the A−/A+
  * font controls are a deliberate alternative, not a replacement for the
  * gesture. It costs the panning guarantee nothing: `pinch-zoom` grants no
- * one-finger pan, and `pan-x pinch-zoom` still denies the vertical one. The
- * terminal's own drag already hands a second finger back to the browser
- * (`RemoteTerminal.tsx`); until now this sheet was quietly overruling it.
+ * one-finger pan, and `pan-x pinch-zoom` still denies the vertical one.
+ *
+ * Over the terminal itself the pinch only survives because `RemoteTerminal.tsx`
+ * takes the touch stream in the capture phase and drops its own drag the
+ * moment a second finger lands. xterm's built-in touch scrolling, which reads
+ * `touches[0]` unconditionally and would pan the buffer under a pinch, never
+ * sees the event.
  */
 
 .terminal-view {
@@ -145,9 +149,30 @@
   background: var(--surface-2);
   color: var(--text);
 }
+/*
+ * Expanded means the search row below is open, and three things already say
+ * so: the glyph swaps shape (search -> close), `aria-expanded` says it to a
+ * screen reader, and the disclosed row is on screen underneath.
+ *
+ * The ink is `--bronze-strong`, not `--bronze`. Plain `--bronze` is a FILL
+ * token (see styles.css) — as a glyph on this button's own `--surface-2` it
+ * measures 2.93:1 on the light theme, under even the 3:1 a graphical object
+ * owes. `--bronze-strong` is 4.89:1 there, and on dark it resolves to
+ * `--bronze`, where this line is a no-op at an unchanged 6.78:1.
+ *
+ * The border stays at `--accent-line` — 45% bronze, so 1.55:1 against
+ * `--surface-2` on light — with its eyes open. It is a warmer restatement of
+ * the `--hairline` shape border above (itself 1.32:1), not a state carrier:
+ * every cue listed above survives without it, so nothing depends on seeing
+ * it and the 3:1 a *state* border would owe does not apply. Raising the
+ * token is not the fix either — it is also the scrollbar thumb and the
+ * dividers, where 45% is right. If this button ever loses the glyph swap the
+ * state lands on the border alone and it earns a token of its own at 3:1;
+ * ask for one rather than thickening `--accent-line` here.
+ */
 .icon-btn[aria-expanded='true'] {
   border-color: var(--accent-line);
-  color: var(--bronze);
+  color: var(--bronze-strong);
 }
 
 /* --- search over the scrollback --- */
@@ -234,8 +259,31 @@
   height: 100%;
 }
 
-/* A thin, branded scrollbar is the only position indicator a long buffer has. */
+/*
+ * `styles.css` gives every `textarea` a 3.2em floor for the composer's sake,
+ * and xterm's helper textarea is a `textarea`: `xterm.css` sets its `height` to
+ * 0 but no `min-height`, and `min-height` wins. Left alone that is a ~51 px
+ * focusable box parked inside the terminal. The floor is a composer rule; it
+ * has no business here.
+ */
+.terminal-host .xterm-helper-textarea {
+  min-height: 0;
+}
+
+/*
+ * `.xterm-viewport` is the only real scroller inside this overlay, so it is
+ * where a chain out to the document would actually start — the ancestors above
+ * declare it too, but this is the element that would do it.
+ *
+ * The scrollbar below is a desktop affordance, not the phone's. iOS draws
+ * overlay scrollbars only during a *native* scroll gesture, and the drag here
+ * is ours: nothing native ever scrolls this element, so the thumb stays
+ * invisible on the device this client exists for. The phone's position
+ * indicator is the paused pill and the jump-to-latest control, which is why
+ * both are load-bearing rather than decorative.
+ */
 .terminal-host .xterm-viewport {
+  overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--accent-line) transparent;
 }
@@ -265,6 +313,11 @@
   padding: 0 16px;
   border: 1px solid var(--accent-line);
   border-radius: 999px;
+  /* `--bronze` as a FILL, which is the one thing it is for: `--on-bronze` on
+     it is 4.99:1 light / 7.38:1 dark, and the pill itself is 3.09:1 against
+     the `--bg` it floats over, so its edge is findable without the border.
+     Do not "upgrade" this to `--bronze-strong` — that is the ink token, and
+     `--on-bronze` on it is 2.99:1. */
   background: var(--bronze);
   color: var(--on-bronze);
   font-size: 0.88rem;
@@ -391,6 +444,18 @@
   font-weight: 600;
 }
 
+/*
+ * The session ended. Every byte these two rows would send is dropped by the
+ * bridge, so they say so rather than answering a tap with silence. Matches the
+ * shell's `.primary:disabled` treatment.
+ */
+.key-scroller button:disabled,
+.input-bar input:disabled,
+.input-bar button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* --- input bar --- */
 .input-bar {
   display: flex;
@@ -419,6 +484,7 @@
   padding: 0 18px;
   border: none;
   border-radius: 12px;
+  /* Fill, not ink — same pairing as `.jump-latest` above, same warning. */
   background: var(--bronze);
   color: var(--on-bronze);
   font-weight: 650;

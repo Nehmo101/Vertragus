@@ -5,6 +5,7 @@ import {
   MAX_FLING_PX_PER_MS,
   MIN_FLING_PX_PER_MS,
   VELOCITY_WINDOW_MS,
+  bufferCanScroll,
   decayVelocity,
   flingVelocity,
   isDrag,
@@ -199,5 +200,26 @@ describe('pageScrollLines', () => {
     expect(pageScrollLines(2)).toBe(1)
     expect(pageScrollLines(0)).toBe(1)
     expect(pageScrollLines(Number.NaN)).toBe(1)
+  })
+})
+
+describe('bufferCanScroll', () => {
+  it('scrolls a normal buffer that has history above the viewport', () => {
+    expect(bufferCanScroll({ alternate: false, baseY: 120 })).toBe(true)
+  })
+
+  it('leaves the gesture alone in the alternate screen', () => {
+    // A full-screen TUI has no scrollback; taking the drag here spends a
+    // preventDefault on a screen that cannot move.
+    expect(bufferCanScroll({ alternate: true, baseY: 0 })).toBe(false)
+    expect(bufferCanScroll({ alternate: true, baseY: 999 })).toBe(false)
+  })
+
+  it('leaves the gesture alone before the first screen has filled', () => {
+    expect(bufferCanScroll({ alternate: false, baseY: 0 })).toBe(false)
+  })
+
+  it('does not trust a baseY that is not a number', () => {
+    expect(bufferCanScroll({ alternate: false, baseY: Number.NaN })).toBe(false)
   })
 })

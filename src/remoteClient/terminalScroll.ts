@@ -70,6 +70,31 @@ export function isDrag(travelPx: number): boolean {
   return travelPx >= DRAG_SLOP_PX
 }
 
+/** What a drag needs to know about the buffer under it before it takes over. */
+export interface ScrollableBuffer {
+  /** The alternate screen is in use — a full-screen TUI is drawing. */
+  alternate: boolean
+  /** `IBuffer.baseY`: how many lines of history sit above the viewport. */
+  baseY: number
+}
+
+/**
+ * Is there any history for a drag to move? A drag that takes the gesture and
+ * then finds nothing to scroll is worse than one that never took it: the
+ * `preventDefault()` is already spent, so the screen sits completely inert
+ * under the finger and the app reads as hung.
+ *
+ * Two buffers have nowhere to go. The alternate screen is exactly one screen
+ * with no scrollback at all (`ydisp === ybase === 0` always), which is what a
+ * full-screen TUI runs in; and a fresh session has not filled a screen yet.
+ * In both, the gesture is worth more left to the browser and to xterm's own
+ * selection than swallowed here.
+ */
+export function bufferCanScroll(buffer: ScrollableBuffer): boolean {
+  if (buffer.alternate) return false
+  return Number.isFinite(buffer.baseY) && buffer.baseY > 0
+}
+
 /** Append a sample and drop everything older than the velocity window. */
 export function pushSample(
   samples: readonly TouchSample[],

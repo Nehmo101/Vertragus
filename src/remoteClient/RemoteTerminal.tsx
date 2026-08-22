@@ -8,7 +8,7 @@
  * (Enter, Esc, Tab, Ctrl-C, arrows). Direct xterm typing still works on a
  * physical keyboard and is forwarded the same way.
  *
- * Two rules govern everything below, both learned from the phone being
+ * Four rules govern everything below, all four learned from the phone being
  * unusable:
  *
  * 1. The `Terminal` is built once per `agentId` and survives every re-render.
@@ -20,8 +20,18 @@
  * 2. Reading the history is a first-class job, not a side effect of xterm's
  *    viewport. `.xterm-viewport` does not pan reliably under a finger on iOS
  *    Safari, so the drag, its inertia and the page/top/end controls are ours
- *    (`terminalScroll.ts`), and new output never yanks a reader who has
- *    scrolled away from the bottom.
+ *    (`terminalScroll.ts`) — and, because xterm binds its own touch scrolling
+ *    to an element *inside* this host, "ours" has to be taken rather than
+ *    assumed. See the capture-phase listeners in the effect below.
+ * 3. Nothing moves the reader's viewport unless the reader asked for it. New
+ *    output never yanks a paused reader, and neither does a reconnect: the
+ *    phone reconnects routinely by design, and re-attaching continues the
+ *    terminal that is already on screen instead of rebuilding it
+ *    (`terminalAttach.ts`).
+ * 4. The PTY belongs to the session, not to this phone. A software keyboard
+ *    or an A+/A− tap changes what *this* screen shows and must never reach the
+ *    host, because the desktop window is attached to the same PTY and a
+ *    `resize` repaints the agent's TUI there too (`terminalResize.ts`).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
@@ -32,9 +42,12 @@ import './terminal.css'
 import { haptic } from './haptics'
 import type { RemoteCopy } from './i18n'
 import type { RemoteApi } from './useRemote'
-import { bufferPlainText } from './terminalBuffer'
+import { attachScroll, planAttach, trackWritten } from './terminalAttach'
+import { bufferPlainText, unwrapRows, type BufferRow } from './terminalBuffer'
 import { clampFontSize, localFontStore, readFontSize, writeFontSize } from './terminalFont'
+import { hostResize, type TerminalSize } from './terminalResize'
 import {
+  bufferCanScroll,
   flingVelocity,
   isDrag,
   linesFromPixels,
@@ -51,7 +64,14 @@ const XTERM_THEME = {
   selectionBackground: 'rgba(203,163,90,0.3)'
 }
 
-/** Kept in sync with the `lineHeight` below: the pre-layout cell-height guess. */
+/**
+ * xterm's `lineHeight` multiplier, and nothing more. It is deliberately not
+ * used as a cell-height estimate: xterm's real cell height is
+ * `floor(ceil(measuredCharHeight × dpr) × lineHeight) / dpr`, and the measured
+ * character height is 1.2–1.35 × the font size, so `fontSize × LINE_HEIGHT`
+ * runs about 20 % short. The drag measures the rendered height instead and
+ * banks its pixels until it can.
+ */
 const LINE_HEIGHT = 1.4
 
 /** Decorations must be opaque hex — the addon rejects rgba(). */
@@ -124,29 +144,65 @@ function prefersReducedMotion(): boolean {
 /**
  * The clipboard over a plain-HTTP tailnet address: `navigator.clipboard` only
  * exists in a secure context, which `http://host.ts.net` is not, so the
- * deprecated selection path is the one that actually runs on the phone.
+ * deprecated selection path is the one that actually runs on the phone — and
+ * it has to be the *exact* selection path iOS Safari honours, which the
+ * familiar `readonly` + `select()` two-liner is not.
  */
 async function writeClipboard(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text)
     return true
   } catch {
-    /* Fall through to the selection path below. */
+    /* Fall through. The rejection above is synchronous on plain HTTP, so the
+       user activation this tap still holds carries into the path below. */
   }
+  // Whatever the reader was typing in, to be handed back at the end: selecting
+  // the carrier takes focus, and a composer left blurred mid-sentence collapses
+  // the keyboard and reflows the column under the thumb.
+  const restore = document.activeElement
   const carrier = document.createElement('textarea')
+  carrier.textContent = text
   carrier.value = text
-  carrier.setAttribute('readonly', '')
+  // A real 1×1 box at a defined position. `position: fixed` with no offsets
+  // leaves the element wherever static flow would have put it — often below
+  // the fold, which iOS then scrolls to — and `opacity: 0` is one of the
+  // states Safari refuses to copy from.
+  carrier.readOnly = true
   carrier.style.position = 'fixed'
-  carrier.style.opacity = '0'
-  carrier.style.pointerEvents = 'none'
+  carrier.style.top = '0'
+  carrier.style.left = '0'
+  carrier.style.width = '1px'
+  carrier.style.height = '1px'
+  carrier.style.padding = '0'
+  carrier.style.border = 'none'
+  carrier.style.outline = 'none'
+  carrier.style.boxShadow = 'none'
+  carrier.style.background = 'transparent'
+  // Under 16px iOS zooms the page the instant a field takes focus.
+  carrier.style.fontSize = '16px'
   document.body.appendChild(carrier)
   try {
-    carrier.select()
+    // iOS copies nothing from a `readonly` field, and nothing from
+    // `select()` alone. It wants an editable element, a real `Range` over its
+    // contents *and* the textarea's own selection — then read-only again
+    // before the copy, so no keyboard comes up for a button the reader tapped
+    // once.
+    carrier.contentEditable = 'true'
+    carrier.readOnly = false
+    const range = document.createRange()
+    range.selectNodeContents(carrier)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    carrier.setSelectionRange(0, text.length)
+    carrier.contentEditable = 'false'
+    carrier.readOnly = true
     return document.execCommand('copy')
   } catch {
     return false
   } finally {
     carrier.remove()
+    if (restore instanceof HTMLElement) restore.focus({ preventScroll: true })
   }
 }
 
@@ -179,7 +235,13 @@ export function RemoteTerminal({
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [matches, setMatches] = useState<{ index: number; count: number } | null>(null)
-  const [note, setNote] = useState<'copied' | 'copyFailed' | null>(null)
+  /**
+   * Carries a sequence number, not just a kind: a second copy while the first
+   * note is still up must restart the 2400 ms timer, and `setNote('copied')`
+   * over `'copied'` is a no-op React never re-runs the effect for.
+   */
+  const [note, setNote] = useState<{ kind: 'copied' | 'copyFailed'; seq: number } | null>(null)
+  const noteSeq = useRef(0)
   const [composing, setComposing] = useState(false)
 
   /**
@@ -190,38 +252,70 @@ export function RemoteTerminal({
    */
   const apiRef = useRef(api)
   const copyRef = useRef(copy)
+  const agentIdRef = useRef(agentId)
   const fontSizeRef = useRef(fontSize)
+  /**
+   * A software keyboard is occupying the viewport, so the fit it produces is a
+   * transient and not a size worth sending anywhere.
+   */
+  const transientRef = useRef(false)
   useEffect(() => {
     apiRef.current = api
     copyRef.current = copy
+    agentIdRef.current = agentId
+    transientRef.current = (composing || searchOpen) && isCoarsePointer()
   })
+
+  /** The size this client last asked the host for; reset with the terminal. */
+  const sentSizeRef = useRef<TerminalSize | undefined>(undefined)
+  /** True while every refit queued for the next frame is a font change. */
+  const localFitRef = useRef(false)
 
   /**
    * Refits are coalesced into one frame: an opening keyboard fires
    * `visualViewport`, `window` and the `ResizeObserver` within a few
    * milliseconds of each other, and `fit()` reflows the whole buffer.
+   *
+   * The cause travels with the request because it decides whether the host
+   * hears about the result. A frame opened by a font tap stays local; one real
+   * viewport change anywhere in the same frame outranks it.
    */
-  const scheduleFit = useCallback((): void => {
+  const requestFit = useCallback((cause: 'viewport' | 'font'): void => {
+    if (cause === 'viewport') localFitRef.current = false
+    else if (fitFrameRef.current === 0) localFitRef.current = true
     if (fitFrameRef.current !== 0) return
     fitFrameRef.current = window.requestAnimationFrame(() => {
       fitFrameRef.current = 0
+      const local = localFitRef.current
+      localFitRef.current = false
       const term = termRef.current
       const fit = fitRef.current
       if (!term || !fit) return
-      try {
-        fit.fit()
-      } catch {
-        return /* The view is not laid out yet; the next resize will do it. */
+      // Asked, not caught: `FitAddon.fit()` returns *silently* when the view is
+      // not laid out, so a try/catch around it guards a path that cannot happen
+      // while xterm's untouched 80×24 goes to the host behind it.
+      const fitted = fit.proposeDimensions()
+      if (fitted) fit.fit()
+      const size = hostResize({
+        fitted,
+        sent: sentSizeRef.current,
+        local,
+        transient: transientRef.current
+      })
+      if (size) {
+        sentSizeRef.current = size
+        apiRef.current.resize(agentIdRef.current, size.cols, size.rows)
       }
-      apiRef.current.resize(agentId, term.cols, term.rows)
       // A shorter viewport must not push the newest line out of sight.
       if (followRef.current) term.scrollToBottom()
     })
-  }, [agentId])
+  }, [])
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
+    sentSizeRef.current = undefined
+    localFitRef.current = false
     const term = new Terminal({
       allowTransparency: true,
       theme: XTERM_THEME,
@@ -240,6 +334,24 @@ export function RemoteTerminal({
     fitRef.current = fit
     searchRef.current = search
 
+    /**
+     * xterm parks a hidden textarea at the cursor to receive key events, and
+     * focuses it from its own `mousedown` handler. On a phone that means every
+     * tap on the output opens the software keyboard: the visual viewport
+     * halves, the terminal refits to about twelve rows, and — before the rules
+     * in `terminalResize.ts` — those twelve rows went to the shared PTY and
+     * repainted the agent's TUI on the desktop as well.
+     *
+     * `inputmode="none"` is the narrowest instrument that stops it. The
+     * textarea stays focusable, so xterm's focus tracking, its selection and a
+     * hardware keyboard on a tablet all keep working; only the on-screen
+     * keyboard, which this view replaces with its own composer, stays down.
+     */
+    if (isCoarsePointer()) term.textarea?.setAttribute('inputmode', 'none')
+
+    /** Set before disposal: a queued `write` callback must not touch a corpse. */
+    let disposed = false
+
     const syncFollowing = (): void => {
       const buffer = term.buffer.active
       const atBottom = buffer.viewportY >= buffer.baseY
@@ -251,12 +363,20 @@ export function RemoteTerminal({
     /**
      * The rendered cell height, not the configured one: xterm rounds the line
      * height to device pixels, and a drag that assumes otherwise drifts away
-     * from the finger over a long swipe.
+     * from the finger over a long swipe. Zero rather than a guess when there is
+     * nothing to measure — `linesFromPixels` carries those pixels instead of
+     * spending them at the wrong scale.
      */
     const cellHeight = (): number => {
       const rows = term.element?.querySelector<HTMLElement>('.xterm-rows')
       if (rows && term.rows > 0 && rows.clientHeight > 0) return rows.clientHeight / term.rows
-      return fontSizeRef.current * LINE_HEIGHT
+      return 0
+    }
+
+    /** Is there any history under this gesture for a drag to move? */
+    const canScroll = (): boolean => {
+      const buffer = term.buffer.active
+      return bufferCanScroll({ alternate: buffer.type === 'alternate', baseY: buffer.baseY })
     }
 
     /** False when the viewport did not move: the buffer ends here. */
@@ -300,10 +420,14 @@ export function RemoteTerminal({
     let drag: Drag | null = null
 
     const onTouchStart = (event: TouchEvent): void => {
+      event.stopPropagation()
       stopMomentum()
       const touch = event.touches[0]
       // A second finger is a pinch; hand it back to the browser untouched.
-      if (event.touches.length !== 1 || !touch) {
+      // Nothing to scroll — the alternate screen, a session that has not filled
+      // one screen — is left alone too: consuming a gesture we cannot answer
+      // makes the screen read as hung.
+      if (event.touches.length !== 1 || !touch || !canScroll()) {
         drag = null
         return
       }
@@ -316,6 +440,7 @@ export function RemoteTerminal({
     }
 
     const onTouchMove = (event: TouchEvent): void => {
+      event.stopPropagation()
       if (!drag) return
       const touch = event.touches[0]
       // A finger joined mid-drag: abandon the gesture rather than fling on it.
@@ -351,61 +476,121 @@ export function RemoteTerminal({
       drag = null
     }
 
-    host.addEventListener('touchstart', onTouchStart, { passive: true })
-    host.addEventListener('touchmove', onTouchMove, { passive: false })
-    host.addEventListener('touchend', onTouchEnd, { passive: true })
-    host.addEventListener('touchcancel', onTouchCancel, { passive: true })
+    /*
+     * Capture, and `stopPropagation` on both of the events xterm listens for.
+     *
+     * `bindMouse()` registers xterm's own `touchstart`/`touchmove` on
+     * `term.element` — the `.xterm` div that `open(host)` appends *inside* this
+     * host — and there is no opt-out: `attachCustomWheelEventHandler` covers the
+     * wheel and has no touch counterpart, and `cancelEvents` is off, so xterm's
+     * `cancel()` neither prevents nor stops anything. On the bubble phase our
+     * listeners therefore ran *second*, on a viewport xterm had already moved:
+     * `Viewport.handleTouchMove` does `scrollTop += rawDelta` with no slop, no
+     * carry and no second-finger check, and the DOM `scroll` event that follows
+     * sets ydisp *absolutely* to `round(scrollTop / cellHeight)`. Every carried
+     * value `terminalScroll.ts` computed was overwritten by xterm's rounding
+     * one event later, a 3 px wobble during a long press scrolled, and a
+     * two-finger pinch scrolled the buffer.
+     *
+     * Capturing at the host and stopping there means those handlers never run.
+     * It costs nothing else: `stopPropagation` does not cancel a default
+     * action, so the browser's own pinch-zoom, the long-press callout and the
+     * synthetic mouse events xterm's selection is built on all still happen.
+     */
+    const captured = { capture: true } as const
+    host.addEventListener('touchstart', onTouchStart, { capture: true, passive: true })
+    host.addEventListener('touchmove', onTouchMove, { capture: true, passive: false })
+    host.addEventListener('touchend', onTouchEnd, { capture: true, passive: true })
+    host.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: true })
 
     const offScroll = term.onScroll(syncFollowing)
     const offResults = search.onDidChangeResults(({ resultIndex, resultCount }) => {
       setMatches({ index: resultIndex, count: resultCount })
     })
-    const offInput = term.onData((data) => apiRef.current.sendInput(agentId, data))
+    const offInput = term.onData((data) => apiRef.current.sendInput(agentIdRef.current, data))
 
     /**
-     * A reconnect re-attaches and replays the whole scrollback. Without the
-     * reset the phone would show the session twice over.
+     * The tail of the host's byte stream as written so far, and the marker a
+     * re-attach aligns on. Only host bytes go in here: the exit banner below is
+     * this client's own text, and letting it into the tail would make the next
+     * snapshot look like a different session.
      */
-    let snapshotWritten = false
+    let written = ''
+    let exitBannerShown = false
+    const writeExitBanner = (exitCode: number): void => {
+      if (exitBannerShown) return
+      exitBannerShown = true
+      term.write(`\r\n\x1b[90m— ${copyRef.current.terminalExit(exitCode)} —\x1b[0m\r\n`)
+    }
+
     const detach = apiRef.current.attach(agentId, {
-      onSnapshot: (snapshot, _cols, _rows, name, color) => {
+      /**
+       * A reconnect is the same stream seen again from further back, not a new
+       * session — see `terminalAttach.ts`. The plan says whether this snapshot
+       * continues the terminal on screen (the normal case, in which the local
+       * buffer, the alternate screen and the reader's place all survive) or
+       * whether the two streams diverged far enough that a rebuild is earned.
+       *
+       * `exitCode` arrives as `undefined` from a gateway that does not forward
+       * it yet; that is "no news", not "still running".
+       */
+      onSnapshot: (snapshot, _cols, _rows, name, color, exitCode?: number | null) => {
         setTitle(name)
         setRoleColor(color)
-        if (snapshotWritten) term.reset()
-        snapshotWritten = true
-        term.write(snapshot, () => {
-          term.scrollToBottom()
+        const plan = planAttach({ snapshot, written })
+        if (plan.kind === 'replay') {
+          term.reset()
+          written = ''
+          exitBannerShown = false
+        }
+        written = trackWritten(written, plan.data)
+        const scroll = attachScroll(plan, followRef.current)
+        term.write(plan.data, () => {
+          if (disposed) return
+          if (scroll === 'bottom') term.scrollToBottom()
           syncFollowing()
         })
-        scheduleFit()
+        if (exitCode !== undefined) {
+          setExited(exitCode)
+          // Re-drawn after a rebuild: `reset()` erased the banner a previous
+          // `onExit` wrote, and the bridge never re-fires `exit` for a PTY that
+          // was already dead when this client attached.
+          if (exitCode !== null) writeExitBanner(exitCode)
+        }
+        requestFit('viewport')
         if (!isCoarsePointer()) term.focus()
       },
       // No scroll call here: xterm holds the viewport where the reader put it.
-      onData: (data) => term.write(data),
+      onData: (data) => {
+        written = trackWritten(written, data)
+        term.write(data)
+      },
       onExit: (exitCode) => {
         setExited(exitCode ?? 0)
-        term.write(`\r\n\x1b[90m— ${copyRef.current.terminalExit(exitCode ?? 0)} —\x1b[0m\r\n`)
+        writeExitBanner(exitCode ?? 0)
       }
     })
 
-    const observer = new ResizeObserver(() => scheduleFit())
+    const onViewportChange = (): void => requestFit('viewport')
+    const observer = new ResizeObserver(onViewportChange)
     observer.observe(host)
-    window.addEventListener('resize', scheduleFit)
-    window.visualViewport?.addEventListener('resize', scheduleFit)
+    window.addEventListener('resize', onViewportChange)
+    window.visualViewport?.addEventListener('resize', onViewportChange)
 
     return () => {
+      disposed = true
       stopMomentum()
       if (fitFrameRef.current !== 0) {
         window.cancelAnimationFrame(fitFrameRef.current)
         fitFrameRef.current = 0
       }
       observer.disconnect()
-      window.removeEventListener('resize', scheduleFit)
-      window.visualViewport?.removeEventListener('resize', scheduleFit)
-      host.removeEventListener('touchstart', onTouchStart)
-      host.removeEventListener('touchmove', onTouchMove)
-      host.removeEventListener('touchend', onTouchEnd)
-      host.removeEventListener('touchcancel', onTouchCancel)
+      window.removeEventListener('resize', onViewportChange)
+      window.visualViewport?.removeEventListener('resize', onViewportChange)
+      host.removeEventListener('touchstart', onTouchStart, captured)
+      host.removeEventListener('touchmove', onTouchMove, captured)
+      host.removeEventListener('touchend', onTouchEnd, captured)
+      host.removeEventListener('touchcancel', onTouchCancel, captured)
       offScroll.dispose()
       offResults.dispose()
       offInput.dispose()
@@ -415,16 +600,25 @@ export function RemoteTerminal({
       fitRef.current = null
       searchRef.current = null
     }
-  }, [agentId, scheduleFit])
+  }, [agentId, requestFit])
 
+  /** False until the reader has actually moved the size off its stored value. */
+  const fontAppliedRef = useRef(false)
   useEffect(() => {
     fontSizeRef.current = fontSize
+    // Not on mount. The terminal is constructed with this size already, and
+    // opening a terminal must not write back a preference nobody expressed —
+    // nor spend the first fit, the one the host is waiting for, on a font.
+    if (!fontAppliedRef.current) {
+      fontAppliedRef.current = true
+      return
+    }
     writeFontSize(localFontStore(), fontSize)
     const term = termRef.current
     if (!term) return
     term.options.fontSize = fontSize
-    scheduleFit()
-  }, [fontSize, scheduleFit])
+    requestFit('font')
+  }, [fontSize, requestFit])
 
   useEffect(() => {
     if (note === null) return
@@ -454,13 +648,11 @@ export function RemoteTerminal({
   const find = (direction: 'next' | 'prev'): void => {
     const addon = searchRef.current
     if (!addon || query.trim() === '') return
-    const hit =
-      direction === 'next'
-        ? addon.findNext(query, SEARCH_OPTIONS)
-        : addon.findPrevious(query, SEARCH_OPTIONS)
-    // `onDidChangeResults` stays quiet when the result set did not change,
-    // so a search that finds nothing has to be recorded here.
-    if (!hit) setMatches({ index: -1, count: 0 })
+    // Both calls end in `_fireResults`, and `SEARCH_OPTIONS` sets the
+    // `decorations` that gate it, so `onDidChangeResults` reports every call
+    // including one that matches nothing. The counter needs nothing from here.
+    if (direction === 'next') addon.findNext(query, SEARCH_OPTIONS)
+    else addon.findPrevious(query, SEARCH_OPTIONS)
     haptic('tap')
   }
 
@@ -471,16 +663,33 @@ export function RemoteTerminal({
     setMatches(null)
   }
 
+  const showNote = (kind: 'copied' | 'copyFailed'): void => {
+    noteSeq.current += 1
+    setNote({ kind, seq: noteSeq.current })
+  }
+
   const copyBuffer = (): void => {
     const term = termRef.current
     if (!term) return
-    const buffer = term.buffer.active
-    const lines: string[] = []
+    // The *normal* buffer, never `active`. While a full-screen TUI holds the
+    // alternate screen, `active` is one screenful with no history behind it,
+    // and "copy the history" must not quietly mean "copy one screen".
+    const buffer = term.buffer.normal
+    const rows: BufferRow[] = []
     for (let index = 0; index < buffer.length; index += 1) {
-      lines.push(buffer.getLine(index)?.translateToString(true) ?? '')
+      const row = buffer.getLine(index)
+      // Untrimmed, and carrying the wrap flag: a row that is continued is full
+      // by definition, so trimming it here would eat the spaces at the wrap
+      // point. `unwrapRows` rejoins first, `bufferPlainText` trims after — which
+      // is the difference between pasting a stack trace and pasting the phone's
+      // 38-column fragments of one.
+      rows.push({
+        text: row?.translateToString(false) ?? '',
+        wrapped: row?.isWrapped ?? false
+      })
     }
-    void writeClipboard(bufferPlainText(lines)).then((ok) => {
-      setNote(ok ? 'copied' : 'copyFailed')
+    void writeClipboard(bufferPlainText(unwrapRows(rows))).then((ok) => {
+      showNote(ok ? 'copied' : 'copyFailed')
       haptic(ok ? 'confirm' : 'warn')
     })
   }
@@ -504,9 +713,14 @@ export function RemoteTerminal({
   }
 
   /**
-   * Keeps the software keyboard open when a key or a scroll control is
-   * tapped: without this the field loses focus, the keyboard collapses and
-   * the layout jumps under the finger mid-sentence.
+   * Keeps the software keyboard open when a control is tapped while the
+   * composer has it: without this the field loses focus, the keyboard
+   * collapses and the layout jumps under the finger mid-sentence.
+   *
+   * It belongs on every control that is *reachable* with the keyboard up — the
+   * key row, the search bar, the header, the jump-to-latest pill. Not on the
+   * history row below: that row renders only while nothing is focused, so a
+   * `keepFocus` there would guard a keyboard that is already down.
    */
   const keepFocus = (event: React.MouseEvent): void => event.preventDefault()
 
@@ -536,7 +750,13 @@ export function RemoteTerminal({
   return (
     <div className="terminal-view" style={{ '--role': roleColor } as React.CSSProperties}>
       <header className="terminal-header">
-        <button className="back" onClick={onBack} aria-label={copy.back} type="button">
+        <button
+          className="back"
+          onMouseDown={keepFocus}
+          onClick={onBack}
+          aria-label={copy.back}
+          type="button"
+        >
           ‹
         </button>
         <span className="terminal-title">{title}</span>
@@ -551,11 +771,18 @@ export function RemoteTerminal({
           className="icon-btn"
           aria-label={searchOpen ? copy.searchClose : copy.searchOpen}
           aria-expanded={searchOpen}
+          onMouseDown={keepFocus}
           onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
         >
           <Icon name={searchOpen ? 'close' : 'search'} />
         </button>
-        <button type="button" className="icon-btn" aria-label={copy.copyBuffer} onClick={copyBuffer}>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label={copy.copyBuffer}
+          onMouseDown={keepFocus}
+          onClick={copyBuffer}
+        >
           <Icon name="copy" />
         </button>
       </header>
@@ -609,7 +836,12 @@ export function RemoteTerminal({
       <div className="terminal-stage" role="region" aria-label={copy.terminalRegion}>
         <div className="terminal-host" ref={hostRef} />
         {!following && (
-          <button type="button" className="jump-latest" onClick={() => jumpTo('bottom')}>
+          <button
+            type="button"
+            className="jump-latest"
+            onMouseDown={keepFocus}
+            onClick={() => jumpTo('bottom')}
+          >
             <Icon name="latest" />
             {copy.jumpToLatest}
           </button>
@@ -624,43 +856,22 @@ export function RemoteTerminal({
       {/* Hidden while the keyboard is up: those rows are worth more as terminal. */}
       {!composing && !searchOpen && (
         <div className="nav-row" role="group" aria-label={copy.historyControls}>
-          <button
-            type="button"
-            aria-label={copy.toTop}
-            onMouseDown={keepFocus}
-            onClick={() => jumpTo('top')}
-          >
+          <button type="button" aria-label={copy.toTop} onClick={() => jumpTo('top')}>
             <Icon name="top" />
           </button>
-          <button
-            type="button"
-            aria-label={copy.pageUp}
-            onMouseDown={keepFocus}
-            onClick={() => page(-1)}
-          >
+          <button type="button" aria-label={copy.pageUp} onClick={() => page(-1)}>
             <Icon name="pageUp" />
           </button>
-          <button
-            type="button"
-            aria-label={copy.pageDown}
-            onMouseDown={keepFocus}
-            onClick={() => page(1)}
-          >
+          <button type="button" aria-label={copy.pageDown} onClick={() => page(1)}>
             <Icon name="pageDown" />
           </button>
-          <button
-            type="button"
-            aria-label={copy.toBottom}
-            onMouseDown={keepFocus}
-            onClick={() => jumpTo('bottom')}
-          >
+          <button type="button" aria-label={copy.toBottom} onClick={() => jumpTo('bottom')}>
             <Icon name="bottom" />
           </button>
           <span className="nav-gap" />
           <button
             type="button"
             className="font-btn"
-            onMouseDown={keepFocus}
             onClick={() => bumpFont(-1)}
             aria-label={copy.fontSmaller}
           >
@@ -669,7 +880,6 @@ export function RemoteTerminal({
           <button
             type="button"
             className="font-btn"
-            onMouseDown={keepFocus}
             onClick={() => bumpFont(1)}
             aria-label={copy.fontLarger}
           >
@@ -680,34 +890,79 @@ export function RemoteTerminal({
 
       {note !== null && (
         <p className="terminal-note" role="status">
-          {note === 'copied' ? copy.copyDone : copy.copyFailed}
+          {note.kind === 'copied' ? copy.copyDone : copy.copyFailed}
         </p>
       )}
 
+      {/*
+          A dead PTY drops everything written to it — `TerminalBridge.input`
+          returns without a word once the attachment is gone — so the controls
+          that write stop offering to. The dot above says why.
+      */}
       <div className="key-row">
         <div className="key-scroller" role="toolbar" aria-label={copy.keyRowLabel}>
-          <button type="button" onMouseDown={keepFocus} onClick={() => sendKey('\x1b')}>
+          <button
+            type="button"
+            onMouseDown={keepFocus}
+            onClick={() => sendKey('\x1b')}
+            disabled={exited !== null}
+          >
             Esc
           </button>
-          <button type="button" onMouseDown={keepFocus} onClick={() => sendKey('\t')}>
+          <button
+            type="button"
+            onMouseDown={keepFocus}
+            onClick={() => sendKey('\t')}
+            disabled={exited !== null}
+          >
             Tab
           </button>
-          <button type="button" onMouseDown={keepFocus} onClick={() => sendKey('\r')}>
+          <button
+            type="button"
+            onMouseDown={keepFocus}
+            onClick={() => sendKey('\r')}
+            disabled={exited !== null}
+          >
             Enter
           </button>
-          <button type="button" onMouseDown={keepFocus} onClick={() => sendKey('\x03')}>
+          <button
+            type="button"
+            onMouseDown={keepFocus}
+            onClick={() => sendKey('\x03')}
+            disabled={exited !== null}
+          >
             Ctrl-C
           </button>
-          <button type="button" onMouseDown={keepFocus} onClick={() => sendKey('\x1b[D')}>
+          <button
+            type="button"
+            onMouseDown={keepFocus}
+            onClick={() => sendKey('\x1b[D')}
+            disabled={exited !== null}
+          >
             ←
           </button>
-          <button type="button" onMouseDown={keepFocus} onClick={() => sendKey('\x1b[A')}>
+          <button
+            type="button"
+            onMouseDown={keepFocus}
+            onClick={() => sendKey('\x1b[A')}
+            disabled={exited !== null}
+          >
             ↑
           </button>
-          <button type="button" onMouseDown={keepFocus} onClick={() => sendKey('\x1b[B')}>
+          <button
+            type="button"
+            onMouseDown={keepFocus}
+            onClick={() => sendKey('\x1b[B')}
+            disabled={exited !== null}
+          >
             ↓
           </button>
-          <button type="button" onMouseDown={keepFocus} onClick={() => sendKey('\x1b[C')}>
+          <button
+            type="button"
+            onMouseDown={keepFocus}
+            onClick={() => sendKey('\x1b[C')}
+            disabled={exited !== null}
+          >
             →
           </button>
         </div>
@@ -732,8 +987,11 @@ export function RemoteTerminal({
           autoComplete="off"
           spellCheck={false}
           enterKeyHint="send"
+          disabled={exited !== null}
         />
-        <button type="submit">{copy.composerSend}</button>
+        <button type="submit" disabled={exited !== null}>
+          {copy.composerSend}
+        </button>
       </form>
     </div>
   )
