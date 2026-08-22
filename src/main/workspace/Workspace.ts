@@ -51,6 +51,7 @@ import {
 import type { PendingQuestions } from '@main/mcp/pendingQuestions'
 import {
   USER_QUESTION_AGENT_ID,
+  taskNote,
   worktreeEventFields,
   type AgentHost,
   type IntegrateOutcome,
@@ -121,6 +122,10 @@ import {
   type RoleTemplate,
   type Slot
 } from '@shared/schema/profile'
+import {
+  enabledExtraMcpServers,
+  type ExtraMcpServer
+} from '@shared/schema/mcpServer'
 import { buildInitialPromptArgs, type ProviderConfig } from '@shared/schema/provider'
 import type { ZoneLayout } from '@shared/schema/zones'
 import type { AgentDoneStatus } from '@shared/schema/events'
@@ -174,7 +179,7 @@ export interface WorkspaceWindows {
       title: string
       roleColor: string
       /** Role + zone layout; the window layer turns this into bounds. */
-      placement?: { roleId: string; zones?: ZoneLayout }
+      placement?: { roleId: string; zones?: ZoneLayout; workspaceId?: string }
     }
   ): void
   close(agentId: string): void
@@ -229,6 +234,12 @@ export interface WorkspaceDeps {
    * have no yolo surface under any tier.
    */
   agentPolicy?: AgentPolicy
+  /**
+   * Extra MCP servers from global settings. A getter is resolved at EACH
+   * subagent spawn so a settings edit reaches the next worker of a running
+   * workspace. Orchestrator and lead never receive them.
+   */
+  extraMcpServers?: readonly ExtraMcpServer[] | (() => readonly ExtraMcpServer[])
   spawn?: typeof spawnAgent
   createWorktree?: typeof createWorktree
   seed?: typeof seedWithReadyHandshake
@@ -463,7 +474,13 @@ export class Workspace implements AgentHost {
    * assignment when Play was bare.
    */
   private goal: string | undefined
-  /** Buffers `terminal:input` until the first successful submit; see {@link noteOrchestratorGoal}. */
+  /**
+   * Orchestrator row's current task, shortened via {@link taskNote}. Set with
+   * a delivered start-with-goal / {@link assignGoal}, then by later CLI
+   * submits. Follow-ups replace it; the workspace {@link goal} does not.
+   */
+  private orchestratorTask: string | undefined
+  /** Buffers `terminal:input`; see {@link noteOrchestratorGoal}. */
   private goalAssembler: OrchestratorGoalAssembler | undefined
   /** C5 idle watchdog: when the orchestrator last called one of its tools. */
   private orchestratorLastToolAt = 0
@@ -512,6 +529,15 @@ export class Workspace implements AgentHost {
    */
   get goalText(): string | undefined {
     return this.goal
+  }
+
+  /**
+   * The orchestrator's current task: a delivered start-with-goal /
+   * {@link assignGoal}, then the latest submitted user CLI note. Independent
+   * of {@link goalText} after a follow-up.
+   */
+  get orchestratorTaskText(): string | undefined {
+    return this.orchestratorTask
   }
 
   /**
@@ -940,7 +966,8 @@ export class Workspace implements AgentHost {
         mcpUrl: urls.subagentUrl(pending.agentId),
         fileTag: `sub-${pending.agentId}`,
         configDir: this.deps.configDir,
-        systemPrompt: template.prompt
+        systemPrompt: template.prompt,
+        extraMcpServers: this.extraMcpServersForLaunch()
       }
       spawned = await (this.deps.spawn ?? spawnAgent)(launchInput)
       this.assertOpenDuringStart(pending)
@@ -1309,7 +1336,7 @@ export class Workspace implements AgentHost {
     if (initialPrompt) {
       const provider = this.requireProvider(this.profile.orchestrator.providerId)
       if (buildInitialPromptArgs(provider, initialPrompt).length > 0) {
-        this.goal = initialPrompt
+        this.recordDeliveredGoal(initialPrompt)
       }
     }
     return this.startedOf(record)
@@ -1775,9 +1802,16 @@ export class Workspace implements AgentHost {
    * accept the text; the workspace keeps running then (the user can still type
    * into the terminal), and {@link goalText} stays unset — an undelivered goal
    * must not show up on the card as if the orchestrator had it.
+   *
+   * Also the refill path for a run that was started bare: the same handshake,
+   * just later. A workspace that already carries a delivered goal refuses with
+   * `goal_already_set` — a second goal typed into a CLI that is already driving
+   * the MCP loop is the two-brains failure H1 documents; steering an existing
+   * run is {@link postUserMessage}'s job.
    */
   async assignGoal(goal: string): Promise<void> {
     this.assertOpen()
+    if (this.goal) throw new Error('goal_already_set')
     const record = this.orchestratorRecord
     if (!record) throw new Error(`Workspace ${this.name} has no orchestrator to give a goal to.`)
     if (!record.pty.isAlive) {
@@ -1787,24 +1821,41 @@ export class Workspace implements AgentHost {
     if (!accepted) {
       throw new Error(`${record.name} did not accept the goal — type it into its terminal instead.`)
     }
+    this.recordDeliveredGoal(goal)
+  }
+
+  /** A delivered start-with-goal is both the workspace goal and the current task. */
+  private recordDeliveredGoal(goal: string): void {
     this.goal = goal
+    const note = taskNote(goal)
+    if (note) this.orchestratorTask = note
   }
 
   /**
    * Feed a chunk of user PTY input from the orchestrator CLI. Seed writes and
    * `sendToAgent` go through `pty.write` directly and never reach this. First
-   * successful note sticks; a start-with-goal that already set {@link goalText}
-   * is a no-op. Returns true when the goal newly landed so the panel can emit
-   * without waiting for a poll.
+   * successful note becomes {@link goalText} (full text) unless a start-with-goal
+   * already set it; every successful submit updates {@link orchestratorTaskText}.
+   * Returns true when either field changed so the panel can emit without waiting
+   * for a poll.
    */
   noteOrchestratorGoal(chunk: string): boolean {
-    if (this.closed || this.goal !== undefined) return false
+    if (this.closed) return false
     if (!this.goalAssembler) this.goalAssembler = createOrchestratorGoalAssembler()
     if (!this.goalAssembler.push(chunk)) return false
-    const note = this.goalAssembler.goalText
-    if (!note) return false
-    this.goal = note
-    return true
+    const submitted = this.goalAssembler.latestText
+    if (!submitted) return false
+    let changed = false
+    if (this.goal === undefined) {
+      this.goal = submitted
+      changed = true
+    }
+    const note = taskNote(submitted)
+    if (note && note !== this.orchestratorTask) {
+      this.orchestratorTask = note
+      changed = true
+    }
+    return changed
   }
 
   /**
@@ -2028,6 +2079,14 @@ export class Workspace implements AgentHost {
     if (!provider) throw new Error(`Unknown provider "${providerId}".`)
     if (!provider.enabled) throw new Error(`Provider "${provider.label}" is disabled.`)
     return provider
+  }
+
+  /** Fresh on every spawn so a settings edit reaches the next agent. */
+  private extraMcpServersForLaunch(): ExtraMcpServer[] {
+    const source = this.deps.extraMcpServers
+    if (source === undefined) return []
+    const list = typeof source === 'function' ? source() : source
+    return enabledExtraMcpServers(list)
   }
 
   private requireRoleTemplate(roleId: string): RoleTemplate {
@@ -2303,6 +2362,7 @@ export class Workspace implements AgentHost {
       roleColor: color,
       placement: {
         roleId: record.orchestrator ? ORCHESTRATOR_ROLE_ID : record.roleId,
+        workspaceId: this.workspaceId,
         ...(this.profile.zones ? { zones: this.profile.zones } : {})
       }
     })

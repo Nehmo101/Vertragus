@@ -32,7 +32,12 @@ export const REMOTE_COMMANDS = [
   // D2: steer the run — visible in the orchestrator terminal and pushed as a
   // user_message event that wakes its parked await_events. Distinct from raw
   // terminal `input`, which only reaches the CLI's own prompt.
-  'user_message'
+  'user_message',
+  // H2 refill: give a run that was started bare its goal. The same host path
+  // the start goal takes, just later — and refused once a run has one, so this
+  // verb can never overwrite a running goal. Distinct from `user_message`: a
+  // goal is the orchestrator's FIRST user turn, not a nudge to a running loop.
+  'workspaces:goal'
 ] as const
 export type RemoteCommand = (typeof REMOTE_COMMANDS)[number]
 

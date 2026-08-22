@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
+import { extraMcpServerSchema } from '@shared/schema/mcpServer'
 import { translator } from '../i18n'
-import { ACCELERATOR_MODIFIERS, validateAccelerator } from './model'
+import {
+  ACCELERATOR_MODIFIERS,
+  emptyMcpDraft,
+  parseArgLines,
+  parseEnvLines,
+  parseHeaderLines,
+  validateAccelerator,
+  validateMcpDraft
+} from './model'
 
 /** The authored language — the assertions read as the real UI reads. */
 const t = translator('de')
@@ -82,5 +91,94 @@ describe('validateAccelerator', () => {
     expect(validateAccelerator(t, 'Control+F24')).toEqual({ ok: true })
     expect(validateAccelerator(t, 'Control+F25').ok).toBe(false)
     expect(validateAccelerator(t, 'Control+F0').ok).toBe(false)
+  })
+})
+
+describe('MCP draft helpers', () => {
+  it('parses args, env and headers the way the form writes them', () => {
+    expect(parseArgLines('  -y\n\n  github  \n')).toEqual(['-y', 'github'])
+    expect(parseEnvLines('TOKEN=abc=def\n=dropped\nNAKED\n')).toEqual({
+      TOKEN: 'abc=def',
+      NAKED: ''
+    })
+    expect(parseHeaderLines('Authorization: Bearer a:b\n: skip\nX-Name:  v  \n')).toEqual({
+      Authorization: 'Bearer a:b',
+      'X-Name': 'v'
+    })
+  })
+
+  it('rejects empty label/id, reserved vertragus, duplicate, empty command and bad url', () => {
+    const existing = [
+      extraMcpServerSchema.parse({
+        id: 'github',
+        label: 'GitHub',
+        transport: 'stdio',
+        command: 'npx'
+      })
+    ]
+    const blank = emptyMcpDraft()
+    const blankResult = validateMcpDraft(t, blank, [])
+    expect(blankResult.ok).toBe(false)
+    if (!blankResult.ok) {
+      expect(blankResult.errors.label).toBeTruthy()
+      expect(blankResult.errors.id).toBeTruthy()
+      expect(blankResult.errors.command).toBeTruthy()
+    }
+
+    const dotted = validateMcpDraft(
+      t,
+      { ...emptyMcpDraft(), id: 'github.api', label: 'GitHub', command: 'npx' },
+      []
+    )
+    expect(dotted.ok).toBe(false)
+    if (!dotted.ok) expect(dotted.errors.id).toBeTruthy()
+
+    const reserved = validateMcpDraft(
+      t,
+      { ...emptyMcpDraft(), id: 'vertragus', label: 'X', command: 'npx' },
+      []
+    )
+    expect(reserved.ok).toBe(false)
+    if (!reserved.ok) expect(reserved.errors.id).toContain('vertragus')
+
+    const duplicate = validateMcpDraft(
+      t,
+      { ...emptyMcpDraft(), id: 'github', label: 'Other', command: 'npx' },
+      existing
+    )
+    expect(duplicate.ok).toBe(false)
+
+    const badUrl = validateMcpDraft(
+      en,
+      { ...emptyMcpDraft(), id: 'linear', label: 'Linear', transport: 'http', url: 'nope' },
+      []
+    )
+    expect(badUrl.ok).toBe(false)
+    if (!badUrl.ok) expect(badUrl.errors.url).toMatch(/URL/)
+  })
+
+  it('accepts a valid stdio draft', () => {
+    const result = validateMcpDraft(
+      t,
+      {
+        ...emptyMcpDraft(),
+        id: 'GitHub',
+        label: 'GitHub',
+        command: 'npx',
+        argsText: '-y\n@modelcontextprotocol/server-github',
+        envText: 'TOKEN=secret'
+      },
+      []
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.server).toMatchObject({
+        id: 'github',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-github'],
+        env: { TOKEN: 'secret' }
+      })
+    }
   })
 })

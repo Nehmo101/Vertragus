@@ -79,6 +79,7 @@ import { openProfileEditorWindow } from '@main/windows/profileEditor'
 import { settings } from '@main/store/settings'
 import {
   APP_CHANNELS,
+  agentCurrentTaskFields,
   createAppIpc,
   createStubWorkspaceDirectory,
   disposeAppIpc,
@@ -166,7 +167,8 @@ const SETTINGS: AppSettings = {
   hideAllHotkey: 'Control+Alt+V',
   autostart: false,
   updateChannel: 'main',
-  modelMemory: {}
+  modelMemory: {},
+  mcpServers: []
 }
 
 /** An in-memory stand-in for the settings store, with the same write rules. */
@@ -278,7 +280,8 @@ function workspace(id: string, active = true): WorkspaceSummary {
         roleLabel: 'Orchestrator',
         roleColor: '#cba35a',
         state: 'working',
-        statusText: 'plant'
+        statusText: 'plant',
+        taskText: 'Fix the parser'
       }
     ],
     // S4: present here so the preload parity check below covers the board row
@@ -303,6 +306,7 @@ interface Harness {
   broadcasts: { channel: string; payload: unknown }[]
   directory: WorkspaceDirectory & {
     started: Array<{ profileId: string; goal?: string }>
+    goalsAssigned: Array<{ workspaceId: string; goal: string }>
     resumed: string[]
     stopped: string[]
     succeeded: string[]
@@ -432,6 +436,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
 
   const directory = {
     started: [] as Array<{ profileId: string; goal?: string }>,
+    goalsAssigned: [] as Array<{ workspaceId: string; goal: string }>,
     resumed: [] as string[],
     stopped: [] as string[],
     succeeded: [] as string[],
@@ -449,6 +454,9 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     list: () => state.workspaces,
     start(profileId: string, goal?: string) {
       this.started.push({ profileId, ...(goal !== undefined ? { goal } : {}) })
+    },
+    async assignGoal(workspaceId: string, goal: string) {
+      this.goalsAssigned.push({ workspaceId, goal })
     },
     resume(profileId: string) {
       this.resumed.push(profileId)
@@ -936,6 +944,26 @@ describe('workspaces', () => {
     ])
   })
 
+  it('H2 refill: hands a running workspace its goal and refuses a blank one', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesGoal, PANEL_ID, {
+      workspaceId: 'w1',
+      goal: '  Fix the login bug  '
+    })
+    expect(h.directory.goalsAssigned).toEqual([{ workspaceId: 'w1', goal: 'Fix the login bug' }])
+    expect(h.broadcasts.at(-1)?.channel).toBe(APP_CHANNELS.eventWorkspaces)
+
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesGoal, PANEL_ID, { goal: 'Goal.' }))
+    ).rejects.toThrow(/missing workspace id/)
+    // Unlike the start goal, a blank one here is an error, not a bare start.
+    await expect(
+      Promise.resolve(
+        h.ipc.invoke(APP_CHANNELS.workspacesGoal, PANEL_ID, { workspaceId: 'w1', goal: '   ' })
+      )
+    ).rejects.toThrow(/missing goal text/)
+    expect(h.directory.goalsAssigned).toHaveLength(1)
+  })
+
   it('resumes the last run over the directory (E3) — panel only, id required', async () => {
     await h.ipc.invoke(APP_CHANNELS.workspacesResume, PANEL_ID, { profileId: 'p1' })
     expect(h.directory.resumed).toEqual(['p1'])
@@ -1069,6 +1097,7 @@ describe('workspaces', () => {
       directory: {
         list: () => [],
         start: refuse,
+        assignGoal: async () => refuse(),
         resume: refuse,
         stop() {},
         succeedOrchestrator: refuse,
@@ -1203,7 +1232,8 @@ describe('settings and windows', () => {
       updateChannel: 'main',
       autostartSupported: true,
       appearance: DEFAULT_APPEARANCE,
-      onboardingDismissed: false
+      onboardingDismissed: false,
+      mcpServers: []
     })
     // Never the app's own bookkeeping — model memory and panel bounds are
     // written by the app and have no form.
@@ -1420,8 +1450,42 @@ describe('settings:set', () => {
       'locale',
       'appearance',
       'agentPolicy',
-      'onboardingDismissed'
+      'onboardingDismissed',
+      'mcpServers'
     ])
+  })
+
+  it('round-trips extra MCP servers and rejects a reserved id', async () => {
+    const servers = [
+      {
+        id: 'github',
+        label: 'GitHub',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: [] as string[],
+        enabled: true
+      }
+    ]
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'mcpServers',
+      value: servers
+    })) as PanelSettings
+    expect(next.mcpServers).toEqual(servers)
+    expect(h.store.settings.mcpServers).toEqual(servers)
+    expect(h.broadcasts.some((entry) => entry.channel === APP_CHANNELS.eventSettings)).toBe(true)
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+        key: 'mcpServers',
+        value: [{ id: 'vertragus', label: 'Nope', transport: 'stdio', command: 'npx' }]
+      })
+    ).rejects.toThrow(/reserved/)
+
+    for (const sender of [CLI_ID, EDITOR_ID]) {
+      expect(() =>
+        h.ipc.invoke(APP_CHANNELS.settingsSet, sender, { key: 'mcpServers', value: [] })
+      ).toThrow(/not the panel or the settings window/)
+    }
   })
 
   it('takes a new hotkey immediately instead of at the next boot', async () => {
@@ -1641,6 +1705,7 @@ describe('sender authorization', () => {
   const panelOnly = [
     APP_CHANNELS.workspacesList,
     APP_CHANNELS.workspacesStart,
+    APP_CHANNELS.workspacesGoal,
     APP_CHANNELS.workspacesStop,
     APP_CHANNELS.workspacesSucceedOrchestrator,
     APP_CHANNELS.workspacesFocusAgent,
@@ -1950,6 +2015,7 @@ describe('production registration', () => {
     const real: WorkspaceDirectory = {
       list: () => [workspace('w1')],
       start: vi.fn(),
+      assignGoal: vi.fn(async () => {}),
       resume: vi.fn(),
       stop: vi.fn(),
       succeedOrchestrator: vi.fn(),
@@ -1966,6 +2032,7 @@ describe('production registration', () => {
     const second: WorkspaceDirectory = {
       list: () => [],
       start: vi.fn(),
+      assignGoal: vi.fn(async () => {}),
       resume: vi.fn(),
       stop: vi.fn(),
       succeedOrchestrator: vi.fn(),
@@ -2054,5 +2121,16 @@ describe('preload parity', () => {
     const toPreload: PreloadWorkspaceSummary = fromMain
     const backAgain: WorkspaceSummary = toPreload
     expect(backAgain).toBe(fromMain)
+  })
+})
+
+describe('agentCurrentTaskFields', () => {
+  it('fills taskText and statusText from one current-task note', () => {
+    expect(agentCurrentTaskFields('Fix the parser')).toEqual({
+      taskText: 'Fix the parser',
+      statusText: 'Fix the parser'
+    })
+    expect(agentCurrentTaskFields(undefined)).toEqual({})
+    expect(agentCurrentTaskFields('   ')).toEqual({})
   })
 })

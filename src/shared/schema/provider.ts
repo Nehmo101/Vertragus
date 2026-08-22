@@ -116,8 +116,9 @@ export const mcpAttachSchema = z.discriminatedUnion('kind', [
   /**
    * Project-scoped `.grok/config.toml` merge of `[mcp_servers.vertragus]` plus
    * `--allow MCPTool(vertragus__*)` so the loopback server is usable without a
-   * TUI approval (see mcp/attach).
+   * TUI approval. Orchestrator launches also get a permission cage (see mcp/attach).
    */
+
   z.object({ kind: z.literal('grok-project') }).strict(),
   z.object({ kind: z.literal('none') }).strict()
 ])

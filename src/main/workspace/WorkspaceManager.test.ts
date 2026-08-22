@@ -407,6 +407,72 @@ describe('startWorkspace', () => {
     expect(manager.list()[0]!.goalText).toBeUndefined()
   })
 
+  it('H2 refill: a bare run takes its goal later and the journal meta learns it', async () => {
+    const metas: unknown[] = []
+    const { manager, spawns } = harness({
+      journal: () => ({
+        path: '/repo/.vertragus/runs/x/events.jsonl',
+        append: () => {},
+        writeMeta: (meta) => metas.push(meta)
+      })
+    })
+    const running = await manager.startWorkspace(testProfile())
+    expect(running.workspace.goalText).toBeUndefined()
+    expect(metas).toHaveLength(1)
+    expect(metas[0]).not.toHaveProperty('goal')
+
+    await manager.assignGoal(running.workspace.workspaceId, 'Fix the login bug')
+
+    expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(spawns[0]!.pty.written).toContain('Fix the login bug')
+    // E3: the meta is rewritten, so a later Resume briefs on the goal the run
+    // really got instead of the "no goal" it was started with.
+    expect(metas).toHaveLength(2)
+    expect(metas[1]).toMatchObject({
+      workspaceId: running.workspace.workspaceId,
+      goal: 'Fix the login bug'
+    })
+  })
+
+  it('H2 refill: refuses a second goal and an unknown workspace, and journals neither', async () => {
+    const metas: unknown[] = []
+    const { manager } = harness({
+      journal: () => ({
+        path: '/repo/.vertragus/runs/x/events.jsonl',
+        append: () => {},
+        writeMeta: (meta) => metas.push(meta)
+      })
+    })
+    const running = await manager.startWorkspace(testProfile(), { goal: 'Fix the login bug' })
+
+    await expect(
+      manager.assignGoal(running.workspace.workspaceId, 'Something else entirely')
+    ).rejects.toThrow(/goal_already_set/)
+    await expect(manager.assignGoal('ws-nobody', 'Goal.')).rejects.toThrow(/unknown workspace/)
+
+    expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(metas).toHaveLength(1)
+  })
+
+  it('H2 refill: a refused delivery leaves goalText and the meta untouched', async () => {
+    const metas: unknown[] = []
+    const { manager } = harness({
+      seed: (async () => false) as unknown as WorkspaceDeps['seed'],
+      journal: () => ({
+        path: '/repo/.vertragus/runs/x/events.jsonl',
+        append: () => {},
+        writeMeta: (meta) => metas.push(meta)
+      })
+    })
+    const running = await manager.startWorkspace(testProfile())
+
+    await expect(
+      manager.assignGoal(running.workspace.workspaceId, 'Fix the login bug')
+    ).rejects.toThrow(/did not accept the goal/)
+    expect(running.workspace.goalText).toBeUndefined()
+    expect(metas).toHaveLength(1)
+  })
+
   it('passes the profile limits and roles into the MCP context', async () => {
     const { manager, mcp } = harness()
     await manager.startWorkspace(testProfile())
@@ -415,6 +481,29 @@ describe('startWorkspace', () => {
     expect(ctx.roles).toEqual(['worker', 'reviewer'])
     expect(ctx.limits.maxTotal).toBe(3)
     expect(ctx.limits.perRole.get('worker')).toBe(2)
+  })
+
+  it('resolves extra MCP servers on subagent spawn, not orchestrator', async () => {
+    const extras = [
+      {
+        id: 'github',
+        label: 'GitHub',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: [] as string[],
+        enabled: true
+      }
+    ]
+    const extraMcpServers = vi.fn(() => extras)
+    const { manager, spawns } = harness({ extraMcpServers })
+    const running = await manager.startWorkspace(testProfile())
+    expect(spawns[0]!.input.kind).toBe('orchestrator')
+    expect(spawns[0]!.input.extraMcpServers).toBeUndefined()
+
+    await running.workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(extraMcpServers).toHaveBeenCalled()
+    expect(spawns[1]!.input.kind).toBe('subagent')
+    expect(spawns[1]!.input.extraMcpServers).toEqual(extras)
   })
 
   it('reads providers, role templates and yolo fresh on every start', async () => {
@@ -666,12 +755,14 @@ describe('onChange — the push channel that replaced the panel poll', () => {
     await Promise.resolve()
     expect(fired).toBe(1)
     expect(running.workspace.goalText).toBe('Fix the panel')
+    expect(running.workspace.orchestratorTaskText).toBe('Fix the panel')
 
     const after = fired
-    expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'later steering\r')).toBe(false)
+    expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'later steering\r')).toBe(true)
     await Promise.resolve()
-    expect(fired).toBe(after)
+    expect(fired).toBe(after + 1)
     expect(running.workspace.goalText).toBe('Fix the panel')
+    expect(running.workspace.orchestratorTaskText).toBe('later steering')
 
     off()
   })
@@ -713,6 +804,7 @@ describe('noteOrchestratorGoal — CLI capture without clobbering start-with-goa
 
     expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'Fix the panel\r')).toBe(true)
     expect(running.workspace.goalText).toBe('Fix the panel')
+    expect(running.workspace.orchestratorTaskText).toBe('Fix the panel')
   })
 
   it('does not overwrite a start-with-goal already on goalText', async () => {
@@ -720,9 +812,10 @@ describe('noteOrchestratorGoal — CLI capture without clobbering start-with-goa
     const running = await manager.startWorkspace(testProfile(), { goal: 'Fix the login bug' })
     expect(running.workspace.goalText).toBe('Fix the login bug')
     expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'later steering\r')).toBe(
-      false
+      true
     )
     expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(running.workspace.orchestratorTaskText).toBe('later steering')
   })
 
   it('does not overwrite a grok argv-delivered start-with-goal', async () => {
@@ -733,9 +826,10 @@ describe('noteOrchestratorGoal — CLI capture without clobbering start-with-goa
     )
     expect(running.workspace.goalText).toBe('Fix the login bug')
     expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'later steering\r')).toBe(
-      false
+      true
     )
     expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(running.workspace.orchestratorTaskText).toBe('later steering')
   })
 
   it('drops the assembler on stop so a reused run does not inherit', async () => {
@@ -769,6 +863,7 @@ describe('noteOrchestratorGoal — CLI capture without clobbering start-with-goa
     expect(manager.noteOrchestratorGoal(running.orchestrator.agentId, 'User goal\r')).toBe(true)
     mcp.lastRuntime!.latestTask = 'handed to a worker'
     expect(running.workspace.goalText).toBe('User goal')
+    expect(running.workspace.orchestratorTaskText).toBe('User goal')
     expect(mcp.workspaceTask(running.workspace.workspaceId)).toBe('handed to a worker')
   })
 })

@@ -164,6 +164,13 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/do not wait for a provider context warning/i)
   })
 
+  it('forbids native spawn_subagent, write, and shell', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/do not use native spawn_subagent, write, or shell/i)
+    expect(prompt).toMatch(/vertragus start_agent/i)
+  })
+
+
   it('is plain English with no German left in it', () => {
     const prompt = buildOrchestratorSystemPrompt(base)
     expect(prompt).not.toMatch(/\b(der|die|das|und|nicht|Agenten)\b/)

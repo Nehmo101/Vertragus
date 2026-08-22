@@ -3,6 +3,7 @@ import type { Profile, RoleTemplate } from '@shared/schema/profile'
 import type { ProviderConfig } from '@shared/schema/provider'
 import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import type { Zone, ZoneLayout } from '@shared/schema/zones'
+import type { ExtraMcpServer } from '@shared/schema/mcpServer'
 import type { Appearance } from '@shared/appearance'
 import type { BindOption, RemoteClientInfo, RemoteStatus } from '@shared/remote/types'
 
@@ -141,6 +142,7 @@ const APP = {
   modelsDiscover: 'models:discover',
   workspacesList: 'workspaces:list',
   workspacesStart: 'workspaces:start',
+  workspacesGoal: 'workspaces:goal',
   workspacesResume: 'workspaces:resume',
   workspacesStop: 'workspaces:stop',
   workspacesSucceedOrchestrator: 'workspaces:succeedOrchestrator',
@@ -224,6 +226,11 @@ export interface WorkspaceAgentSummary {
   state: PanelAgentState
   statusText?: string
   /**
+   * Current task for the row's hover card. Subagents: last start_agent /
+   * follow-up send_to_agent. Orchestrator: latest submitted user CLI note.
+   */
+  taskText?: string
+  /**
    * F: 'orchestrator' for the root row, 'lead' for sub-orchestrators, the
    * role id otherwise. Drives the panel's indentation and lead styling.
    */
@@ -261,9 +268,12 @@ export interface WorkspaceSummary {
   profileId: string
   profileName?: string
   active: boolean
-  /** Latest assignment the orchestrator handed out — the tooltip's task line. */
+  /**
+   * Last delegated assignment, when still populated. The workspace hover uses
+   * {@link goalText}, not this.
+   */
   taskText?: string
-  /** Goal the workspace was started with; absent = "no goal" hint on the card. */
+  /** User's workspace goal (full text); absent = "no goal" hint on the card. */
   goalText?: string
   /** C5: orchestrator alive but silent on its tools — the card shows a hint. */
   orchestratorIdle?: boolean
@@ -350,6 +360,8 @@ export interface PanelSettings {
   autostartSupported: boolean
   /** Present only when the global hide-all hotkey could not be registered. */
   hideAllHotkeyError?: string
+  /** Extra MCP servers attached next to Vertragus on the next spawn. */
+  mcpServers: ExtraMcpServer[]
 }
 
 export type UpdateChannel = 'main' | 'stable'
@@ -367,6 +379,7 @@ export type WritableSetting =
   | 'appearance'
   | 'agentPolicy'
   | 'onboardingDismissed'
+  | 'mcpServers'
 
 export type UpdateStatus =
   | 'disabled'
@@ -457,6 +470,13 @@ const app = {
   /** Start a workspace; `goal` (optional) is seeded into the orchestrator. */
   startWorkspace: (profileId: string, goal?: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesStart, { profileId, ...(goal ? { goal } : {}) }),
+  /**
+   * H2 refill: hand a workspace that was started bare its goal now. Rejects
+   * readably when the run already has one (steer it with a message instead) or
+   * when its CLI refused the text.
+   */
+  assignWorkspaceGoal: (workspaceId: string, goal: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesGoal, { workspaceId, goal }),
   /** E3: start a workspace briefed on the profile's newest journaled run. */
   resumeWorkspace: (profileId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesResume, { profileId }),

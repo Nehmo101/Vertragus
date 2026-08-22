@@ -145,6 +145,15 @@ export function isEverythingHidden(): boolean {
   return appController().isHidden()
 }
 
+/**
+ * Drop hide-all's remembered set without showing anything. A workspace click
+ * already decided what is visible; the next hide-all must hide that, not
+ * restore the previous snapshot.
+ */
+export function forgetHideAll(): void {
+  controller?.reset()
+}
+
 // --- the global shortcut -------------------------------------------------
 
 export interface HideAllHotkeyStatus {
