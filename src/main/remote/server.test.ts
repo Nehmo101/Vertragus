@@ -94,7 +94,8 @@ describe('startRemoteServer — sessions over a live socket', () => {
     startWorkspace: () => undefined,
     stopWorkspace: () => undefined,
     answerQuestion: () => undefined,
-    userMessage: () => undefined
+    userMessage: () => undefined,
+    assignGoal: () => undefined
   }
 
   const terminals = (): TerminalDirectory => ({

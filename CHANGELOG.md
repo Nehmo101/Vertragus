@@ -20,6 +20,14 @@ No release has been tagged yet; everything lives under Unreleased.
   question across workspaces, the task board the wire already carried, a
   local light/dark override, pull-to-refresh, haptics, and a PWA manifest
   with maskable and apple-touch icons so it installs to the home screen.
+- **A goal can be handed over after a bare start (H2 refill).** The "no
+  goal — the orchestrator is waiting" line on a running workspace card is now
+  a field, in the panel and in the phone client: the text typed there reaches
+  the orchestrator over the same handshake the start goal takes, and becomes
+  its first user turn. A run that already has a goal refuses a second one
+  (steer it with a message instead), and a delivered refill is written into
+  the run's `meta.json`, so Resume briefs on it. New panel channel
+  `workspaces:goal` and the gateway's seventh verb of the same name.
 - **Phase G (dsh adoption), all five patterns:**
   - Spill instead of truncation — oversized `read_output` and
     `inspect_agent` results are stored verbatim under

@@ -104,6 +104,12 @@ Cursors an; der Ring behält die letzten 1000, das On-Disk-Journal alles.
   sendet eine `user_message`, die das `await_events` des Orchestrators sofort
   weckt. Der Text erscheint display-only in seinem Terminal — die Zustellung
   ist das Event, es gibt also kein zweites Hirn, das in die TUI tippt.
+- **Das Ziel darf nachkommen.** Ein ohne Ziel gestarteter Lauf hat einen
+  Orchestrator, der an seinem Prompt wartet — deshalb ist die Zeile „kein
+  Ziel“ auf der Karte ein Feld (Panel und Handy): Der Text darin wird über
+  denselben Handshake wie das Start-Ziel zum ersten User-Turn des
+  Orchestrators. Ein Lauf, der bereits ein Ziel hat, lehnt ein zweites ab —
+  dafür gibt es das Steuern.
 - **Fragen in beide Richtungen:** Die offene Frage eines Agenten erscheint
   als `?`-Badge, beantwortbar von Panel oder Handy (ein Host-Pfad, eine
   Fragen-Registry); das `ask_user` des Orchestrators erscheint auf der
@@ -199,11 +205,12 @@ es auf deinem PC läuft. Es ist **standardmäßig aus**; aktiviere es unter
   hineintippen, einen Workspace **mit Ziel** starten (der Host seedet es über
   denselben Handshake in den Orchestrator wie jede Assignment; Starten ohne
   Ziel bleibt erlaubt und die Karte sagt „kein Ziel — der Orchestrator
-  wartet“), Workspaces stoppen, dem Orchestrator eine Steuernachricht senden
-  und **die offene MCP-Frage eines Agenten** über dessen `?`-Badge
-  beantworten. Die Kommando-Allow-List sind exakt sechs Verben:
-  `workspaces:list`, `workspaces:start`, `workspaces:stop`, `profiles:list`,
-  `answer_question`, `user_message`. Es gibt kein `focus_agent` oder
+  wartet“ — und bietet das Feld, das es nachträgt), Workspaces stoppen, dem
+  Orchestrator eine Steuernachricht senden und **die offene MCP-Frage eines
+  Agenten** über dessen `?`-Badge beantworten. Die Kommando-Allow-List sind
+  exakt sieben Verben: `workspaces:list`, `workspaces:start`,
+  `workspaces:goal`, `workspaces:stop`, `profiles:list`, `answer_question`,
+  `user_message`. Es gibt kein `focus_agent` oder
   `stop_agent` auf dem Gateway. `answer_question` nimmt denselben Host-Pfad
   wie das `send_to_agent{questionId}` des Orchestrators, löst also den
   geparkten `ask_orchestrator`-Wait (und stellt Sentinel-Antworten in die PTY

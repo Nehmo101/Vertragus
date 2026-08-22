@@ -32,7 +32,8 @@ BigBoy makes the loop *stable and remotely steerable*. It does not make it
 
 The gateway allow-list has been **five verbs** since Track 0:
 `workspaces:list`, `workspaces:start` (now with optional `goal`),
-`workspaces:stop`, `profiles:list`, `answer_question`. No `focus_agent` /
+`workspaces:stop`, `profiles:list`, `answer_question`; `user_message` (D2)
+and `workspaces:goal` (H2 refill) came later — seven today. No `focus_agent` /
 `stop_agent` on the gateway. `resize` exists in the WS protocol; it is not a
 product goal of Remote v1.
 
@@ -46,7 +47,7 @@ server.
 | Hook / phase | Status |
 | --- | --- |
 | H1 `answer_question` on the gateway | **implemented** (Track 0) — one host path (`mcp/answerQuestion.ts`), gateway verb, panel badge |
-| H2 `workspaces:start {goal}` | **implemented** (Track 0) — goal seed over the assignment handshake, back-compat without a goal |
+| H2 `workspaces:start {goal}` | **implemented** (Track 0) — goal seed over the assignment handshake, back-compat without a goal; refill (`workspaces:goal`) hands a bare-started run its goal later |
 | C3 snapshot commit / C4 handoff package | **implemented** (Track 1) — `snapshotDone` commits dirty worktrees on done; `start_agent{baseBranch}` carries a handoff block |
 | C5 orchestrator idle watchdog | **implemented** (Track 2) — `orchestrator_idle` event + panel/remote hint; timeouts ≠ idle (touch at call start and end) |
 | C6 orchestrator succession (context handoff) | **S1 in the code** — see [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
@@ -103,6 +104,15 @@ workspaces:start { profileId, goal: string }
 The host seeds the goal over the same handshake as any assignment. Panel
 and remote client share the field. Without a goal, starting stays allowed
 (back-compat), but the card shows "no goal — orchestrator waiting".
+
+**Refill (follow-up).** That waiting state is not a dead end: the "no goal"
+line on the card is a field, on the panel (`workspaces:goal` IPC) and on the
+phone (`workspaces:goal` gateway verb) alike. It takes the very same
+`Workspace.assignGoal` handshake — a run that already carries a goal refuses
+with `goal_already_set`, because a second first-turn typed into a CLI that
+drives the MCP loop is the two-brains failure H1 documents; steering a
+running goal stays `user_message`'s job. A delivered refill also rewrites the
+run's `meta.json`, so E3 Resume briefs on the goal the run actually got.
 
 ### H3 — done in PR #17
 

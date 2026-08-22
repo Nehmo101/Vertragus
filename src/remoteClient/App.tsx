@@ -1359,7 +1359,18 @@ function WorkspaceCard({
               <p className="card-task idle-hint">{copy.idleHint}</p>
             ) : null}
             {goalLine ? (
-              <p className={workspace.goalText ? 'card-task' : 'card-task no-goal'}>{goalLine}</p>
+              workspace.goalText ? (
+                <p className="card-task">{goalLine}</p>
+              ) : (
+                // H2 refill: no goal and the run is alive — the hint carries
+                // the field that fixes it, the same one the start form has.
+                <GoalRefillForm
+                  api={api}
+                  copy={copy}
+                  workspaceId={workspace.workspaceId}
+                  hint={goalLine}
+                />
+              )
             ) : null}
             {questions
               .filter((entry) => entry.kind === 'user')
@@ -1498,6 +1509,83 @@ function TaskBoard({
           </>
         ) : null}
       </div>
+    </div>
+  )
+}
+
+/**
+ * H2 refill: a run started bare from the phone never got a first user turn.
+ * The "no goal" line opens the field that hands it one — the same host
+ * handshake the start goal takes, refused once the run carries a goal.
+ */
+function GoalRefillForm({
+  api,
+  copy,
+  workspaceId,
+  hint
+}: {
+  api: RemoteApi
+  copy: Copy
+  workspaceId: string
+  hint: string
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [goal, setGoal] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = (): void => {
+    const trimmed = goal.trim()
+    if (!trimmed || busy) return
+    setBusy(true)
+    setError(null)
+    api.runCommand('workspaces:goal', undefined, { workspaceId, goal: trimmed }).then(
+      () => {
+        setGoal('')
+        setBusy(false)
+        setOpen(false)
+      },
+      (cause: Error) => {
+        setError(cause.message)
+        setBusy(false)
+      }
+    )
+  }
+
+  return (
+    <div className="goal-refill">
+      <button
+        type="button"
+        className="card-task no-goal is-refill"
+        aria-expanded={open}
+        aria-label={copy.assignGoal}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {hint}
+      </button>
+      {open ? (
+        <>
+          <LimitedTextarea
+            className="goal-input"
+            rows={3}
+            placeholder={copy.goalPlaceholder}
+            ariaLabel={copy.goalPlaceholder}
+            value={goal}
+            copy={copy}
+            enterKeyHint="enter"
+            onChange={setGoal}
+          />
+          {error ? <p className="form-error">{error}</p> : null}
+          <button
+            className="primary"
+            type="button"
+            disabled={busy || !goal.trim()}
+            onClick={submit}
+          >
+            {copy.assignGoalSend}
+          </button>
+        </>
+      ) : null}
     </div>
   )
 }

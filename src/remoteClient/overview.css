@@ -415,6 +415,29 @@
   color: var(--err-text);
 }
 
+/*
+ * H2 refill: the "no goal" hint is the button that opens the goal field. It
+ * keeps the hint's look and gains a touch target — a phone start without a
+ * goal is exactly where this is pressed.
+ */
+.goal-refill {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card-task.no-goal.is-refill {
+  width: 100%;
+  min-height: var(--touch);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-style: italic;
+  color: var(--text-2);
+}
+
 .ended-toggle {
   min-height: var(--touch);
   border: 1px dashed var(--hairline);

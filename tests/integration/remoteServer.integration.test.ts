@@ -46,6 +46,7 @@ function fakeTerminals(): { directory: TerminalDirectory; emit: (data: string) =
 const started: Array<{ profileId: string; goal?: string }> = []
 const answered: Array<{ workspaceId: string; agentId: string; questionId: string; text: string }> =
   []
+const goalsAssigned: Array<{ workspaceId: string; goal: string }> = []
 const gateway: RemoteGatewayHost = {
   listWorkspaces: () => [
     { workspaceId: 'w1', name: 'Paradiso', profileId: 'p1', active: true, agents: [] }
@@ -58,7 +59,10 @@ const gateway: RemoteGatewayHost = {
   answerQuestion: (input) => {
     answered.push(input)
   },
-  userMessage: () => undefined
+  userMessage: () => undefined,
+  assignGoal: (input) => {
+    goalsAssigned.push(input)
+  }
 }
 
 let notifyChange: (() => void) | undefined
@@ -237,6 +241,19 @@ describe('remote server websocket', () => {
     expect(answered).toEqual([
       { workspaceId: 'w1', agentId: 'a1', questionId: 'q1', text: 'Use bcrypt.' }
     ])
+
+    // H2 refill: the run above started bare — the phone hands it its goal now.
+    const goalResult = nextMessage(socket, 'command_result')
+    socket.send(
+      JSON.stringify({
+        type: 'command',
+        id: 'c4',
+        name: 'workspaces:goal',
+        args: { workspaceId: 'w1', goal: '  Fix the login bug  ' }
+      })
+    )
+    expect(await goalResult).toMatchObject({ type: 'command_result', id: 'c4', ok: true })
+    expect(goalsAssigned).toEqual([{ workspaceId: 'w1', goal: 'Fix the login bug' }])
 
     const pushed = nextMessage(socket, 'workspaces')
     notifyChange?.()

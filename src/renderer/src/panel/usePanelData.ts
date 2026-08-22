@@ -39,6 +39,11 @@ export interface PanelData {
   dismissError(): void
   /** Start a workspace; a non-empty goal is seeded into the orchestrator (H2). */
   startWorkspace(profileId: string, goal?: string): void
+  /**
+   * H2 refill: hand a bare-started run its goal now. The card offers this only
+   * while the run has none — a goal is the orchestrator's first user turn.
+   */
+  assignGoal(workspaceId: string, goal: string): void
   /** E3: start a workspace briefed on the profile's newest journaled run. */
   resumeWorkspace(profileId: string): void
   stopWorkspace(workspaceId: string): void
@@ -154,6 +159,11 @@ export function usePanelData(): PanelData {
     startWorkspace: (profileId, goal) =>
       run(async (api) => {
         await api.startWorkspace(profileId, goal)
+        setWorkspaces(await api.listWorkspaces())
+      }),
+    assignGoal: (workspaceId, goal) =>
+      run(async (api) => {
+        await api.assignWorkspaceGoal(workspaceId, goal)
         setWorkspaces(await api.listWorkspaces())
       }),
     resumeWorkspace: (profileId) =>

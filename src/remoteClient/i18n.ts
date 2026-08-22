@@ -70,6 +70,9 @@ export interface RemoteCopy {
   inactive: string
   idleHint: string
   noGoal: string
+  /** H2 refill: the button that folds the goal field out on a bare run. */
+  assignGoal: string
+  assignGoalSend: string
   goal: (goal: string) => string
   agents: (count: number) => string
   working: string
@@ -193,6 +196,8 @@ const de: RemoteCopy = {
   inactive: 'beendet',
   idleHint: 'Orchestrator still — keine Tool-Aufrufe mehr',
   noGoal: 'Kein Ziel — Orchestrator wartet',
+  assignGoal: 'Ziel nachtragen',
+  assignGoalSend: 'Ziel setzen',
   goal: (goal) => `Ziel: ${goal}`,
   agents: (count) => (count === 1 ? '1 Agent' : `${count} Agenten`),
   working: 'arbeitet',
@@ -313,6 +318,8 @@ const en: RemoteCopy = {
   inactive: 'ended',
   idleHint: 'Orchestrator silent — no more tool calls',
   noGoal: 'No goal — the orchestrator is waiting',
+  assignGoal: 'Set a goal',
+  assignGoalSend: 'Set goal',
   goal: (goal) => `Goal: ${goal}`,
   agents: (count) => (count === 1 ? '1 agent' : `${count} agents`),
   working: 'working',
