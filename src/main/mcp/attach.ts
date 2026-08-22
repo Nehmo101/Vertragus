@@ -829,8 +829,8 @@ export const GROK_AGENT_FLAG = '--agent'
 export const GROK_ALLOW_MCP_FLAG = '--allow'
 
 /** `MCPTool(vertragus__*)` — Grok's documented MCP permission glob. */
-export function grokAllowMcpRule(serverName = MCP_SERVER_NAME): string {
-  return `MCPTool(${serverName}__*)`
+export function grokAllowMcpRule(serverName?: string): string {
+  return `MCPTool(${serverName ?? MCP_SERVER_NAME}__*)`
 }
 
 export function grokAllowMcpArgs(): string[] {
@@ -848,8 +848,12 @@ export const GROK_ORCHESTRATOR_DENY = ['Edit', 'Write', 'Bash'] as const
  * Permission allow list for a Grok orchestrator. MCP tools are NOT
  * auto-approved; without `MCPTool(vertragus__*)`, `start_agent` sits on a TUI
  * permission prompt. Read/Grep are the verification built-ins.
+ *
+ * Literal, not `grokAllowMcpRule()`: that helper reads `MCP_SERVER_NAME` from
+ * server.ts, and a CJS electron-vite bundle can still be in that binding's TDZ
+ * at this module's init (panel-smoke crash). Keep in sync with MCP_SERVER_NAME.
  */
-export const GROK_ORCHESTRATOR_ALLOW = [grokAllowMcpRule(), 'Read', 'Grep'] as const
+export const GROK_ORCHESTRATOR_ALLOW = ['MCPTool(vertragus__*)', 'Read', 'Grep'] as const
 
 /** Argv cage matching {@link GROK_ORCHESTRATOR_DENY} / {@link GROK_ORCHESTRATOR_ALLOW}. */
 export function grokOrchestratorArgv(): string[] {
