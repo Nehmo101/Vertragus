@@ -94,6 +94,7 @@ import { pullIndicatorHeight, pullLabel, usePullToRefresh } from './usePullToRef
 import { useVisualViewport } from './useVisualViewport'
 import {
   advanceSeenLive,
+  agentCountLabel,
   agentDotKind,
   agentStatusLine,
   everyCardExpanded,
@@ -1294,7 +1295,7 @@ function WorkspaceCard({
           {workspace.profileName ? (
             <span className="card-profile">{workspace.profileName}</span>
           ) : null}
-          <span className="card-count">{copy.agents(workspace.agents.length)}</span>
+          <span className="card-count">{agentCountLabel(workspace, copy)}</span>
           {/* A collapsed card with an open question was a silent pulse — a
               dot with no name, invisible to anyone reading the screen. */}
           {!expanded && questions.length > 0 ? (

@@ -15,9 +15,15 @@ import { remoteCopy, remoteLanguage, type RemoteCopy } from './i18n'
 const de = remoteCopy('de')
 const en = remoteCopy('en')
 
-/** Render one copy value to text; function fields get sample arguments. */
+/**
+ * Render one copy value to text. Function fields get one dummy argument per
+ * declared parameter — a single `2` would leave a two-arg interpolator
+ * (`agents(working, count)`) printing `undefined` and still look non-empty.
+ */
 function rendered(value: RemoteCopy[keyof RemoteCopy]): string {
-  return typeof value === 'function' ? (value as (arg: never) => string)(2 as never) : value
+  if (typeof value !== 'function') return value
+  const samples = Array.from({ length: Math.max(value.length, 1) }, () => 2 as never)
+  return (value as (...args: never[]) => string)(...samples)
 }
 
 describe('remote copy bundles', () => {
@@ -27,7 +33,9 @@ describe('remote copy bundles', () => {
       ['en', en]
     ] as const) {
       for (const [key, value] of Object.entries(copy)) {
-        expect(rendered(value).trim().length, `${name}.${key}`).toBeGreaterThan(0)
+        const text = rendered(value)
+        expect(text.trim().length, `${name}.${key}`).toBeGreaterThan(0)
+        expect(text, `${name}.${key}`).not.toContain('undefined')
       }
     }
   })

@@ -231,6 +231,19 @@ export function workspaceGoalLine(
 }
 
 /**
+ * Collapsed-card count: "2/3 Agenten" — currently working over the roster.
+ * Waiting and stopped stay in the denominator; orchestrator and subagents
+ * count the same. Pluralization follows the TOTAL (`count`).
+ */
+export function agentCountLabel(
+  workspace: Pick<RemoteWorkspaceSummary, 'agents'>,
+  copy: { agents: (working: number, count: number) => string }
+): string {
+  const working = workspace.agents.filter((agent) => agent.state === 'working').length
+  return copy.agents(working, workspace.agents.length)
+}
+
+/**
  * The explicit expansion map for "expand all" / "collapse all". Written out
  * per workspace rather than kept as one flag because `isWorkspaceExpanded`
  * falls back to the card's own default: an empty map after "collapse all"
