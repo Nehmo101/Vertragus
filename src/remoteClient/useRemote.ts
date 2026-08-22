@@ -23,7 +23,9 @@
  *     that only looks alive.
  * Every reconnect re-attaches the terminals the UI was watching (see the
  * `hello` case) and the server replays their scrollback, so a reconnect is
- * lossless from the user's side.
+ * lossless from the user's side — and, because reconnecting is routine rather
+ * than exceptional, each re-attach names the tail it already holds so that
+ * replay costs a marker instead of a whole scrollback (`sendAttach`).
  *
  * Commands are lossless across it too, and that is a correctness requirement
  * rather than a nicety: `runCommand` hands the UI a promise, and a promise
@@ -36,10 +38,11 @@
  * `connection.ts`; this file is the wiring.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type {
-  RemoteCommand,
-  RemoteWorkspaceSummary,
-  ServerMessage
+import {
+  MAX_RESUME_TAIL_CHARS,
+  type RemoteCommand,
+  type RemoteWorkspaceSummary,
+  type ServerMessage
 } from '@shared/remote/protocol'
 import {
   commandArgsWithinLimits,
@@ -51,12 +54,14 @@ import {
   expiredCommandIds,
   isSamePayload,
   LIVENESS_TICK_MS,
+  offersResumeMarker,
   reconnectDelayMs,
   shouldFailParkedCommands,
   shouldScheduleReconnect,
   tokenFromHash
 } from './connection'
 import { remoteCopy } from './i18n'
+import { trackWritten } from './terminalAttach'
 
 export type RemotePhase = 'pairing' | 'connecting' | 'ready' | 'error' | 'revoked'
 
@@ -71,7 +76,26 @@ const SESSION_KEY = 'vertragus.remote.session'
 const PAIRING_KEY = 'vertragus.remote.pairing'
 
 export interface TerminalHandlers {
-  onSnapshot(snapshot: string, cols: number, rows: number, name: string, roleColor: string): void
+  /**
+   * The agent's scrollback as the bridge holds it, plus its identity and —
+   * the part a live-looking dot depends on — whether the process behind it is
+   * already dead. `exitCode` is `null` for a running PTY and the code it left
+   * with otherwise; a PTY that died before this client ever attached fires no
+   * `exit` frame, so the snapshot is the ONLY place that news arrives.
+   *
+   * `snapshot` may be a resumed view of the stream rather than the whole
+   * scrollback (see `sendAttach`), but it always contains the tail this client
+   * already holds, so aligning on that tail and appending what follows is
+   * correct either way.
+   */
+  onSnapshot(
+    snapshot: string,
+    cols: number,
+    rows: number,
+    name: string,
+    roleColor: string,
+    exitCode: number | null
+  ): void
   onData(data: string): void
   onExit(exitCode: number | null): void
 }
@@ -175,7 +199,6 @@ export function useRemote(): RemoteApi {
   const [locale, setLocale] = useState('de')
   const [online, setOnline] = useState(() => window.navigator.onLine)
   const [probing, setProbing] = useState(false)
-  const [repairNonce, setRepairNonce] = useState(0)
 
   const socketRef = useRef<WebSocket | null>(null)
   const sessionRef = useRef<string | null>(null)
@@ -184,8 +207,44 @@ export function useRemote(): RemoteApi {
   const reconnectAttempt = useRef(0)
   const reconnectTimer = useRef<number | null>(null)
   const aliveRef = useRef(true)
-  const lastInboundAt = useRef(Date.now())
+  /**
+   * When the last frame arrived. Zero until `connect()` opens a socket and
+   * stamps it — never read before then, because `decideLiveness` refuses to
+   * judge a socket that is not `OPEN` and there is no such socket until
+   * `connect()` has run. Deliberately not `Date.now()` in the initializer: that
+   * argument is evaluated on EVERY render and its value discarded on all but
+   * the first, which is an impure call during render for no gain.
+   */
+  const lastInboundAt = useRef(0)
   const probeSentAt = useRef<number | null>(null)
+  /**
+   * Per attached agent, the tail of the output this client has already been
+   * given — the resume marker the next `attach` offers the bridge.
+   *
+   * Tracked HERE rather than in the terminal component because this hook is
+   * the wire: every byte the component writes came through `onSnapshot` and
+   * `onData`, so the tail of what was dispatched is the tail of what was
+   * written. The component keeps its own, shorter tail to align on
+   * (`OVERLAP_TAIL_CHARS`, half of {@link MAX_RESUME_TAIL_CHARS}), and because
+   * both are suffixes of the same stream the shorter is always contained in
+   * the longer — which is what makes a resumed snapshot alignable.
+   */
+  const resumeTails = useRef(new Map<string, string>())
+  /**
+   * The protocol dispatch and the reconnect entry point, as refs.
+   *
+   * A socket is a long-lived external subscription: its handlers must call the
+   * CURRENT dispatch, and the reconnect timer the current `connect`. Reaching
+   * for the values directly would put `dispatch` in `connect`'s dependencies
+   * and `connect` inside its own body, which is both a use-before-declaration
+   * and a real hazard — every identity change downstream of `dispatch` would
+   * ripple through `adoptSession` and `beginPairing` into the mount effect and
+   * tear the live connection down to rebuild it. Through refs, `connect` and
+   * everything above it are stable for the hook's whole life, which is what the
+   * mount effect has always claimed to rely on.
+   */
+  const dispatchRef = useRef<(message: ServerMessage) => void>(() => undefined)
+  const connectRef = useRef<() => void>(() => undefined)
   /**
    * The locale as a ref: a command rejects from inside a socket callback that
    * closed over the render it was created in, and a German error on an English
@@ -225,6 +284,28 @@ export function useRemote(): RemoteApi {
     setProbing(true)
     sendRaw({ type: 'refresh' })
   }, [sendRaw])
+
+  /**
+   * Ask the bridge for an agent's stream, saying where this client already is.
+   *
+   * The marker is what makes a reconnect cheap: without it every re-attach
+   * ships the whole scrollback (up to 2 MB per agent), and this client
+   * reconnects on a liveness verdict, on `visibilitychange`, on `pageshow` and
+   * on `online` — routinely, by design. With it the bridge answers from the
+   * marker on. It is only ever a hint; a bridge that cannot place it replays
+   * everything, which is the behaviour that predates it.
+   */
+  const sendAttach = useCallback(
+    (agentId: string) => {
+      const resume = resumeTails.current.get(agentId)
+      sendRaw(
+        offersResumeMarker(resume)
+          ? { type: 'attach', agentId, resume }
+          : { type: 'attach', agentId }
+      )
+    },
+    [sendRaw]
+  )
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimer.current === null) return
@@ -287,77 +368,6 @@ export function useRemote(): RemoteApi {
     setWorkspaces((previous) => (isSamePayload(previous, next) ? previous : next))
   }, [])
 
-  const dispatch = useCallback(
-    (message: ServerMessage) => {
-      switch (message.type) {
-        case 'hello':
-          applyWorkspaces(message.workspaces)
-          setTheme(message.theme)
-          setLocale(message.locale)
-          setPhase('ready')
-          reconnectAttempt.current = 0
-          // Re-attach any terminals the UI was watching before a reconnect.
-          for (const agentId of attachedAgents.current) sendRaw({ type: 'attach', agentId })
-          // `hello` is the first proof this socket can carry anything, so it is
-          // where the taps made while it was down finally go out.
-          flushCommandQueue()
-          break
-        case 'workspaces':
-          applyWorkspaces(message.workspaces)
-          break
-        case 'snapshot':
-          terminalHandlers.current
-            .get(message.agentId)
-            ?.onSnapshot(
-              message.snapshot,
-              message.cols,
-              message.rows,
-              message.name,
-              message.roleColor
-            )
-          break
-        case 'data':
-          terminalHandlers.current.get(message.agentId)?.onData(message.data)
-          break
-        case 'exit':
-          terminalHandlers.current.get(message.agentId)?.onExit(message.exitCode)
-          break
-        case 'session_revoked':
-          sessionRef.current = null
-          if (message.reason === 'revoked') {
-            // The user revoked THIS device from the desktop. Re-pairing from
-            // the stored token would undo that in about a second, which is what
-            // made the settings button cosmetic. The pairing token goes with
-            // the session, and the client stops here.
-            authGeneration.current += 1
-            clearAuth()
-            setPhase('revoked')
-            break
-          }
-          // Anything else — an expired session, a desktop that restarted and
-          // lost its in-memory sessions — is not a decision about this device,
-          // so the stored pairing token silently mints a new session.
-          clearSession()
-          setRepairNonce((nonce) => nonce + 1)
-          break
-        case 'command_result': {
-          const pending = pendingCommands.current.get(message.id)
-          if (pending) {
-            pendingCommands.current.delete(message.id)
-            if (message.ok) pending.resolve(message.result)
-            else pending.reject(new Error(message.error))
-          }
-          break
-        }
-        case 'error':
-          // Soft errors surface through the workspace push that follows them;
-          // nothing to render inline in this minimal client.
-          break
-      }
-    },
-    [applyWorkspaces, flushCommandQueue, sendRaw]
-  )
-
   const connect = useCallback(() => {
     const session = sessionRef.current
     if (!session) return
@@ -383,6 +393,18 @@ export function useRemote(): RemoteApi {
 
     socket.onopen = () => socket.send(JSON.stringify({ type: 'auth', session }))
     socket.onmessage = (event) => {
+      // The same identity check `onclose` makes, and for a sharper reason.
+      // `connect()` orphans the previous socket by clearing `socketRef` before
+      // closing it, and a frame already queued on that socket still fires its
+      // message event afterwards — closing a WebSocket does not un-queue what
+      // has arrived. Without this guard that frame is dispatched into the
+      // replacement's stream: a `data` chunk the replacement's own snapshot
+      // already carried is appended a second time (a visibly duplicated block,
+      // now that a re-attach appends rather than resets), a stale `hello`
+      // flushes the command queue against a socket that is still CONNECTING so
+      // the frames are dropped while the promises count as sent, and the
+      // liveness stamps below credit the new route with the old one's traffic.
+      if (socketRef.current !== socket) return
       // Any frame is proof of life, whichever probe or push produced it.
       lastInboundAt.current = Date.now()
       probeSentAt.current = null
@@ -390,7 +412,7 @@ export function useRemote(): RemoteApi {
       // overview on every terminal `data` frame.
       setProbing((outstanding) => (outstanding ? false : outstanding))
       try {
-        dispatch(JSON.parse(event.data as string) as ServerMessage)
+        dispatchRef.current(JSON.parse(event.data as string) as ServerMessage)
       } catch {
         // A malformed frame from our own server is not worth crashing the UI.
       }
@@ -411,11 +433,14 @@ export function useRemote(): RemoteApi {
       setPhase('connecting')
       reconnectTimer.current = window.setTimeout(() => {
         reconnectTimer.current = null
-        if (aliveRef.current && sessionRef.current) connect()
+        if (aliveRef.current && sessionRef.current) connectRef.current()
       }, delay)
     }
+    // No identity guard here: this closes the socket it was installed on, and
+    // closing an already-closed socket is a no-op. An orphan's error tears down
+    // an orphan, which is what `connect()` asked for anyway.
     socket.onerror = () => socket.close()
-  }, [clearReconnectTimer, dispatch, failPendingCommands])
+  }, [clearReconnectTimer, failPendingCommands])
 
   /** Reconnect now, from the top of the backoff schedule. */
   const reconnectNow = useCallback(() => {
@@ -433,7 +458,141 @@ export function useRemote(): RemoteApi {
     [connect]
   )
 
+  /**
+   * Replace a session that expired without anyone deciding to end it — an idle
+   * timeout, or a desktop that restarted and lost every in-memory session.
+   *
+   * Driven straight from the `session_revoked` frame rather than through a
+   * counter and an effect: this is a response to an event, and routing it
+   * through state made a render the medium for a message that had already
+   * arrived. Without a stored pairing token there is nothing to re-mint from
+   * and the phone has to be paired again.
+   */
+  const repair = useCallback(() => {
+    const pairing = readStored(PAIRING_KEY)
+    if (!pairing) {
+      setPhase('revoked')
+      return
+    }
+    setPhase('connecting')
+    const generation = authGeneration.current
+    void pair(pairing).then((session) => {
+      // Same guard as `beginPairing`: `aliveRef` alone only covers unmount, not
+      // a log-out that happened while this request was in flight.
+      if (!aliveRef.current || authGeneration.current !== generation) return
+      if (session) {
+        adoptSession(session, pairing)
+        return
+      }
+      clearAuth()
+      setPhase('revoked')
+    })
+  }, [adoptSession])
+
+  const dispatch = useCallback(
+    (message: ServerMessage) => {
+      switch (message.type) {
+        case 'hello':
+          applyWorkspaces(message.workspaces)
+          setTheme(message.theme)
+          setLocale(message.locale)
+          setPhase('ready')
+          reconnectAttempt.current = 0
+          // Re-attach any terminals the UI was watching before a reconnect,
+          // each from the point it had already reached.
+          for (const agentId of attachedAgents.current) sendAttach(agentId)
+          // `hello` is the first proof this socket can carry anything, so it is
+          // where the taps made while it was down finally go out.
+          flushCommandQueue()
+          break
+        case 'workspaces':
+          applyWorkspaces(message.workspaces)
+          break
+        case 'snapshot':
+          // Replaced, not appended: the frame is the stream up to its own end
+          // — the whole scrollback, or the resumed view that begins with the
+          // marker this client just sent. Appending would count that echoed
+          // marker twice and leave a tail that matches nothing.
+          if (resumeTails.current.has(message.agentId)) {
+            resumeTails.current.set(
+              message.agentId,
+              trackWritten('', message.snapshot, MAX_RESUME_TAIL_CHARS)
+            )
+          }
+          terminalHandlers.current
+            .get(message.agentId)
+            ?.onSnapshot(
+              message.snapshot,
+              message.cols,
+              message.rows,
+              message.name,
+              message.roleColor,
+              message.exitCode
+            )
+          break
+        case 'data': {
+          const tail = resumeTails.current.get(message.agentId)
+          if (tail !== undefined) {
+            resumeTails.current.set(
+              message.agentId,
+              trackWritten(tail, message.data, MAX_RESUME_TAIL_CHARS)
+            )
+          }
+          terminalHandlers.current.get(message.agentId)?.onData(message.data)
+          break
+        }
+        case 'exit':
+          terminalHandlers.current.get(message.agentId)?.onExit(message.exitCode)
+          break
+        case 'session_revoked':
+          sessionRef.current = null
+          if (message.reason === 'revoked') {
+            // The user revoked THIS device from the desktop. Re-pairing from
+            // the stored token would undo that in about a second, which is what
+            // made the settings button cosmetic. The pairing token goes with
+            // the session, and the client stops here.
+            authGeneration.current += 1
+            clearAuth()
+            setPhase('revoked')
+            break
+          }
+          // Anything else — an expired session, a desktop that restarted and
+          // lost its in-memory sessions — is not a decision about this device,
+          // so the stored pairing token silently mints a new session.
+          clearSession()
+          repair()
+          break
+        case 'command_result': {
+          const pending = pendingCommands.current.get(message.id)
+          if (pending) {
+            pendingCommands.current.delete(message.id)
+            if (message.ok) pending.resolve(message.result)
+            else pending.reject(new Error(message.error))
+          }
+          break
+        }
+        case 'error':
+          // Soft errors surface through the workspace push that follows them;
+          // nothing to render inline in this minimal client.
+          break
+      }
+    },
+    [applyWorkspaces, flushCommandQueue, repair, sendAttach]
+  )
+  // The socket handlers read these through refs; keep them current.
+  useEffect(() => {
+    dispatchRef.current = dispatch
+  }, [dispatch])
+
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
+
   const beginPairing = useCallback(async () => {
+    // Not started from inside the mounting commit (see the effect below), so
+    // the hook can already be gone by the time this runs — and the branch that
+    // finds a stored session opens a socket with nothing else to guard it.
+    if (!aliveRef.current) return
     // Captured before the first `await`: a `reset()` or a revoke while the
     // request is in flight bumps the generation, and everything below is then
     // a decision about an auth state that no longer exists.
@@ -474,7 +633,21 @@ export function useRemote(): RemoteApi {
 
   useEffect(() => {
     aliveRef.current = true
-    void beginPairing()
+    /*
+     * Started on the microtask queue rather than called here.
+     *
+     * `beginPairing` is I/O from its first line — the URL fragment, two
+     * stores, possibly a `POST` — and its verdict is a phase change. Delivered
+     * from inside the commit that mounted this hook, that verdict forces a
+     * second render pass before the first paint, for a value that could not
+     * have been known any earlier: reading the fragment or `localStorage`
+     * during render is exactly the impurity the rules next door forbid. One
+     * microtask later it arrives the way every other external event in this
+     * hook does — through a callback, batched as an ordinary update. The two
+     * branches that already `await` a `fetch` have always behaved this way;
+     * this puts the other two on the same footing.
+     */
+    void Promise.resolve().then(beginPairing)
     return () => {
       aliveRef.current = false
       clearReconnectTimer()
@@ -484,28 +657,6 @@ export function useRemote(): RemoteApi {
     }
     // Runs once on mount — beginPairing owns the whole connect lifecycle.
   }, [beginPairing, clearReconnectTimer])
-
-  useEffect(() => {
-    if (repairNonce === 0) return
-    const pairing = readStored(PAIRING_KEY)
-    if (!pairing) {
-      setPhase('revoked')
-      return
-    }
-    setPhase('connecting')
-    const generation = authGeneration.current
-    void pair(pairing).then((session) => {
-      // Same guard as `beginPairing`: `aliveRef` alone only covers unmount, not
-      // a log-out that happened while this request was in flight.
-      if (!aliveRef.current || authGeneration.current !== generation) return
-      if (session) {
-        adoptSession(session, pairing)
-        return
-      }
-      clearAuth()
-      setPhase('revoked')
-    })
-  }, [repairNonce, adoptSession])
 
   /**
    * Find out where the connection stands, right now, instead of sitting out
@@ -586,14 +737,19 @@ export function useRemote(): RemoteApi {
     (agentId: string, handlers: TerminalHandlers): (() => void) => {
       terminalHandlers.current.set(agentId, handlers)
       attachedAgents.current.add(agentId)
-      sendRaw({ type: 'attach', agentId })
+      // A fresh attach means a blank terminal, so there is nothing to resume
+      // from — and the entry's presence is what marks this agent as one whose
+      // tail is worth tracking at all.
+      resumeTails.current.set(agentId, '')
+      sendAttach(agentId)
       return () => {
         terminalHandlers.current.delete(agentId)
         attachedAgents.current.delete(agentId)
+        resumeTails.current.delete(agentId)
         sendRaw({ type: 'detach', agentId })
       }
     },
-    [sendRaw]
+    [sendAttach, sendRaw]
   )
 
   return {

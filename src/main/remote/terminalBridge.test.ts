@@ -1,10 +1,23 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import type { TerminalDirectory, TerminalSink, TerminalSubscription } from '@main/ipc'
 import type { ServerMessage } from '@shared/remote/protocol'
-import { createTerminalBridge } from './terminalBridge'
+import { SCROLLBACK_LIMIT } from '@main/agents/scrollback'
+import { MAX_RESUME_TAIL_CHARS } from '@shared/remote/protocol'
+import { createTerminalBridge, resumeSnapshot } from './terminalBridge'
+/*
+ * The client's own aligner, imported rather than restated. What this file has
+ * to prove is not that `resumeSnapshot` slices correctly — it is that what it
+ * produces can still be placed by the code on the other end of the wire, and a
+ * reimplementation of that code here would prove nothing about it.
+ */
+import {
+  OVERLAP_TAIL_CHARS,
+  planAttach,
+  trackWritten
+} from '../../remoteClient/terminalAttach'
 
 /** A fake TerminalDirectory backed by controllable sinks. */
-function fakeTerminals(): {
+function fakeTerminals(scrollback?: (agentId: string) => string): {
   directory: TerminalDirectory
   emit(agentId: string, data: string): void
   exit(agentId: string, code: number): void
@@ -21,7 +34,7 @@ function fakeTerminals(): {
       if (agentId === 'ghost') return undefined
       sinks.set(agentId, sink)
       return {
-        snapshot: `snapshot:${agentId}`,
+        snapshot: scrollback ? scrollback(agentId) : `snapshot:${agentId}`,
         cols: 80,
         rows: 24,
         meta: {
@@ -145,5 +158,133 @@ describe('createTerminalBridge', () => {
     // no unbounded growth inside the coalesce window.
     term.emit('a1', 'x'.repeat(300 * 1024))
     expect(sent.filter((m) => m.type === 'data')).toHaveLength(1)
+  })
+})
+
+/** A long, non-repeating stream — a scrollback nothing can match by accident. */
+function stream(from: number, lines: number): string {
+  let out = ''
+  for (let i = from; i < from + lines; i++) out += `line ${i} of the agent's output\n`
+  return out
+}
+
+describe('resumeSnapshot', () => {
+  it('replays everything when the client offers nothing', () => {
+    // A first attach, and every attach from a client that predates the marker.
+    expect(resumeSnapshot('abcdef', undefined)).toBe('abcdef')
+    expect(resumeSnapshot('abcdef', '')).toBe('abcdef')
+  })
+
+  it('replays everything when the marker is not there any more', () => {
+    // The head-trim in `ScrollbackBuffer` drops the oldest characters, so a
+    // client that was away longer than the buffer is deep has a marker that
+    // points at output the host no longer holds. That is the case the whole
+    // scheme has to survive, and surviving it means the full replay it always
+    // did — the client then finds nothing to align on and rebuilds, exactly as
+    // it would have without any of this.
+    expect(resumeSnapshot('ghijkl', 'abc')).toBe('ghijkl')
+  })
+
+  it('replays everything when the marker is longer than the scrollback', () => {
+    // A restarted agent: a fresh, nearly empty buffer under an old marker.
+    expect(resumeSnapshot('abc', 'abcdef')).toBe('abc')
+  })
+
+  it('starts the reply at the marker rather than after it', () => {
+    // The echo is the safety: the frame still contains the client's own tail,
+    // so the client aligns on it exactly as it aligns on a full snapshot.
+    expect(resumeSnapshot('....MARKER++++', 'MARKER')).toBe('MARKER++++')
+  })
+
+  it('resumes from the most recent occurrence of a repeated marker', () => {
+    // Our position in the stream is the LAST place our tail appears; an
+    // earlier one would re-send output the reader has already seen.
+    expect(resumeSnapshot('MARKERaaaMARKERbbb', 'MARKER')).toBe('MARKERbbb')
+  })
+
+  it('replays everything when the marker is already at the head', () => {
+    // Nothing to trim — the client has the whole buffer.
+    expect(resumeSnapshot('MARKER+++', 'MARKER')).toBe('MARKER+++')
+  })
+})
+
+describe('a resumed snapshot is still alignable by the client', () => {
+  /** A scrollback at the host's real limit — the bill this is about. */
+  const seen = stream(0, 65_000).slice(-SCROLLBACK_LIMIT)
+  const delta = stream(90_000, 5)
+
+  it('is built on a stream long enough for the test to mean anything', () => {
+    // Self-check: with a stream shorter than the marker there is nothing to
+    // trim and every assertion below would pass vacuously.
+    expect(seen.length).toBe(SCROLLBACK_LIMIT)
+  })
+
+  it('hands back only what the client is missing, and it lands as an append', () => {
+    // The two tails one reconnect involves: the connection layer offers the
+    // longer one as the marker, the terminal aligns on the shorter one.
+    const marker = trackWritten('', seen, MAX_RESUME_TAIL_CHARS)
+    const written = trackWritten('', seen, OVERLAP_TAIL_CHARS)
+
+    const frame = resumeSnapshot(seen + delta, marker)
+    expect(frame).toBe(marker + delta)
+    // The number the change exists for: a full scrollback costs 2,000,000
+    // characters on every reconnect, and this reconnect costs under 1 % of it.
+    expect(frame.length).toBeLessThan(seen.length / 100)
+
+    const plan = planAttach({ snapshot: frame, written })
+    expect(plan.kind).toBe('append')
+    // Exactly the new output: not a byte re-written, not a byte lost.
+    expect(plan.data).toBe(delta)
+  })
+
+  it('appends nothing at all when nothing happened while the client was away', () => {
+    const marker = trackWritten('', seen, MAX_RESUME_TAIL_CHARS)
+    const plan = planAttach({ snapshot: resumeSnapshot(seen, marker), written: marker })
+    expect(plan.kind).toBe('append')
+    expect(plan.data).toBe('')
+  })
+
+  it('falls back to the replay it always did when the marker is gone', () => {
+    // The host trimmed past the client's marker. The bridge replays in full and
+    // the client rebuilds from it — the pre-marker behaviour, reached by the
+    // pre-marker path.
+    const trimmed = stream(200_000, 2000)
+    const marker = trackWritten('', seen, MAX_RESUME_TAIL_CHARS)
+    const frame = resumeSnapshot(trimmed, marker)
+    expect(frame).toBe(trimmed)
+    const plan = planAttach({ snapshot: frame, written: marker })
+    expect(plan.kind).toBe('replay')
+    expect(plan.data).toBe(trimmed)
+  })
+})
+
+describe('the bridge carries the marker into the snapshot it sends', () => {
+  it('trims the replay to what the attaching client asked for', () => {
+    const seen = stream(0, 2000)
+    const delta = stream(2000, 5)
+    const term = fakeTerminals(() => seen + delta)
+    const sent: ServerMessage[] = []
+    const bridge = createTerminalBridge({ terminals: term.directory, send: (m) => sent.push(m) })
+
+    const marker = trackWritten('', seen, MAX_RESUME_TAIL_CHARS)
+    bridge.attach('a1', marker)
+
+    const snapshot = sent.find((m) => m.type === 'snapshot')
+    expect(snapshot?.type).toBe('snapshot')
+    expect(snapshot?.type === 'snapshot' && snapshot.snapshot).toBe(marker + delta)
+    bridge.dispose()
+  })
+
+  it('sends the whole scrollback to a client that asks for nothing', () => {
+    const whole = stream(0, 2000)
+    const term = fakeTerminals(() => whole)
+    const sent: ServerMessage[] = []
+    const bridge = createTerminalBridge({ terminals: term.directory, send: (m) => sent.push(m) })
+
+    bridge.attach('a1')
+
+    const snapshot = sent.find((m) => m.type === 'snapshot')
+    expect(snapshot?.type === 'snapshot' && snapshot.snapshot).toBe(whole)
+    bridge.dispose()
   })
 })

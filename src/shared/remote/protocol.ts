@@ -36,11 +36,49 @@ export const REMOTE_COMMANDS = [
 ] as const
 export type RemoteCommand = (typeof REMOTE_COMMANDS)[number]
 
+/**
+ * How much of an agent's output a client may offer back as a resume marker on
+ * `attach`.
+ *
+ * Reconnecting is the normal state of a phone, not an error: a liveness
+ * verdict, a `visibilitychange`, a bfcache `pageshow` and an `online` event
+ * all produce one, and every one of them re-attaches every terminal the UI is
+ * watching. Replaying the full scrollback each time costs up to
+ * `SCROLLBACK_LIMIT` (2,000,000 characters, more once JSON escapes the ANSI)
+ * per agent per reconnect — on cellular, the single largest cost in the whole
+ * remote design, and one the client's own reconnect policy causes.
+ *
+ * A marker turns that into a fixed 16 KB up and 16 KB + the delta back. It is
+ * a HINT, never a promise: the bridge searches for it in the scrollback it
+ * actually holds and falls back to a full replay whenever it is not there — a
+ * head-trimmed buffer, a restarted agent, a client that sent nothing. What the
+ * client discards on a successful resume is exactly what it already had, so
+ * nothing that reaches a terminal is lost either way.
+ *
+ * Sized at twice the client's own alignment window (`OVERLAP_TAIL_CHARS`,
+ * 8192) so the marker is always a superset of the tail the client aligns on —
+ * `connection.test.ts` pins that relationship. The cap is also the schema's,
+ * which bounds the substring search a hostile frame can ask the main process
+ * for.
+ */
+export const MAX_RESUME_TAIL_CHARS = 16_384
+
 // --- inbound (client → server) ------------------------------------------
 
 export const clientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('auth'), session: z.string().min(1).max(512) }),
-  z.object({ type: z.literal('attach'), agentId: z.string().min(1).max(200) }),
+  z.object({
+    type: z.literal('attach'),
+    agentId: z.string().min(1).max(200),
+    /**
+     * The tail of this agent's output the client already holds, offered so the
+     * bridge can answer with the part that is new instead of the whole
+     * scrollback. See {@link MAX_RESUME_TAIL_CHARS}; omitted on a first attach,
+     * and ignorable — a bridge that does not understand it simply replays
+     * everything, which is what every attach did before this field existed.
+     */
+    resume: z.string().max(MAX_RESUME_TAIL_CHARS).optional()
+  }),
   z.object({ type: z.literal('detach'), agentId: z.string().min(1).max(200) }),
   z.object({
     type: z.literal('input'),
@@ -153,6 +191,13 @@ export type ServerMessage =
   | { type: 'workspaces'; workspaces: RemoteWorkspaceSummary[] }
   | {
       type: 'snapshot'
+      /**
+       * The agent's output as the bridge holds it. Normally the whole
+       * scrollback; when the `attach` carried a resume marker the bridge could
+       * place, this is the stream from that marker on — still a view of the
+       * same stream, still containing the client's own tail, so a client that
+       * aligns on its tail and appends what follows behaves identically.
+       */
       agentId: string
       snapshot: string
       cols: number

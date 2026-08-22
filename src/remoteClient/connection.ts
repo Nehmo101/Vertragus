@@ -12,6 +12,7 @@
  * new protocol verb — an unknown `type` would simply be dropped by the
  * gateway's zod validator, which is exactly why no heartbeat frame was added.
  */
+import { MAX_RESUME_TAIL_CHARS } from '@shared/remote/protocol'
 
 /** First backoff step; the socket usually comes back on this one. */
 export const RECONNECT_BASE_MS = 500
@@ -207,6 +208,25 @@ export function expiredCommandIds(
     if (now >= entry.expiresAt) expired.push(id)
   }
   return expired
+}
+
+/**
+ * Whether an attach should offer the tail it holds as a resume marker.
+ *
+ * The marker buys a trimmed replay (see `MAX_RESUME_TAIL_CHARS`) and costs its
+ * own size in upload, every reconnect, on the leg of a cellular link that is
+ * usually the slower one. A tail that has not filled yet is proof that this
+ * client has seen less output than the marker would cost to send — so the
+ * replay it could save is smaller than the marker itself, and the trade is a
+ * loss. Above the cap it is not close: 16 KB up against a scrollback that runs
+ * to 2,000,000 characters.
+ *
+ * The gate is on the CLIENT's tail rather than on anything the host reports,
+ * because the host cannot answer it: the bridge is built fresh per socket and
+ * remembers nothing about who was watching before.
+ */
+export function offersResumeMarker(tail: string | undefined): boolean {
+  return tail !== undefined && tail.length >= MAX_RESUME_TAIL_CHARS
 }
 
 /**

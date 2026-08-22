@@ -80,14 +80,43 @@ describe('startRemoteServer — sessions over a live socket', () => {
 
   const IDLE_MS = 10_000
 
-  async function withServer(run: (harness: Harness) => Promise<void>): Promise<void> {
+  /** A directory holding one agent with a known scrollback. */
+  const terminalsHolding = (agentId: string, scrollback: string) => (): TerminalDirectory => ({
+    list: () => [],
+    get: () => undefined,
+    attach: (requested) =>
+      requested === agentId
+        ? {
+            snapshot: scrollback,
+            cols: 80,
+            rows: 24,
+            meta: {
+              agentId,
+              name: 'Arlecchino',
+              role: 'worker',
+              roleColor: '#123456',
+              provider: 'claude',
+              model: 'sonnet'
+            },
+            exit: null,
+            detach: () => undefined
+          }
+        : undefined,
+    write: () => false,
+    resize: () => false
+  })
+
+  async function withServer(
+    run: (harness: Harness) => Promise<void>,
+    directory: () => TerminalDirectory = terminals
+  ): Promise<void> {
     let clock = 1_000
     const handle = await startRemoteServer({
       host: '127.0.0.1',
       port: 0,
       pairingToken: () => 'pair-secret',
       gateway,
-      terminals,
+      terminals: directory,
       onWorkspaceChange: () => () => undefined,
       locale: () => 'de',
       theme: () => 'dark',
@@ -184,6 +213,55 @@ describe('startRemoteServer — sessions over a live socket', () => {
       } finally {
         socket.close()
       }
+    })
+  })
+
+  /**
+   * The resume marker's last link: that what a client puts in its `attach`
+   * frame actually reaches the bridge. The schema is pinned in
+   * `connection.test.ts` and the trimming in `terminalBridge.test.ts`; only the
+   * socket handler in between is untested, and a marker silently dropped there
+   * costs a full scrollback per reconnect while every other test stays green.
+   */
+  describe('an attach that says where the client already is', () => {
+    const scrollback = Array.from({ length: 500 }, (_, i) => `line ${i}\n`).join('')
+
+    it('replays from the marker the client sent', async () => {
+      const marker = scrollback.slice(-200)
+      await withServer(
+        async ({ handle }) => {
+          const socket = await connect(handle.port, await pair(handle.port))
+          try {
+            const frame = nextMessage(socket)
+            socket.send(JSON.stringify({ type: 'attach', agentId: 'a1', resume: marker }))
+            const snapshot = await frame
+            expect(snapshot.type).toBe('snapshot')
+            // Nothing arrived since, so the marker is the whole reply — 200
+            // characters where the unmarked attach below sends the lot.
+            expect(snapshot.type === 'snapshot' && snapshot.snapshot).toBe(marker)
+          } finally {
+            socket.close()
+          }
+        },
+        terminalsHolding('a1', scrollback)
+      )
+    })
+
+    it('replays everything when the client sends no marker', async () => {
+      await withServer(
+        async ({ handle }) => {
+          const socket = await connect(handle.port, await pair(handle.port))
+          try {
+            const frame = nextMessage(socket)
+            socket.send(JSON.stringify({ type: 'attach', agentId: 'a1' }))
+            const snapshot = await frame
+            expect(snapshot.type === 'snapshot' && snapshot.snapshot).toBe(scrollback)
+          } finally {
+            socket.close()
+          }
+        },
+        terminalsHolding('a1', scrollback)
+      )
     })
   })
 })

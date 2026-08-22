@@ -322,7 +322,7 @@ export async function startRemoteServer(
 
         switch (message.type) {
           case 'attach':
-            connection.bridge.attach(message.agentId)
+            connection.bridge.attach(message.agentId, message.resume)
             break
           case 'detach':
             connection.bridge.detach(message.agentId)

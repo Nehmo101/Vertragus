@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clientMessageSchema } from '@shared/remote/protocol'
+import { clientMessageSchema, MAX_RESUME_TAIL_CHARS } from '@shared/remote/protocol'
 import {
   commandArgsWithinLimits,
   commandsToEvict,
@@ -14,6 +14,7 @@ import {
   LIVENESS_SILENCE_MS,
   LIVENESS_TICK_MS,
   MAX_COMMAND_ARG_CHARS,
+  offersResumeMarker,
   RECONNECT_MAX_MS,
   reconnectDelayMs,
   shouldFailParkedCommands,
@@ -21,6 +22,7 @@ import {
   tokenFromHash,
   type LivenessState
 } from './connection'
+import { OVERLAP_TAIL_CHARS, trackWritten } from './terminalAttach'
 
 /*
  * These constants are a budget a phone pays in battery and cellular data, so
@@ -289,5 +291,56 @@ describe('what a close event is allowed to do', () => {
     const loggedOut = context({ hasSession: false })
     expect(shouldFailParkedCommands(loggedOut)).toBe(true)
     expect(shouldScheduleReconnect(loggedOut)).toBe(false)
+  })
+})
+
+/*
+ * The resume marker's size is not a free parameter: it is the only thing that
+ * makes a trimmed snapshot alignable on arrival. The bridge answers a resumed
+ * attach with the stream FROM the marker, so the tail the terminal aligns on
+ * has to be contained in the marker the connection offered — otherwise the
+ * aligner finds nothing, calls the streams divergent and rebuilds the terminal
+ * from a snapshot that no longer carries the history it would need.
+ */
+describe('the resume marker covers what the terminal aligns on', () => {
+  it('offers at least as much as the aligner looks for', () => {
+    expect(MAX_RESUME_TAIL_CHARS).toBeGreaterThanOrEqual(OVERLAP_TAIL_CHARS)
+  })
+
+  it('keeps the marker a suffix of the same stream the aligner holds', () => {
+    // Both tails are taken from one stream with the same function, so the
+    // shorter is a suffix of the longer by construction — this pins that the
+    // two limits are used the same way round, which is the part a refactor
+    // can silently invert.
+    const stream = Array.from({ length: 4000 }, (_, i) => `line ${i}\n`).join('')
+    const marker = trackWritten('', stream, MAX_RESUME_TAIL_CHARS)
+    const aligned = trackWritten('', stream, OVERLAP_TAIL_CHARS)
+    expect(marker.length).toBeGreaterThan(aligned.length)
+    expect(marker.endsWith(aligned)).toBe(true)
+  })
+
+  it('offers the marker only once there is more behind it than it costs', () => {
+    // Below the cap the whole scrollback is no larger than the marker, so the
+    // upload buys nothing; above it the marker is 16 KB against up to 2 MB.
+    expect(offersResumeMarker(undefined)).toBe(false)
+    expect(offersResumeMarker('')).toBe(false)
+    expect(offersResumeMarker('x'.repeat(MAX_RESUME_TAIL_CHARS - 1))).toBe(false)
+    expect(offersResumeMarker('x'.repeat(MAX_RESUME_TAIL_CHARS))).toBe(true)
+  })
+
+  it('bounds what an attach may put on the wire', () => {
+    const frame = (length: number): unknown => ({
+      type: 'attach',
+      agentId: 'a1',
+      resume: 'x'.repeat(length)
+    })
+    expect(clientMessageSchema.safeParse(frame(MAX_RESUME_TAIL_CHARS)).success).toBe(true)
+    expect(clientMessageSchema.safeParse(frame(MAX_RESUME_TAIL_CHARS + 1)).success).toBe(false)
+  })
+
+  it('still accepts an attach that offers nothing', () => {
+    // A first attach has no history to resume from, and an older client sends
+    // no marker at all; both must reach the bridge unchanged.
+    expect(clientMessageSchema.safeParse({ type: 'attach', agentId: 'a1' }).success).toBe(true)
   })
 })

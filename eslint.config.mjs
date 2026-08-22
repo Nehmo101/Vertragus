@@ -33,13 +33,13 @@ export default tseslint.config(
   },
   {
     /*
-     * A ramp, not an exemption. These two files predate the block above and
-     * trip three of its members; they are reported as warnings so the findings
-     * stay visible without the gate turning red on work their owners have not
-     * seen yet. Take a file off this list as its warnings are cleared, and
-     * delete the block when the list is empty.
+     * A ramp, not an exemption. These files predate the block above and trip
+     * three of its members; they are reported as warnings so the findings stay
+     * visible without the gate turning red on work their owners have not seen
+     * yet. Take a file off this list as its warnings are cleared, and delete
+     * the block when the list is empty. `useRemote.ts` is off it.
      */
-    files: ['src/remoteClient/App.tsx', 'src/remoteClient/useRemote.ts'],
+    files: ['src/remoteClient/App.tsx'],
     rules: {
       'react-hooks/immutability': 'warn',
       'react-hooks/purity': 'warn',
