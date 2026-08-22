@@ -51,6 +51,7 @@ server.
 | C3 snapshot commit / C4 handoff package | **implemented** (Track 1) — `snapshotDone` commits dirty worktrees on done; `start_agent{baseBranch}` carries a handoff block |
 | C5 orchestrator idle watchdog | **implemented** (Track 2) — `orchestrator_idle` event + panel/remote hint; timeouts ≠ idle (touch at call start and end) |
 | C6 orchestrator succession (context handoff) | **S1 in the code** — see [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
+| C7 model/provider reseat (switch mid-run) | **spec only** — see [`MODEL-PROVIDER-SWITCH.md`](./MODEL-PROVIDER-SWITCH.md) |
 | D human in the loop | **D1–D4 implemented** (Track 3 + follow-up) — goal UI, `user_message` wakes `await_events`, `ask_user` with ticket; D4 tiers `yolo`/`ask-user`/`ask-orchestrator` (store mirror to `yoloMaster`, contract approval rule, threat model in the README) |
 | E integrate / briefing / eval | **core implemented** (Track 6) — `integrate_branch` + gate warning + promote click, briefing + `repoNotes`, journal + resume (E3, briefing instead of re-spawn), budget wall clock, Janitor/Explorer, playbooks, extra MCP for workers (E6), loop eval (E5, `tests/integration/loopEval`) — Phase E complete |
 | F multi-orch (Lead, depth 1) | **implemented** (Track 5) — third identity `lead=`, own queues, `start_orchestrator`, fan-in of direct children only, reparent (`subtree_adopted`), caps host-side |
@@ -284,6 +285,23 @@ prose (roster, questions, next actions, decisions, risks, note, event tail),
 no additional JSON dump —, fence `succession_in_progress` on mutating tools,
 `record_retro` forbidden meanwhile. User button, C5 and C3 SHA hardening
 come later.
+
+### C7 model/provider reseat (switch mid-run)
+
+Provider and model are launch-time argv — a live PTY cannot be re-pointed.
+What a long run needs anyway: the root whose provider hit its rate limit, the
+worker that failed the same task twice, the phase that wants a stronger model.
+
+**Reseat** = same seat (role, slot, worktree, branch, queue, open questions),
+new process, context carried in a host-built package. For the root that is C6
+with one extra field (`request_succession{successor:{providerId, model,
+effort}}`) plus a preflight, because a wrong model string must refuse instead
+of leaving the run without a driver. For a worker it is a new tool
+(`reseat_agent`), because today's `stop_agent` + `start_agent` loses the
+uncommitted work, the open question, the identity and the slot — and cannot
+leave the profile's slots at all.
+
+Full plan: [`docs/MODEL-PROVIDER-SWITCH.md`](./MODEL-PROVIDER-SWITCH.md).
 
 ---
 
@@ -653,6 +671,7 @@ PR #17   A1–A3 + B Remote + H3 + C1 inspect_agent + C2 done facts
      └─ Phase C   C3/C4 snapshot commit + handoff package     later
             C5 orchestrator idle watchdog              later
             C6 orchestrator succession (context handoff)  S1
+            C7 model/provider reseat (needs C3 + C6)     spec
             F   multi-orch (root decides; needs C, does not need B)
             D   goal UI, user_message, ask_user (needs H1/H2)
             E   integrate/gate, briefing, resume, budget, eval
