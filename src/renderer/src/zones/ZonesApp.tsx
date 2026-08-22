@@ -227,7 +227,6 @@ export function ZonesApp({
             checked={editor.reflowNeighbors}
             disabled={!editor.ready}
             onChange={(event) => editor.setReflowNeighbors(event.target.checked)}
-            aria-label={t('zones.reflowNeighborsHint')}
           />
           <span>{t('zones.reflowNeighbors')}</span>
         </label>

@@ -273,6 +273,45 @@ describe('createCliWindow with a placement', () => {
     expect(second.bounds).toEqual(afterReflow)
   })
 
+  it('never reflows a window of another workspace, nor writes its rect into these zones', () => {
+    placement.setReflowNeighborsGetter(() => true)
+    const zones = {
+      zones: [
+        { roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 1 } },
+        { roleId: 'reviewer', displayId: 1, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }
+      ]
+    }
+    const persisted: Array<typeof zones> = []
+    const mine = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: {
+          roleId: 'worker',
+          zones,
+          workspaceId: 'ws-1',
+          onZonesChange: (next) => persisted.push(next)
+        }
+      })
+    )
+    // Same display, overlapping the gap the drag opens — but another run's.
+    const foreign = fake(
+      cli.createCliWindow('b', {
+        ...REVIEWER,
+        placement: { roleId: 'reviewer', zones, workspaceId: 'ws-2' }
+      })
+    )
+    const untouched = { ...foreign.bounds }
+
+    userGestures(mine, 'resize', { x: 0, y: 0, width: 600, height: 1040 })
+
+    expect(foreign.bounds).toEqual(untouched)
+    // One participant, so the layout it persists is this workspace's alone.
+    expect(persisted).toHaveLength(1)
+    expect(persisted[0]?.zones.filter((zone) => zone.roleId === 'reviewer')).toEqual(
+      zones.zones.filter((zone) => zone.roleId === 'reviewer')
+    )
+  })
+
   it('still pins a dragged window when reflow is off', () => {
     placement.setReflowNeighborsGetter(() => false)
     const first = fake(cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker' } }))

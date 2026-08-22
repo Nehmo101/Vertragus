@@ -220,9 +220,16 @@ function planFor(agentId: string, placement: CliWindowPlacement): PlacedWindow[]
   })
 }
 
-function liveWindowsForReflow(): LiveWindowInfo[] {
+/**
+ * The live windows a reflow may touch: the gesture's own tiling group. Same
+ * rule as {@link planFor} and {@link layoutCliWindows} — a window of another
+ * workspace is never re-tiled with this one, and its rectangle must not reach
+ * this profile's zones either (omitted workspace ids group with each other).
+ */
+function liveWindowsForReflow(workspaceId: string | undefined): LiveWindowInfo[] {
   const result: LiveWindowInfo[] = []
   for (const { agentId, window } of listCliWindows()) {
+    if (windowWorkspaceId(agentId) !== workspaceId) continue
     const entry = windows.get(agentId)
     result.push({
       agentId,
@@ -249,9 +256,10 @@ function reflowLiveNeighbors(agentId: string): void {
   if (previousDisplayId === undefined) return
 
   const rail = panelRail(displays)
+  const workspaceId = entry.options.placement.workspaceId
   const existingZones = zonesForPlan(entry.options.placement)
   const plan = planLiveReflow({
-    windows: liveWindowsForReflow(),
+    windows: liveWindowsForReflow(workspaceId),
     movedId: agentId,
     nextRect,
     previousDisplayId,
@@ -278,6 +286,7 @@ function reflowLiveNeighbors(agentId: string): void {
   rememberDisplay(agentId, entry.window.getBounds())
 
   for (const { agentId: otherId } of listCliWindows()) {
+    if (windowWorkspaceId(otherId) !== workspaceId) continue
     const other = windows.get(otherId)
     const placement = other?.options.placement
     if (!placement) continue
