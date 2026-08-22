@@ -20,6 +20,7 @@ import {
   resolveSelectedProfileId,
   shouldFocusWorkspaceOnToggle,
   workspaceCountByProfile,
+  workspaceIdToFocusForProfile,
   type SelectedWorkspaceId
 } from './viewModel'
 import './panel.css'
@@ -138,9 +139,13 @@ export function PanelApp(): React.JSX.Element {
                   profile={profile}
                   count={countsByProfile.get(profile.id) ?? 0}
                   selected={profile.id === activeProfileId}
-                  onSelect={(profileId) =>
-                    setSelectedProfileId(nextSelectedProfileId(activeProfileId, profileId))
-                  }
+                  onSelect={(profileId) => {
+                    const next = nextSelectedProfileId(activeProfileId, profileId)
+                    setSelectedProfileId(next)
+                    if (next === null) return
+                    const workspaceId = workspaceIdToFocusForProfile(workspaces, next)
+                    if (workspaceId) panel.focusWorkspace(workspaceId)
+                  }}
                   onStart={panel.startWorkspace}
                   onResume={panel.resumeWorkspace}
                   onEdit={panel.editProfile}

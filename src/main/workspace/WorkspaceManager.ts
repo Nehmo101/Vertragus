@@ -148,6 +148,14 @@ export interface WorkspaceManager {
    * single notification. This is what lets the panel stop polling.
    */
   onChange(listener: () => void): () => void
+  /**
+   * Feed a user-input chunk from an agent's CLI. Only the workspace whose
+   * orchestrator owns `agentId` is considered; a subagent is a no-op. First
+   * successful note sticks on {@link Workspace.goalText}; a start-with-goal
+   * is never overwritten. Later submits update the orchestrator's current
+   * task only. Fires {@link onChange} when either field changes.
+   */
+  noteOrchestratorGoal(agentId: string, chunk: string): boolean
 }
 
 function resolveValue<T>(source: T | (() => T)): T {
@@ -417,6 +425,14 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       return () => {
         changeListeners.delete(listener)
       }
+    },
+
+    noteOrchestratorGoal(agentId: string, chunk: string): boolean {
+      const workspace = [...workspaces.values()].find((ws) => ws.orchestrator?.agentId === agentId)
+      if (!workspace) return false
+      if (!workspace.noteOrchestratorGoal(chunk)) return false
+      notifyChange()
+      return true
     }
   }
 }

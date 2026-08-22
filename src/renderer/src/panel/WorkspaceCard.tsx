@@ -362,8 +362,9 @@ function Composer({
 }
 
 /**
- * One workspace card: Commedia name, agent count, stop. Only the expanded card
- * lists its agents — collapsed peers keep the head so the rail stays scannable.
+ * One workspace card: Commedia name, current goal, agent count, stop. Only the
+ * expanded card lists its agents — collapsed peers keep the head so the rail
+ * stays scannable. The goal line is shown collapsed and expanded.
  */
 export function WorkspaceCard({
   workspace,
@@ -441,6 +442,22 @@ export function WorkspaceCard({
           <StopIcon />
         </button>
       </header>
+      {goalLine ? (
+        workspace.goalText ? (
+          <p className="panel-card-goal" title={workspace.goalText}>
+            {goalLine}
+          </p>
+        ) : (
+          // No goal and the run is alive — the line is the way to fix that.
+          // It sits outside the expanded block like the line it replaces: a
+          // shut card must show the goal, and offer the field that fills it.
+          <GoalRefill
+            workspaceId={workspace.workspaceId}
+            hint={goalLine}
+            onAssign={onAssignGoal}
+          />
+        )
+      ) : null}
       {expanded ? (
         <>
           {workspace.orchestratorIdle ? (
@@ -461,20 +478,6 @@ export function WorkspaceCard({
             >
               {t('panel.replaceOrchestratorAction')}
             </button>
-          ) : null}
-          {goalLine ? (
-            workspace.goalText ? (
-              <p className="panel-card-goal" title={workspace.goalText}>
-                {goalLine}
-              </p>
-            ) : (
-              // No goal and the run is alive — the line is the way to fix that.
-              <GoalRefill
-                workspaceId={workspace.workspaceId}
-                hint={goalLine}
-                onAssign={onAssignGoal}
-              />
-            )
           ) : null}
           {workspace.userQuestion ? (
             <UserQuestion

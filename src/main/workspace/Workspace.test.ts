@@ -12,6 +12,7 @@ import { readSuccessionPackage } from './resume'
 import { buildReminderSuffix } from '@shared/prompts/contract'
 import { buildHandoffPackage } from '@shared/schema/handoff'
 import { ORCHESTRATOR_COLOR, ORCHESTRATOR_ROLE_ID, roleColor } from '@shared/prompts/roles'
+import { extraMcpServerSchema } from '@shared/schema/mcpServer'
 import {
   ORCHESTRATOR_IDLE_MS,
   PTY_ONLY_IDLE_HINT_MS,
@@ -139,6 +140,7 @@ describe('startAgent', () => {
     // Slot blueprint: role → provider + model.
     expect(launch.provider.id).toBe('claude')
     expect(launch.model).toBe('sonnet')
+    expect(launch.extraMcpServers ?? []).toEqual([])
 
     const meta = registry.registered[0]!.meta
     expect(meta).toMatchObject({
@@ -155,7 +157,7 @@ describe('startAgent', () => {
         title: started.name,
         roleColor: roleColor('worker', 0),
         // The window layer turns this into bounds (zone, else auto-tiling).
-        placement: { roleId: 'worker' }
+        placement: { roleId: 'worker', workspaceId: workspace.workspaceId }
       }
     ])
   })
@@ -171,7 +173,7 @@ describe('startAgent', () => {
         agentId: started.agentId,
         title: started.name,
         roleColor: roleColor('worker', 0),
-        placement: { roleId: 'worker', zones }
+        placement: { roleId: 'worker', zones, workspaceId: workspace.workspaceId }
       }
     ])
   })
@@ -717,6 +719,20 @@ describe('stopAgent', () => {
     await expect(workspace.stopAgent(started.agentId)).resolves.toBe(false)
     await expect(workspace.stopAgent('unknown')).resolves.toBe(false)
   })
+
+  it('puts extra MCP servers from deps onto the spawn input', async () => {
+    const extras = [
+      extraMcpServerSchema.parse({
+        id: 'github',
+        label: 'GitHub',
+        transport: 'stdio',
+        command: 'npx'
+      })
+    ]
+    const { workspace, spawns } = harness({ deps: { extraMcpServers: extras } })
+    await workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(spawns[0]!.input.extraMcpServers).toEqual(extras)
+  })
 })
 
 describe('readOutput', () => {
@@ -756,7 +772,7 @@ describe('startOrchestrator', () => {
       agentId: orchestrator.agentId,
       roleColor: ORCHESTRATOR_COLOR,
       // The orchestrator is placed by its own role key, not by a slot role.
-      placement: { roleId: ORCHESTRATOR_ROLE_ID }
+      placement: { roleId: ORCHESTRATOR_ROLE_ID, workspaceId: workspace.workspaceId }
     })
     expect(workspace.orchestrator).toMatchObject({ name: orchestrator.name })
   })
@@ -787,10 +803,13 @@ describe('startOrchestrator', () => {
     const { workspace, spawns, prompts } = harness({
       profile: testProfile({ orchestrator: { providerId: 'grok' } })
     })
-    await workspace.startOrchestrator({ initialPrompt: '  Fix the login bug  ' })
+    await workspace.startOrchestrator({
+      initialPrompt: '  Fix the login bug\nDefinition of done  '
+    })
 
-    expect(spawns[0]!.input.initialPrompt).toBe('Fix the login bug')
-    expect(workspace.goalText).toBe('Fix the login bug')
+    expect(spawns[0]!.input.initialPrompt).toBe('Fix the login bug\nDefinition of done')
+    expect(workspace.goalText).toBe('Fix the login bug\nDefinition of done')
+    expect(workspace.orchestratorTaskText).toBe('Fix the login bug')
     expect(prompts).toEqual([])
   })
 
@@ -799,6 +818,17 @@ describe('startOrchestrator', () => {
     await workspace.startOrchestrator({ initialPrompt: 'Fix the login bug' })
     expect(spawns[0]!.input.initialPrompt).toBeUndefined()
     expect(workspace.goalText).toBeUndefined()
+    expect(workspace.orchestratorTaskText).toBeUndefined()
+  })
+
+  it('does not replace a grok start-goal on a later CLI submit', async () => {
+    const { workspace } = harness({
+      profile: testProfile({ orchestrator: { providerId: 'grok' } })
+    })
+    await workspace.startOrchestrator({ initialPrompt: 'Fix the login bug' })
+    expect(workspace.noteOrchestratorGoal('later steering\r')).toBe(true)
+    expect(workspace.goalText).toBe('Fix the login bug')
+    expect(workspace.orchestratorTaskText).toBe('later steering')
   })
 })
 
@@ -1430,11 +1460,12 @@ describe('assignGoal — H2, the goal rides the assignment handshake', () => {
     await workspace.startOrchestrator()
     expect(workspace.goalText).toBeUndefined()
 
-    await workspace.assignGoal('Fix the login bug')
+    await workspace.assignGoal('Fix the login bug\nDefinition of done')
 
-    expect(prompts.at(-1)).toBe('Fix the login bug')
-    expect(spawns[0]!.pty.written).toContain('Fix the login bug')
-    expect(workspace.goalText).toBe('Fix the login bug')
+    expect(prompts.at(-1)).toBe('Fix the login bug\nDefinition of done')
+    expect(spawns[0]!.pty.written).toContain('Fix the login bug\nDefinition of done')
+    expect(workspace.goalText).toBe('Fix the login bug\nDefinition of done')
+    expect(workspace.orchestratorTaskText).toBe('Fix the login bug')
     // The goal comes straight from the user — always submitted, even when the
     // profile withholds Enter for assignments the orchestrator hands out.
     expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
@@ -1453,6 +1484,7 @@ describe('assignGoal — H2, the goal rides the assignment handshake', () => {
     const { workspace } = harness()
     await expect(workspace.assignGoal('Goal.')).rejects.toThrow(/no orchestrator/)
     expect(workspace.goalText).toBeUndefined()
+    expect(workspace.orchestratorTaskText).toBeUndefined()
   })
 
   it('refuses a SECOND goal — a running loop is steered, not re-briefed', async () => {
@@ -1478,6 +1510,64 @@ describe('assignGoal — H2, the goal rides the assignment handshake', () => {
     await workspace.startOrchestrator()
     seedOk.value = false
     await expect(workspace.assignGoal('Goal.')).rejects.toThrow(/did not accept the goal/)
+    expect(workspace.goalText).toBeUndefined()
+    expect(workspace.orchestratorTaskText).toBeUndefined()
+  })
+})
+
+describe('noteOrchestratorGoal — first CLI submit becomes goalText', () => {
+  it('records the first submitted note as goalText', () => {
+    const { workspace } = harness()
+    expect(workspace.noteOrchestratorGoal('Fix')).toBe(false)
+    expect(workspace.goalText).toBeUndefined()
+    expect(workspace.noteOrchestratorGoal(' the panel\r')).toBe(true)
+    expect(workspace.goalText).toBe('Fix the panel')
+    expect(workspace.orchestratorTaskText).toBe('Fix the panel')
+  })
+
+  it('does not replace a start-with-goal already on goalText', async () => {
+    const { workspace } = harness()
+    await workspace.startOrchestrator()
+    await workspace.assignGoal('Fix the login bug')
+    expect(workspace.orchestratorTaskText).toBe('Fix the login bug')
+    expect(workspace.noteOrchestratorGoal('later steering\r')).toBe(true)
+    expect(workspace.goalText).toBe('Fix the login bug')
+    expect(workspace.orchestratorTaskText).toBe('later steering')
+  })
+
+  it('first successful submit sticks; a later Enter updates only the orchestrator task', () => {
+    const { workspace } = harness()
+    expect(workspace.noteOrchestratorGoal('first assignment\r')).toBe(true)
+    expect(workspace.noteOrchestratorGoal('also look at X\r')).toBe(true)
+    expect(workspace.goalText).toBe('first assignment')
+    expect(workspace.orchestratorTaskText).toBe('also look at X')
+  })
+
+  it('keeps a multi-line CLI goal whole', () => {
+    const { workspace } = harness()
+    expect(
+      workspace.noteOrchestratorGoal('Fix the parser\nDefinition of done\r')
+    ).toBe(true)
+    expect(workspace.goalText).toBe('Fix the parser\nDefinition of done')
+    expect(workspace.orchestratorTaskText).toBe('Fix the parser')
+  })
+
+  it('a new workspace does not inherit a leftover assembler (unregister/reuse)', () => {
+    const first = harness()
+    expect(first.workspace.noteOrchestratorGoal('leftover partial')).toBe(false)
+    expect(first.workspace.goalText).toBeUndefined()
+
+    const again = harness()
+    expect(again.workspace.goalText).toBeUndefined()
+    expect(again.workspace.noteOrchestratorGoal('new assignment\r')).toBe(true)
+    expect(again.workspace.goalText).toBe('new assignment')
+    expect(first.workspace.goalText).toBeUndefined()
+  })
+
+  it('a closed workspace stops capturing', async () => {
+    const { workspace } = harness()
+    await workspace.close()
+    expect(workspace.noteOrchestratorGoal('too late\r')).toBe(false)
     expect(workspace.goalText).toBeUndefined()
   })
 })

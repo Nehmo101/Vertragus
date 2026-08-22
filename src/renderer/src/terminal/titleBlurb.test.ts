@@ -28,12 +28,12 @@ describe('metaBlurb', () => {
     )
   })
 
-  it('labels the orchestrator\'s line as delegated, not as its own task', () => {
+  it('shows the orchestrator\'s current task the same way as a subagent', () => {
     const card = metaBlurb(t, 'de', { name: 'Virgilio', role: 'orchestrator' }, 'Parser-Bug fixen')
     expect(card).toMatch(/Führer/)
-    expect(card).toContain('Zuletzt delegiert: Parser-Bug fixen')
+    expect(card).toContain('Aktuelle Aufgabe: Parser-Bug fixen')
     expect(
       metaBlurb(en, 'en', { name: 'Virgilio', role: 'orchestrator' }, 'Parser-Bug fixen')
-    ).toContain('Last delegated: Parser-Bug fixen')
+    ).toContain('Current task: Parser-Bug fixen')
   })
 })

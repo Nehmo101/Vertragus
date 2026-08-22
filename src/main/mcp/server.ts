@@ -130,14 +130,16 @@ export interface McpServerHandle {
   ): Promise<AnswerQuestionOutcome | { ok: false; error: 'unknown_workspace'; questionId: string }>
   /**
    * The latest assignment the orchestrator handed out in this workspace,
-   * shortened to one line. The panel appends it to the workspace tooltip.
+   * shortened to one line. Last delegated work, not the user's workspace goal
+   * — the panel workspace hover reads the Workspace's `goalText`.
    */
   workspaceTask(workspaceId: string): string | undefined
   /**
-   * One agent's current assignment, shortened to one line — what the panel's
-   * agent rows and the CLI windows' hover cards show. Undefined before the
-   * agent got its first task (and for the orchestrator, which is never
-   * assigned one through these tools — see {@link workspaceTask}).
+   * One subagent's current assignment, shortened to one line — what the
+   * panel's agent rows and the CLI windows' hover cards show. Undefined before
+   * the agent got its first task (and for the orchestrator, which is never
+   * assigned one through these tools — its current task is the latest user
+   * CLI submit on the Workspace).
    */
   agentTask(workspaceId: string, agentId: string): string | undefined
   /**
