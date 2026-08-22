@@ -84,11 +84,11 @@ describe('English is actually English', () => {
 
 describe('locale resolution', () => {
   it('follows the desktop hello.locale, defaulting to the authored German', () => {
-    expect(remoteCopy('de').brandRemote).toBe('Fernzugriff')
-    expect(remoteCopy('en').brandRemote).toBe('Remote')
+    expect(remoteCopy('de').connected).toBe('verbunden')
+    expect(remoteCopy('en').connected).toBe('connected')
     // BCP-47 variants of English count as English; anything unknown stays German.
-    expect(remoteCopy('en-US').brandRemote).toBe('Remote')
-    expect(remoteCopy('fr').brandRemote).toBe('Fernzugriff')
+    expect(remoteCopy('en-US').connected).toBe('connected')
+    expect(remoteCopy('fr').connected).toBe('verbunden')
   })
 
   it('reduces the locale to the `lang` the document gets, by the same rule', () => {

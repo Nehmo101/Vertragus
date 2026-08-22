@@ -12,7 +12,6 @@ export type RemoteLocale = 'de' | 'en'
 export interface RemoteCopy {
   // --- shell -------------------------------------------------------------
   wordmark: string
-  brandRemote: string
   connected: string
   connecting: string
   reconnecting: string
@@ -50,8 +49,6 @@ export interface RemoteCopy {
   // --- overview ----------------------------------------------------------
   empty: string
   emptyHint: string
-  ended: string
-  endedCount: (count: number) => string
   hideEnded: string
   showEnded: (count: number) => string
   newWorkspace: string
@@ -146,7 +143,6 @@ export interface RemoteCopy {
 
 const de: RemoteCopy = {
   wordmark: 'VERTRAGVS',
-  brandRemote: 'Fernzugriff',
   connected: 'verbunden',
   connecting: 'verbinde …',
   reconnecting: 'verbinde neu …',
@@ -174,8 +170,6 @@ const de: RemoteCopy = {
   themeToggle: (next) => `Darstellung umschalten (${next})`,
   empty: 'Keine laufenden Workspaces.',
   emptyHint: 'Starte oben einen Workspace aus einem Profil.',
-  ended: 'beendet',
-  endedCount: (count) => (count === 1 ? '1 beendeter Workspace' : `${count} beendete Workspaces`),
   hideEnded: 'Beendete ausblenden',
   showEnded: (count) => `Beendete anzeigen (${count})`,
   newWorkspace: 'Neuer Workspace',
@@ -268,7 +262,6 @@ const de: RemoteCopy = {
 
 const en: RemoteCopy = {
   wordmark: 'VERTRAGVS',
-  brandRemote: 'Remote',
   connected: 'connected',
   connecting: 'connecting …',
   reconnecting: 'reconnecting …',
@@ -295,8 +288,6 @@ const en: RemoteCopy = {
   themeToggle: (next) => `Switch appearance (${next})`,
   empty: 'No running workspaces.',
   emptyHint: 'Start a workspace from a profile above.',
-  ended: 'ended',
-  endedCount: (count) => (count === 1 ? '1 ended workspace' : `${count} ended workspaces`),
   hideEnded: 'Hide ended',
   showEnded: (count) => `Show ended (${count})`,
   newWorkspace: 'New workspace',
