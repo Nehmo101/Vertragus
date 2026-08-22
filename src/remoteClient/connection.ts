@@ -17,7 +17,17 @@
 export const RECONNECT_BASE_MS = 500
 /** Backoff ceiling. A wake-up bypasses it — see `decideWake`. */
 export const RECONNECT_MAX_MS = 10_000
-/** Silence after which an open socket has to prove itself. */
+/**
+ * Silence after which an open socket has to prove itself.
+ *
+ * Deliberately unchanged now that the overview renders a question inbox and a
+ * task board off the same `workspaces` payload, which makes the probe's answer
+ * more expensive to diff. The probe fires on SILENCE, not on activity: a busy
+ * session pushes on its own and never reaches this timer, so the only pushes
+ * this rule adds are the ones that arrive when nothing has happened — exactly
+ * when the diff is cheapest. `isSamePayload` below makes that case free.
+ * Raising the window would only lengthen how long a dead route looks alive.
+ */
 export const LIVENESS_SILENCE_MS = 30_000
 /** How long that proof may take before the socket counts as dead. */
 export const LIVENESS_PROBE_TIMEOUT_MS = 10_000
@@ -85,4 +95,20 @@ export function decideWake(readyState: number | null): WakeAction {
   // second socket against it is how double-connects start.
   if (readyState === CONNECTING) return 'wait'
   return 'reconnect'
+}
+
+/**
+ * Whether an inbound push carries state the client already has.
+ *
+ * The liveness probe is a `refresh`, and the server answers it with a full
+ * `workspaces` push whether or not anything changed. Handing that array
+ * straight to `setState` would hand React a new identity every 30 idle
+ * seconds and re-run every `useMemo` keyed on it — the ordering, the question
+ * inbox, the task board — to produce byte-identical output. Comparing first
+ * costs one serialization of a list of workspace summaries; the payloads
+ * being compared both came off the same wire and the same serializer, so key
+ * order is stable and a string compare is a faithful deep compare here.
+ */
+export function isSamePayload(previous: unknown, next: unknown): boolean {
+  return JSON.stringify(previous) === JSON.stringify(next)
 }

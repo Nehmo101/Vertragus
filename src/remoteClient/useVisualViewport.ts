@@ -30,9 +30,7 @@
  * `visualViewport`.
  */
 import { useEffect } from 'react'
-
-/** Selector for the fields worth keeping above the keyboard. */
-const EDITABLE = 'input, textarea, select, [contenteditable="true"]'
+import { decideReveal, EDITABLE_SELECTOR, type AncestorBox } from './revealPolicy'
 
 /**
  * Quiet period before the focused field is scrolled into view. The keyboard
@@ -62,25 +60,49 @@ function measure(): Geometry {
 }
 
 /**
+ * The focused element's ancestors, nearest first, as `decideReveal` wants
+ * them. A generator, so the `getComputedStyle` per step is only paid for the
+ * ancestors the decision actually reaches — usually two or three.
+ */
+function* ancestorBoxes(element: HTMLElement): Generator<AncestorBox> {
+  for (let node = element.parentElement; node !== null; node = node.parentElement) {
+    const style = window.getComputedStyle(node)
+    yield {
+      position: style.position,
+      overflowY: style.overflowY,
+      scrollHeight: node.scrollHeight,
+      clientHeight: node.clientHeight
+    }
+  }
+}
+
+/**
  * Scroll the focused field back into the visible viewport. The overview is
  * document-scrolled, so when the keyboard opens over a field near the bottom
  * the browser's own "scroll focused element into view" has already run against
  * the *old*, taller viewport and left the field under the keys.
+ *
+ * Every reason NOT to scroll lives in `revealPolicy.ts` — including the one
+ * that matters most, that the terminal's composer sits in a `position: fixed`
+ * overlay a document scroll cannot move but would scroll the parked overview
+ * out from under anyway.
  */
 function revealFocus(geometry: Geometry): void {
   const element = document.activeElement
-  if (!(element instanceof HTMLElement) || !element.matches(EDITABLE)) return
+  if (!(element instanceof HTMLElement)) return
+  const style = window.getComputedStyle(element)
   const rect = element.getBoundingClientRect()
-  // xterm parks a transparent, near-zero-size textarea at the cursor to
-  // receive key events. It matches the selector, it takes focus, and scrolling
-  // *it* into view would yank the page under the terminal for no reason.
-  if (rect.width < 8 || rect.height < 8 || window.getComputedStyle(element).opacity === '0') {
-    return
-  }
-  const top = geometry.offsetTop
-  const bottom = top + geometry.height
-  const margin = 16
-  if (rect.top >= top + margin && rect.bottom <= bottom - margin) return
+  const decision = decideReveal({
+    target: {
+      editable: element.matches(EDITABLE_SELECTOR),
+      opacity: style.opacity,
+      visibility: style.visibility,
+      rect: { top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height }
+    },
+    band: { top: geometry.offsetTop, bottom: geometry.offsetTop + geometry.height },
+    ancestors: ancestorBoxes(element)
+  })
+  if (decision !== 'reveal') return
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   element.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
 }

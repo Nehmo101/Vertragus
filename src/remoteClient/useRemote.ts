@@ -34,6 +34,7 @@ import type {
 import {
   decideLiveness,
   decideWake,
+  isSamePayload,
   LIVENESS_TICK_MS,
   reconnectDelayMs,
   tokenFromHash
@@ -176,11 +177,21 @@ export function useRemote(): RemoteApi {
     for (const pending of parked) pending.reject(new Error(message))
   }, [])
 
+  /**
+   * Keep the previous array when a push says nothing new. The liveness probe
+   * answers with a full `workspaces` frame on a schedule, and the overview
+   * derives its ordering, its question inbox and its task board from that
+   * array's identity — see `isSamePayload`.
+   */
+  const applyWorkspaces = useCallback((next: RemoteWorkspaceSummary[]) => {
+    setWorkspaces((previous) => (isSamePayload(previous, next) ? previous : next))
+  }, [])
+
   const dispatch = useCallback(
     (message: ServerMessage) => {
       switch (message.type) {
         case 'hello':
-          setWorkspaces(message.workspaces)
+          applyWorkspaces(message.workspaces)
           setTheme(message.theme)
           setLocale(message.locale)
           setPhase('ready')
@@ -189,7 +200,7 @@ export function useRemote(): RemoteApi {
           for (const agentId of attachedAgents.current) sendRaw({ type: 'attach', agentId })
           break
         case 'workspaces':
-          setWorkspaces(message.workspaces)
+          applyWorkspaces(message.workspaces)
           break
         case 'snapshot':
           terminalHandlers.current
@@ -228,7 +239,7 @@ export function useRemote(): RemoteApi {
           break
       }
     },
-    [sendRaw]
+    [applyWorkspaces, sendRaw]
   )
 
   const connect = useCallback(() => {

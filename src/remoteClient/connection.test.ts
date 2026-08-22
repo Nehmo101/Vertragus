@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   decideLiveness,
   decideWake,
+  isSamePayload,
   LIVENESS_PROBE_TIMEOUT_MS,
   LIVENESS_SILENCE_MS,
   RECONNECT_BASE_MS,
@@ -102,5 +103,28 @@ describe('decideWake', () => {
 
   it('probes a socket that claims to be open', () => {
     expect(decideWake(1)).toBe('probe')
+  })
+})
+
+describe('isSamePayload', () => {
+  const list = [
+    { workspaceId: 'a', agents: [{ id: '1', status: 'running' }] },
+    { workspaceId: 'b', agents: [] }
+  ]
+
+  it('recognizes the unchanged answer a liveness probe gets back', () => {
+    expect(isSamePayload(list, structuredClone(list))).toBe(true)
+    expect(isSamePayload([], [])).toBe(true)
+  })
+
+  it('sees a change anywhere in the payload, however deep', () => {
+    const changed = structuredClone(list)
+    changed[0].agents[0].status = 'waiting'
+    expect(isSamePayload(list, changed)).toBe(false)
+  })
+
+  it('sees an added, removed or reordered entry', () => {
+    expect(isSamePayload(list, list.slice(0, 1))).toBe(false)
+    expect(isSamePayload(list, [...list].reverse())).toBe(false)
   })
 })

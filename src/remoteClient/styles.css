@@ -18,7 +18,10 @@
  *
  * `--vv-height`, `--keyboard-inset` and `--vv-offset-top` are declared here as
  * fallbacks only; `useVisualViewport.ts` owns them at runtime and documents
- * their contract.
+ * their contract. The fallbacks below are the answer for a browser with no
+ * `visualViewport` — and for the first paint, before the hook's effect runs —
+ * where the visible viewport IS the layout viewport: no shift, no keyboard
+ * inset, full dynamic height. `terminal.css` consumes all three.
  */
 
 @font-face {
@@ -199,7 +202,14 @@ select,
 textarea {
   font: inherit;
   color: inherit;
-  /* No 300 ms double-tap wait, and no double-tap zoom on a control. */
+  /*
+   * No 300 ms double-tap wait, and no double-tap zoom on a control. This does
+   * not undo the stricter `touch-action` the terminal's rows declare: the
+   * behaviour for a touch is the INTERSECTION of `touch-action` down the
+   * ancestor chain, so a `pan-x` bar containing a `manipulation` button still
+   * refuses a vertical pan. Only a value *wider* than an ancestor's would be
+   * ignored, and `manipulation` is the widest thing worth writing here.
+   */
   touch-action: manipulation;
   -webkit-tap-highlight-color: color-mix(in srgb, var(--bronze) 18%, transparent);
   accent-color: var(--bronze);
@@ -377,9 +387,13 @@ button:focus-visible {
 /*
  * `backdrop-filter` makes this a stacking context *and* a containing block for
  * fixed descendants. That is safe here only because the terminal is a sibling
- * route, not a child: App.tsx returns `<RemoteTerminal>` instead of the shell,
- * so `.terminal-view`'s `position: fixed` never resolves against this element.
- * Nesting a fixed overlay under the header would silently trap it.
+ * of `.app`, never a descendant of this header: App.tsx renders `.app` and
+ * `<RemoteTerminal>` side by side under one fragment — the shell stays mounted
+ * and merely goes `visibility: hidden` — so `.terminal-view`'s
+ * `position: fixed` resolves against the viewport, which is what
+ * `--vv-offset-top` / `--vv-height` assume. Nesting a fixed overlay under this
+ * header, or giving `.app` a filter or transform of its own, would silently
+ * trap it and break both.
  */
 .app-header {
   position: sticky;
