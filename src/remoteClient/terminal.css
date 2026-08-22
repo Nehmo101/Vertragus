@@ -1,0 +1,491 @@
+/*
+ * Vertragus remote client — TERMINAL sheet: the full-screen agent terminal,
+ * its history controls, its key row and its input bar. Consumes the brand
+ * tokens defined in `styles.css`; the few variables declared here are
+ * component-scoped and start with `--term-`.
+ *
+ * The stack is a column pinned to the *visible* viewport (`--vv-height` /
+ * `--vv-offset-top`, published by `useVisualViewport.ts`), and the terminal is
+ * the only part of it that flexes. Everything else keeps its 44 px of touch
+ * target no matter how little room is left.
+ *
+ * This sheet also has to defend the document behind it. `App.tsx` keeps the
+ * overview mounted under the terminal — `visibility: hidden`, so its box, and
+ * therefore the document height and the reader's scroll offset, survive — which
+ * means the page below is still a live scroller. Every row of this overlay
+ * declares a `touch-action` that denies it a vertical pan, or a drag on the
+ * header would quietly scroll the list the user expects to come back to.
+ *
+ * That defence has to be this sheet's alone. The overview being invisible is a
+ * treatment in someone else's file and could reasonably change, so nothing
+ * here leans on it: `.terminal-view` states its own stacking position, and the
+ * layers inside it state their own order rather than inheriting one from
+ * source order, from xterm's private ladder, or from a rule in `styles.css` /
+ * `overview.css`.
+ *
+ * `pinch-zoom` rather than `none` wherever a row denies panning. The meta
+ * viewport lets this document zoom and the overlay is most of the screen, so a
+ * habitual pinch landing on nothing would be a dead spot in the app — the A−/A+
+ * font controls are a deliberate alternative, not a replacement for the
+ * gesture. It costs the panning guarantee nothing: `pinch-zoom` grants no
+ * one-finger pan, and `pan-x pinch-zoom` still denies the vertical one.
+ *
+ * Over the terminal itself the pinch only survives because `RemoteTerminal.tsx`
+ * takes the touch stream in the capture phase and drops its own drag the
+ * moment a second finger lands. xterm's built-in touch scrolling, which reads
+ * `touches[0]` unconditionally and would pan the buffer under a pinch, never
+ * sees the event.
+ */
+
+.terminal-view {
+  --term-gap: 8px;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  /*
+   * Not `inset: 0`. A fixed box is placed against the *layout* viewport, and
+   * iOS does not always shrink the visual viewport when the keyboard opens —
+   * in several states it shifts it down instead — so a `top: 0` overlay sits
+   * above the visible area by exactly `--vv-offset-top`.
+   */
+  top: var(--vv-offset-top, 0px);
+  left: 0;
+  right: 0;
+  /*
+   * Height, not `bottom: 0`: on iOS the keyboard does not move a fixed box, so
+   * `bottom` would resolve against the layout viewport and land under the keys.
+   * With `top` no longer 0, `top`+`bottom`+`height` would also be
+   * over-constrained and the `bottom` dropped — this says the same thing once.
+   *
+   * Both fallbacks are the no-`visualViewport` answer, where the visible
+   * viewport *is* the layout viewport: no shift, full dynamic height.
+   */
+  height: var(--vv-height, 100dvh);
+  /*
+   * Above every positioned layer of the page this covers: `.app-header` is
+   * `z-index: 8` (styles.css) and `.to-top` is `7` (overview.css), and both
+   * sit in the root stacking context alongside this box. `9` is one clear of
+   * the highest of them; raise it if a taller layer ever appears down there.
+   *
+   * Not a duplicate of the overview's `visibility: hidden`. That rule stops
+   * the header painting today, but it is a treatment in another sheet — drop
+   * it and a sticky header at `8` punches straight through an overlay left at
+   * `auto`.
+   *
+   * The number also buys containment: a positioned box with a z-index is a
+   * stacking context, so every layer inside the terminal is sealed in here and
+   * can no longer compete with the page's own.
+   */
+  z-index: 9;
+  background: var(--bg);
+  overflow: hidden;
+  /* Nothing that starts in here may chain out to the document underneath. */
+  overscroll-behavior: contain;
+}
+
+/* --- header --- */
+.terminal-header {
+  display: flex;
+  align-items: center;
+  gap: var(--term-gap);
+  padding: max(8px, env(safe-area-inset-top)) 10px 8px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+  /* See the docblock: a drag here must not pan the overview behind. */
+  touch-action: pinch-zoom;
+}
+
+.back {
+  min-width: var(--touch);
+  min-height: var(--touch);
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 2rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.terminal-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 650;
+  color: var(--role, var(--text));
+  overflow-wrap: anywhere;
+}
+
+.dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.dot.live {
+  background: var(--verdigris-bright);
+}
+.dot.dead {
+  background: var(--idle);
+}
+
+.icon {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch);
+  min-height: var(--touch);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+/*
+ * Expanded means the search row below is open, and three things already say
+ * so: the glyph swaps shape (search -> close), `aria-expanded` says it to a
+ * screen reader, and the disclosed row is on screen underneath.
+ *
+ * The ink is `--bronze-strong`, not `--bronze`. Plain `--bronze` is a FILL
+ * token (see styles.css) — as a glyph on this button's own `--surface-2` it
+ * measures 2.93:1 on the light theme, under even the 3:1 a graphical object
+ * owes. `--bronze-strong` is 4.89:1 there, and on dark it resolves to
+ * `--bronze`, where this line is a no-op at an unchanged 6.78:1.
+ *
+ * The border stays at `--accent-line` — 45% bronze, so 1.55:1 against
+ * `--surface-2` on light — with its eyes open. It is a warmer restatement of
+ * the `--hairline` shape border above (itself 1.32:1), not a state carrier:
+ * every cue listed above survives without it, so nothing depends on seeing
+ * it and the 3:1 a *state* border would owe does not apply. Raising the
+ * token is not the fix either — it is also the scrollbar thumb and the
+ * dividers, where 45% is right. If this button ever loses the glyph swap the
+ * state lands on the border alone and it earns a token of its own at 3:1;
+ * ask for one rather than thickening `--accent-line` here.
+ */
+.icon-btn[aria-expanded='true'] {
+  border-color: var(--accent-line);
+  color: var(--bronze-strong);
+}
+
+/* --- search over the scrollback --- */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+  /* `pan-x`, not the bare denial: the field's own text still has to be
+     draggable sideways when a query outgrows it, and the document cannot pan
+     on that axis (`html` is `overflow-x: clip`). */
+  touch-action: pan-x pinch-zoom;
+}
+
+.search-bar input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--touch);
+  padding: 8px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.search-count {
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.search-bar button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch);
+  min-height: var(--touch);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* --- the terminal itself --- */
+.terminal-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  /* The strip the jump-to-latest pill floats over is stage, not host. */
+  touch-action: pinch-zoom;
+}
+
+.terminal-host {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px;
+  overflow: hidden;
+  /*
+   * xterm keeps a private z-index ladder inside the box it renders into —
+   * helpers at 5, decorations at 6–8, the accessibility overlay at 10 — and
+   * puts none of it in a stacking context of its own. Left alone those layers
+   * escape to the nearest one and rank against ours; the pill below is the
+   * first thing they would bury. Isolating seals the ladder in here, where it
+   * orders xterm's own layers and nothing else.
+   */
+  isolation: isolate;
+  /*
+   * The drag over this surface is ours (see RemoteTerminal): the browser must
+   * not also pan, or every scroll fights a rubber band it cannot win. It may
+   * still pinch — the drag drops the gesture the moment a second finger lands.
+   */
+  touch-action: pinch-zoom;
+  overscroll-behavior: contain;
+}
+
+.terminal-host .xterm {
+  height: 100%;
+}
+
+/*
+ * `styles.css` gives every `textarea` a 3.2em floor for the composer's sake,
+ * and xterm's helper textarea is a `textarea`: `xterm.css` sets its `height` to
+ * 0 but no `min-height`, and `min-height` wins. Left alone that is a ~51 px
+ * focusable box parked inside the terminal. The floor is a composer rule; it
+ * has no business here.
+ */
+.terminal-host .xterm-helper-textarea {
+  min-height: 0;
+}
+
+/*
+ * `.xterm-viewport` is the only real scroller inside this overlay, so it is
+ * where a chain out to the document would actually start — the ancestors above
+ * declare it too, but this is the element that would do it.
+ *
+ * The scrollbar below is a desktop affordance, not the phone's. iOS draws
+ * overlay scrollbars only during a *native* scroll gesture, and the drag here
+ * is ours: nothing native ever scrolls this element, so the thumb stays
+ * invisible on the device this client exists for. The phone's position
+ * indicator is the paused pill and the jump-to-latest control, which is why
+ * both are load-bearing rather than decorative.
+ */
+.terminal-host .xterm-viewport {
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-line) transparent;
+}
+.terminal-host .xterm-viewport::-webkit-scrollbar {
+  width: 6px;
+}
+.terminal-host .xterm-viewport::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--accent-line);
+}
+
+.jump-latest {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  /*
+   * Above the terminal it floats over. The host is isolated, so this only has
+   * to clear the host itself rather than xterm's ladder — but it says so with
+   * a number instead of resting on "positioned paints after in-flow", which is
+   * the kind of order a later sibling or a stray `position` quietly rewrites.
+   */
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--touch);
+  padding: 0 16px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  /* `--bronze` as a FILL, which is the one thing it is for: `--on-bronze` on
+     it is 4.99:1 light / 7.38:1 dark, and the pill itself is 3.09:1 against
+     the `--bg` it floats over, so its edge is findable without the border.
+     Do not "upgrade" this to `--bronze-strong` — that is the ink token, and
+     `--on-bronze` on it is 2.99:1. */
+  background: var(--bronze);
+  color: var(--on-bronze);
+  font-size: 0.88rem;
+  font-weight: 650;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  animation: term-rise 140ms ease-out;
+}
+
+@keyframes term-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* --- history controls --- */
+.nav-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--hairline);
+  background: var(--surface);
+  touch-action: pinch-zoom;
+}
+
+.nav-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch);
+  min-height: var(--touch);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.nav-gap {
+  flex: 1 1 auto;
+}
+
+.font-btn {
+  font-weight: 700;
+}
+
+.terminal-note {
+  margin: 0;
+  padding: 6px 12px;
+  border-top: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 0.85rem;
+  touch-action: pinch-zoom;
+}
+
+/*
+ * Announced, never drawn: the follow/paused state, and the spoken form of the
+ * match counter, whose visible `3/17` is too terse to read out.
+ */
+.terminal-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* --- key row --- */
+.key-row {
+  padding: 8px 0 8px 10px;
+  border-top: 1px solid var(--hairline);
+  background: var(--surface);
+  /* `pan-x` so the key scroller below still works: `touch-action` is
+     intersected down the ancestor chain, so a denial here would freeze it. */
+  touch-action: pan-x pinch-zoom;
+}
+
+/*
+ * The scroller carries the fade, not `.key-row`: masking the row would fade
+ * its background strip too. The fade is what tells a thumb there are more
+ * keys past the right edge — on a wide screen it lands on empty space and
+ * costs nothing.
+ *
+ * A mask is also what keeps this layer honest: a non-`none` `mask-image` makes
+ * a stacking context, so the buttons are sealed in the scroller and the fade
+ * needs no z-index at all. Replacing it with an overlaid gradient — a pseudo
+ * element or an extra div — would put a painted layer back in open competition
+ * with the keys, and would then owe this sheet an explicit order.
+ */
+.key-scroller {
+  display: flex;
+  gap: var(--term-gap);
+  padding-right: 10px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+.key-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.key-scroller button {
+  flex: 0 0 auto;
+  min-width: var(--touch);
+  min-height: var(--touch);
+  padding: 0 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+/*
+ * The session ended. Every byte these two rows would send is dropped by the
+ * bridge, so they say so rather than answering a tap with silence. Matches the
+ * shell's `.primary:disabled` treatment.
+ */
+.key-scroller button:disabled,
+.input-bar input:disabled,
+.input-bar button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* --- input bar --- */
+.input-bar {
+  display: flex;
+  gap: var(--term-gap);
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--hairline);
+  background: var(--surface);
+  /* `pan-x` for the same reason as the search bar: a long command line stays
+     draggable, the document stays put. */
+  touch-action: pan-x pinch-zoom;
+}
+
+.input-bar input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--touch);
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.input-bar button {
+  min-height: var(--touch);
+  padding: 0 18px;
+  border: none;
+  border-radius: 12px;
+  /* Fill, not ink — same pairing as `.jump-latest` above, same warning. */
+  background: var(--bronze);
+  color: var(--on-bronze);
+  font-weight: 650;
+}

@@ -23,10 +23,10 @@ import { WebSocket, WebSocketServer } from 'ws'
 import { runRemoteCommand, type RemoteGatewayHost } from './gateway'
 import { createTerminalBridge } from './terminalBridge'
 import { RemoteAuthStore, type AuthStoreDeps, type RemoteSession } from './auth'
-import { indexPath, resolveStaticPath } from './staticFiles'
+import { indexPath, resolveStaticPath, withWebSocketConnectSrc } from './staticFiles'
 import type { TerminalDirectory } from '@main/ipc'
 import type { RemoteClientInfo } from '@shared/remote/types'
-import { parseClientMessage, type ServerMessage } from '@shared/remote/protocol'
+import { parseClientMessage, type ClientMessage, type ServerMessage } from '@shared/remote/protocol'
 
 const MAX_BODY_BYTES = 64 * 1024
 /** Cap a single WebSocket frame — the zod caps run only after ws buffers it. */
@@ -36,6 +36,49 @@ const MAX_CONNECTIONS = 64
 /** Drop a slow reader whose outbound buffer grows past this. */
 const SOCKET_BUFFER_CEILING_BYTES = 8 * 1024 * 1024
 export const REMOTE_DEFAULT_PORT = 9482
+
+/**
+ * Which frames count as the client being USED, for the session's idle timer,
+ * as opposed to the client checking that the wire still works.
+ *
+ * An ALLOW-LIST, and deliberately so. The rule this encodes is "only frames a
+ * human caused", and an exclusion list gets that backwards: it makes activity
+ * the default, so the next liveness-ish verb — a ping, a presence beat, a
+ * pull-to-refresh under another name — silently counts as a human and breaks
+ * the expiry again without anyone editing this function. A new verb now has to
+ * be classified here before it can renew anything.
+ *
+ * `refresh` is the frame the rule exists for: it is both the overview's reload
+ * and the client's liveness probe — the same frame, because a browser cannot
+ * send a WebSocket ping and the protocol deliberately has no verb to spare. A
+ * phone with the tab open probes every 30 s forever, so touching the session on
+ * `refresh` would mean {@link SESSION_IDLE_MS} could never elapse for any
+ * client that stayed connected — an idle expiry that expires nothing.
+ *
+ * The cost of that choice is explicit: a user who does nothing but pull to
+ * refresh does not extend their session. Opening the client does (`auth`
+ * touches), and so does every attach, input, resize and command.
+ *
+ * One honest residual: `attach` is on the list because opening a terminal is a
+ * human act, but the client also re-attaches every watched agent automatically
+ * on every reconnect. A tab left open on a terminal through enough network
+ * churn therefore renews the window without a human. Given that the client
+ * re-pairs straight through an expiry anyway (see {@link SESSION_IDLE_MS}),
+ * that is a smaller hole than it looks, and closing it would need the protocol
+ * to say which attaches were asked for.
+ */
+const USER_ACTIVITY_TYPES = new Set<ClientMessage['type']>([
+  'auth',
+  'attach',
+  'detach',
+  'input',
+  'resize',
+  'command'
+])
+
+export function refreshesIdleTimer(type: ClientMessage['type']): boolean {
+  return USER_ACTIVITY_TYPES.has(type)
+}
 
 /** True for a bare IP literal (v4 or v6) — never a DNS name. */
 function isIpLiteral(host: string): boolean {
@@ -205,13 +248,26 @@ export async function startRemoteServer(
       res.writeHead(403).end()
       return
     }
+    // HTML is the one thing served with a substitution in it: the page's CSP
+    // names its own WebSocket origin, which only the request knows. See
+    // `withWebSocketConnectSrc` — everything else goes out as the bytes on
+    // disk.
+    const sendHtml = (contentType: string, html: Buffer): void => {
+      res
+        .writeHead(200, { 'Content-Type': contentType })
+        .end(withWebSocketConnectSrc(html.toString('utf8'), req.headers.host))
+    }
     try {
       const file = await readFile(resolution.absolutePath)
+      if (resolution.contentType.startsWith('text/html')) {
+        sendHtml(resolution.contentType, file)
+        return
+      }
       res.writeHead(200, { 'Content-Type': resolution.contentType }).end(file)
     } catch {
       try {
         const fallback = await readFile(indexPath(options.staticRoot))
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(fallback)
+        sendHtml('text/html; charset=utf-8', fallback)
       } catch {
         res.writeHead(404).end()
       }
@@ -265,7 +321,9 @@ export async function startRemoteServer(
           }
           const session = auth.touch(message.session)
           if (!session) {
-            send(socket, { type: 'session_revoked' })
+            // Unknown or idle-expired — not a decision about this device, so
+            // the client may silently re-pair from its stored pairing token.
+            send(socket, { type: 'session_revoked', reason: 'expired' })
             socket.close()
             return
           }
@@ -285,16 +343,21 @@ export async function startRemoteServer(
           return
         }
 
-        // Every subsequent message refreshes the session's idle timer.
-        if (!auth.touch(connection.session.token)) {
-          send(socket, { type: 'session_revoked' })
+        // Every subsequent message revalidates the session; only the ones that
+        // are evidence of a user refresh its idle timer (see
+        // `refreshesIdleTimer`).
+        const live = refreshesIdleTimer(message.type)
+          ? auth.touch(connection.session.token)
+          : auth.verify(connection.session.token)
+        if (!live) {
+          send(socket, { type: 'session_revoked', reason: 'expired' })
           socket.close()
           return
         }
 
         switch (message.type) {
           case 'attach':
-            connection.bridge.attach(message.agentId)
+            connection.bridge.attach(message.agentId, message.resume)
             break
           case 'detach':
             connection.bridge.detach(message.agentId)
@@ -364,12 +427,15 @@ export async function startRemoteServer(
       })),
     revoke(id: string): boolean {
       const revoked = auth.revoke(id)
-      // Close any live socket whose session just died.
+      // Close any live socket whose session just died. `verify`, not `touch`:
+      // revoking one client must not renew every other client's idle timer.
       for (const connection of [...clients]) {
-        if (!auth.touch(connection.session.token)) {
-          send(connection.socket, { type: 'session_revoked' })
-          connection.socket.close()
-        }
+        if (auth.verify(connection.session.token)) continue
+        // Only the device the user actually revoked is told so; anything else
+        // that died here died of old age and may re-pair on its own.
+        const reason = revoked && connection.session.id === id ? 'revoked' : 'expired'
+        send(connection.socket, { type: 'session_revoked', reason })
+        connection.socket.close()
       }
       return revoked
     },

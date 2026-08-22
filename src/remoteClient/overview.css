@@ -1,0 +1,767 @@
+/*
+ * Vertragus remote client — OVERVIEW sheet: the workspace list and
+ * everything inside a card (agent rows, questions, task board, composer,
+ * the start form). Consumes the brand tokens defined in `styles.css`.
+ */
+
+/*
+ * The overview stays mounted while a terminal covers it (see App.tsx), so it
+ * has to stop being *reachable* without stopping being *laid out*: the
+ * document height is what the scroll offset is measured against, and
+ * `display: none` would collapse it and throw that offset away.
+ * `visibility: hidden` keeps the box, drops the paint, the hit-test and the
+ * accessibility tree, and takes every control out of the tab order.
+ *
+ * The paint half of that is now belt to `terminal.css`'s braces: `.app` opens
+ * no stacking context, so `.app-header`'s `z-index: 8` and `.to-top`'s `7`
+ * below sit in the root one next to `.terminal-view`, which declares `9` —
+ * the overlay outranks them on its own rather than relying on this rule to
+ * keep the sticky header down.
+ *
+ * The other three halves are not redundant, and no z-index can replace them:
+ *
+ *   - The accessibility tree. Stacking order is paint, not semantics; a rotor
+ *     or a swipe-through would otherwise walk the whole list under the sheet.
+ *   - Tab order. With a hardware keyboard, focus would otherwise leave the
+ *     terminal for controls nobody can see.
+ *   - Hit-testing during the frames the two viewports disagree. The overlay is
+ *     pinned to the *visible* viewport through `--vv-offset-top`, which is a
+ *     custom property a JS handler writes — so it lands a frame behind the
+ *     browser's own move of the visual viewport. While the keyboard opens or
+ *     closes, or a rubber-band settles, there is a real band of uncovered
+ *     header under a terminal, and a thumb already on its way down finds it.
+ *     (The steady state is not that band: an overlay offset by `offsetTop`
+ *     covers everything the user can see, and the strip above it is off the
+ *     top of the screen, not merely uncovered.)
+ *
+ * Nothing here competes with the overlay's z-index: `visibility` does not take
+ * part in stacking at all. Note that it *is* inherited, so a descendant that
+ * sets `visibility: visible` climbs back out of all three — the z-index is
+ * what keeps that from also putting the header on top of the terminal.
+ */
+.app.is-under-terminal {
+  visibility: hidden;
+}
+
+/*
+ * `visibility: hidden` stops the paint, NOT the timeline: an animation on a
+ * hidden element keeps ticking and keeps its style recalculated. Ten working
+ * agents is ten infinite pulses running behind an opaque full-screen terminal
+ * — on the one screen where frame budget and battery matter most, for nothing
+ * anybody can see. `paused` rather than `none`: the animation resumes where it
+ * was when the terminal closes, instead of every dot in the list restarting
+ * its cycle together.
+ */
+.app.is-under-terminal .card-attention,
+.app.is-under-terminal .dot-live {
+  animation-play-state: paused;
+}
+
+/*
+ * A programmatic `focus()` is how "jump to Paradiso" and the inbox pill move a
+ * screen reader's cursor (App.tsx). It must not draw a ring the mouse and
+ * touch user never asked for — `:focus-visible` still does, so a keyboard user
+ * who tabs here keeps theirs.
+ */
+.card:focus:not(:focus-visible),
+.inbox:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/*
+ * The terminal chunk is loaded on demand (App.tsx). The overview is already
+ * hidden by then, so the fallback's only job is to be the page's own colour
+ * for the moment between the tap and the first frame of the terminal —
+ * anything more would be a spinner that is usually gone before it is seen.
+ */
+.terminal-pending {
+  position: fixed;
+  top: var(--vv-offset-top, 0px);
+  left: 0;
+  right: 0;
+  height: var(--vv-height, 100dvh);
+  z-index: 9;
+  background: var(--bg);
+}
+
+/* --- header controls --- */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+/* `.ghost` reserves the right edge for itself; inside the cluster the cluster
+   owns it. */
+.header-actions .ghost {
+  margin-left: 0;
+}
+
+/* The count is never further than the top of the screen — the sticky header
+   carries it, and tapping it lands on the inbox itself. */
+.inbox-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: var(--touch);
+  min-height: var(--touch);
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--warn) 60%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: var(--warn-text);
+  font-weight: 700;
+}
+
+/* The link is open but unproven: a question is on the wire and unanswered.
+   Amber like `is-reconnecting`, because it is the same family of trouble, but
+   it keeps the neutral hairline border rather than taking the pill's louder
+   treatment — the socket has not dropped, it is only unconfirmed. The label
+   is what separates the two; the colour only says "not settled". */
+.conn.is-checking {
+  color: var(--warn-text);
+}
+
+.conn.is-reconnecting {
+  color: var(--warn-text);
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+}
+
+.conn.is-offline {
+  color: var(--err-text);
+}
+
+/* --- pull to refresh --- */
+.pull-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 0.85rem;
+  color: var(--text-3);
+}
+
+/* was var(--bronze) — 3.09:1 on --bg in light, under AA for 0.85rem text.
+   --bronze-strong clears AA, but the armed state takes the token
+   that is already "the accent, legal as text": 7.08:1 light, 10.80:1 dark.
+   It is the same green the composer's "sent" note uses, which is the right
+   family for a control that is saying "release and this will happen". */
+.pull-indicator.is-armed {
+  color: var(--verdigris-text);
+}
+
+/* The pull asked and nothing came back. `--warn-text` is the token already
+   carrying "this is not fine" as text on this background (the connection
+   pill and the inbox count use it), so the one place the strip ever reports
+   a failure reads the same as the rest of the app's bad news. */
+.pull-indicator.is-unanswered {
+  color: var(--warn-text);
+}
+
+/* --- workspace list: document scroll, content-sized --- */
+.workspace-list {
+  /* Roughly the sticky header: what `scrollIntoView` has to clear so a jump
+     does not park its target underneath it. */
+  --anchor-offset: 76px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 14px 8px;
+  overflow: visible;
+}
+
+.empty {
+  color: var(--text-2);
+  text-align: center;
+  margin: 32px 8px;
+  line-height: 1.5;
+}
+
+.empty p {
+  margin: 0 0 6px;
+}
+
+.empty-hint {
+  color: var(--text-3);
+  font-size: 0.9rem;
+}
+
+.list-controls {
+  display: flex;
+  justify-content: flex-end;
+  margin: -4px 0;
+}
+
+/* --- question inbox --- */
+.inbox {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--hairline));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--warn) 8%, var(--surface));
+  scroll-margin-top: var(--anchor-offset);
+}
+
+.inbox-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
+  font-weight: 400;
+  letter-spacing: 0.03em;
+}
+
+.inbox-count {
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  letter-spacing: 0;
+  color: var(--text-2);
+}
+
+.inbox-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+.inbox-source {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+/* --- unsent text ---
+   Words the user typed into a field that no longer exists. Quieter than the
+   inbox — nothing here blocks a run — but not hidden: it is the only place
+   that text still exists. */
+.unsent {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px dashed var(--hairline);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.unsent-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+.unsent-text {
+  margin: 0;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  padding: 14px;
+  scroll-margin-top: var(--anchor-offset);
+}
+
+.card.inactive {
+  opacity: 0.78;
+}
+
+/*
+ * A run that ended with the user right there keeps its place in the live group
+ * (see `overviewRows`), so it needs to look ended without looking abandoned:
+ * full opacity, because the user is probably still reading it, and a left edge
+ * that says the state changed under them.
+ */
+.card.inactive.is-just-ended {
+  opacity: 1;
+  border-left: 3px solid var(--idle);
+}
+
+.ended-note {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.card.needs-attention {
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--hairline));
+}
+
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.card-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--touch);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.card-name {
+  font-weight: 650;
+  font-size: 1.08rem;
+  overflow-wrap: anywhere;
+}
+
+.card-profile,
+.card-count {
+  font-size: 0.82rem;
+  color: var(--text-3);
+}
+
+.card-attention {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--warn);
+  animation: vg-pulse 2.4s ease-out infinite;
+}
+
+.stop {
+  flex: 0 0 auto;
+  min-height: var(--touch);
+  padding: 0 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--err-text);
+  font-weight: 600;
+}
+
+/*
+ * The armed state of the only destructive control on the screen, so it has to
+ * be the most legible thing in the card head rather than the least. The old
+ * 22 % wash over the card composited to 4.13:1 for --err-text in light —
+ * under AA exactly when it matters, and every stronger tint made it worse.
+ * A solid fill inverts that: --surface is the light ink in the dark theme and
+ * the dark ink in the light one, which is precisely the opposite of --err in
+ * each, and it measures 5.03:1 light / 5.50:1 dark.
+ */
+.stop.is-confirm {
+  background: var(--err);
+  border-color: var(--err);
+  color: var(--surface);
+}
+
+.stop:disabled,
+.stop-confirm .ghost-inline:disabled {
+  opacity: 0.7;
+}
+
+.stop-confirm {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.inactive-tag {
+  margin-left: auto;
+  min-height: var(--touch);
+  display: grid;
+  place-items: center;
+  font-size: 0.82rem;
+  color: var(--text-3);
+}
+
+.card-task {
+  margin: 10px 0 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--text-2);
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  max-height: none;
+}
+
+.card-task.no-goal {
+  font-style: italic;
+}
+
+.card-task.idle-hint {
+  color: var(--err-text);
+}
+
+/*
+ * H2 refill: the "no goal" hint is the button that opens the goal field. It
+ * keeps the hint's look and gains a touch target — a phone start without a
+ * goal is exactly where this is pressed.
+ */
+.goal-refill {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card-task.no-goal.is-refill {
+  width: 100%;
+  min-height: var(--touch);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-style: italic;
+  color: var(--text-2);
+}
+
+.ended-toggle {
+  min-height: var(--touch);
+  border: 1px dashed var(--hairline);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-2);
+}
+
+/* --- agents --- */
+.agents {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-line.is-child {
+  margin-left: 16px;
+}
+
+.chip-group {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.agent-row {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--touch);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-2);
+  text-align: left;
+}
+
+.agent-row.state-stopped {
+  opacity: 0.62;
+}
+
+.dot-live {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--role, var(--verdigris));
+}
+
+.dot-live.is-working {
+  animation: vg-pulse 2.4s ease-out infinite;
+}
+
+.dot-live.is-working.is-orchestrator {
+  animation-name: vg-pulse-bronze;
+}
+
+.dot-live.is-idle {
+  background: var(--idle);
+  opacity: 0.8;
+}
+
+.agent-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chip-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.chip-status {
+  font-size: 0.82rem;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+/*
+ * The thinnest margin in the sheet, and the one place `--warn` is a solid fill
+ * under ink rather than a dot, a border or a tint: `--on-bronze` on it is
+ * 3.91:1 in light (8.51:1 dark). The glyph inside is an `aria-hidden` "?" — the
+ * button carries its own accessible name — so the bar that applies to it is the
+ * 3:1 for a graphical object, which it clears; the fill itself is 4.34:1 on
+ * `--surface`, well past 3:1 as a boundary. It is NOT at AA for text, though,
+ * and it is drawn as a character, so it should not stay the exception.
+ *
+ * Nothing already in the palette closes it. `--surface` as the ink is 4.34:1,
+ * `--bg` 3.94:1, and `--bronze-strong` is an ink token — `--on-bronze` on it is
+ * 2.99:1. Darkening `--warn` moves the wrong way (the ink is near-black in both
+ * themes); `--warn` cannot be lightened either, because it was contracted to
+ * `#a86a08` precisely to clear 3:1 as a status dot on `--surface-2`.
+ *
+ * What closes it is one token, `--warn-fill`: the warn hue as a FILL THAT
+ * CARRIES INK, exactly as `--bronze` is to `--bronze-strong` but in the other
+ * direction. `var(--warn)` on dark (already 8.51:1, nothing to fix), `#b8770f`
+ * on light — 4.70:1 under `--on-bronze`, and still 3.11:1 on `--surface-2` and
+ * 3.61:1 on `--surface`, so it stays legal as a shape too. The window is
+ * narrow but real: AA under near-black ink needs luminance >= 0.222, and 3:1
+ * against `--surface-2` allows up to 0.244. `#b8770f` sits at 0.234.
+ *
+ * The fallback below is today's colour, so this renders unchanged until that
+ * token exists and becomes correct the moment it does. `styles.css` is not
+ * this file's to write.
+ */
+.badge {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  min-width: var(--touch);
+  min-height: var(--touch);
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  background: var(--warn-fill, var(--warn));
+  color: var(--on-bronze);
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+/* --- start / answer / composer --- */
+.start-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* A button now, not a `<summary>` — see `StartForm` on why `<details>` had to
+   go. It keeps the summary's shape so the card head still reads as one. */
+.start-summary {
+  cursor: pointer;
+}
+
+.start-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* An author `display` outranks the UA rule behind the `hidden` attribute, so
+   the panel has to say this itself or it never closes. */
+.start-body[hidden] {
+  display: none;
+}
+
+.start-profile,
+.goal-input,
+.composer textarea {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.start-card .primary,
+.answer-form .primary,
+.composer .primary {
+  margin-top: 0;
+  align-self: stretch;
+  width: 100%;
+}
+
+.answer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.answer-form.is-user {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, var(--hairline));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+}
+
+.answer-question {
+  margin: 0;
+  font-size: 0.98rem;
+  line-height: 1.5;
+  color: var(--warn-text);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.composer-actions .primary {
+  flex: 1 1 auto;
+}
+
+/* Reserves its line whether or not it has text, so the confirmation cannot
+   push the button out from under a thumb already on its way down. */
+.sent-note {
+  flex: 0 0 auto;
+  min-width: 5ch;
+  font-size: 0.85rem;
+  color: var(--verdigris-text);
+}
+
+.answer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.answer-actions .primary {
+  flex: 1 1 auto;
+}
+
+/* --- task board --- */
+.task-board {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.task-toggle {
+  width: 100%;
+}
+
+.task-title {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--hairline);
+  /* The tone is a stripe, not a fill: colour alone must not be the only thing
+     that separates "ready" from "blocked" — the meta line says it in words. */
+  border-left: 3px solid var(--idle);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.task-row.is-in-progress {
+  border-left-color: var(--verdigris-bright);
+}
+
+/* was var(--bronze) — 2.93:1 on --surface-2 in light, under the 3:1 bar for a
+   state border. --bronze-strong is the accent contracted to be legal as ink:
+   4.89:1 light, and a no-op on dark where it resolves to --bronze itself. */
+.task-row.is-ready {
+  border-left-color: var(--bronze-strong);
+}
+
+.task-row.is-blocked {
+  border-left-color: var(--warn);
+}
+
+.task-row.is-done {
+  opacity: 0.62;
+}
+
+.task-subject {
+  overflow-wrap: anywhere;
+}
+
+.task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  font-size: 0.8rem;
+  color: var(--text-3);
+}
+
+.task-status {
+  font-weight: 600;
+}
+
+/* --- back to top --- */
+.to-top {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--keyboard-inset));
+  z-index: 7;
+  min-width: var(--touch);
+  min-height: var(--touch);
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(16px) saturate(1.1);
+  color: var(--text-2);
+  font-size: 1.2rem;
+}
