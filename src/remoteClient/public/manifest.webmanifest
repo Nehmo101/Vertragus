@@ -1,8 +1,7 @@
 {
-  "id": "/",
+  "id": "./",
   "name": "Vertragus Remote",
   "short_name": "Vertragus",
-  "description": "Remote control for a Vertragus desktop over Tailscale.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -108,6 +108,21 @@ export class RemoteAuthStore {
     return session
   }
 
+  /**
+   * Validate a session token WITHOUT refreshing its idle timer.
+   *
+   * The remote client probes an open socket on a timer to tell a live route
+   * from a dead one; that traffic proves the socket works, not that a human is
+   * there. Running it through {@link touch} would mean any tab left open on a
+   * phone renews the 7-day idle window forever — the expiry could never elapse
+   * at all, which is the opposite of what it is for. So liveness traffic
+   * verifies, and only user-initiated traffic touches.
+   */
+  verify(token: string): RemoteSession | undefined {
+    this.sweep()
+    return this.find(token)
+  }
+
   /** Every live session — the connected-clients list. */
   list(): RemoteSession[] {
     this.sweep()

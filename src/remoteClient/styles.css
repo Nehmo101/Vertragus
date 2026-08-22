@@ -16,6 +16,19 @@
  * for a dot, a badge fill or a state border clears the 3:1 bar for non-text
  * UI. The comment on each fixed value records what it was and why it moved.
  *
+ * A ratio is a property of a PAIR, so each token says what it may be paired
+ * with. The accent is two tokens for that reason and they are not
+ * interchangeable:
+ *   --bronze         a FILL. Light enough on both themes to carry --on-bronze
+ *                    as its text (the `.primary` button). Nothing draws text
+ *                    or a state border IN it on a light ground — at 3.09:1 on
+ *                    --bg it is below every bar that matters there.
+ *   --bronze-strong  the accent as INK: a glyph, a label, a state stripe.
+ *                    Clears 4.5:1 on --bg, --surface and --surface-2 in both
+ *                    themes, which also clears the 3:1 graphical bar. On dark
+ *                    that is plain --bronze; on light it has to go darker,
+ *                    because on a light ground more emphasis means darker.
+ *
  * `--vv-height`, `--keyboard-inset` and `--vv-offset-top` are declared here as
  * fallbacks only; `useVisualViewport.ts` owns them at runtime and documents
  * their contract. The fallbacks below are the answer for a browser with no
@@ -73,7 +86,9 @@
   /* was #9a968b — 5.40:1 on --surface-2, legal but thin in sunlight. */
   --text-3: #adaa9e;
   --bronze: #cba35a;
-  --bronze-bright: #e4c888;
+  /* Ink-grade accent. Here it IS --bronze: 8.10:1 on --bg, 7.48:1 on
+     --surface, 6.78:1 on --surface-2 — nothing to fix on a dark ground. */
+  --bronze-strong: var(--bronze);
   --on-bronze: #1d1a12;
   --verdigris: #2f7d6d;
   --verdigris-bright: #3e9d82;
@@ -90,8 +105,13 @@
   --hairline: rgba(234, 230, 219, 0.12);
   --accent: var(--bronze);
   --sage: var(--verdigris);
-  --accent-soft: rgba(203, 163, 90, 0.14);
-  --accent-line: rgba(203, 163, 90, 0.45);
+  /* Derived, not respelled: the same colour written out as rgba() three times
+     per theme is three places to forget when --bronze moves. Numerically
+     identical to the rgba() literals these replace. Both themes share these
+     two declarations — `var(--bronze)` resolves against whichever --bronze
+     won the cascade on :root, so the light block needs no copies. */
+  --accent-soft: color-mix(in srgb, var(--bronze) 14%, transparent);
+  --accent-line: color-mix(in srgb, var(--bronze) 45%, transparent);
   /* A fingertip does not scale with the type size, so this stays in px. */
   --touch: 44px;
   --keyboard-inset: 0px;
@@ -106,11 +126,17 @@
   --text-2: #3f3b32;
   /* was #5c584e — 5.96:1 on --surface-2; the same sunlight margin as dark. */
   --text-3: #4c483f;
-  /* --bronze stays: it is a *fill*, and --on-bronze on it is 4.99:1. */
+  /* Stays, as a FILL only: --on-bronze on it is 4.99:1, so the `.primary`
+     button keeps its AA. It is NOT ink here — 3.09:1 on --bg, 2.93:1 on
+     --surface-2 — and the three places that used it as ink (the armed pull
+     indicator, the expanded terminal icon button, the ready task stripe) take
+     --bronze-strong instead. */
   --bronze: #a8843d;
-  /* was #b8944a — lighter than --bronze, which inverts "bright" on a light
-     ground and measured 2.39:1. On light, more emphasis means darker. */
-  --bronze-bright: #8a6b2c;
+  /* was --bronze-bright #8a6b2c, which no element consumed and which measured
+     4.41:1 on --bg / 4.18:1 on --surface-2 — under AA had anything used it.
+     This clears 5.16:1 on --bg, 5.68:1 on --surface, 4.89:1 on --surface-2,
+     so it is legal as text and comfortably past 3:1 as a stripe or a glyph. */
+  --bronze-strong: #7d6126;
   --on-bronze: #1d1a12;
   --verdigris: #2a6b5e;
   --verdigris-bright: #348574;
@@ -121,15 +147,18 @@
   --warn-text: #8c5806;
   /* was #c45a45 — 3.61:1 on --surface-2. */
   --err: #b64c37;
-  --err-text: #a84838;
+  /* was #a84838 — 5.10:1 on --bg, but `.stop.is-confirm` puts it on
+     color-mix(--err 22%, transparent) over --surface-2, i.e. #e2c8bc, where it
+     measured 3.62:1. Contrast is a property of the pair, and that pair was the
+     one nobody looked at. Now 4.78:1 on that fill, 6.73:1 on --bg, 7.41:1 on
+     --surface, 6.38:1 on --surface-2. */
+  --err-text: #8e3928;
   /* was #7a6f5a — 4.15:1 on --surface-2. */
   --idle: #6f6550;
   --bg: #f4f1ea;
   --surface: #fffcf6;
   --surface-2: #efebe2;
   --hairline: rgba(29, 26, 18, 0.14);
-  --accent-soft: rgba(168, 132, 61, 0.14);
-  --accent-line: rgba(168, 132, 61, 0.45);
   color-scheme: light;
 }
 

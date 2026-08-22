@@ -6,18 +6,28 @@
     <title>Vertragus Remote</title>
     <!--
       Everything this page needs is in the bundle: fonts, icons and the manifest
-      are all same-origin, so nothing here widens `default-src 'self'`.
-      `manifest-src` has no entry of its own on purpose — it falls back to
-      `default-src`, which already allows the same origin the manifest is served
-      from. `connect-src` carries ws:/wss: for the one WebSocket, and
-      `base-uri 'none'` keeps an injected <base> from re-pointing every relative
-      asset URL in the bundle. `frame-ancestors` is deliberately absent: it is
-      ignored in a <meta> policy and would only read as protection that is not
-      there.
+      are all same-origin, and nothing here widens `default-src 'self'` — which
+      is a claim about the line below, so it has to keep being true of it.
+
+      `connect-src 'self'` covers the WebSocket. It is not an oversight that
+      ws:/wss: are absent: CSP3 matches a ws:/wss: URL against an http/https
+      `'self'` on the same host and port, so the socket is already allowed, and
+      the bare schemes would have allowed a socket to ANY host on the internet
+      — on a page whose localStorage holds the long-lived pairing token.
+
+      `manifest-src` has no entry of its own on purpose: it falls back to
+      `default-src`, which already allows the same origin the manifest is
+      served from. `base-uri 'none'` keeps an injected <base> from re-pointing
+      every relative asset URL in the bundle, and `form-action 'none'` is
+      spelled out because form submission is NOT covered by `default-src` —
+      without it an injected <form action="https://evil/"> plus a submit is an
+      exfiltration path the rest of this policy does not touch.
+      `frame-ancestors` is deliberately absent: it is ignored in a <meta>
+      policy and would only read as protection that is not there.
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; base-uri 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'"
     />
     <meta
       name="viewport"

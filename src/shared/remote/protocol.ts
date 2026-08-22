@@ -166,7 +166,20 @@ export type ServerMessage =
   | { type: 'command_result'; id: string; ok: true; result: unknown }
   | { type: 'command_result'; id: string; ok: false; error: string }
   | { type: 'error'; message: string }
-  | { type: 'session_revoked' }
+  /**
+   * The session this socket authenticated with is gone. `reason` says whether
+   * that was a DECISION about this device or merely its clock running out,
+   * because the two want opposite client behaviour: an expired session should
+   * be replaced silently from the stored pairing token (a desktop restart drops
+   * every in-memory session and must not send every phone back to the QR
+   * code), while a revoke the user performed in settings must not be undone by
+   * the revoked device re-pairing itself a second later.
+   *
+   * Optional so an older client — which ignores unknown fields and re-pairs
+   * either way — is not broken by a newer host; a client that understands it
+   * treats a missing value as `'expired'`.
+   */
+  | { type: 'session_revoked'; reason?: 'revoked' | 'expired' }
 
 /** Parse one inbound frame; returns undefined for anything malformed. */
 export function parseClientMessage(raw: string): ClientMessage | undefined {

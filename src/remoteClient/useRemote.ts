@@ -24,6 +24,16 @@
  * Every reconnect re-attaches the terminals the UI was watching (see the
  * `hello` case) and the server replays their scrollback, so a reconnect is
  * lossless from the user's side.
+ *
+ * Commands are lossless across it too, and that is a correctness requirement
+ * rather than a nicety: `runCommand` hands the UI a promise, and a promise
+ * that never settles is an Answer button stuck on "sending ..." with an agent
+ * blocked behind it. So a command issued while the socket is down is QUEUED
+ * and flushed on the next `hello` — reconnecting is the normal state of a
+ * phone, not an error — while every parked command, queued or in flight,
+ * carries a deadline and dies at it. The policy for all of that
+ * (`decideCommandDispatch`, `commandsToEvict`, `expiredCommandIds`) is in
+ * `connection.ts`; this file is the wiring.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
@@ -32,11 +42,18 @@ import type {
   ServerMessage
 } from '@shared/remote/protocol'
 import {
+  commandArgsWithinLimits,
+  commandsToEvict,
+  COMMAND_TIMEOUT_MS,
+  decideCommandDispatch,
   decideLiveness,
   decideWake,
+  expiredCommandIds,
   isSamePayload,
   LIVENESS_TICK_MS,
   reconnectDelayMs,
+  shouldFailParkedCommands,
+  shouldScheduleReconnect,
   tokenFromHash
 } from './connection'
 import { remoteCopy } from './i18n'
@@ -68,6 +85,18 @@ export interface RemoteApi {
   /** navigator.onLine, kept live — the header can say "offline" instead of
    *  spinning on a reconnect that cannot succeed. */
   online: boolean
+  /**
+   * True while a liveness probe is outstanding: the socket still says `OPEN`,
+   * but the route has not answered since the probe went out and has at most
+   * `LIVENESS_PROBE_TIMEOUT_MS` to do so.
+   *
+   * `phase` cannot express this. It stays `'ready'` right through the silence
+   * window and the probe window, so a header keyed on `phase` alone claims
+   * "connected" for up to forty seconds on a route that is already dead. This
+   * is the part of that window the client actually has evidence about — while
+   * it is true the honest label is "checking", not "connected".
+   */
+  probing: boolean
   attach(agentId: string, handlers: TerminalHandlers): () => void
   sendInput(agentId: string, data: string): void
   resize(agentId: string, cols: number, rows: number): void
@@ -77,6 +106,13 @@ export interface RemoteApi {
    * field need that feedback; fire-and-forget callers may ignore the promise.
    */
   runCommand(name: RemoteCommand, arg?: string, args?: Record<string, string>): Promise<unknown>
+  /**
+   * Ask for fresh workspace state. Doubles as a liveness verdict: the answer is
+   * a `workspaces` push, so a pull-to-refresh on a socket that only looks open
+   * either updates the list or convicts the route within the probe window. On
+   * a socket that is closed or closing it reconnects instead of dropping the
+   * frame on the floor.
+   */
   refresh(): void
   /** Re-pair from scratch (session revoked or expired). */
   reset(): void
@@ -116,6 +152,21 @@ async function pair(token: string): Promise<string | undefined> {
   return body.session
 }
 
+/** One command promise the UI is waiting on. */
+interface ParkedCommand {
+  resolve: (result: unknown) => void
+  reject: (error: Error) => void
+  /**
+   * The frame, while it is still waiting for a socket; `null` once it has been
+   * sent. The distinction decides what a close event may settle: a frame that
+   * never went out survives the close and is flushed on the next `hello`,
+   * while one already on the wire is lost with the socket.
+   */
+  frame: object | null
+  /** Deadline after which the promise is rejected rather than left parked. */
+  expiresAt: number
+}
+
 export function useRemote(): RemoteApi {
   const [phase, setPhase] = useState<RemotePhase>('connecting')
   const [error, setError] = useState<RemoteError | null>(null)
@@ -123,6 +174,7 @@ export function useRemote(): RemoteApi {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [locale, setLocale] = useState('de')
   const [online, setOnline] = useState(() => window.navigator.onLine)
+  const [probing, setProbing] = useState(false)
   const [repairNonce, setRepairNonce] = useState(0)
 
   const socketRef = useRef<WebSocket | null>(null)
@@ -140,11 +192,22 @@ export function useRemote(): RemoteApi {
    * phone is exactly the leak the i18n layer exists to prevent.
    */
   const localeRef = useRef(locale)
-  /** Command promises parked until their command_result frame arrives. */
-  const pendingCommands = useRef(
-    new Map<string, { resolve: (result: unknown) => void; reject: (error: Error) => void }>()
-  )
+  /**
+   * Every command promise the UI is still waiting on, queued or in flight, in
+   * the order it was issued (a `Map` keeps insertion order, which is what makes
+   * the queue bound drop the OLDEST tap).
+   */
+  const pendingCommands = useRef(new Map<string, ParkedCommand>())
   const commandSeq = useRef(0)
+  /**
+   * Bumped by every deliberate auth change — a `reset()`, a server-initiated
+   * revoke. Anything that resumed after an `await` compares the generation it
+   * captured against this before touching storage or the socket: without that
+   * guard an in-flight `pair()` can land after the user has logged out and
+   * write the session AND the pairing token straight back into `localStorage`,
+   * turning a log-out into a re-authentication.
+   */
+  const authGeneration = useRef(0)
 
   useEffect(() => {
     localeRef.current = locale
@@ -159,6 +222,7 @@ export function useRemote(): RemoteApi {
   const probe = useCallback(() => {
     if (socketRef.current?.readyState !== WebSocket.OPEN) return
     probeSentAt.current = Date.now()
+    setProbing(true)
     sendRaw({ type: 'refresh' })
   }, [sendRaw])
 
@@ -168,14 +232,50 @@ export function useRemote(): RemoteApi {
     reconnectTimer.current = null
   }, [])
 
-  /** A socket that goes away takes every command parked on it with it. */
-  const failPendingCommands = useCallback(() => {
-    if (pendingCommands.current.size === 0) return
-    const message = remoteCopy(localeRef.current).connectionLost
-    const parked = [...pendingCommands.current.values()]
-    pendingCommands.current.clear()
-    for (const pending of parked) pending.reject(new Error(message))
+  /** Reject the named commands and forget them. */
+  const rejectCommands = useCallback((ids: Iterable<string>, message: string) => {
+    for (const id of ids) {
+      const parked = pendingCommands.current.get(id)
+      if (!parked) continue
+      pendingCommands.current.delete(id)
+      parked.reject(new Error(message))
+    }
   }, [])
+
+  /**
+   * A socket that goes away takes the commands already ON it with it. The ones
+   * still queued do not die with it — they were never sent, and the whole point
+   * of the queue is that they survive the reconnect they are waiting for.
+   */
+  const failPendingCommands = useCallback(() => {
+    const message = remoteCopy(localeRef.current).connectionLost
+    const inFlight: string[] = []
+    for (const [id, parked] of pendingCommands.current) {
+      if (parked.frame === null) inFlight.push(id)
+    }
+    rejectCommands(inFlight, message)
+  }, [rejectCommands])
+
+  /** Reject whatever has outlived its deadline — queued or in flight. */
+  const expireCommands = useCallback(() => {
+    const expired = expiredCommandIds(pendingCommands.current, Date.now())
+    if (expired.length === 0) return
+    rejectCommands(expired, remoteCopy(localeRef.current).connectionLost)
+  }, [rejectCommands])
+
+  /** Put the queue on the wire, oldest first. Called when `hello` proves it. */
+  const flushCommandQueue = useCallback(() => {
+    for (const parked of pendingCommands.current.values()) {
+      if (parked.frame === null) continue
+      const frame = parked.frame
+      // Marked sent BEFORE the write: `sendRaw` can only fail by dropping the
+      // frame, and a frame recorded as queued but already written would be
+      // sent twice on the next flush.
+      parked.frame = null
+      parked.expiresAt = Date.now() + COMMAND_TIMEOUT_MS
+      sendRaw(frame)
+    }
+  }, [sendRaw])
 
   /**
    * Keep the previous array when a push says nothing new. The liveness probe
@@ -198,6 +298,9 @@ export function useRemote(): RemoteApi {
           reconnectAttempt.current = 0
           // Re-attach any terminals the UI was watching before a reconnect.
           for (const agentId of attachedAgents.current) sendRaw({ type: 'attach', agentId })
+          // `hello` is the first proof this socket can carry anything, so it is
+          // where the taps made while it was down finally go out.
+          flushCommandQueue()
           break
         case 'workspaces':
           applyWorkspaces(message.workspaces)
@@ -220,8 +323,21 @@ export function useRemote(): RemoteApi {
           terminalHandlers.current.get(message.agentId)?.onExit(message.exitCode)
           break
         case 'session_revoked':
-          clearSession()
           sessionRef.current = null
+          if (message.reason === 'revoked') {
+            // The user revoked THIS device from the desktop. Re-pairing from
+            // the stored token would undo that in about a second, which is what
+            // made the settings button cosmetic. The pairing token goes with
+            // the session, and the client stops here.
+            authGeneration.current += 1
+            clearAuth()
+            setPhase('revoked')
+            break
+          }
+          // Anything else — an expired session, a desktop that restarted and
+          // lost its in-memory sessions — is not a decision about this device,
+          // so the stored pairing token silently mints a new session.
+          clearSession()
           setRepairNonce((nonce) => nonce + 1)
           break
         case 'command_result': {
@@ -239,7 +355,7 @@ export function useRemote(): RemoteApi {
           break
       }
     },
-    [applyWorkspaces, sendRaw]
+    [applyWorkspaces, flushCommandQueue, sendRaw]
   )
 
   const connect = useCallback(() => {
@@ -263,12 +379,16 @@ export function useRemote(): RemoteApi {
     setPhase('connecting')
     lastInboundAt.current = Date.now()
     probeSentAt.current = null
+    setProbing(false)
 
     socket.onopen = () => socket.send(JSON.stringify({ type: 'auth', session }))
     socket.onmessage = (event) => {
       // Any frame is proof of life, whichever probe or push produced it.
       lastInboundAt.current = Date.now()
       probeSentAt.current = null
+      // Functional form so React bails out instead of re-rendering the whole
+      // overview on every terminal `data` frame.
+      setProbing((outstanding) => (outstanding ? false : outstanding))
       try {
         dispatch(JSON.parse(event.data as string) as ServerMessage)
       } catch {
@@ -276,10 +396,16 @@ export function useRemote(): RemoteApi {
       }
     }
     socket.onclose = () => {
-      if (socketRef.current !== socket) return
-      socketRef.current = null
-      failPendingCommands()
-      if (!aliveRef.current || sessionRef.current === null) return
+      const context = {
+        isCurrent: socketRef.current === socket,
+        alive: aliveRef.current,
+        hasSession: sessionRef.current !== null
+      }
+      // The ref is the identity every other handler checks; a socket that has
+      // closed must not stay in it, whatever else follows.
+      if (context.isCurrent) socketRef.current = null
+      if (shouldFailParkedCommands(context)) failPendingCommands()
+      if (!shouldScheduleReconnect(context)) return
       const delay = reconnectDelayMs(reconnectAttempt.current)
       reconnectAttempt.current += 1
       setPhase('connecting')
@@ -308,11 +434,17 @@ export function useRemote(): RemoteApi {
   )
 
   const beginPairing = useCallback(async () => {
+    // Captured before the first `await`: a `reset()` or a revoke while the
+    // request is in flight bumps the generation, and everything below is then
+    // a decision about an auth state that no longer exists.
+    const generation = authGeneration.current
+    const current = (): boolean => aliveRef.current && authGeneration.current === generation
     const token = tokenFromHash(window.location.hash)
     if (token) {
       // Strip the token from the URL before anything can screenshot it.
       history.replaceState(null, '', window.location.pathname + window.location.search)
       const session = await pair(token)
+      if (!current()) return
       if (session) {
         adoptSession(session, token)
         return
@@ -330,6 +462,7 @@ export function useRemote(): RemoteApi {
     const storedPairing = readStored(PAIRING_KEY)
     if (storedPairing) {
       const session = await pair(storedPairing)
+      if (!current()) return
       if (session) {
         adoptSession(session, storedPairing)
         return
@@ -360,8 +493,11 @@ export function useRemote(): RemoteApi {
       return
     }
     setPhase('connecting')
+    const generation = authGeneration.current
     void pair(pairing).then((session) => {
-      if (!aliveRef.current) return
+      // Same guard as `beginPairing`: `aliveRef` alone only covers unmount, not
+      // a log-out that happened while this request was in flight.
+      if (!aliveRef.current || authGeneration.current !== generation) return
       if (session) {
         adoptSession(session, pairing)
         return
@@ -371,27 +507,43 @@ export function useRemote(): RemoteApi {
     })
   }, [repairNonce, adoptSession])
 
+  /**
+   * Find out where the connection stands, right now, instead of sitting out
+   * the rest of a ten-second backoff. Shared by every wake-up (tab visible,
+   * network back, bfcache restore) and by the user's own refresh, because they
+   * are the same question asked by different means.
+   */
+  const wake = useCallback(() => {
+    if (!aliveRef.current || !sessionRef.current) return
+    switch (decideWake(socketRef.current?.readyState ?? null)) {
+      case 'reconnect':
+        reconnectNow()
+        break
+      case 'probe':
+        // Doubles as the refresh the overview needs: the answer is a
+        // `workspaces` push, so a list frozen since the phone slept updates
+        // in the same round-trip that proves the route still carries traffic.
+        probe()
+        break
+      case 'wait':
+        break
+    }
+  }, [probe, reconnectNow])
+
   // Wake-up: the phone came back, so find out where the connection stands
   // instead of sitting out the rest of a ten-second backoff.
   useEffect(() => {
-    const wake = (): void => {
-      if (!aliveRef.current || !sessionRef.current) return
-      switch (decideWake(socketRef.current?.readyState ?? null)) {
-        case 'reconnect':
-          reconnectNow()
-          break
-        case 'probe':
-          // Doubles as the refresh the overview needs: the answer is a
-          // `workspaces` push, so a list frozen since the phone slept updates
-          // in the same round-trip that proves the route still carries traffic.
-          probe()
-          break
-        case 'wait':
-          break
-      }
-    }
     const onVisibility = (): void => {
-      if (document.visibilityState === 'visible') wake()
+      if (document.visibilityState === 'visible') {
+        wake()
+        return
+      }
+      // Going away: a probe left outstanding here would still be outstanding
+      // on the far side of a throttled interval, minutes old, and the first
+      // tick after the wake would read it as a timeout and churn the socket —
+      // replaying every attached terminal's scrollback for nothing.
+      probeSentAt.current = null
+      setProbing(false)
     }
     const onOnline = (): void => {
       setOnline(true)
@@ -409,10 +561,14 @@ export function useRemote(): RemoteApi {
       window.removeEventListener('online', onOnline)
       window.removeEventListener('offline', onOffline)
     }
-  }, [probe, reconnectNow])
+  }, [wake])
 
   useEffect(() => {
     const tick = window.setInterval(() => {
+      // Rides the liveness interval rather than one timer per command: a
+      // deadline that is a few seconds late costs nothing, and a phone does not
+      // need N extra timers to keep alive.
+      expireCommands()
       const action = decideLiveness({
         now: Date.now(),
         lastInboundAt: lastInboundAt.current,
@@ -424,7 +580,7 @@ export function useRemote(): RemoteApi {
       else if (action === 'reconnect') reconnectNow()
     }, LIVENESS_TICK_MS)
     return () => window.clearInterval(tick)
-  }, [probe, reconnectNow])
+  }, [expireCommands, probe, reconnectNow])
 
   const attach = useCallback(
     (agentId: string, handlers: TerminalHandlers): (() => void) => {
@@ -447,27 +603,57 @@ export function useRemote(): RemoteApi {
     theme,
     locale,
     online,
+    probing,
     attach,
     sendInput: (agentId, data) => sendRaw({ type: 'input', agentId, data }),
     resize: (agentId, cols: number, rows: number) => sendRaw({ type: 'resize', agentId, cols, rows }),
     runCommand: (name, arg, args) => {
+      const copy = remoteCopy(localeRef.current)
+      if (!commandArgsWithinLimits(args)) {
+        // The gateway drops a frame its schema rejects WITHOUT answering it, so
+        // sending this would park a promise nothing can ever settle. Refusing
+        // here is the only way the caller learns anything at all.
+        return Promise.reject(new Error(copy.unknownError))
+      }
       const id = `c${(commandSeq.current += 1)}-${Date.now()}`
+      const frame = { type: 'command', id, name, arg, args }
       const promise = new Promise<unknown>((resolve, reject) => {
-        pendingCommands.current.set(id, { resolve, reject })
+        // The executor runs synchronously, so the command is parked before
+        // anything can answer it.
+        const dispatch = decideCommandDispatch({
+          open: socketRef.current?.readyState === WebSocket.OPEN
+        })
+        pendingCommands.current.set(id, {
+          resolve,
+          reject,
+          frame: dispatch === 'queue' ? frame : null,
+          expiresAt: Date.now() + COMMAND_TIMEOUT_MS
+        })
+        if (dispatch === 'send') sendRaw(frame)
       })
-      sendRaw({ type: 'command', id, name, arg, args })
+      const queued: string[] = []
+      for (const [queuedId, parked] of pendingCommands.current) {
+        if (parked.frame !== null) queued.push(queuedId)
+      }
+      rejectCommands(commandsToEvict(queued), copy.connectionLost)
       return promise
     },
-    refresh: () => sendRaw({ type: 'refresh' }),
+    refresh: wake,
     reset: () => {
+      // A deliberate log-out: anything that resumes after an `await` from here
+      // on is answering a question nobody is asking any more.
+      authGeneration.current += 1
       clearAuth()
       sessionRef.current = null
       clearReconnectTimer()
       const socket = socketRef.current
       socketRef.current = null
       socket?.close()
-      failPendingCommands()
+      // Everything, queued included — there is no socket left for the queue to
+      // wait for, and the drafts the UI is holding must be released.
+      rejectCommands([...pendingCommands.current.keys()], remoteCopy(localeRef.current).connectionLost)
       setPhase('pairing')
+      setProbing(false)
     }
   }
 }

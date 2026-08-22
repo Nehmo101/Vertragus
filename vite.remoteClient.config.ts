@@ -20,6 +20,20 @@ import react from '@vitejs/plugin-react'
  * shape crop cannot cut into it. `scripts/gen-icons.mjs` owns the desktop
  * icon set and has no reason to know about these; regenerate them with sharp
  * from the same SVG if the mark ever changes.
+ *
+ * ## The manifest is monolingual, deliberately
+ *
+ * AGENTS.md requires user-visible copy in both locales, and the manifest is a
+ * static file that cannot read `hello.locale` — it is fetched by the browser
+ * before the client has spoken to any host. Rather than ship English strings
+ * to a German default, it now carries no prose at all: `description` (the only
+ * sentence it had, shown solely in Android's install sheet — iOS ignores the
+ * manifest entirely and reads the apple-* tags) is gone, and what remains is
+ * `name` / `short_name`, which are the product's name and identical in every
+ * locale. The alternative — serving the manifest through `staticFiles.ts` with
+ * the host's locale substituted — buys one install-sheet sentence at the price
+ * of making a static asset dynamic, and was not worth it. This is the written
+ * decision, not a silent exception.
  */
 export default defineConfig({
   root: resolve(__dirname, 'src/remoteClient'),

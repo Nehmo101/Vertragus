@@ -142,29 +142,118 @@ function isScrollport(box: AncestorBox): boolean {
   return box.scrollHeight - box.clientHeight > SCROLL_SLACK_PX
 }
 
-export function decideReveal(request: RevealRequest): RevealDecision {
+/**
+ * The verdict, plus WHICH box proved it.
+ *
+ * The index matters as much as the decision. The walk's whole job is to find
+ * the one scrollport a scroll should move; handing back only `'reveal'` and
+ * letting the caller reach for `scrollIntoView` throws that away, and
+ * `scrollIntoView` then scrolls EVERY scrollable ancestor — including the
+ * document, which is exactly the box this module exists to keep still. Note
+ * that `overflow: hidden` is not a defence there: `scrollIntoView` scrolls a
+ * hidden overflow box happily.
+ */
+export interface RevealVerdict {
+  decision: RevealDecision
+  /**
+   * Index into the ancestor sequence of the scrollport to move, or `null` when
+   * there is none to name — either the decision is not `'reveal'`, or the
+   * chain ran out in normal flow and the answer is the viewport's own scroll.
+   */
+  scrollportIndex: number | null
+}
+
+const NO_SCROLLPORT = { scrollportIndex: null } as const
+
+export function decideReveal(request: RevealRequest): RevealVerdict {
   const { target, band } = request
-  if (!target.editable) return 'not-editable'
-  if (target.visibility === 'hidden' || target.visibility === 'collapse') return 'not-visible'
-  if (target.opacity === '0') return 'decorative'
-  if (target.rect.width < MIN_TARGET_PX || target.rect.height < MIN_TARGET_PX) return 'decorative'
+  if (!target.editable) return { decision: 'not-editable', ...NO_SCROLLPORT }
+  if (target.visibility === 'hidden' || target.visibility === 'collapse') {
+    return { decision: 'not-visible', ...NO_SCROLLPORT }
+  }
+  if (target.opacity === '0') return { decision: 'decorative', ...NO_SCROLLPORT }
+  if (target.rect.width < MIN_TARGET_PX || target.rect.height < MIN_TARGET_PX) {
+    return { decision: 'decorative', ...NO_SCROLLPORT }
+  }
   if (
     target.rect.top >= band.top + REVEAL_MARGIN_PX &&
     target.rect.bottom <= band.bottom - REVEAL_MARGIN_PX
   ) {
-    return 'already-visible'
+    return { decision: 'already-visible', ...NO_SCROLLPORT }
   }
 
   let depth = 0
   for (const box of request.ancestors) {
-    if (depth >= MAX_ANCESTOR_DEPTH) return 'unproven'
-    depth += 1
+    if (depth >= MAX_ANCESTOR_DEPTH) return { decision: 'unproven', ...NO_SCROLLPORT }
     // Checked before `position`, so a fixed overlay that is *itself* a
     // scroller still gets its own content revealed.
-    if (isScrollport(box)) return 'reveal'
-    if (box.position === 'fixed') return 'pinned'
+    if (isScrollport(box)) return { decision: 'reveal', scrollportIndex: depth }
+    if (box.position === 'fixed') return { decision: 'pinned', ...NO_SCROLLPORT }
+    depth += 1
   }
   // The chain ran out without a fixed ancestor: the element is in normal flow
   // and the document scroll — the overview's own scroller — can reach it.
-  return 'reveal'
+  return { decision: 'reveal', ...NO_SCROLLPORT }
+}
+
+/**
+ * How far the proven scrollport has to move to put the field in the middle of
+ * the visible band. Positive means "scroll down" (content moves up).
+ *
+ * Centring rather than merely clearing the margin: the keyboard is still
+ * animating when this lands, the band shrinks a little further after it, and
+ * a field parked one pixel above the keys is a field that ends up under them.
+ */
+export function revealScrollDelta(
+  rect: { top: number; bottom: number },
+  band: VisibleBand
+): number {
+  return (rect.top + rect.bottom) / 2 - (band.top + band.bottom) / 2
+}
+
+/**
+ * ## Measuring the visible band
+ *
+ * Two quantities come off `visualViewport`, and conflating them is what made
+ * the reveal above unreachable in the very state this module was written for.
+ *
+ * - The **inset** is how much of the LAYOUT viewport is hidden at the bottom.
+ *   That is the padding question: document-scrolled content needs that much
+ *   room added below it, or its last row cannot be scrolled clear of the keys.
+ * - The **displacement** is whether the visible band has moved AT ALL relative
+ *   to the layout viewport. That is the trigger question: something just took
+ *   screen space, so a field that was visible may not be any more.
+ *
+ * They differ exactly where iOS differs from Android. Android with
+ * `interactive-widget=resizes-content` shrinks the layout viewport too, so
+ * both are 0 and nothing needs doing. iOS in its shrink state gives
+ * `height < innerHeight, offsetTop === 0` and both are the keyboard's height.
+ * But iOS also has a state where it does not shrink the visual viewport and
+ * SHIFTS it instead: `height === innerHeight, offsetTop > 0`. There the inset
+ * is legitimately 0 — nothing of the layout viewport is hidden below, the
+ * shift already carried it into view — while the displacement is `offsetTop`.
+ * A trigger built on the inset alone is silent in precisely that state.
+ */
+export interface ViewportGeometry {
+  /** `window.innerHeight` — the layout viewport. */
+  innerHeight: number
+  /** `visualViewport.height`. */
+  height: number
+  /** `visualViewport.offsetTop`. */
+  offsetTop: number
+}
+
+/** How much of the layout viewport is hidden at the bottom — `--keyboard-inset`. */
+export function keyboardInsetPx(geometry: ViewportGeometry): number {
+  return Math.max(0, geometry.innerHeight - geometry.height - geometry.offsetTop)
+}
+
+/**
+ * How far the visible band has been displaced inside the layout viewport,
+ * counting both a shrink at the bottom and a downward shift. Zero means the
+ * visible viewport IS the layout viewport and there is nothing to reveal
+ * around.
+ */
+export function viewportDisplacementPx(geometry: ViewportGeometry): number {
+  return keyboardInsetPx(geometry) + Math.max(0, geometry.offsetTop)
 }

@@ -26,7 +26,7 @@ import { RemoteAuthStore, type AuthStoreDeps, type RemoteSession } from './auth'
 import { indexPath, resolveStaticPath } from './staticFiles'
 import type { TerminalDirectory } from '@main/ipc'
 import type { RemoteClientInfo } from '@shared/remote/types'
-import { parseClientMessage, type ServerMessage } from '@shared/remote/protocol'
+import { parseClientMessage, type ClientMessage, type ServerMessage } from '@shared/remote/protocol'
 
 const MAX_BODY_BYTES = 64 * 1024
 /** Cap a single WebSocket frame — the zod caps run only after ws buffers it. */
@@ -36,6 +36,27 @@ const MAX_CONNECTIONS = 64
 /** Drop a slow reader whose outbound buffer grows past this. */
 const SOCKET_BUFFER_CEILING_BYTES = 8 * 1024 * 1024
 export const REMOTE_DEFAULT_PORT = 9482
+
+/**
+ * Does this frame count as the client being USED, for the session's idle
+ * timer, or is it only the client checking that the wire still works?
+ *
+ * `refresh` is both the overview's reload and the client's liveness probe —
+ * the same frame, because a browser cannot send a WebSocket ping and the
+ * protocol deliberately has no verb to spare. That makes it the one message
+ * the server cannot read as evidence of a human: a phone with the tab open
+ * probes every 30 s forever, so touching the session on `refresh` would mean
+ * {@link SESSION_IDLE_MS} could never elapse for any client that stayed
+ * connected — an idle expiry that expires nothing.
+ *
+ * The cost of that choice is explicit: a user who does nothing but pull to
+ * refresh does not extend their session. Opening the client does (`auth`
+ * touches), and so does every attach, input, resize and command. Seven days
+ * without any of those is exactly the case the idle timer is for.
+ */
+export function refreshesIdleTimer(type: ClientMessage['type']): boolean {
+  return type !== 'refresh'
+}
 
 /** True for a bare IP literal (v4 or v6) — never a DNS name. */
 function isIpLiteral(host: string): boolean {
@@ -265,7 +286,9 @@ export async function startRemoteServer(
           }
           const session = auth.touch(message.session)
           if (!session) {
-            send(socket, { type: 'session_revoked' })
+            // Unknown or idle-expired — not a decision about this device, so
+            // the client may silently re-pair from its stored pairing token.
+            send(socket, { type: 'session_revoked', reason: 'expired' })
             socket.close()
             return
           }
@@ -285,9 +308,14 @@ export async function startRemoteServer(
           return
         }
 
-        // Every subsequent message refreshes the session's idle timer.
-        if (!auth.touch(connection.session.token)) {
-          send(socket, { type: 'session_revoked' })
+        // Every subsequent message revalidates the session; only the ones that
+        // are evidence of a user refresh its idle timer (see
+        // `refreshesIdleTimer`).
+        const live = refreshesIdleTimer(message.type)
+          ? auth.touch(connection.session.token)
+          : auth.verify(connection.session.token)
+        if (!live) {
+          send(socket, { type: 'session_revoked', reason: 'expired' })
           socket.close()
           return
         }
@@ -364,12 +392,15 @@ export async function startRemoteServer(
       })),
     revoke(id: string): boolean {
       const revoked = auth.revoke(id)
-      // Close any live socket whose session just died.
+      // Close any live socket whose session just died. `verify`, not `touch`:
+      // revoking one client must not renew every other client's idle timer.
       for (const connection of [...clients]) {
-        if (!auth.touch(connection.session.token)) {
-          send(connection.socket, { type: 'session_revoked' })
-          connection.socket.close()
-        }
+        if (auth.verify(connection.session.token)) continue
+        // Only the device the user actually revoked is told so; anything else
+        // that died here died of old age and may re-pair on its own.
+        const reason = revoked && connection.session.id === id ? 'revoked' : 'expired'
+        send(connection.socket, { type: 'session_revoked', reason })
+        connection.socket.close()
       }
       return revoked
     },

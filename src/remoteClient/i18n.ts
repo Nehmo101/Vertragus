@@ -18,6 +18,7 @@ export interface RemoteCopy {
   reconnecting: string
   offline: string
   connectionLost: string
+  commandTooLong: string
   refresh: string
   pairingTitle: string
   pairingBody: string
@@ -126,6 +127,7 @@ const de: RemoteCopy = {
   reconnecting: 'verbinde neu …',
   offline: 'offline',
   connectionLost: 'Verbindung unterbrochen.',
+  commandTooLong: 'Der Text ist zu lang für eine Übertragung — bitte kürzen.',
   refresh: 'Aktualisieren',
   pairingTitle: 'Vertragus koppeln',
   pairingBody:
@@ -233,6 +235,7 @@ const en: RemoteCopy = {
   reconnecting: 'reconnecting …',
   offline: 'offline',
   connectionLost: 'Connection lost.',
+  commandTooLong: 'That text is too long to send — please shorten it.',
   refresh: 'Refresh',
   pairingTitle: 'Pair Vertragus',
   pairingBody:

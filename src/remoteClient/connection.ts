@@ -20,12 +20,30 @@ export const RECONNECT_MAX_MS = 10_000
 /**
  * Silence after which an open socket has to prove itself.
  *
- * Deliberately unchanged now that the overview renders a question inbox and a
- * task board off the same `workspaces` payload, which makes the probe's answer
- * more expensive to diff. The probe fires on SILENCE, not on activity: a busy
- * session pushes on its own and never reaches this timer, so the only pushes
- * this rule adds are the ones that arrive when nothing has happened — exactly
- * when the diff is cheapest. `isSamePayload` below makes that case free.
+ * The probe fires on SILENCE, not on activity: a busy session pushes on its
+ * own and never reaches this timer, so the only pushes this rule adds are the
+ * ones that arrive when nothing has happened.
+ *
+ * ## What the proof costs, stated rather than waved away
+ *
+ * The server answers `refresh` with a full `workspaces` frame — every
+ * workspace, every agent row, every task row — whether or not anything
+ * changed. `isSamePayload` makes that free for React; it does NOT make it free
+ * for the radio. A run with a handful of agents and a task board serializes to
+ * a few KB, so a foreground tab left open on an idle run pays roughly
+ * `payload x 2/min` — order 100-400 KB per hour of staring at it. A
+ * backgrounded tab pays nothing (`decideLiveness` refuses to probe one), and
+ * an active run pays nothing extra because its own pushes reset the timer.
+ *
+ * That cost buys the only evidence a browser can get: JS cannot send a
+ * WebSocket ping, and an invented `ping` verb would be dropped by the
+ * gateway's zod validator, which is why the probe reuses `refresh`. The
+ * cheaper design — have the server answer `refresh` with `workspaces` only
+ * when the payload changed — cannot be used HERE, because a probe that gets no
+ * answer is by construction a dead route: silence is the failure signal, so
+ * the answer has to arrive even when it says nothing. Buying it back would
+ * take a second server->client verb, which this protocol does not have.
+ *
  * Raising the window would only lengthen how long a dead route looks alive.
  */
 export const LIVENESS_SILENCE_MS = 30_000
@@ -111,4 +129,115 @@ export function decideWake(readyState: number | null): WakeAction {
  */
 export function isSamePayload(previous: unknown, next: unknown): boolean {
   return JSON.stringify(previous) === JSON.stringify(next)
+}
+
+/**
+ * How long a command may stay unsettled before the client gives up on it.
+ *
+ * Covers both ways a command can go quiet: parked in the queue below waiting
+ * for a socket, and already on the wire but never answered (the server drops
+ * any frame its schema rejects, and a dropped `command` frame produces no
+ * `command_result`). Either way the promise MUST settle — an Answer button
+ * stuck on "sending ..." leaves the agent blocked with no way back but a
+ * reload, which throws away every draft on the page.
+ *
+ * Sized to outlast an ordinary reconnect, and `connection.test.ts` pins it
+ * against the pieces rather than against itself: the liveness rule needs
+ * `LIVENESS_SILENCE_MS + LIVENESS_PROBE_TIMEOUT_MS` (40 s) to convict a route
+ * that died without closing, and the reconnect it then triggers costs at most
+ * one `RECONNECT_MAX_MS` step. A deadline shorter than that would reject
+ * commands the very next `hello` was about to deliver — which is the failure
+ * the queue exists to prevent, arriving by a different door. Anything still
+ * unsettled after this has not lost a race, it has lost the route.
+ */
+export const COMMAND_TIMEOUT_MS = 45_000
+
+/**
+ * How many commands may wait for a socket at once. A phone in a tunnel taps
+ * on; without a bound the queue is an unbounded replay of everything the user
+ * did while disconnected. The oldest taps are the ones the user has given up
+ * on, so they are the ones dropped.
+ */
+export const COMMAND_QUEUE_LIMIT = 8
+
+/**
+ * Mirror of the `args` value cap in `clientMessageSchema` (`protocol.ts`).
+ * The server drops a frame that fails `safeParse` without answering it, so a
+ * paste past this cap is a command that can never be answered; the client has
+ * to refuse it itself rather than park a promise nothing will settle.
+ * `connection.test.ts` pins this number against the schema it mirrors.
+ */
+export const MAX_COMMAND_ARG_CHARS = 20_000
+
+/** Whether a command's structured args can survive the server's validator. */
+export function commandArgsWithinLimits(args: Record<string, string> | undefined): boolean {
+  if (!args) return true
+  return Object.values(args).every((value) => value.length <= MAX_COMMAND_ARG_CHARS)
+}
+
+/**
+ * Should this command go straight out, or wait for a socket?
+ *
+ * Queueing rather than rejecting is a deliberate choice about what a phone
+ * actually is: `phase === 'connecting'` is not an exceptional state there, it
+ * is most of a walk out of Wi-Fi range, and the tap made one second before the
+ * socket comes back is the common case, not the edge one. Rejecting it makes
+ * the user retype an answer they already wrote. The queue is only honest
+ * because it is bounded ({@link commandsToEvict}) and every entry carries a
+ * deadline ({@link expiredCommandIds}) — a queue without those is the same
+ * hang with more steps.
+ */
+export function decideCommandDispatch(state: { open: boolean }): 'send' | 'queue' {
+  return state.open ? 'send' : 'queue'
+}
+
+/** Which queued commands the bound forces out, oldest first. */
+export function commandsToEvict(queuedIds: readonly string[]): string[] {
+  const excess = queuedIds.length - COMMAND_QUEUE_LIMIT
+  return excess > 0 ? queuedIds.slice(0, excess) : []
+}
+
+/** Which parked commands have outlived {@link COMMAND_TIMEOUT_MS}. */
+export function expiredCommandIds(
+  parked: Iterable<readonly [string, { expiresAt: number }]>,
+  now: number
+): string[] {
+  const expired: string[] = []
+  for (const [id, entry] of parked) {
+    if (now >= entry.expiresAt) expired.push(id)
+  }
+  return expired
+}
+
+/**
+ * The three-way race a close event has to survive, as facts rather than as a
+ * chain of `if`s buried in a socket callback.
+ *
+ * `isCurrent` is the whole game: `connect()` drops the previous socket by
+ * clearing `socketRef` BEFORE closing it, so the orphan's `onclose` arrives
+ * after a replacement is already in place. That late event must not schedule a
+ * reconnect (the replacement is already connecting) and must not fail parked
+ * commands (by then they belong to the replacement).
+ */
+export interface SocketCloseContext {
+  /** Is the socket that closed still the one `socketRef` points at? */
+  isCurrent: boolean
+  /** Is the hook still mounted? */
+  alive: boolean
+  /** Is there still a session to reconnect with? */
+  hasSession: boolean
+}
+
+/** May this close schedule the next reconnect? */
+export function shouldScheduleReconnect(context: SocketCloseContext): boolean {
+  return context.isCurrent && context.alive && context.hasSession
+}
+
+/**
+ * May this close reject the commands parked on it? Only the current socket's,
+ * for the reason above — an orphan's commands were already settled by the
+ * `connect()` call that orphaned it.
+ */
+export function shouldFailParkedCommands(context: Pick<SocketCloseContext, 'isCurrent'>): boolean {
+  return context.isCurrent
 }
