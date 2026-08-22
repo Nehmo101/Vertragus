@@ -35,9 +35,21 @@ export default tseslint.config(
       '@typescript-eslint/no-restricted-imports': [
         'error',
         {
-          paths: [
+          // `patterns`, not `paths`: `paths` matches one literal specifier, so
+          // the same import spelled relatively, or any of the other modules
+          // that pull zod, walks straight past it. This is the cheap first
+          // layer and it is deliberately spelling-agnostic; the guard that
+          // actually measures the invariant reads the built bundle
+          // (`scripts/remoteBundle.test.ts`), because a rule can only ban the
+          // routes someone thought of.
+          patterns: [
             {
-              name: '@shared/remote/protocol',
+              group: [
+                '@shared/remote/protocol',
+                '**/shared/remote/protocol',
+                '@shared/schema/*',
+                '**/shared/schema/*'
+              ],
               allowTypeImports: true,
               message:
                 'Import types only. A value import pulls zod into the phone bundle — put shared constants in @shared/remote/limits.'
