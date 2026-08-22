@@ -180,6 +180,32 @@ export function App(): React.JSX.Element {
   const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
     readThemePreference()
   )
+
+  /*
+   * Two one-way corrections on `phase`, adjusted during render for the same
+   * reason `seenLive` below is. An effect whose whole body is a `setState` is
+   * a second render either way; taking it here keeps the correction inside the
+   * pass that caused it, instead of committing one frame of the wrong thing
+   * and fixing it after the paint. Both are guarded, so they settle in one
+   * extra pass and cost nothing on a render that changes neither.
+   *
+   * `everConnected` is what separates "connecting" from "reconnecting" in the
+   * header (`connectionState`); it can only ever go true.
+   *
+   * A screen the user cannot act on must not keep a terminal open behind it:
+   * the socket that fed it is gone, and its history entry has to be popped
+   * while `openAgent` is still the thing that owns it — which is precisely
+   * what clearing it does, because `useTerminalHistory` watches that value and
+   * turns the null into the `history.back()` that drops the entry.
+   */
+  if (api.phase === 'ready' && !everConnected) setEverConnected(true)
+  if (
+    openAgent !== null &&
+    (api.phase === 'pairing' || api.phase === 'revoked' || api.phase === 'error')
+  ) {
+    setOpenAgent(null)
+  }
+
   useVisualViewport()
   useTerminalHistory(openAgent, setOpenAgent)
   useDocumentScrollLock(openAgent !== null)
@@ -246,10 +272,6 @@ export function App(): React.JSX.Element {
     document.documentElement.lang = remoteLanguage(api.locale)
   }, [api.locale])
 
-  useEffect(() => {
-    if (api.phase === 'ready') setEverConnected(true)
-  }, [api.phase])
-
   /*
    * Fetch the terminal chunk once the list is up and the socket is quiet, so
    * the tap that opens one finds it already parsed. Idle rather than
@@ -267,15 +289,6 @@ export function App(): React.JSX.Element {
     }
     const handle = idle(() => void loadTerminal(), { timeout: 4000 })
     return () => window.cancelIdleCallback?.(handle)
-  }, [api.phase])
-
-  // A screen the user cannot act on must not keep a terminal open behind it:
-  // the socket that fed it is gone, and its history entry has to be popped
-  // while `openAgent` is still the thing that owns it.
-  useEffect(() => {
-    if (api.phase === 'pairing' || api.phase === 'revoked' || api.phase === 'error') {
-      setOpenAgent(null)
-    }
   }, [api.phase])
 
   // The inbox reads the run live-first; the card list does not (see
@@ -341,12 +354,41 @@ export function App(): React.JSX.Element {
   }
 
   if (api.phase === 'error') {
+    /*
+     * Which button is the primary one depends on what is broken. `unreachable`
+     * is a route, not a credential: the token is fine, the hook is already
+     * retrying behind this screen, and re-pairing would throw a working secret
+     * away to solve a problem it is not the cause of — so the retry leads and
+     * `pairAgain` stays as the way out for someone who has decided the desktop
+     * is not coming back. `pairingFailed` is the opposite (the token IS what is
+     * wrong) and keeps `pairAgain` alone.
+     *
+     * The retry is disabled while an exchange is on the wire, with the label
+     * carrying the reason — the same shape the start form and the answer field
+     * use for a send in flight, so a tap that lands during the hook's own
+     * backoff attempt is not a second attempt.
+     */
+    const retryable = api.error === 'unreachable'
     return (
       <Centered>
         <HoundLogo size={36} badge={false} />
         <h1>{copy.errorTitle}</h1>
         <p>{api.error ? copy[api.error] : copy.unknownError}</p>
-        <button className="primary" type="button" onClick={api.reset}>
+        {retryable ? (
+          <button
+            className="primary"
+            type="button"
+            disabled={api.retrying}
+            onClick={api.retryPairing}
+          >
+            {api.retrying ? copy.retrying : copy.retry}
+          </button>
+        ) : null}
+        <button
+          className={retryable ? 'ghost-inline' : 'primary'}
+          type="button"
+          onClick={api.reset}
+        >
           {copy.pairAgain}
         </button>
       </Centered>
@@ -485,20 +527,28 @@ function useDocumentScrollLock(locked: boolean): void {
   }, [locked])
 }
 
-/** Whether the list has been scrolled far enough for a way back to the top. */
+/**
+ * Whether the list has been scrolled far enough for a way back to the top.
+ *
+ * Inactive is answered by the `&&`, not by writing `false` into the state. The
+ * only thing that deactivates this is the terminal covering the list, and the
+ * list keeps its offset underneath (`useDocumentScrollLock`), so the recorded
+ * value is still the true one when the terminal closes — zeroing it meant the
+ * button blinked out and back in one frame later, when the listener that had
+ * just been re-attached measured the same `scrollY` it had before. Reading it
+ * through `active` also stops a listener-free render from ever reporting a
+ * stale true.
+ */
 function useScrolledDown(active: boolean): boolean {
   const [down, setDown] = useState(false)
   useEffect(() => {
-    if (!active) {
-      setDown(false)
-      return
-    }
+    if (!active) return
     const update = (): void => setDown(shouldShowBackToTop(window.scrollY))
     update()
     window.addEventListener('scroll', update, { passive: true })
     return () => window.removeEventListener('scroll', update)
   }, [active])
-  return down
+  return active && down
 }
 
 function Header({
@@ -889,9 +939,35 @@ function StartForm({
   const ready = api.phase === 'ready'
   const goal = drafts[GOAL_DRAFT_KEY] ?? ''
 
+  /**
+   * The `api` the fetch below reaches for, kept current without becoming a
+   * dependency of it — the same device the terminal uses, for a reason worth
+   * writing down rather than asserting in a comment.
+   *
+   * `api` is a fresh object on every render of `App`, so `[ready, api]` would
+   * re-issue `profiles:list` on every workspace push, every liveness probe and
+   * every keystroke that reaches `App` — a command per frame down a socket the
+   * user is trying to type into. `[ready]` alone is the right trigger: the
+   * list is fetched when the connection becomes usable and does not change
+   * again until it stops being usable.
+   *
+   * What made the same omission a bug in `RemoteTerminal` was that the stale
+   * capture there was READ long after it was taken. This one is not: every
+   * member of `api` that `runCommand` touches lives behind a ref inside
+   * `useRemote` (the socket, the locale, the pending map), so it dispatches
+   * down whatever route is live at the moment it is called, and the call
+   * happens in the same commit the capture came from. The ref makes that
+   * structural instead of a claim — if `runCommand` ever does close over
+   * render state, this reads the version that owns it.
+   */
+  const apiRef = useRef(api)
+  useEffect(() => {
+    apiRef.current = api
+  })
+
   useEffect(() => {
     if (!ready) return
-    api.runCommand('profiles:list').then(
+    apiRef.current.runCommand('profiles:list').then(
       (result) => {
         const list = Array.isArray(result) ? (result as RemoteProfileSummary[]) : []
         setProfiles(list)
@@ -903,7 +979,6 @@ function StartForm({
       },
       () => setProfiles([])
     )
-    // `api` is a fresh object each render; `ready` is the real trigger.
   }, [ready])
 
   if (!ready || profiles.length === 0) return null

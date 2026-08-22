@@ -94,6 +94,12 @@
   --verdigris-bright: #3e9d82;
   --verdigris-text: #8fd0ba;
   --warn: #f5a524;
+  /* The warn hue as a FILL THAT CARRIES INK — the mirror of --bronze-strong,
+     which is the accent as ink. --warn itself is contracted to clear 3:1 as a
+     status dot, which in the light theme leaves --on-bronze on it at 3.91:1:
+     legal for a shape, short of AA for the glyph the `?` badge actually draws.
+     Dark has no such problem, so the token aliases there. */
+  --warn-fill: var(--warn);
   --warn-text: #f7c96b;
   --err: #d9735c;
   --err-text: #f0a08c;
@@ -143,6 +149,11 @@
   --verdigris-text: #1f5a4e;
   /* was #c47d10 — 2.81:1 on --surface-2, under the 3:1 bar for a status dot. */
   --warn: #a86a08;
+  /* 4.70:1 under --on-bronze, and still 3.11:1 on --surface-2 and 3.61:1 on
+     --surface, so the badge stays legal as a shape as well as a glyph. The
+     window is narrow: AA under near-black ink wants luminance >= 0.222, and
+     3:1 against --surface-2 allows at most 0.244. This sits at 0.234. */
+  --warn-fill: #b8770f;
   /* was #9a6208 — 4.28:1 on --surface-2, under AA for the text it carries. */
   --warn-text: #8c5806;
   /* was #c45a45 — 3.61:1 on --surface-2. */

@@ -482,6 +482,33 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * The thinnest margin in the sheet, and the one place `--warn` is a solid fill
+ * under ink rather than a dot, a border or a tint: `--on-bronze` on it is
+ * 3.91:1 in light (8.51:1 dark). The glyph inside is an `aria-hidden` "?" — the
+ * button carries its own accessible name — so the bar that applies to it is the
+ * 3:1 for a graphical object, which it clears; the fill itself is 4.34:1 on
+ * `--surface`, well past 3:1 as a boundary. It is NOT at AA for text, though,
+ * and it is drawn as a character, so it should not stay the exception.
+ *
+ * Nothing already in the palette closes it. `--surface` as the ink is 4.34:1,
+ * `--bg` 3.94:1, and `--bronze-strong` is an ink token — `--on-bronze` on it is
+ * 2.99:1. Darkening `--warn` moves the wrong way (the ink is near-black in both
+ * themes); `--warn` cannot be lightened either, because it was contracted to
+ * `#a86a08` precisely to clear 3:1 as a status dot on `--surface-2`.
+ *
+ * What closes it is one token, `--warn-fill`: the warn hue as a FILL THAT
+ * CARRIES INK, exactly as `--bronze` is to `--bronze-strong` but in the other
+ * direction. `var(--warn)` on dark (already 8.51:1, nothing to fix), `#b8770f`
+ * on light — 4.70:1 under `--on-bronze`, and still 3.11:1 on `--surface-2` and
+ * 3.61:1 on `--surface`, so it stays legal as a shape too. The window is
+ * narrow but real: AA under near-black ink needs luminance >= 0.222, and 3:1
+ * against `--surface-2` allows up to 0.244. `#b8770f` sits at 0.234.
+ *
+ * The fallback below is today's colour, so this renders unchanged until that
+ * token exists and becomes correct the moment it does. `styles.css` is not
+ * this file's to write.
+ */
 .badge {
   flex: 0 0 auto;
   display: grid;
@@ -491,7 +518,7 @@
   padding: 0;
   border: none;
   border-radius: 12px;
-  background: var(--warn);
+  background: var(--warn-fill, var(--warn));
   color: var(--on-bronze);
   font-size: 1.1rem;
   font-weight: 800;
