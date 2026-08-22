@@ -86,13 +86,16 @@
   background: linear-gradient(90deg, rgba(203, 163, 90, 0.28), rgba(var(--ink-rgb), 0.05));
 }
 
-/* The lists scroll, the brand and the footer never do. */
+/* The lists scroll, the brand and the footer never do.
+ * Windows reports drag pixels as caption, so Chromium never sees wheel there;
+ * lists must opt out while brand/footer stay drag via `.panel`. */
 .panel-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding-bottom: 6px;
+  -webkit-app-region: no-drag;
 }
 
 .panel-section {
