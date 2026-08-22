@@ -20,9 +20,10 @@ import { armWindowCapture } from './smokeCapture'
 
 export const SETTINGS_WINDOW_WIDTH = 480
 // Measured against the rendered sheet: tall enough that the Tailscale remote
-// card — the first block in the body — is on screen without scrolling. Glass
-// sliders, extra MCP servers and updates sit further down on purpose.
-export const SETTINGS_WINDOW_HEIGHT = 590
+// card — the first block in the body — is on screen without scrolling, with
+// room for the voice card below it. Glass sliders, extra MCP servers and
+// updates sit further down on purpose.
+export const SETTINGS_WINDOW_HEIGHT = 780
 export const SETTINGS_WINDOW_MIN_WIDTH = 420
 export const SETTINGS_WINDOW_MIN_HEIGHT = 420
 

@@ -1,6 +1,6 @@
 import { homedir, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
-import { app, safeStorage, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, safeStorage, ipcMain, shell } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { mainMessages, readLocale } from '@shared/mainMessages'
 import { allRoleTemplates, roleColor } from '@shared/prompts/roles'
@@ -8,15 +8,26 @@ import { PtyAgent } from './agents/PtyAgent'
 import { resolveLaunch } from './agents/resolveCommand'
 import {
   agentCurrentTaskFields,
+  APP_CHANNELS,
+  createStubWorkspaceDirectory,
   PANEL_TASKS_MAX,
   registerAppIpc,
+  toPanelSettings,
   type WorkspaceDirectory,
   type WorkspaceSummary
 } from './appIpc'
+import { createAppVoice, installDefaultVoicePermissions, type AppVoice } from './appVoice'
 import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
 import { getAgentRegistry, registerTerminalIpc, setTerminalInputSink } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
-import { getProfile, getProfiles, getRoleTemplates, getSettings, setSetting } from './store/settings'
+import {
+  getProfile,
+  getProfiles,
+  getRoleTemplates,
+  getSettings,
+  setSetting,
+  settings
+} from './store/settings'
 import {
   closeCliWindow,
   createCliWindow,
@@ -26,15 +37,22 @@ import {
   onCliWindowClosed
 } from './windows/cliWindow'
 import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
-import { forgetHideAll, registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
+import {
+  forgetHideAll,
+  hideAllHotkeyStatus,
+  registerAppHideAllShortcut,
+  toggleHideAll,
+  unregisterHideAllShortcut
+} from './windows/hideAll'
 import { suppressMoveTracking } from './windows/placement'
-import { createPanelWindow } from './windows/panel'
-import { armProfileEditorSmoke } from './windows/profileEditor'
+import { createPanelWindow, getPanelWindow, isPanelWindowSender } from './windows/panel'
+import { armProfileEditorSmoke, openProfileEditorWindow } from './windows/profileEditor'
 import { armProviderEditorSmoke } from './windows/providerEditor'
 import {
   armSettingsWindowSmoke,
   isSettingsWindowSender,
-  listSettingsWindows
+  listSettingsWindows,
+  openSettingsWindow
 } from './windows/settingsWindow'
 import { createRemoteController, type RemoteController } from './remote/controller'
 import { registerRemoteIpc } from './remote/ipc'
@@ -294,6 +312,20 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       return running
     },
     stop: (workspaceId) => manager.stopWorkspace(workspaceId),
+    // Panel-only, spoken: type a follow-up into the running orchestrator. The
+    // refusals stay host codes like the neighbouring members — the voice layer
+    // is what turns them into something spoken.
+    sendToOrchestrator(workspaceId, text) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) {
+        throw new Error(`send to orchestrator rejected — unknown workspace ${workspaceId}`)
+      }
+      const orchestrator = workspace.orchestrator
+      if (!orchestrator) {
+        throw new Error(mainMessages(readLocale(() => getSettings().ui.locale)).noOrchestrator)
+      }
+      return workspace.sendToAgent(orchestrator.agentId, text)
+    },
     async succeedOrchestrator(workspaceId) {
       const workspace = manager.get(workspaceId)
       if (!workspace) {
@@ -476,6 +508,36 @@ async function startDevAgent(): Promise<void> {
 let appMcp: McpServerHandle | undefined
 let appManager: WorkspaceManager | undefined
 let devRun: DevRunHandle | undefined
+let appVoice: AppVoice | undefined
+
+function sendToPanel(channel: string, payload: unknown): void {
+  const win = getPanelWindow()
+  if (win && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)
+}
+
+function broadcastPanelSettings(): void {
+  const value = toPanelSettings(getSettings(), hideAllHotkeyStatus(), app.isPackaged)
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.webContents.isDestroyed()) continue
+    win.webContents.send(APP_CHANNELS.eventSettings, value)
+    win.webContents.send(APP_CHANNELS.eventAppearance, value.appearance)
+  }
+}
+
+function attachVoice(directory: WorkspaceDirectory): AppVoice {
+  const voice = createAppVoice({
+    directory,
+    store: () => settings(),
+    hideAll: () => toggleHideAll(),
+    openSettings: () => openSettingsWindow(),
+    openProfileEditor: (profileId) => openProfileEditorWindow(profileId),
+    quit: () => app.quit(),
+    onYoloChanged: () => broadcastPanelSettings(),
+    sendToPanel
+  })
+  appVoice = voice
+  return voice
+}
 let remote: RemoteController | undefined
 
 /** The built web client sits next to the main bundle: out/main → out/remote. */
@@ -562,7 +624,7 @@ app.whenReady().then(async () => {
     appMcp = await startMcpServer()
     appManager = createAppWorkspaceManager(appMcp)
     const directory = panelDirectory(appManager, appMcp)
-    registerAppIpc(directory)
+    registerAppIpc(directory, undefined, attachVoice(directory).port)
     armTerminalTaskFeed(appManager, appMcp)
     // Late-bound: registerTerminalIpc ran before the manager existed. ipc.ts
     // must not import WorkspaceManager. Seed / sendToAgent / assignGoal paste
@@ -597,8 +659,15 @@ app.whenReady().then(async () => {
     // the stub directory, so the next Play/Resume answers with what actually
     // failed instead of "not wired up yet" — which reads as an unfinished
     // feature and sends nobody looking for a broken MCP boot.
-    registerAppIpc(undefined, error instanceof Error ? error.message : String(error))
+    registerAppIpc(
+      undefined,
+      error instanceof Error ? error.message : String(error),
+      attachVoice(createStubWorkspaceDirectory()).port
+    )
   }
+
+  // Mic capture is a panel-window permission; CLI windows must not get it.
+  installDefaultVoicePermissions((id) => isPanelWindowSender(id))
 
   // Hide-all: the global hotkey. A failed registration is not fatal — the
   // status reaches the panel through settings:get, and the eye still works.
@@ -614,6 +683,9 @@ app.whenReady().then(async () => {
   // here, next to each other — a window smoke hook hidden inside an IPC
   // registration is how you end up calling that registration twice.
   armScreenshotHook(createPanelWindow(), 'VERTRAGUS_PANEL_SCREENSHOT')
+
+  // After the panel exists so a stored-on session can ask for the mic.
+  if (getSettings().voice.enabled) void appVoice?.port.setEnabled(true)
   armProfileEditorSmoke()
   armProviderEditorSmoke()
   armSettingsWindowSmoke()
@@ -664,6 +736,8 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   const shutdown = (async () => {
     // devRun shares the app's manager/server, so stopping twice must be safe.
+    appVoice?.dispose()
+    appVoice = undefined
     await remote?.stop().catch(() => undefined)
     await devRun?.stop().catch(() => undefined)
     await appManager?.stopAll({ awaitExitMs: QUIT_SHUTDOWN_CEILING_MS - 1_000 }).catch(() => undefined)

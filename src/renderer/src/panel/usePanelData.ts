@@ -71,6 +71,7 @@ export interface PanelData {
   dismissOnboarding(): void
   openSettings(): void
   toggleYolo(): void
+  toggleVoice(): void
   hideAll(): void
   /** The head's − : put the panel itself down to the taskbar. */
   minimizePanel(): void
@@ -127,6 +128,7 @@ export function usePanelData(): PanelData {
     })
     const offWorkspaces = bridge.onWorkspaces((next) => setWorkspaces(next))
     const offUpdate = bridge.onUpdate((next) => setUpdate(next))
+    const offSettings = bridge.onSettings((next) => setSettings(next))
     window.addEventListener('focus', loadWorkspaces)
 
     return () => {
@@ -134,6 +136,7 @@ export function usePanelData(): PanelData {
       offProfiles()
       offWorkspaces()
       offUpdate()
+      offSettings()
       window.removeEventListener('focus', loadWorkspaces)
     }
   }, [bridge, fail])
@@ -206,6 +209,11 @@ export function usePanelData(): PanelData {
       run(async (api) => {
         const next = await api.setYoloMaster(!(settings?.yoloMaster ?? false))
         setSettings(next)
+      }),
+    toggleVoice: () =>
+      run(async (api) => {
+        await api.setVoiceEnabled(!(settings?.voiceEnabled ?? false))
+        setSettings(await api.getSettings())
       }),
     hideAll: () => run((api) => api.hideAllWindows()),
     minimizePanel: () => run((api) => api.minimizePanel()),

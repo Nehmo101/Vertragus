@@ -142,6 +142,7 @@ const APP = {
   modelsDiscover: 'models:discover',
   workspacesList: 'workspaces:list',
   workspacesStart: 'workspaces:start',
+  workspacesSendToOrchestrator: 'workspaces:sendToOrchestrator',
   workspacesGoal: 'workspaces:goal',
   workspacesResume: 'workspaces:resume',
   workspacesStop: 'workspaces:stop',
@@ -166,6 +167,10 @@ const APP = {
   windowsHideAll: 'windows:hideAll',
   windowsMinimizePanel: 'windows:minimizePanel',
   appQuit: 'app:quit',
+  voiceStatus: 'voice:status',
+  voiceSetEnabled: 'voice:setEnabled',
+  voicePcm: 'voice:pcm',
+  voiceAudio: 'voice:audio',
   dialogPickDirectory: 'dialog:pickDirectory',
   profileEditorOpen: 'profileEditor:open',
   profileEditorClose: 'profileEditor:close',
@@ -187,6 +192,7 @@ const APP = {
   eventWorkspaces: 'ev:workspaces',
   eventUpdate: 'ev:update',
   eventSettings: 'ev:settings',
+  eventVoice: 'ev:voice',
   settingsAppearance: 'settings:appearance',
   eventAppearance: 'ev:appearance',
   // Remote access — settings-window-only in main; see main/remote/ipc.ts.
@@ -362,8 +368,27 @@ export interface PanelSettings {
   autostartSupported: boolean
   /** Present only when the global hide-all hotkey could not be registered. */
   hideAllHotkeyError?: string
+  voiceEnabled: boolean
+  voiceWakePhrase: string
+  voiceVoiceId: string
+  /** Whether a key is stored. The raw key never appears here. */
+  voiceApiKeySet: boolean
   /** Extra MCP servers attached next to Vertragus on the next spawn. */
   mcpServers: ExtraMcpServer[]
+}
+
+export type VoicePhase = 'idle' | 'listening' | 'engaged' | 'error'
+
+export interface VoiceStatusPayload {
+  phase: VoicePhase
+  enabled: boolean
+  error?: string
+}
+
+export interface VoiceEventPayload {
+  phase: VoicePhase
+  transcript?: string
+  error?: string
 }
 
 export type UpdateChannel = 'main' | 'stable'
@@ -379,6 +404,7 @@ export type WritableSetting =
   | 'theme'
   | 'locale'
   | 'appearance'
+  | 'voice'
   | 'agentPolicy'
   | 'onboardingDismissed'
   | 'mcpServers'
@@ -482,6 +508,9 @@ const app = {
   /** E3: start a workspace briefed on the profile's newest journaled run. */
   resumeWorkspace: (profileId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesResume, { profileId }),
+  /** Panel-only: type text into the orchestrator's terminal (voice control). */
+  sendToOrchestrator: (workspaceId: string, text: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesSendToOrchestrator, { workspaceId, text }),
   stopWorkspace: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesStop, { workspaceId }),
   /**
@@ -661,6 +690,16 @@ const app = {
   /** Cursor enters/leaves the panel window — the panel's hover signal. */
   onPointer: (listener: (event: PanelPointerEvent) => void): (() => void) =>
     subscribe(PANEL_POINTER, listener),
+  voiceStatus: (): Promise<VoiceStatusPayload> => ipcRenderer.invoke(APP.voiceStatus),
+  setVoiceEnabled: (enabled: boolean): Promise<VoiceStatusPayload> =>
+    ipcRenderer.invoke(APP.voiceSetEnabled, { enabled }),
+  sendVoicePcm: (pcm: Int16Array): void => {
+    ipcRenderer.send(APP.voicePcm, pcm)
+  },
+  onVoice: (listener: (event: VoiceEventPayload) => void): (() => void) =>
+    subscribe(APP.eventVoice, listener),
+  onVoiceAudio: (listener: (pcm: Int16Array) => void): (() => void) =>
+    subscribe(APP.voiceAudio, listener),
 
   // --- remote access (settings window only, enforced in main) ---
   /** Current remote-server status: enabled, running, bind address, pairing URL. */

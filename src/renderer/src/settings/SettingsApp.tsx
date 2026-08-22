@@ -6,6 +6,7 @@ import {
   type Appearance,
   type AppearanceSlider
 } from '@shared/appearance'
+import type { PanelSettings } from '../../../preload'
 import { RemoteSection } from './RemoteSection'
 import { normalizeMcpServerId, type ExtraMcpServer } from '@shared/schema/mcpServer'
 import {
@@ -66,6 +67,129 @@ function AppearanceSliderRow({
       />
       <span className="st-hint">{t(`settings.glassSlider.${field}Hint`)}</span>
     </div>
+  )
+}
+
+/**
+ * Wake-phrase and voice-id drafts. Keyed by the stored pair so a settings
+ * update remounts with fresh initial state instead of syncing in an effect.
+ */
+function VoiceDraftFields({
+  settings,
+  set
+}: {
+  settings: PanelSettings
+  set: SettingsState['set']
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const [wake, setWake] = useState(settings.voiceWakePhrase)
+  const [voiceId, setVoiceId] = useState(settings.voiceVoiceId)
+
+  return (
+    <>
+      <div className="st-field">
+        <span className="st-label">{t('settings.voiceWakePhrase')}</span>
+        <input
+          className="st-input"
+          value={wake}
+          maxLength={80}
+          onChange={(event) => setWake(event.target.value)}
+          onBlur={() => {
+            const trimmed = wake.trim()
+            if (trimmed && trimmed !== settings.voiceWakePhrase) {
+              set('voice', { wakePhrase: trimmed })
+            } else {
+              setWake(settings.voiceWakePhrase)
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+          }}
+        />
+        <span className="st-hint">{t('settings.voiceWakePhraseHint')}</span>
+      </div>
+      <div className="st-field">
+        <span className="st-label">{t('settings.voiceVoiceId')}</span>
+        <input
+          className="st-input st-mono"
+          value={voiceId}
+          maxLength={40}
+          onChange={(event) => setVoiceId(event.target.value)}
+          onBlur={() => {
+            const trimmed = voiceId.trim()
+            if (trimmed && trimmed !== settings.voiceVoiceId) {
+              set('voice', { voiceId: trimmed })
+            } else {
+              setVoiceId(settings.voiceVoiceId)
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+          }}
+        />
+        <span className="st-hint">{t('settings.voiceVoiceIdHint')}</span>
+      </div>
+    </>
+  )
+}
+
+function VoiceSection({
+  settings,
+  set
+}: {
+  settings: PanelSettings
+  set: SettingsState['set']
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const [apiKey, setApiKey] = useState('')
+
+  return (
+    <section className="st-glass-section">
+      <h2 className="st-section-label">{t('settings.voice')}</h2>
+      <label className="st-switch">
+        <input
+          type="checkbox"
+          className="st-switch-input"
+          checked={settings.voiceEnabled}
+          onChange={(event) => set('voice', { enabled: event.target.checked })}
+        />
+        <span className="st-switch-text">
+          <span className="st-switch-label">{t('settings.voiceEnabled')}</span>
+          <span className="st-hint">{t('settings.voiceEnabledHint')}</span>
+        </span>
+      </label>
+      <VoiceDraftFields
+        key={`${settings.voiceWakePhrase}\0${settings.voiceVoiceId}`}
+        settings={settings}
+        set={set}
+      />
+      <div className="st-field">
+        <span className="st-label">{t('settings.voiceApiKey')}</span>
+        <input
+          type="password"
+          className="st-input st-mono"
+          value={apiKey}
+          maxLength={200}
+          autoComplete="off"
+          placeholder={
+            settings.voiceApiKeySet
+              ? t('settings.voiceApiKeySet')
+              : t('settings.voiceApiKeyPlaceholder')
+          }
+          onChange={(event) => setApiKey(event.target.value)}
+          onBlur={() => {
+            if (apiKey.length > 0) {
+              set('voice', { apiKey })
+              setApiKey('')
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+          }}
+        />
+        <span className="st-hint">{t('settings.voiceApiKeyHint')}</span>
+      </div>
+    </section>
   )
 }
 
@@ -227,6 +351,8 @@ export function SettingsApp(): React.JSX.Element {
             <span className="st-hint">{t('settings.localeHint')}</span>
           </section>
         </div>
+
+        <VoiceSection settings={settings} set={view.set} />
 
         <section className="st-glass-section">
           <h2 className="st-section-label">{t('settings.glass')}</h2>

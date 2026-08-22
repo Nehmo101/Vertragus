@@ -47,10 +47,11 @@ import { parseExtraMcpServersForWrite } from '@shared/schema/mcpServer'
 import type { ProviderConfig } from '@shared/schema/provider'
 import { normalizeAppearance, type Appearance } from '@shared/appearance'
 import { mainMessages, readLocale } from '@shared/mainMessages'
-import type { AppSettings, SettingsStore } from '@main/store/settings'
+import type { AppSettings, SettingsStore, VoiceSettings } from '@main/store/settings'
 import { effectiveAgentPolicy, settings } from '@main/store/settings'
 import type { AgentPolicy } from '@shared/agentPolicy'
 import { AGENT_POLICIES } from '@shared/agentPolicy'
+import type { VoicePhase } from '@main/voice/session'
 import { discoverModels, type ModelDiscoveryResult } from '@main/providers/discovery'
 import { checkAllProviderAuth, type ProviderAuthStatus } from '@main/providers/authStatus'
 import { checkAllProviders, type ProviderHealth } from '@main/providers/health'
@@ -121,6 +122,7 @@ export const APP_CHANNELS = {
    */
   workspacesGoal: 'workspaces:goal',
   workspacesResume: 'workspaces:resume',
+  workspacesSendToOrchestrator: 'workspaces:sendToOrchestrator',
   workspacesStop: 'workspaces:stop',
   workspacesSucceedOrchestrator: 'workspaces:succeedOrchestrator',
   workspacesFocusAgent: 'workspaces:focusAgent',
@@ -149,6 +151,16 @@ export const APP_CHANNELS = {
   windowsHideAll: 'windows:hideAll',
   windowsMinimizePanel: 'windows:minimizePanel',
   appQuit: 'app:quit',
+  /**
+   * Voice is panel-only: the strip owns the mic, and a CLI window that could
+   * push PCM or flip the session would be a way to listen in from a foreign
+   * renderer. Status/setEnabled are invokes; pcm is a send (audio is hot);
+   * ev:voice and voice:audio are main → panel pushes.
+   */
+  voiceStatus: 'voice:status',
+  voiceSetEnabled: 'voice:setEnabled',
+  voicePcm: 'voice:pcm',
+  voiceAudio: 'voice:audio',
   dialogPickDirectory: 'dialog:pickDirectory',
   profileEditorOpen: 'profileEditor:open',
   profileEditorClose: 'profileEditor:close',
@@ -177,6 +189,7 @@ export const APP_CHANNELS = {
    * language" a race against the poll interval.
    */
   eventSettings: 'ev:settings',
+  eventVoice: 'ev:voice',
   /**
    * How see-through this app is, on its own two channels.
    *
@@ -406,6 +419,8 @@ export interface WorkspaceDirectory {
    * the workspace is unknown or the OS refused to open the path.
    */
   openRunFolder(workspaceId: string): Promise<void>
+  /** Panel-only: type a follow-up into the running orchestrator (voice). */
+  sendToOrchestrator(workspaceId: string, text: string): void | Promise<unknown>
   /** Bring an agent's CLI window to the front. */
   focusAgent(agentId: string): void
   /**
@@ -437,9 +452,9 @@ export interface WorkspaceDirectory {
 
 /**
  * The directory used until the WorkspaceManager is injected. `list` is empty
- * and `focusAgent` still works (the CLI window registry exists), but `start`
- * and `stop` REFUSE loudly: a Play button that quietly does nothing is the
- * worst possible placeholder.
+ * and `focusAgent` still works (the CLI window registry exists), but `start`,
+ * `stop` and `sendToOrchestrator` REFUSE loudly: a Play button that quietly
+ * does nothing is the worst possible placeholder.
  *
  * `bootError` is what the app entry caught when the MCP server failed to
  * start. Carried into the refusal because the panel is the only surface the
@@ -465,6 +480,7 @@ export function createStubWorkspaceDirectory(
     postUserMessage: refuse,
     promoteAgentBranch: async () => refuse(),
     openRunFolder: async () => refuse(),
+    sendToOrchestrator: refuse,
     focusAgent: (agentId) => focusCliWindow(agentId),
     closeAgentWindow: (agentId) => closeCliWindow(agentId),
     // No manager → no workspace→agent map; quiet no-op like focusAgent on a ghost.
@@ -530,8 +546,41 @@ export interface PanelSettings {
    * on the hide-all eye — a hotkey that silently does nothing is a support case.
    */
   hideAllHotkeyError?: string
+  /** Voice assistant master switch. Off by default. */
+  voiceEnabled: boolean
+  voiceWakePhrase: string
+  voiceVoiceId: string
+  /**
+   * Whether a key is stored. The raw key never rides on this object or on
+   * `ev:settings` — a renderer that displayed it would leak it into logs.
+   */
+  voiceApiKeySet: boolean
   /** Extra MCP servers attached next to Vertragus on the next spawn. */
   mcpServers: ExtraMcpServer[]
+}
+
+export type { VoicePhase }
+
+export interface VoiceStatusPayload {
+  phase: VoicePhase
+  enabled: boolean
+  error?: string
+}
+
+export interface VoiceEventPayload {
+  phase: VoicePhase
+  transcript?: string
+  error?: string
+}
+
+/**
+ * Production session lives in `appVoice.ts` / `index.ts`, not inside the
+ * sockets here. Tests inject a fake; production injects the real host.
+ */
+export interface AppVoicePort {
+  status(): VoiceStatusPayload
+  setEnabled(on: boolean): Promise<unknown> | unknown
+  pushPcm(pcm: Int16Array): void
 }
 
 /**
@@ -547,6 +596,7 @@ export const WRITABLE_SETTINGS = [
   'theme',
   'locale',
   'appearance',
+  'voice',
   'agentPolicy',
   'onboardingDismissed',
   'mcpServers'
@@ -800,6 +850,11 @@ export interface AppIpcHost {
   installUpdate(): void
   /** Push channel for update state. Without it the badge only refreshes on demand. */
   onUpdateState?(listener: (state: UpdateStatePayload) => void): () => void
+  /**
+   * Optional so `createAppIpc` stays testable without a realtime socket.
+   * Production wires this in `index.ts` after the WorkspaceDirectory exists.
+   */
+  voice?: AppVoicePort
 }
 
 export interface AppIpc {
@@ -829,9 +884,59 @@ export function toPanelSettings(
     autostart: value.autostart,
     updateChannel: value.updateChannel,
     autostartSupported,
+    voiceEnabled: value.voice.enabled,
+    voiceWakePhrase: value.voice.wakePhrase,
+    voiceVoiceId: value.voice.voiceId,
+    voiceApiKeySet: value.voice.apiKey.trim().length > 0,
     mcpServers: value.mcpServers,
     ...(hotkey && !hotkey.registered ? { hideAllHotkeyError: hotkey.error ?? '' } : {})
   }
+}
+
+/**
+ * Patch the stored voice section. An empty `apiKey` string means "leave the
+ * stored key alone" — a password field that round-trips blank would wipe a
+ * key the user cannot see.
+ */
+export function mergeVoicePatch(current: VoiceSettings, patch: unknown): VoiceSettings {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    throw new Error('settings:set rejected — voice expects an object')
+  }
+  const body = patch as Record<string, unknown>
+  const next: VoiceSettings = { ...current }
+  if (body.enabled !== undefined) {
+    if (typeof body.enabled !== 'boolean') {
+      throw new Error('settings:set rejected — voice.enabled expects a boolean')
+    }
+    next.enabled = body.enabled
+  }
+  if (body.wakePhrase !== undefined) {
+    if (typeof body.wakePhrase !== 'string') {
+      throw new Error('settings:set rejected — voice.wakePhrase expects a string')
+    }
+    next.wakePhrase = body.wakePhrase
+  }
+  if (body.voiceId !== undefined) {
+    if (typeof body.voiceId !== 'string') {
+      throw new Error('settings:set rejected — voice.voiceId expects a string')
+    }
+    next.voiceId = body.voiceId
+  }
+  if (typeof body.apiKey === 'string' && body.apiKey.length > 0) {
+    next.apiKey = body.apiKey
+  }
+  return next
+}
+
+/** Coerce an IPC payload into PCM16. Anything else is dropped, not thrown. */
+export function asInt16Pcm(payload: unknown): Int16Array | undefined {
+  if (payload instanceof Int16Array) return payload
+  if (payload instanceof ArrayBuffer) return new Int16Array(payload)
+  if (ArrayBuffer.isView(payload)) {
+    const view = payload as ArrayBufferView
+    return new Int16Array(view.buffer, view.byteOffset, Math.floor(view.byteLength / 2))
+  }
+  return undefined
 }
 
 export function createAppIpc(host: AppIpcHost): AppIpc {
@@ -1068,6 +1173,16 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     emitWorkspaces()
   })
 
+  handle(APP_CHANNELS.workspacesSendToOrchestrator, requirePanel, (_event, payload) => {
+    const body = (payload ?? {}) as { workspaceId?: string; text?: string }
+    if (!body.workspaceId) {
+      throw new Error('workspaces:sendToOrchestrator rejected — missing workspace id')
+    }
+    const text = typeof body.text === 'string' ? body.text.trim() : ''
+    if (!text) throw new Error('workspaces:sendToOrchestrator rejected — missing text')
+    return host.directory.sendToOrchestrator(body.workspaceId, text)
+  })
+
   handle(APP_CHANNELS.workspacesStop, requirePanel, async (_event, payload) => {
     const workspaceId =
       typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
@@ -1295,7 +1410,18 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
         case 'locale': {
           // `ui` is one strict object in the schema: read, patch, write back.
           const ui = { ...host.store.getSettings().ui, [key]: body.value }
-          return panelSettings(host.store.setSetting('ui', ui))
+          const stored = host.store.setSetting('ui', ui)
+          // Locale is the voice session's language hint — recreate while live.
+          if (key === 'locale' && stored.voice.enabled) {
+            await host.voice?.setEnabled(true)
+          }
+          return panelSettings(stored)
+        }
+        case 'voice': {
+          const merged = mergeVoicePatch(host.store.getSettings().voice, body.value)
+          const stored = host.store.setSetting('voice', merged)
+          await host.voice?.setEnabled(stored.voice.enabled)
+          return panelSettings(stored)
         }
         case 'agentPolicy': {
           // D4: the store mirrors `yoloMaster` on this write, so the panel's
@@ -1332,6 +1458,34 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     emitSettings(written)
     return written
   })
+
+  handle(APP_CHANNELS.voiceStatus, requirePanel, () => {
+    if (host.voice) return host.voice.status()
+    return { phase: 'idle' as const, enabled: host.store.getSettings().voice.enabled }
+  })
+
+  handle(APP_CHANNELS.voiceSetEnabled, requirePanel, async (_event, payload) => {
+    const enabled =
+      typeof payload === 'boolean' ? payload : (payload as { enabled?: boolean })?.enabled
+    if (typeof enabled !== 'boolean') {
+      throw new Error('voice:setEnabled rejected — expected a boolean')
+    }
+    const current = host.store.getSettings()
+    const stored = host.store.setSetting('voice', { ...current.voice, enabled })
+    emitSettings(panelSettings(stored))
+    if (host.voice) {
+      await host.voice.setEnabled(enabled)
+      return host.voice.status()
+    }
+    return { phase: 'idle' as const, enabled }
+  })
+
+  host.ipcMain.on(APP_CHANNELS.voicePcm, ((event: IpcEvent, payload?: unknown): void => {
+    // Fire-and-forget: a CLI window that sends PCM is ignored, never thrown.
+    if (!host.isPanelSender(event.sender.id)) return
+    const pcm = asInt16Pcm(payload)
+    if (pcm) host.voice?.pushPcm(pcm)
+  }) as IpcListener)
 
   handle(APP_CHANNELS.windowsHideAll, requirePanel, () => {
     host.hideAll()
@@ -1596,7 +1750,11 @@ function send(targets: readonly (BrowserWindow | null)[], channel: string, paylo
  * `bootError` only applies to the stub path: it is the reason the manager does
  * not exist, and it travels into every workspace refusal.
  */
-export function registerAppIpc(directory?: WorkspaceDirectory, bootError?: string): AppIpc {
+export function registerAppIpc(
+  directory?: WorkspaceDirectory,
+  bootError?: string,
+  voice?: AppVoicePort
+): AppIpc {
   if (instance) return instance
   // Every call goes through `settings()` instead of capturing the store once:
   // constructing electron-store touches the config file, and a corrupt file
@@ -1735,7 +1893,8 @@ export function registerAppIpc(directory?: WorkspaceDirectory, bootError?: strin
     setUpdateChannel: (channel) => appUpdater().setChannel(channel),
     checkForUpdates: () => appUpdater().check(),
     installUpdate: () => appUpdater().install(),
-    onUpdateState: (listener) => onUpdateState(listener)
+    onUpdateState: (listener) => onUpdateState(listener),
+    voice
   })
   return instance
 }

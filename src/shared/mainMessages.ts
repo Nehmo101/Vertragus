@@ -95,6 +95,11 @@ interface MainMessages {
   profileEditorTitle: string
   providerEditorTitle: string
   zoneOverlayTitle: string
+  /**
+   * Voice assistant: the mic is on but no xAI key is stored. Said in the
+   * panel's voice badge, so it names the two places a key can come from.
+   */
+  voiceMissingApiKey: string
 }
 
 const MESSAGES: Record<MainLocale, MainMessages> = {
@@ -149,7 +154,8 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     settingsWindowTitle: 'Vertragus — Einstellungen',
     profileEditorTitle: 'Vertragus — Profil',
     providerEditorTitle: 'Vertragus — Provider',
-    zoneOverlayTitle: 'Vertragus — Zonen'
+    zoneOverlayTitle: 'Vertragus — Zonen',
+    voiceMissingApiKey: 'Kein xAI-API-Key. Unter Einstellungen eintragen oder XAI_API_KEY setzen.'
   },
   en: {
     stubNotWired: 'The workspace manager is not wired up yet.',
@@ -201,7 +207,8 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     settingsWindowTitle: 'Vertragus — Settings',
     profileEditorTitle: 'Vertragus — Profile',
     providerEditorTitle: 'Vertragus — Provider',
-    zoneOverlayTitle: 'Vertragus — Zones'
+    zoneOverlayTitle: 'Vertragus — Zones',
+    voiceMissingApiKey: 'No xAI API key. Set it under Settings or XAI_API_KEY.'
   }
 }
 

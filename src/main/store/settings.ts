@@ -122,6 +122,21 @@ export const uiSettingsSchema = z
 export type UiSettings = z.infer<typeof uiSettingsSchema>
 
 /**
+ * Voice assistant. Off until the user turns it on — a mic that listens on
+ * first boot is a surprise, not a feature. The API key lives here; it never
+ * rides on PanelSettings / `ev:settings`.
+ */
+export const voiceSettingsSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    wakePhrase: z.string().trim().min(1).max(80).default('Hey Vertragus'),
+    apiKey: z.string().max(200).default(''),
+    voiceId: z.string().trim().min(1).max(40).default('eve')
+  })
+  .strict()
+export type VoiceSettings = z.infer<typeof voiceSettingsSchema>
+
+/**
  * Remote access — opt-in, off by default. `bindAddress` empty means "the
  * auto-detected Tailscale address"; a concrete address (a LAN IP, or
  * `0.0.0.0`) is a deliberate override set in the settings window. The pairing
@@ -165,6 +180,7 @@ export const appSettingsSchema = z
     updateChannel: z.enum(['main', 'stable']).default('main'),
     /** `{ providerId: { modelId: lastSeenAtMs } }` — see providers/discovery. */
     modelMemory: modelMemorySchema.default({}),
+    voice: voiceSettingsSchema.default({}),
     /**
      * Extra MCP servers attached next to Vertragus on the next spawn.
      * Preprocess drops a bad row so one hand-edited entry cannot reset the
@@ -187,6 +203,7 @@ export const SETTINGS_KEYS = [
   'autostart',
   'updateChannel',
   'modelMemory',
+  'voice',
   'mcpServers'
 ] as const
 
