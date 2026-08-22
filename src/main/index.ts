@@ -7,18 +7,27 @@ import { allRoleTemplates, roleColor } from '@shared/prompts/roles'
 import { PtyAgent } from './agents/PtyAgent'
 import { resolveLaunch } from './agents/resolveCommand'
 import {
-  registerAppIpc,
+  agentCurrentTaskFields,
   PANEL_TASKS_MAX,
+  registerAppIpc,
   type WorkspaceDirectory,
   type WorkspaceSummary
 } from './appIpc'
 import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
-import { getAgentRegistry, registerTerminalIpc } from './ipc'
+import { getAgentRegistry, registerTerminalIpc, setTerminalInputSink } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { getProfile, getProfiles, getRoleTemplates, getSettings, setSetting } from './store/settings'
-import { closeCliWindow, createCliWindow, focusCliWindow, getCliWindow, onCliWindowClosed } from './windows/cliWindow'
+import {
+  closeCliWindow,
+  createCliWindow,
+  focusCliWindow,
+  getCliWindow,
+  layoutCliWindows,
+  onCliWindowClosed
+} from './windows/cliWindow'
 import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
-import { registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
+import { forgetHideAll, registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
+import { suppressMoveTracking } from './windows/placement'
 import { createPanelWindow } from './windows/panel'
 import { armProfileEditorSmoke } from './windows/profileEditor'
 import { armProviderEditorSmoke } from './windows/providerEditor'
@@ -116,7 +125,6 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       manager.list().map<WorkspaceSummary>((ws) => {
         const orchestrator = ws.orchestrator
         const roleIds = [...new Set(ws.profile.slots.map((slot) => slot.roleId))]
-        const taskText = mcp.workspaceTask(ws.workspaceId)
         const orchestratorQuestion = orchestrator
           ? pendingOf(ws.workspaceId, orchestrator.agentId)
           : undefined
@@ -134,7 +142,6 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           // Not "was an orchestrator ever started" — a crashed orchestrator
           // must grey the card out even though its record (and window) stay.
           active: ws.orchestratorAlive,
-          ...(taskText ? { taskText } : {}),
           ...(ws.goalText ? { goalText: ws.goalText } : {}),
           ...(ws.orchestratorIdle ? { orchestratorIdle: true } : {}),
           // C6: a successor is spawning — the seat is mid-cutover, which is
@@ -159,9 +166,8 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     roleLabel: 'Orchestrator',
                     roleColor: roleColor('orchestrator'),
                     state: ws.orchestratorAlive ? ('working' as const) : ('stopped' as const),
-                    // The orchestrator is never assigned a task through the
-                    // tools — the closest truth is the last one it delegated.
-                    ...(taskText ? { statusText: taskText } : {}),
+                    // Latest user CLI submit — not the last delegated start_agent.
+                    ...agentCurrentTaskFields(ws.orchestratorTaskText),
                     ...(windowOpenOf(orchestrator.agentId) ? { windowOpen: true } : {}),
                     ...(orchestratorQuestion
                       ? {
@@ -195,7 +201,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                       : ('stopped' as const),
                 ...(agent.kind ? { kind: agent.kind } : {}),
                 ...(parentId ? { parentId } : {}),
-                ...(agentTask ? { statusText: agentTask } : {}),
+                ...agentCurrentTaskFields(agentTask),
                 ...(windowOpenOf(agent.agentId) ? { windowOpen: true } : {}),
                 ...(pendingQuestion
                   ? {
@@ -353,7 +359,16 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         ...(workspace.orchestrator ? [workspace.orchestrator.agentId] : []),
         ...workspace.listAgents().map((agent) => agent.agentId)
       ]
-      focusWorkspaceAgents(agentIds, { windows: cliFocusTargets })
+      if (agentIds.length === 0) return
+      // Workspace click replaced hide-all's snapshot: forget it so the next
+      // toggle hides what is visible instead of restoring foreign windows.
+      forgetHideAll()
+      focusWorkspaceAgents(agentIds, {
+        windows: cliFocusTargets,
+        beforeRestore: suppressMoveTracking
+      })
+      // After show: restore can fire move events that wreck bounds (Windows).
+      layoutCliWindows(agentIds)
     },
     listStaleWorktrees: (profileId) => cleanup.listStale(profileId),
     removeWorktree: (profileId, worktreePath) => cleanup.remove(profileId, worktreePath),
@@ -384,9 +399,7 @@ function armTerminalTaskFeed(manager: WorkspaceManager, mcp: McpServerHandle): v
     for (const ws of manager.list()) {
       const orchestrator = ws.orchestrator
       if (orchestrator) {
-        // The orchestrator has no assigned task — its card shows the last one
-        // it delegated, same as its panel row.
-        registry.setAgentTask(orchestrator.agentId, mcp.workspaceTask(ws.workspaceId))
+        registry.setAgentTask(orchestrator.agentId, ws.orchestratorTaskText)
       }
       for (const agent of ws.listAgents()) {
         registry.setAgentTask(agent.agentId, mcp.agentTask(ws.workspaceId, agent.agentId))
@@ -523,6 +536,13 @@ app.whenReady().then(async () => {
     const directory = panelDirectory(appManager, appMcp)
     registerAppIpc(directory)
     armTerminalTaskFeed(appManager, appMcp)
+    // Late-bound: registerTerminalIpc ran before the manager existed. ipc.ts
+    // must not import WorkspaceManager. Seed / sendToAgent / assignGoal paste
+    // go through pty.write and never hit this sink.
+    const manager = appManager
+    setTerminalInputSink((agentId, data) => {
+      manager.noteOrchestratorGoal(agentId, data)
+    })
     // Remote access — off by default. The controller does nothing until the
     // user enables it in settings; wiring it here gives the settings channels
     // a live controller to drive.

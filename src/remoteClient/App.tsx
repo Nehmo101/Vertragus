@@ -1361,7 +1361,6 @@ function WorkspaceCard({
             {goalLine ? (
               <p className={workspace.goalText ? 'card-task' : 'card-task no-goal'}>{goalLine}</p>
             ) : null}
-            {workspace.taskText ? <p className="card-task">{workspace.taskText}</p> : null}
             {questions
               .filter((entry) => entry.kind === 'user')
               .map((entry) => (

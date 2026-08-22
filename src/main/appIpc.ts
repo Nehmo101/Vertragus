@@ -42,6 +42,8 @@ import {
   ORCHESTRATOR_ROLE_ID,
   roleColor
 } from '@shared/prompts/roles'
+import type { ExtraMcpServer } from '@shared/schema/mcpServer'
+import { parseExtraMcpServersForWrite } from '@shared/schema/mcpServer'
 import type { ProviderConfig } from '@shared/schema/provider'
 import { normalizeAppearance, type Appearance } from '@shared/appearance'
 import { mainMessages, readLocale } from '@shared/mainMessages'
@@ -204,6 +206,11 @@ export interface WorkspaceAgentSummary {
   /** Short activity note ("plant", "T-142"). Absent = derived from `state`. */
   statusText?: string
   /**
+   * Current task for the row's hover card. Subagents: last `start_agent` /
+   * follow-up `send_to_agent`. Orchestrator: latest submitted user CLI note.
+   */
+  taskText?: string
+  /**
    * True while this agent's CLI window is on screen. A finished agent whose
    * window is still open can be dismissed with ✕; a closed one stays listed
    * so the last task remains readable, and a click reopens the scrollback.
@@ -251,6 +258,17 @@ export interface WorkspaceTaskSummary {
  */
 export const PANEL_TASKS_MAX = 30
 
+/**
+ * Current-task fields the panel paints on an agent row and its hover card.
+ * One note fills both so the status line and the lore card cannot disagree.
+ */
+export function agentCurrentTaskFields(
+  task: string | undefined
+): Pick<WorkspaceAgentSummary, 'taskText' | 'statusText'> {
+  if (!task?.trim()) return {}
+  return { taskText: task, statusText: task }
+}
+
 /** One workspace card. */
 export interface WorkspaceSummary {
   workspaceId: string
@@ -260,12 +278,16 @@ export interface WorkspaceSummary {
   profileName?: string
   /** False once the orchestrator is gone — the card greys out but stays. */
   active: boolean
-  /** Latest assignment the orchestrator handed out — the tooltip's task line. */
+  /**
+   * Last delegated assignment, when still populated. The workspace hover uses
+   * {@link goalText}, not this.
+   */
   taskText?: string
   /**
-   * The goal this workspace was started with (H2) — only once it was actually
-   * delivered to the orchestrator. Absent on a bare Play: the card then shows
-   * "no goal — the orchestrator is waiting".
+   * The user's workspace goal — first submitted orchestrator CLI note, or the
+   * start-with-goal once delivered. Full text; the hover card quotes it.
+   * Absent on a bare Play: the card then shows "no goal — the orchestrator
+   * is waiting".
    */
   goalText?: string
   /**
@@ -375,8 +397,8 @@ export interface WorkspaceDirectory {
    */
   closeAgentWindow(agentId: string): void
   /**
-   * Bring one workspace's CLI windows forward and minimize every other
-   * agent's — positions stay; see {@link focusWorkspaceAgents}.
+   * Bring one workspace's CLI windows forward into its zone layout and hide
+   * every other agent's — see {@link focusWorkspaceAgents}.
    */
   focusWorkspace(workspaceId: string): void
   /**
@@ -489,6 +511,8 @@ export interface PanelSettings {
    * on the hide-all eye — a hotkey that silently does nothing is a support case.
    */
   hideAllHotkeyError?: string
+  /** Extra MCP servers attached next to Vertragus on the next spawn. */
+  mcpServers: ExtraMcpServer[]
 }
 
 /**
@@ -505,7 +529,8 @@ export const WRITABLE_SETTINGS = [
   'locale',
   'appearance',
   'agentPolicy',
-  'onboardingDismissed'
+  'onboardingDismissed',
+  'mcpServers'
 ] as const
 export type WritableSetting = (typeof WRITABLE_SETTINGS)[number]
 
@@ -785,6 +810,7 @@ export function toPanelSettings(
     autostart: value.autostart,
     updateChannel: value.updateChannel,
     autostartSupported,
+    mcpServers: value.mcpServers,
     ...(hotkey && !hotkey.registered ? { hideAllHotkeyError: hotkey.error ?? '' } : {})
   }
 }
@@ -1251,6 +1277,15 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
             )
           }
           return panelSettings(host.store.setSetting('agentPolicy', policy))
+        }
+        case 'mcpServers': {
+          try {
+            const parsed = parseExtraMcpServersForWrite(body.value)
+            return panelSettings(host.store.setSetting('mcpServers', parsed))
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'invalid mcpServers'
+            throw new Error(`settings:set rejected — ${message}`)
+          }
         }
         default: {
           // Unreachable while WRITABLE_SETTINGS and this switch agree; the

@@ -16,6 +16,12 @@
  * stricter than Electron is fine here; being looser is not, because the throw
  * on the other side is what this exists to prevent.
  */
+import {
+  extraMcpServerSchema,
+  normalizeMcpServerId,
+  RESERVED_MCP_SERVER_ID,
+  type ExtraMcpServer
+} from '@shared/schema/mcpServer'
 import type { Translate } from '../i18n'
 
 /** Everything Electron accepts to the LEFT of the final key. */
@@ -118,4 +124,183 @@ export function validateAccelerator(t: Translate, value: string): AcceleratorChe
 
   if (!isKey(key)) return { ok: false, reason: t('settings.errors.hotkeyUnknownKey', { key }) }
   return { ok: true }
+}
+
+/** One argument per line; blank lines drop. */
+export function parseArgLines(text: string): string[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+}
+
+/** `KEY=value` per line. First `=` splits; empty keys drop. */
+export function parseEnvLines(text: string): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const eq = trimmed.indexOf('=')
+    const key = (eq === -1 ? trimmed : trimmed.slice(0, eq)).trim()
+    if (!key) continue
+    env[key] = eq === -1 ? '' : trimmed.slice(eq + 1)
+  }
+  return env
+}
+
+/** `Name: value` per line. First `:` splits; empty names drop. */
+export function parseHeaderLines(text: string): Record<string, string> {
+  const headers: Record<string, string> = {}
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const colon = trimmed.indexOf(':')
+    const name = (colon === -1 ? trimmed : trimmed.slice(0, colon)).trim()
+    if (!name) continue
+    headers[name] = colon === -1 ? '' : trimmed.slice(colon + 1).trim()
+  }
+  return headers
+}
+
+export function formatEnvLines(env?: Record<string, string>): string {
+  return Object.entries(env ?? {})
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n')
+}
+
+export function formatHeaderLines(headers?: Record<string, string>): string {
+  return Object.entries(headers ?? {})
+    .map(([name, value]) => `${name}: ${value}`)
+    .join('\n')
+}
+
+export type McpServerDraft = {
+  editingId?: string
+  id: string
+  label: string
+  enabled: boolean
+  transport: 'stdio' | 'http'
+  command: string
+  argsText: string
+  envText: string
+  url: string
+  headersText: string
+}
+
+export function emptyMcpDraft(): McpServerDraft {
+  return {
+    id: '',
+    label: '',
+    enabled: true,
+    transport: 'stdio',
+    command: '',
+    argsText: '',
+    envText: '',
+    url: '',
+    headersText: ''
+  }
+}
+
+export function draftFromServer(server: ExtraMcpServer): McpServerDraft {
+  const base = {
+    editingId: server.id,
+    id: server.id,
+    label: server.label,
+    enabled: server.enabled,
+    command: '',
+    argsText: '',
+    envText: '',
+    url: '',
+    headersText: ''
+  }
+  if (server.transport === 'stdio') {
+    return {
+      ...base,
+      transport: 'stdio',
+      command: server.command,
+      argsText: server.args.join('\n'),
+      envText: formatEnvLines(server.env)
+    }
+  }
+  return {
+    ...base,
+    transport: 'http',
+    url: server.url,
+    headersText: formatHeaderLines(server.headers)
+  }
+}
+
+export type McpDraftErrors = Partial<Record<'id' | 'label' | 'command' | 'url', string>>
+
+function omitEmptyMap(map: Record<string, string>): Record<string, string> | undefined {
+  return Object.keys(map).length > 0 ? map : undefined
+}
+
+export function serverFromDraft(draft: McpServerDraft): unknown {
+  const id = normalizeMcpServerId(draft.id) || draft.id.trim()
+  if (draft.transport === 'http') {
+    return {
+      id,
+      label: draft.label.trim(),
+      enabled: draft.enabled,
+      transport: 'http',
+      url: draft.url.trim(),
+      ...(omitEmptyMap(parseHeaderLines(draft.headersText))
+        ? { headers: parseHeaderLines(draft.headersText) }
+        : {})
+    }
+  }
+  return {
+    id,
+    label: draft.label.trim(),
+    enabled: draft.enabled,
+    transport: 'stdio',
+    command: draft.command.trim(),
+    args: parseArgLines(draft.argsText),
+    ...(omitEmptyMap(parseEnvLines(draft.envText)) ? { env: parseEnvLines(draft.envText) } : {})
+  }
+}
+
+export function validateMcpDraft(
+  t: Translate,
+  draft: McpServerDraft,
+  existing: readonly ExtraMcpServer[]
+): { ok: true; server: ExtraMcpServer } | { ok: false; errors: McpDraftErrors } {
+  const errors: McpDraftErrors = {}
+  if (!draft.label.trim()) errors.label = t('settings.errors.mcpLabel')
+  const id = normalizeMcpServerId(draft.id)
+  if (!id || draft.id.includes('.') || id.includes('.')) errors.id = t('settings.errors.mcpId')
+  else if (id === RESERVED_MCP_SERVER_ID) errors.id = t('settings.errors.mcpReserved')
+  else {
+    const taken = existing.some(
+      (server) => server.id === id && server.id !== draft.editingId
+    )
+    if (taken) errors.id = t('settings.errors.mcpDuplicate')
+  }
+  if (draft.transport === 'stdio' && !draft.command.trim()) {
+    errors.command = t('settings.errors.mcpCommand')
+  }
+  if (draft.transport === 'http' && !draft.url.trim()) {
+    errors.url = t('settings.errors.mcpUrl')
+  }
+
+  const parsed = extraMcpServerSchema.safeParse(serverFromDraft(draft))
+  if (!parsed.success) {
+    const paths = parsed.error.issues.map((issue) => issue.path[0])
+    if (paths.includes('url') && !errors.url) errors.url = t('settings.errors.mcpUrl')
+    if (paths.includes('command') && !errors.command) errors.command = t('settings.errors.mcpCommand')
+    if (paths.includes('id') && !errors.id) errors.id = t('settings.errors.mcpId')
+    if (paths.includes('label') && !errors.label) errors.label = t('settings.errors.mcpLabel')
+  }
+  if (Object.keys(errors).length > 0) return { ok: false, errors }
+  if (!parsed.success) {
+    return {
+      ok: false,
+      errors:
+        draft.transport === 'http'
+          ? { url: t('settings.errors.mcpUrl') }
+          : { command: t('settings.errors.mcpCommand') }
+    }
+  }
+  return { ok: true, server: { ...parsed.data, id } }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildEffortArgs,
+  buildInitialPromptArgs,
   buildModelArgs,
   mergeProviderConfigs,
   modelMemorySchema,
@@ -65,6 +66,22 @@ describe('providerConfigSchema', () => {
     expect(
       providerConfigSchema.safeParse({ ...minimal, systemPromptDelivery: { kind: 'stdin' } }).success
     ).toBe(false)
+  })
+
+  it('accepts positional first-prompt delivery and rejects an unknown kind', () => {
+    expect(
+      providerConfigSchema.safeParse({
+        ...minimal,
+        initialPromptDelivery: { kind: 'positional' }
+      }).success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({
+        ...minimal,
+        initialPromptDelivery: { kind: 'flag', flag: '-p' }
+      }).success
+    ).toBe(false)
+    expect(config().initialPromptDelivery).toBeUndefined()
   })
 
   it('requires the config flag on a claude-json MCP attach', () => {
@@ -259,6 +276,16 @@ describe('launch argument helpers', () => {
     expect(buildEffortArgs(config({ effortArg: { style: 'flag', flag: '--effort' } }), undefined)).toEqual(
       []
     )
+  })
+
+  it('emits a trailing positional first prompt only when the provider declares it', () => {
+    expect(
+      buildInitialPromptArgs(config({ initialPromptDelivery: { kind: 'positional' } }), '  Fix login  ')
+    ).toEqual(['Fix login'])
+    expect(
+      buildInitialPromptArgs(config({ initialPromptDelivery: { kind: 'positional' } }), '   ')
+    ).toEqual([])
+    expect(buildInitialPromptArgs(config(), 'Fix login')).toEqual([])
   })
 })
 

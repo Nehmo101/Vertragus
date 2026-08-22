@@ -44,9 +44,14 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AgentMeta, AgentRegistry } from '@main/ipc'
 import { EventQueue } from '@main/mcp/eventQueue'
+import {
+  createOrchestratorGoalAssembler,
+  type OrchestratorGoalAssembler
+} from '@main/mcp/orchestratorGoal'
 import type { PendingQuestions } from '@main/mcp/pendingQuestions'
 import {
   USER_QUESTION_AGENT_ID,
+  taskNote,
   worktreeEventFields,
   type AgentHost,
   type IntegrateOutcome,
@@ -117,7 +122,11 @@ import {
   type RoleTemplate,
   type Slot
 } from '@shared/schema/profile'
-import type { ProviderConfig } from '@shared/schema/provider'
+import {
+  enabledExtraMcpServers,
+  type ExtraMcpServer
+} from '@shared/schema/mcpServer'
+import { buildInitialPromptArgs, type ProviderConfig } from '@shared/schema/provider'
 import type { ZoneLayout } from '@shared/schema/zones'
 import type { AgentDoneStatus } from '@shared/schema/events'
 import { runsDir } from './journal'
@@ -170,7 +179,7 @@ export interface WorkspaceWindows {
       title: string
       roleColor: string
       /** Role + zone layout; the window layer turns this into bounds. */
-      placement?: { roleId: string; zones?: ZoneLayout }
+      placement?: { roleId: string; zones?: ZoneLayout; workspaceId?: string }
     }
   ): void
   close(agentId: string): void
@@ -225,6 +234,12 @@ export interface WorkspaceDeps {
    * have no yolo surface under any tier.
    */
   agentPolicy?: AgentPolicy
+  /**
+   * Extra MCP servers from global settings. A getter is resolved at EACH
+   * subagent spawn so a settings edit reaches the next worker of a running
+   * workspace. Orchestrator and lead never receive them.
+   */
+  extraMcpServers?: readonly ExtraMcpServer[] | (() => readonly ExtraMcpServer[])
   spawn?: typeof spawnAgent
   createWorktree?: typeof createWorktree
   seed?: typeof seedWithReadyHandshake
@@ -453,8 +468,20 @@ export class Workspace implements AgentHost {
   pendingRetroSummary: string | undefined
   /** S1: spill store for oversized tool output; created with the MCP context. */
   private spillStore: SpillStore | undefined
-  /** The user's goal, once it was DELIVERED to the orchestrator (H2). */
+  /**
+   * The user's goal, once delivered: start-with-goal (argv at spawn or
+   * {@link assignGoal} over the PTY), or the first submitted orchestrator CLI
+   * assignment when Play was bare.
+   */
   private goal: string | undefined
+  /**
+   * Orchestrator row's current task, shortened via {@link taskNote}. Set with
+   * a delivered start-with-goal / {@link assignGoal}, then by later CLI
+   * submits. Follow-ups replace it; the workspace {@link goal} does not.
+   */
+  private orchestratorTask: string | undefined
+  /** Buffers `terminal:input`; see {@link noteOrchestratorGoal}. */
+  private goalAssembler: OrchestratorGoalAssembler | undefined
   /** C5 idle watchdog: when the orchestrator last called one of its tools. */
   private orchestratorLastToolAt = 0
   private orchestratorIdleTimer: ReturnType<typeof setTimeout> | undefined
@@ -494,13 +521,23 @@ export class Workspace implements AgentHost {
   }
 
   /**
-   * The goal this workspace was started with — set only after
-   * {@link assignGoal} actually delivered it to the orchestrator's CLI, so the
-   * panel and the remote client never show a goal the orchestrator never saw.
-   * Undefined for a bare Play (back-compat): the UI shows "no goal" instead.
+   * The user's assignment to this workspace. Set after it was actually
+   * delivered to the orchestrator's CLI: argv at spawn, {@link assignGoal}
+   * over the PTY, or the first submitted orchestrator CLI note
+   * ({@link noteOrchestratorGoal}). Undefined for a bare Play that nobody has
+   * typed into yet: the UI shows "no goal" instead.
    */
   get goalText(): string | undefined {
     return this.goal
+  }
+
+  /**
+   * The orchestrator's current task: a delivered start-with-goal /
+   * {@link assignGoal}, then the latest submitted user CLI note. Independent
+   * of {@link goalText} after a follow-up.
+   */
+  get orchestratorTaskText(): string | undefined {
+    return this.orchestratorTask
   }
 
   /**
@@ -929,7 +966,8 @@ export class Workspace implements AgentHost {
         mcpUrl: urls.subagentUrl(pending.agentId),
         fileTag: `sub-${pending.agentId}`,
         configDir: this.deps.configDir,
-        systemPrompt: template.prompt
+        systemPrompt: template.prompt,
+        extraMcpServers: this.extraMcpServersForLaunch()
       }
       spawned = await (this.deps.spawn ?? spawnAgent)(launchInput)
       this.assertOpenDuringStart(pending)
@@ -1265,12 +1303,17 @@ export class Workspace implements AgentHost {
    * orchestrator system prompt through whatever delivery its provider declares
    * (a launch flag for Claude, the seed handshake for a PTY-only CLI).
    *
+   * When `initialPrompt` is set and the provider declares
+   * `initialPromptDelivery`, the text rides the spawn argv as the CLI's first
+   * user turn and {@link goalText} is set. Providers without that surface
+   * ignore it here — the caller PTY-seeds via {@link assignGoal}.
+   *
    * The orchestrator gets its own worktree like every other agent: it never
    * edits files itself, but its CLI still leaves per-agent artefacts in its
    * working directory (Kimi's `.kimi-code/mcp.json`), and two orchestrators
    * sharing the main checkout would overwrite each other's.
    */
-  async startOrchestrator(): Promise<StartedAgent> {
+  async startOrchestrator(options?: { initialPrompt?: string }): Promise<StartedAgent> {
     this.assertOpen()
     if (this.succession) {
       throw new Error('A successor orchestrator is already starting.')
@@ -1278,16 +1321,24 @@ export class Workspace implements AgentHost {
     if (this.orchestratorRecord) throw new Error('This workspace already has an orchestrator.')
     const agentId = this.newId()
     const name = this.names.allocate('orchestrator')
+    const initialPrompt = options?.initialPrompt?.trim()
     const record = await this.spawnOrchestratorRecord({
       agentId,
       name,
       systemPrompt: await this.orchestratorPrompt(),
-      mcpUrl: this.requireMcp().orchestratorUrl
+      mcpUrl: this.requireMcp().orchestratorUrl,
+      ...(initialPrompt ? { initialPrompt } : {})
     })
     this.orchestratorRecord = record
     // C5: the idle clock starts at boot — an orchestrator that never makes
     // its first tool call is exactly as idle as one that stopped mid-run.
     this.noteOrchestratorActivity()
+    if (initialPrompt) {
+      const provider = this.requireProvider(this.profile.orchestrator.providerId)
+      if (buildInitialPromptArgs(provider, initialPrompt).length > 0) {
+        this.recordDeliveredGoal(initialPrompt)
+      }
+    }
     return this.startedOf(record)
   }
 
@@ -1411,11 +1462,13 @@ export class Workspace implements AgentHost {
     name: string
     systemPrompt: string
     mcpUrl: string
+    initialPrompt?: string
   }): Promise<AgentRecord> {
     const provider = this.requireProvider(this.profile.orchestrator.providerId)
     let spawned: SpawnedAgent | undefined
     try {
       const worktree = await this.createWorktreeFor(input.agentId, input.name)
+      const [argvInitialPrompt] = buildInitialPromptArgs(provider, input.initialPrompt)
       spawned = await (this.deps.spawn ?? spawnAgent)({
         kind: 'orchestrator',
         provider,
@@ -1426,7 +1479,8 @@ export class Workspace implements AgentHost {
         mcpUrl: input.mcpUrl,
         fileTag: `orch-${input.agentId}`,
         configDir: this.deps.configDir,
-        systemPrompt: input.systemPrompt
+        systemPrompt: input.systemPrompt,
+        ...(argvInitialPrompt ? { initialPrompt: argvInitialPrompt } : {})
       })
 
       const record = this.track({
@@ -1741,9 +1795,9 @@ export class Workspace implements AgentHost {
   }
 
   /**
-   * Seed the user's goal into the orchestrator's CLI — the SAME handshake every
-   * assignment takes (H2), so "start with a goal" and "type the goal into the
-   * TUI" are one mechanism, not two. Always submitted: the goal comes straight
+   * Seed the user's goal into the orchestrator's CLI over the PTY — the SAME
+   * handshake every assignment takes (H2). Used when the provider has no
+   * spawn-time first-prompt surface. Always submitted: the goal comes straight
    * from the user, there is nothing left to redact. Throws when the CLI did not
    * accept the text; the workspace keeps running then (the user can still type
    * into the terminal), and {@link goalText} stays unset — an undelivered goal
@@ -1760,7 +1814,41 @@ export class Workspace implements AgentHost {
     if (!accepted) {
       throw new Error(`${record.name} did not accept the goal — type it into its terminal instead.`)
     }
+    this.recordDeliveredGoal(goal)
+  }
+
+  /** A delivered start-with-goal is both the workspace goal and the current task. */
+  private recordDeliveredGoal(goal: string): void {
     this.goal = goal
+    const note = taskNote(goal)
+    if (note) this.orchestratorTask = note
+  }
+
+  /**
+   * Feed a chunk of user PTY input from the orchestrator CLI. Seed writes and
+   * `sendToAgent` go through `pty.write` directly and never reach this. First
+   * successful note becomes {@link goalText} (full text) unless a start-with-goal
+   * already set it; every successful submit updates {@link orchestratorTaskText}.
+   * Returns true when either field changed so the panel can emit without waiting
+   * for a poll.
+   */
+  noteOrchestratorGoal(chunk: string): boolean {
+    if (this.closed) return false
+    if (!this.goalAssembler) this.goalAssembler = createOrchestratorGoalAssembler()
+    if (!this.goalAssembler.push(chunk)) return false
+    const submitted = this.goalAssembler.latestText
+    if (!submitted) return false
+    let changed = false
+    if (this.goal === undefined) {
+      this.goal = submitted
+      changed = true
+    }
+    const note = taskNote(submitted)
+    if (note && note !== this.orchestratorTask) {
+      this.orchestratorTask = note
+      changed = true
+    }
+    return changed
   }
 
   /**
@@ -1984,6 +2072,14 @@ export class Workspace implements AgentHost {
     if (!provider) throw new Error(`Unknown provider "${providerId}".`)
     if (!provider.enabled) throw new Error(`Provider "${provider.label}" is disabled.`)
     return provider
+  }
+
+  /** Fresh on every spawn so a settings edit reaches the next agent. */
+  private extraMcpServersForLaunch(): ExtraMcpServer[] {
+    const source = this.deps.extraMcpServers
+    if (source === undefined) return []
+    const list = typeof source === 'function' ? source() : source
+    return enabledExtraMcpServers(list)
   }
 
   private requireRoleTemplate(roleId: string): RoleTemplate {
@@ -2259,6 +2355,7 @@ export class Workspace implements AgentHost {
       roleColor: color,
       placement: {
         roleId: record.orchestrator ? ORCHESTRATOR_ROLE_ID : record.roleId,
+        workspaceId: this.workspaceId,
         ...(this.profile.zones ? { zones: this.profile.zones } : {})
       }
     })
