@@ -222,6 +222,20 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       }
       return manager.startWorkspace(profile, goal ? { goal } : undefined)
     },
+    async assignGoal(workspaceId, goal) {
+      try {
+        await manager.assignGoal(workspaceId, goal)
+      } catch (error) {
+        // The host code is the workspace's contract, not a sentence for a
+        // human who just typed into the goal field.
+        const message = error instanceof Error ? error.message : String(error)
+        if (message.includes('goal_already_set')) {
+          const messages = mainMessages(readLocale(() => getSettings().ui.locale))
+          throw new Error(messages.goalAlreadySet)
+        }
+        throw error
+      }
+    },
     async resume(profileId) {
       const profile = getProfile(profileId)
       if (!profile) {
@@ -503,7 +517,8 @@ function buildRemoteController(
         stopWorkspace: (workspaceId) => directory.stop(workspaceId),
         answerQuestion: ({ workspaceId, agentId, questionId, text }) =>
           directory.answerQuestion(workspaceId, agentId, questionId, text),
-        userMessage: ({ workspaceId, text }) => directory.postUserMessage(workspaceId, text)
+        userMessage: ({ workspaceId, text }) => directory.postUserMessage(workspaceId, text),
+        assignGoal: ({ workspaceId, goal }) => directory.assignGoal(workspaceId, goal)
       },
       terminals: () => getAgentRegistry().terminals(),
       onWorkspaceChange: (listener) => manager.onChange(listener),

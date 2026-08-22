@@ -69,11 +69,12 @@ describe('parseClientMessage', () => {
     expect(parseClientMessage(hugeArgs)).toBeUndefined()
   })
 
-  it('the command allow-list is exactly the six documented verbs', () => {
+  it('the command allow-list is exactly the seven documented verbs', () => {
     expect([...REMOTE_COMMANDS].sort()).toEqual([
       'answer_question',
       'profiles:list',
       'user_message',
+      'workspaces:goal',
       'workspaces:list',
       'workspaces:start',
       'workspaces:stop'
