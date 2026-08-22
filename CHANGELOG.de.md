@@ -111,6 +111,12 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   immer offen ließ. Ein schlafendes Handy verbindet jetzt beim Aufwachen neu,
   statt die Backoff-Obergrenze abzuwarten, und ein Socket, den der Browser
   noch `OPEN` nennt, wird per `refresh`-Umlauf als tot nachgewiesen.
+- Ein Handy, das den Remote-Client ohne Route zum Desktop öffnete, hing für
+  immer an einem Spinner: die Kopplungsanfrage schlug im Netz fehl und nichts
+  versuchte es erneut. Ein nicht erreichbarer Desktop wird jetzt von einem
+  ablehnenden unterschieden, auf der Backoff-Treppe des Sockets und bei jedem
+  Aufwachsignal erneut versucht — und nur die Ablehnung führt zurück zum
+  QR-Code.
 - Der Sticky-Header des Remote-Clients wurde nie gegen einen scrollenden
   Scrollport aufgelöst (`body` war der Scroll-Container), sechs Farbpaare
   fielen auf dem Handy bei Tageslicht durch WCAG AA, und das Einblenden bei

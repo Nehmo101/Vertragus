@@ -102,6 +102,11 @@ No release has been tagged yet; everything lives under Unreleased.
   sleeps now reconnects on wake instead of waiting out the backoff ceiling,
   and a socket the browser still calls `OPEN` is proven dead by a `refresh`
   round-trip.
+- A phone opening the remote client with no route to the desktop hung on a
+  spinner forever: the pairing request rejected on a network failure and
+  nothing retried. An unreachable desktop is now told apart from one that
+  refused, retried on the socket's own backoff and on every wake signal, and
+  only a refusal sends the phone back to the QR code.
 - The remote client's sticky header never resolved against a scrolling
   scrollport (`body` was the scroll container), six colour pairs failed
   WCAG AA on a phone in daylight, and the keyboard-reveal could scroll the
