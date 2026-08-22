@@ -155,6 +155,11 @@ export function registerSubagentTools(
         summary,
         ...(headSha ? { headSha } : {})
       })
+      // A3: the profile's adoption automation (auto-integrate into the
+      // orchestrator's worktree, auto-promote into the checkout). Deliberately
+      // NOT awaited and never able to fail this call: the report is delivered,
+      // and a merge that conflicts reports itself as an event.
+      void ctx.host.adoptOnDone?.(agentId, payload.status).catch(() => undefined)
       return toolJson({
         ok: true,
         note: 'The orchestrator has your result. Stay available: it either sends you a follow-up task or stops you. Do not exit on your own.'

@@ -1024,6 +1024,30 @@
   color: var(--warn-text);
 }
 
+/* A3: the run's pull request line — a link when there is one, else the reason. */
+.panel-card-pr {
+  margin: 4px 5px 0;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font: 400 10.5px var(--font-body);
+  color: var(--text-3);
+}
+
+.panel-card-pr a {
+  color: var(--accent);
+}
+
+.panel-card-pr.is-failed {
+  color: var(--warn-text);
+}
+
+.panel-card-pr-reason {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* C6: a successor is spawning — head badge, so a shut card shows it too. */
 .panel-card-badge {
   flex: 0 0 auto;

@@ -564,6 +564,38 @@ describe('stopWorkspace', () => {
     expect(manager.list()).toHaveLength(0)
   })
 
+  it('A3: opens the run’s pull request before the queue closes, and only for a profile that asked', async () => {
+    const openPullRequest = vi
+      .fn()
+      .mockResolvedValue({ ok: true, url: 'https://github.com/o/r/pull/5', created: true })
+    const { manager } = harness({
+      openPullRequest,
+      worktreeDeps: {
+        git: async (args) => {
+          if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') {
+            return { stdout: 'main\n', stderr: '' }
+          }
+          if (args[0] === 'rev-list') return { stdout: '3\n', stderr: '' }
+          return { stdout: '', stderr: '' }
+        }
+      }
+    })
+    const plain = await manager.startWorkspace(testProfile())
+    await manager.stopWorkspace(plain.workspace.workspaceId)
+    expect(openPullRequest).not.toHaveBeenCalled()
+
+    const automated = await manager.startWorkspace(
+      testProfile({ id: 'profile-pr', automation: { autoPr: true } } as never)
+    )
+    await manager.stopWorkspace(automated.workspace.workspaceId)
+
+    expect(openPullRequest).toHaveBeenCalledTimes(1)
+    expect(automated.workspace.runPullRequest).toMatchObject({
+      ok: true,
+      url: 'https://github.com/o/r/pull/5'
+    })
+  })
+
   it('reports false for an unknown workspace', async () => {
     const { manager } = harness()
     await expect(manager.stopWorkspace('nope')).resolves.toBe(false)

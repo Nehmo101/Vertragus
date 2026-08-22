@@ -365,7 +365,9 @@ Host merge in the target worktree, events `integrate_ok` |
 tester `success`, then warn when "done" without the gate. Promote to
 `<base>` is a **user click** (desktop; the remote allow-list deliberately
 has no worktree deletion — promote likewise does not belong in phone v1,
-too close to "overwrite my repo").
+too close to "overwrite my repo"). Since A3 that click can be made once in
+the profile instead of once per branch — same host merge, same refusals,
+see Phase A3.
 
 ### E2 briefing + repo notes
 
@@ -732,6 +734,41 @@ Open from the plan: loop-eval scenarios for G3/G4 (schema tester, two-task
 board with succession) — unit/integration tests cover the paths, the
 end-to-end scenario is follow-up work.
 
+## Phase A3 — automation: adoption without a click, and the run's pull request
+
+Off by default, per profile (`automation` in `shared/schema/profile.ts`),
+and deliberately built on the merge paths that already exist — an
+automated adoption is a **missing click, never a second merge path**.
+
+### A3.1 auto-integrate / auto-promote
+
+`autoIntegrate` merges every branch a direct child reports as a clean
+`success` into the **orchestrator's** worktree; `autoPromote` merges it
+into the **repository's own checkout** — E1's Promote without the click,
+including its refusal on a dirty checkout. Both run through
+`mergeBranchIntoWorktree` / `Workspace.promoteAgentBranch`, both push the
+existing `integrate_ok` / `integrate_conflict` events (new optional field
+`target: worktree | checkout`), and neither ever throws into the report
+path: `report_done` and the sentinel done hand over to
+`Workspace.adoptOnDone` and are done with it. Narrow on purpose: only a
+`success`, never the orchestrator's own branch, and only agents that report
+to the root queue — a lead's workers are the lead's business.
+
+### A3.2 auto-PR
+
+`autoPr` opens the run's pull request when the work is done: at
+`record_retro` (the orchestrator's own end-of-run call, which gets the URL
+back in its answer) or when the user stops the workspace — whichever comes
+first, at most once per run. Head is the run's own integration branch (the
+orchestrator's, else the checkout's when that is the one ahead), base is
+`prBaseBranch` or the branch the checkout is on. `agents/pullRequest.ts`
+pushes with `git push -u` (never `--force`) and opens the PR with `gh`; a
+missing or logged-out `gh` is not a failed run but a `pull_request` event
+carrying the ready-made GitHub compare URL, which the panel card shows as a
+link. The orchestrator prompt renders an automation block for exactly the
+switches that are on, so it stops telling the user to merge a branch the
+host already merged.
+
 ## Appendix: code anchors
 
 | Topic | Where | Status |
@@ -751,3 +788,4 @@ end-to-end scenario is follow-up work.
 | MCP questions from phone/panel | `answer_question` gateway verb + `workspaces:answerQuestion`, one path in `mcp/answerQuestion.ts` | **Track 0** |
 | Worker "never commit" + host snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` "cursor has no agent_done" | outdated (`none` = Ollama) | ignore |
+| Automation: adoption without a click, run pull request | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest`, `agents/pullRequest.ts` | **A3** |

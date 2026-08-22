@@ -60,6 +60,56 @@ export const extraMcpServerSchema = z
   .strict()
 export type ExtraMcpServer = z.infer<typeof extraMcpServerSchema>
 
+/** The remote an auto-PR pushes to unless the profile names another one. */
+export const DEFAULT_PR_REMOTE = 'origin'
+
+/**
+ * A3: what the host does at the end of a piece of work WITHOUT a human click.
+ *
+ * Everything here is off by default. Vertragus' doctrine is that adopting an
+ * agent's work is the user's decision — these switches are that decision, made
+ * once in the profile instead of once per branch. What they never become is a
+ * second merge path: auto-adoption runs through exactly the host merges the
+ * panel button and `integrate_branch` already use, and a conflict aborts and
+ * reports there just the same.
+ */
+export const automationSchema = z
+  .object({
+    /**
+     * Merge every cleanly reported agent branch into the ORCHESTRATOR's
+     * worktree as soon as its `agent_done` lands. Keeps the run's integration
+     * branch complete without the orchestrator having to call
+     * `integrate_branch` for every worker — and it is the branch `autoPr`
+     * opens the pull request from.
+     */
+    autoIntegrate: z.boolean().default(false),
+    /**
+     * Merge every cleanly reported agent branch into the REPOSITORY's own
+     * checkout — the panel's Promote button, without the click. This is the
+     * "merge the branch in the panel to get the fix" step automated; a dirty
+     * checkout still refuses (never overwrite the user's own work).
+     */
+    autoPromote: z.boolean().default(false),
+    /**
+     * Open a pull request when the run wraps up (`record_retro`, or the user
+     * stopping the workspace). Pushes the run's branch first; needs the GitHub
+     * CLI (`gh`) to be installed and logged in — without it the host reports
+     * the ready-made compare URL instead of failing the run.
+     */
+    autoPr: z.boolean().default(false),
+    /** Remote the PR branch is pushed to. */
+    prRemote: z.string().trim().min(1).max(100).default(DEFAULT_PR_REMOTE),
+    /** PR base; absent = the branch the repository checkout is on. */
+    prBaseBranch: z.string().trim().max(300).optional(),
+    /** Open the pull request as a draft. */
+    prDraft: z.boolean().default(false)
+  })
+  .strict()
+export type ProfileAutomation = z.infer<typeof automationSchema>
+
+/** Every switch off — what a profile without an `automation` block means. */
+export const AUTOMATION_OFF: ProfileAutomation = automationSchema.parse({})
+
 export const slotSchema = z
   .object({
     id: idSchema,
@@ -134,6 +184,12 @@ export const profileSchema = z
       )
       .max(12)
       .optional(),
+    /**
+     * A3: end-of-work automation (auto-integrate, auto-promote, auto-PR).
+     * Absent in every profile written before A3 — the default is every switch
+     * off, so an old profile keeps needing the human click it always needed.
+     */
+    automation: automationSchema.default(() => automationSchema.parse({})),
     zones: zoneLayoutSchema.optional()
   })
   .strict()

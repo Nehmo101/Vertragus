@@ -23,6 +23,7 @@ import type { EventQueue } from './eventQueue'
 import type { PendingQuestions } from './pendingQuestions'
 import type { AgentPolicy } from '@shared/agentPolicy'
 import type { ReportingMode } from '@shared/prompts/contract'
+import type { AgentDoneStatus } from '@shared/schema/events'
 import type { SuccessionRequest } from '@shared/schema/handoff'
 // Type-only on purpose: the MCP layer stays free of workspace runtime code —
 // the store implementation is injected by the host via the context.
@@ -295,6 +296,34 @@ export interface AgentHost {
    * provider (`mcp.kind === 'none'` → sentinel).
    */
   reportingMode(role: string): ReportingMode
+  /**
+   * A3: run the profile's end-of-report automation for an agent that just
+   * reported `status` — auto-integrate into the orchestrator's worktree,
+   * auto-promote into the repository checkout, or neither. Never throws and
+   * never blocks the report: every outcome is an event. Optional, so older
+   * fakes still satisfy the interface.
+   */
+  adoptOnDone?(agentId: string, status: AgentDoneStatus): Promise<void>
+  /**
+   * A3: open the run's pull request when `automation.autoPr` is on, at most
+   * once per workspace. Undefined when the profile never asked for one.
+   */
+  openRunPullRequest?(options?: { summary?: string }): Promise<RunPullRequest | undefined>
+}
+
+/**
+ * A3: the run's pull request as everything above the host sees it — the
+ * `record_retro` answer, the panel card, the phone. `ok: false` still carries
+ * a sentence, and `url` is then the compare link when the branch did reach the
+ * remote: a pull request the user opens with one click beats a dead end.
+ */
+export interface RunPullRequest {
+  ok: boolean
+  /** Branch the pull request was opened from; empty when none was found. */
+  branch: string
+  base: string
+  url?: string
+  message?: string
 }
 
 /** E1: outcome of a host merge into an agent worktree. */

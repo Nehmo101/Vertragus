@@ -362,6 +362,36 @@ function Composer({
 }
 
 /**
+ * A3: the run's pull request. A successful one is a link — the panel window
+ * routes an https target to the OS browser (see windows/navigation), so no new
+ * IPC channel is needed for it. A failed one is the reason, because "auto-PR
+ * was on and nothing happened" is the state a user must never have to guess
+ * about; when the branch still reached the remote, the reason carries the
+ * compare link and the same anchor opens that instead.
+ */
+function PullRequestLine({
+  pullRequest
+}: {
+  pullRequest: NonNullable<WorkspaceSummary['pullRequest']>
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const { ok, url, message } = pullRequest
+  const label = ok ? t('panel.pullRequestOpen') : t('panel.pullRequestNone')
+  return (
+    <p className={ok ? 'panel-card-pr' : 'panel-card-pr is-failed'} title={message || url}>
+      {url ? (
+        <a href={url} target="_blank" rel="noreferrer">
+          {label}
+        </a>
+      ) : (
+        label
+      )}
+      {!ok && message ? <span className="panel-card-pr-reason">{message}</span> : null}
+    </p>
+  )
+}
+
+/**
  * One workspace card: Commedia name, current goal, agent count, stop. Only the
  * expanded card lists its agents — collapsed peers keep the head so the rail
  * stays scannable. The goal line is shown collapsed and expanded.
@@ -508,6 +538,7 @@ export function WorkspaceCard({
           {workspace.tasks && workspace.tasks.length > 0 ? (
             <TaskBoardSection workspace={workspace} />
           ) : null}
+          {workspace.pullRequest ? <PullRequestLine pullRequest={workspace.pullRequest} /> : null}
           {workspace.active ? (
             <Composer workspaceId={workspace.workspaceId} onSend={onUserMessage} />
           ) : null}

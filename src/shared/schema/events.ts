@@ -27,6 +27,7 @@ export const AGENT_EVENT_TYPES = [
   'subtree_adopted',
   'integrate_ok',
   'integrate_conflict',
+  'pull_request',
   'budget_warning'
 ] as const
 
@@ -216,7 +217,13 @@ const integrateOkPayload = z.object({
   type: z.literal('integrate_ok'),
   ...identity,
   branch: z.string().min(1),
-  headSha: z.string().min(1)
+  headSha: z.string().min(1),
+  /**
+   * A3: where the merge landed — an agent's worktree (the `integrate_branch`
+   * default) or the repository's own checkout (an automated Promote). Absent
+   * on every event written before A3, which were all worktree merges.
+   */
+  target: z.enum(['worktree', 'checkout']).optional()
 })
 
 const integrateConflictPayload = z.object({
@@ -224,7 +231,27 @@ const integrateConflictPayload = z.object({
   ...identity,
   branch: z.string().min(1),
   conflictFiles: z.array(z.string().min(1).max(400)).max(80),
-  message: z.string().max(2_000)
+  message: z.string().max(2_000),
+  /** A3: see {@link integrateOkPayload}. */
+  target: z.enum(['worktree', 'checkout']).optional()
+})
+
+/**
+ * A3: the host opened (or failed to open) the run's pull request — the
+ * `automation.autoPr` path. Not agent-scoped: the pull request belongs to the
+ * run, not to whichever agent reported last. `ok: false` still carries a
+ * usable sentence and, whenever the branch reached the remote, the compare URL
+ * the user can click instead.
+ */
+const pullRequestPayload = z.object({
+  type: z.literal('pull_request'),
+  ok: z.boolean(),
+  /** Branch the pull request was opened from. */
+  branch: z.string().min(1),
+  base: z.string().min(1),
+  /** The pull request URL, or the compare URL when the host could not open it. */
+  url: z.string().max(500).optional(),
+  message: z.string().max(2_000).optional()
 })
 
 /**
@@ -281,6 +308,7 @@ export const agentEventPayloadSchema = z.discriminatedUnion('type', [
   subtreeAdoptedPayload,
   integrateOkPayload,
   integrateConflictPayload,
+  pullRequestPayload,
   budgetWarningPayload
 ])
 export type AgentEventPayload = z.infer<typeof agentEventPayloadSchema>
@@ -316,6 +344,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   subtreeAdoptedPayload.extend(envelope),
   integrateOkPayload.extend(envelope),
   integrateConflictPayload.extend(envelope),
+  pullRequestPayload.extend(envelope),
   budgetWarningPayload.extend(envelope)
 ])
 export type AgentEvent = z.infer<typeof agentEventSchema>

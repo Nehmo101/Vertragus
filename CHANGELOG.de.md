@@ -13,6 +13,21 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Automatisierungs-Band im Profil (alle Schalter standardmäßig aus):**
+  - Fertige Agenten-Branches ohne den Panel-Klick übernehmen — in den
+    Worktree des Orchestrators (`autoIntegrate`) und/oder in das eigene
+    Checkout des Repositorys (`autoPromote`). Dieselben Host-Merges wie
+    bisher, dieselben Ablehnungen: übernommen wird nur ein sauberer
+    `success`, ein dirty Checkout wird weiterhin verweigert, und ein
+    Konflikt bricht ab und wird als `integrate_conflict` gemeldet (beide
+    Integrate-Events haben ein optionales `target` bekommen).
+  - Den Pull Request des Laufs automatisch öffnen (`autoPr`), wenn die
+    Arbeit fertig ist — bei `record_retro`, das die URL in seiner Antwort
+    zurückbekommt, oder beim Stoppen des Workspace, höchstens einmal pro
+    Lauf. Gepusht wird mit `git push -u` (nie `--force`), geöffnet mit der
+    GitHub-CLI; ohne `gh` trägt das neue Event `pull_request` die fertige
+    Compare-URL, die die Workspace-Karte als Link zeigt. Ziel-Branch,
+    Remote und Draft-Modus sind einstellbar.
 - **Ein Handy-Client, mit dem man wirklich arbeiten kann.** Der Remote-Web-Client
   ([`docs/REMOTE-CLIENT-MOBILE.md`](docs/REMOTE-CLIENT-MOBILE.md)) bekam
   einen Touch-Scroller mit Nachlauf im Terminal-Verlauf, Sprung zur neuesten

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createEmptyProfile,
+  DEFAULT_PR_REMOTE,
   duplicateProfile,
   MAX_SLOTS,
   parseProfiles,
@@ -123,6 +124,48 @@ describe('profileSchema', () => {
         autoSubmitTasks: 'yes'
       }).success
     ).toBe(false)
+  })
+
+  it('A3: every automation switch is off for a profile that never named one', () => {
+    // The default is the doctrine: adopting an agent's work and pushing a
+    // branch stay the user's decision until the user says otherwise — and a
+    // profile written before A3 said nothing at all.
+    expect(baseProfile().automation).toEqual({
+      autoIntegrate: false,
+      autoPromote: false,
+      autoPr: false,
+      prRemote: DEFAULT_PR_REMOTE,
+      prDraft: false
+    })
+    expect(createEmptyProfile().automation.autoPr).toBe(false)
+  })
+
+  it('A3: keeps the switches, the base branch and the remote it was given', () => {
+    const profile = baseProfile({
+      automation: {
+        autoIntegrate: true,
+        autoPromote: true,
+        autoPr: true,
+        prRemote: 'upstream',
+        prBaseBranch: 'develop',
+        prDraft: true
+      }
+    })
+    expect(profile.automation).toMatchObject({
+      autoIntegrate: true,
+      autoPromote: true,
+      autoPr: true,
+      prRemote: 'upstream',
+      prBaseBranch: 'develop',
+      prDraft: true
+    })
+    expect(duplicateProfile(profile).automation.autoPr).toBe(true)
+  })
+
+  it('A3: rejects a malformed automation block instead of half-applying it', () => {
+    expect(baseProfile.bind(null, { automation: { autoPr: 'yes' } })).toThrow()
+    expect(baseProfile.bind(null, { automation: { prRemote: '' } })).toThrow()
+    expect(baseProfile.bind(null, { automation: { unknownSwitch: true } })).toThrow()
   })
 
   it('carries the opt-out into a duplicate', () => {

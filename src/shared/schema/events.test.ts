@@ -28,8 +28,60 @@ describe('agent event schema', () => {
       'subtree_adopted',
       'integrate_ok',
       'integrate_conflict',
+      'pull_request',
       'budget_warning'
     ])
+  })
+
+  it('A3: an automated adoption names its target, and the run pull request parses', () => {
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'integrate_ok',
+        ...identity,
+        branch: 'vertragus/x/y',
+        headSha: 'abc',
+        target: 'checkout'
+      })
+    ).toMatchObject({ target: 'checkout' })
+    // Absent stays legal: every integrate event written before A3 was a
+    // worktree merge and must keep parsing.
+    const legacy = agentEventPayloadSchema.parse({
+      type: 'integrate_conflict',
+      ...identity,
+      branch: 'vertragus/x/y',
+      conflictFiles: [],
+      message: 'CONFLICT'
+    })
+    expect(legacy.type === 'integrate_conflict' && legacy.target).toBeUndefined()
+    expect(
+      agentEventPayloadSchema.safeParse({
+        type: 'integrate_ok',
+        ...identity,
+        branch: 'b',
+        headSha: 'abc',
+        target: 'somewhere-else'
+      }).success
+    ).toBe(false)
+
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'pull_request',
+        ok: true,
+        branch: 'vertragus/x/orch',
+        base: 'main',
+        url: 'https://github.com/o/r/pull/1'
+      })
+    ).toMatchObject({ type: 'pull_request', ok: true })
+    // The failed shape is an event too — that is how the panel learns why.
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'pull_request',
+        ok: false,
+        branch: 'vertragus/x/orch',
+        base: 'main',
+        message: 'gh is not installed'
+      })
+    ).toMatchObject({ ok: false, message: 'gh is not installed' })
   })
 
   it('E1/E4: integrate and budget events parse with their payloads', () => {

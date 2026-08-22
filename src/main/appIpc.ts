@@ -329,6 +329,12 @@ export interface WorkspaceSummary {
    */
   taskTotal?: number
   taskDone?: number
+  /**
+   * A3: the run's pull request, once `automation.autoPr` has run. `ok: false`
+   * still travels — the card then shows why there is none, and `url` is the
+   * compare link when the branch did reach the remote.
+   */
+  pullRequest?: { ok: boolean; url?: string; message?: string }
 }
 
 /** One stale worktree the panel's cleanup view offers for removal. */

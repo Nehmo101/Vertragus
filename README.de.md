@@ -76,7 +76,7 @@ einen **Sentinel-Dialekt** — echo-sichere Marker-Zeilen, aus der PTY geparst,
 dieselben Events, dieselbe Fragen-Registry.
 
 Lifecycle, Fragen, Fortschritt, Integration und Budget kommen alle als
-typisierte **Events** (achtzehn Arten) auf einer Per-Workspace-Queue mit
+typisierte **Events** (neunzehn Arten) auf einer Per-Workspace-Queue mit
 Cursors an; der Ring behält die letzten 1000, das On-Disk-Journal alles.
 
 ## Git-Isolation — und wie Arbeit zurückkommt
@@ -97,6 +97,16 @@ Cursors an; der Ring behält die letzten 1000, das On-Disk-Journal alles.
   den eigenen Branch des Repositorys passiert vom Panel aus (und verweigert
   einen dirty Main-Checkout); der Orchestrator führt selbst nie Git aus, und
   die Remote-Allow-List hat bewusst kein Promote-Verb.
+- **…außer du entscheidest einmal statt jedes Mal.** Das Band
+  **Automatisierung** im Profil macht aus diesem Klick eine Einstellung:
+  jeden sauber fertiggemeldeten Agenten-Branch in den Worktree des
+  Orchestrators und/oder in das Checkout des Repositorys übernehmen — und
+  am Ende der Arbeit automatisch den **Pull Request** des Laufs öffnen (bei
+  `record_retro` oder wenn du den Workspace stoppst). Alles ist
+  standardmäßig aus und läuft über dieselben Host-Merges mit denselben
+  Ablehnungen; gepusht wird mit `git push -u` (nie `--force`), geöffnet mit
+  der GitHub-CLI — kein `gh`, kein Problem: Die Karte zeigt dann den
+  fertigen Compare-Link.
 
 ## Der Mensch bleibt im Loop
 

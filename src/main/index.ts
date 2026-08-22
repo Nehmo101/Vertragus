@@ -156,6 +156,19 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           ...(plan.total > 0
             ? { tasks: plan.rows, taskTotal: plan.total, taskDone: plan.done }
             : {}),
+          // A3: the run's pull request. Only the three fields the card reads —
+          // the branch pair lives in the event and the journal, not on a chip.
+          ...(() => {
+            const pr = ws.runPullRequest
+            if (!pr) return {}
+            return {
+              pullRequest: {
+                ok: pr.ok,
+                ...(pr.url ? { url: pr.url } : {}),
+                ...(pr.message ? { message: pr.message } : {})
+              }
+            }
+          })(),
           agents: [
             ...(orchestrator
               ? [

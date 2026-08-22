@@ -61,6 +61,7 @@ import {
   type InspectAgentOptions,
   type InspectAgentResult,
   type RetroLearningInput,
+  type RunPullRequest,
   type StartAgentInput,
   type StartedAgent,
   type StartingAgent,
@@ -83,6 +84,14 @@ import {
   type CreatedWorktree,
   type WorktreeDeps
 } from '@main/agents/worktree'
+import {
+  commitsAhead,
+  currentBranch,
+  openPullRequest,
+  pullRequestBody,
+  pullRequestTitle,
+  type PullRequestOutcome
+} from '@main/agents/pullRequest'
 import {
   seedWithReadyHandshake,
   seedOptionsFromProvider,
@@ -116,9 +125,11 @@ import {
   roleColor
 } from '@shared/prompts/roles'
 import {
+  AUTOMATION_OFF,
   profileRoleIds,
   slotLimitFor,
   type Profile,
+  type ProfileAutomation,
   type RoleTemplate,
   type Slot
 } from '@shared/schema/profile'
@@ -249,6 +260,12 @@ export interface WorkspaceDeps {
   /** Seed-handshake tuning; tests shorten it so the suite stays fast. */
   seedOptions?: SeedWithReadyOptions
   worktreeDeps?: WorktreeDeps
+  /**
+   * A3: the seam the auto-PR path pushes and opens through. Default: the real
+   * `git push` + `gh pr create`. Tests inject a fake so no suite ever reaches
+   * a remote.
+   */
+  openPullRequest?: typeof openPullRequest
   /** Retro feed: learnings in, accumulated knowledge out. Absent = no retro. */
   retro?: WorkspaceRetroFeed
   /**
@@ -385,6 +402,17 @@ export function snapshotCommitMessage(agentName: string, roleId: string, summary
   return `vertragus: ${agentName} / ${roleId}${capped ? ` — ${capped}` : ''}`
 }
 
+/** The sentence an error carries — git's stderr where there is one. */
+function errorText(error: unknown): string {
+  if (error && typeof error === 'object') {
+    const shaped = error as { stderr?: string; message?: string }
+    const stderr = shaped.stderr?.trim()
+    if (stderr) return stderr
+    if (shaped.message) return shaped.message
+  }
+  return String(error)
+}
+
 /** Resolve once the PTY's process has exited, or after `timeoutMs` — never rejects. */
 function awaitPtyExit(pty: AgentPty, timeoutMs: number): Promise<void> {
   if (!pty.isAlive) return Promise.resolve()
@@ -482,6 +510,14 @@ export class Workspace implements AgentHost {
   private orchestratorTask: string | undefined
   /** Buffers `terminal:input`; see {@link noteOrchestratorGoal}. */
   private goalAssembler: OrchestratorGoalAssembler | undefined
+  /**
+   * A3: the run's pull request, once the auto-PR path has run. It runs at most
+   * once per workspace — `record_retro` and the user's Stop both ask for it,
+   * and the second asker gets this recorded answer instead of a second PR.
+   */
+  private pullRequest: RunPullRequest | undefined
+  /** Set BEFORE the PR work starts, so two concurrent askers cannot race. */
+  private pullRequestStarted = false
   /** C5 idle watchdog: when the orchestrator last called one of its tools. */
   private orchestratorLastToolAt = 0
   private orchestratorIdleTimer: ReturnType<typeof setTimeout> | undefined
@@ -1153,6 +1189,238 @@ export class Workspace implements AgentHost {
     return mergeBranchIntoWorktree(this.repoPath, record.branch, deps)
   }
 
+  /** A3: the profile's automation block; profiles written before A3 have none. */
+  private get automation(): ProfileAutomation {
+    return this.profile.automation ?? AUTOMATION_OFF
+  }
+
+  /** A3: the run's pull request once the auto-PR path has run; else undefined. */
+  get runPullRequest(): RunPullRequest | undefined {
+    return this.pullRequest
+  }
+
+  /**
+   * A3: the profile's end-of-report automation for an agent that just
+   * reported. Both switches take exactly the host merges the panel's Promote
+   * click and `integrate_branch` take — an automated adoption is a missing
+   * click, never a second merge path — and both are deliberately narrow:
+   *
+   * - only a `success` report: a blocked or failed agent's branch is precisely
+   *   the work a human still has to look at,
+   * - never the orchestrator's own branch,
+   * - only agents that report to the ROOT queue: a lead's workers are the
+   *   lead's business, and auto-merging them into the root's worktree would
+   *   integrate an area behind its own lead's back,
+   * - and never a throw. A refused or conflicted merge becomes an
+   *   `integrate_conflict` event, because the report it hangs off has to land
+   *   either way.
+   */
+  async adoptOnDone(agentId: string, status: AgentDoneStatus): Promise<void> {
+    const { autoIntegrate, autoPromote } = this.automation
+    if (!autoIntegrate && !autoPromote) return
+    if (status !== 'success') return
+    // A workspace on its way out adopts nothing: the run is being torn down,
+    // and a merge nobody can be told about is a merge nobody asked for.
+    if (this.closed || this.events.isClosed) return
+    const record = this.agents.get(agentId)
+    if (!record || record.orchestrator) return
+    if (this.queueFor(agentId) !== this.events) return
+    if (autoIntegrate) await this.autoIntegrate(record)
+    if (autoPromote) await this.autoPromote(record)
+  }
+
+  /** A3: merge the finished branch into the ORCHESTRATOR's own worktree. */
+  private async autoIntegrate(source: AgentRecord): Promise<void> {
+    const target = this.orchestratorRecord
+    if (!target || target.agentId === source.agentId) return
+    try {
+      const outcome = await mergeBranchIntoWorktree(
+        target.worktreePath,
+        source.branch,
+        this.deps.worktreeDeps
+      )
+      this.pushAdoption(target, source.branch, 'worktree', outcome)
+    } catch (error) {
+      this.pushAdoption(target, source.branch, 'worktree', {
+        ok: false,
+        conflictFiles: [],
+        message: errorText(error)
+      })
+    }
+  }
+
+  /**
+   * A3: merge the finished branch into the REPOSITORY's own checkout — the
+   * panel's Promote button without the click, including its refusal on a dirty
+   * checkout (the user's uncommitted work is never merged over).
+   */
+  private async autoPromote(source: AgentRecord): Promise<void> {
+    try {
+      const outcome = await this.promoteAgentBranch(source.agentId)
+      this.pushAdoption(source, source.branch, 'checkout', outcome)
+    } catch (error) {
+      this.pushAdoption(source, source.branch, 'checkout', {
+        ok: false,
+        conflictFiles: [],
+        message: errorText(error)
+      })
+    }
+  }
+
+  /**
+   * The event of one automated adoption — the same two event types the manual
+   * merge path pushes, plus `target`, which is the only thing that differs
+   * between "into the orchestrator's worktree" and "into the checkout". Loud
+   * (never quiet): nobody called a tool here, so nothing delivered this
+   * synchronously to the orchestrator.
+   */
+  private pushAdoption(
+    record: AgentRecord,
+    branch: string,
+    target: 'worktree' | 'checkout',
+    outcome: IntegrateOutcome
+  ): void {
+    const queue = this.queueFor(record.agentId)
+    if (queue.isClosed) return
+    const identity = { agentId: record.agentId, name: record.name, roleId: record.roleId }
+    if (outcome.ok) {
+      queue.push({ type: 'integrate_ok', ...identity, branch, headSha: outcome.headSha, target })
+      return
+    }
+    queue.push({
+      type: 'integrate_conflict',
+      ...identity,
+      branch,
+      conflictFiles: outcome.conflictFiles.slice(0, 80),
+      message: outcome.message.slice(0, 2_000),
+      target
+    })
+  }
+
+  /**
+   * A3: open the run's pull request — the `automation.autoPr` path.
+   *
+   * Called by `record_retro` (the orchestrator saying the work is done) and by
+   * the user stopping the workspace, whichever comes first; the second caller
+   * gets the recorded answer instead of a second pull request. Returns
+   * undefined when the profile never asked for one.
+   *
+   * The head branch is the run's own integration branch: the orchestrator's,
+   * when it carries commits the base does not, otherwise the repository
+   * checkout's branch when THAT is ahead (the shape an auto-promote run
+   * leaves behind). Neither ahead means there is nothing to open a pull
+   * request for, and saying so is more useful than an empty PR.
+   */
+  async openRunPullRequest(options: { summary?: string } = {}): Promise<RunPullRequest | undefined> {
+    const automation = this.automation
+    if (!automation.autoPr) return undefined
+    if (this.pullRequestStarted) return this.pullRequest
+    this.pullRequestStarted = true
+
+    const deps = this.deps.worktreeDeps
+    const open = this.deps.openPullRequest ?? openPullRequest
+    let base = automation.prBaseBranch?.trim() ?? ''
+    try {
+      if (!base) base = await currentBranch(this.repoPath, deps)
+    } catch (error) {
+      return this.recordPullRequest({
+        ok: false,
+        branch: '',
+        base: '',
+        message: `Could not read the repository's current branch: ${errorText(error)}`
+      })
+    }
+
+    const candidates = [
+      this.orchestratorRecord?.branch,
+      await currentBranch(this.repoPath, deps).catch(() => undefined)
+    ]
+    let head: string | undefined
+    for (const candidate of candidates) {
+      if (!candidate || candidate === base || candidate === 'HEAD') continue
+      const ahead = await commitsAhead(this.repoPath, base, candidate, deps)
+      if (ahead !== undefined && ahead > 0) {
+        head = candidate
+        break
+      }
+    }
+    if (!head) {
+      return this.recordPullRequest({
+        ok: false,
+        branch: this.orchestratorRecord?.branch ?? '',
+        base,
+        message: `No branch of this run is ahead of ${base} — nothing to open a pull request for.`
+      })
+    }
+
+    const outcome = await open(
+      {
+        repoPath: this.repoPath,
+        head,
+        base,
+        remote: automation.prRemote,
+        title: pullRequestTitle({ workspaceName: this.name, goal: this.goal }),
+        body: pullRequestBody({
+          workspaceName: this.name,
+          goal: this.goal,
+          summary: options.summary ?? this.pendingRetroSummary,
+          branches: this.listAgents()
+            .map((agent) => agent.branch)
+            .filter((branch): branch is string => Boolean(branch))
+        }),
+        draft: automation.prDraft
+      },
+      { ...deps }
+    ).catch(
+      (error: unknown): PullRequestOutcome => ({
+        ok: false,
+        reason: 'gh_failed',
+        message: errorText(error)
+      })
+    )
+
+    return this.recordPullRequest(
+      outcome.ok
+        ? { ok: true, branch: head, base, url: outcome.url }
+        : {
+            ok: false,
+            branch: head,
+            base,
+            message: outcome.message,
+            ...(outcome.compareUrl ? { url: outcome.compareUrl } : {})
+          }
+    )
+  }
+
+  /**
+   * Keep the outcome, tell the run about it — one event for the journal and
+   * the panel, one line in the orchestrator's terminal so the human reading
+   * that window sees the link without hunting for it.
+   */
+  private recordPullRequest(result: RunPullRequest): RunPullRequest {
+    this.pullRequest = result
+    if (!this.events.isClosed) {
+      this.events.push({
+        type: 'pull_request',
+        ok: result.ok,
+        branch: result.branch || '(none)',
+        base: result.base || '(unknown)',
+        ...(result.url ? { url: result.url } : {}),
+        ...(result.message ? { message: result.message.slice(0, 2_000) } : {})
+      })
+    }
+    const record = this.orchestratorRecord
+    if (record) {
+      const line = result.ok
+        ? `\r\n\x1b[32mVertragus: pull request opened — ${result.url}\x1b[0m\r\n`
+        : `\r\n\x1b[33mVertragus: no pull request — ${result.message ?? 'unknown reason'}${
+            result.url ? ` (open it yourself: ${result.url})` : ''
+          }\x1b[0m\r\n`
+      record.pty.push(line)
+    }
+    return result
+  }
+
   /**
    * E4: the wall clock over agent-seconds — subagents and leads count, the
    * orchestrator (the reader) does not. Reservations are ignored: seconds are
@@ -1419,7 +1687,18 @@ export class Workspace implements AgentHost {
       maxSubagents: this.profile.maxSubagents,
       knowledge: this.deps.retro?.knowledge(this.profile) ?? [],
       // E2: best-effort — a repo without docs or git history still boots.
-      briefing: await this.collectBriefing()
+      briefing: await this.collectBriefing(),
+      // A3: what the host now does without the orchestrator (and without the
+      // user) — rendered only when something is actually switched on.
+      ...(this.automation.autoIntegrate || this.automation.autoPromote || this.automation.autoPr
+        ? {
+            automation: {
+              autoIntegrate: this.automation.autoIntegrate,
+              autoPromote: this.automation.autoPromote,
+              autoPr: this.automation.autoPr
+            }
+          }
+        : {})
     }
     // C6 crash recovery: the resumed run left a frozen package behind. It is
     // strictly richer than the journal briefing (roster with branches, the
@@ -2286,12 +2565,13 @@ export class Workspace implements AgentHost {
     const queue = this.queueFor(record.agentId)
     try {
       const facts = await this.snapshotDone(record.agentId, summary)
-      if (queue.isClosed) return
-      queue.push({ ...payload, ...facts })
+      if (!queue.isClosed) queue.push({ ...payload, ...facts })
     } catch {
-      if (queue.isClosed) return
-      queue.push(payload)
+      if (!queue.isClosed) queue.push(payload)
     }
+    // A3: the sentinel counterpart of the MCP `report_done` hook — a PTY-only
+    // agent's branch is adopted by exactly the same rules.
+    await this.adoptOnDone(record.agentId, status).catch(() => undefined)
   }
 
   /** True for a provider that declared `mcp: none` — reports via sentinel lines. */
