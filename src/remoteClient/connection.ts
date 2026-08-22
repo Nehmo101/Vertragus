@@ -261,3 +261,87 @@ export function shouldScheduleReconnect(context: SocketCloseContext): boolean {
 export function shouldFailParkedCommands(context: Pick<SocketCloseContext, 'isCurrent'>): boolean {
   return context.isCurrent
 }
+
+/**
+ * What a pairing exchange (`POST /api/auth`) actually turned out to be.
+ *
+ * The distinction the rest of this section rests on: a desktop that ANSWERED
+ * and said no is a fact about the token, while a request that never reached a
+ * desktop is a fact about the route — and a phone that opens its home-screen
+ * bookmark before the tailnet is up produces the second one every time. The
+ * client used to have only one shape for both, so a lift ride looked exactly
+ * like a revoked device.
+ */
+export type PairingOutcome =
+  | { kind: 'paired'; session: string }
+  | { kind: 'rejected' }
+  | { kind: 'unreachable' }
+
+/** The half of {@link PairingOutcome} that needs a recovery decision. */
+export type PairingFailure = 'rejected' | 'unreachable'
+
+/**
+ * Which of the three ways into pairing this attempt came from. The same
+ * failure means different things down each one, which is the entire reason
+ * this is a table rather than an `if`.
+ */
+export type PairingSource =
+  /** A freshly scanned QR / pairing link, token still in the URL fragment. */
+  | 'link'
+  /** The pairing token kept in `localStorage` for a home-screen bookmark. */
+  | 'stored'
+  /** A `session_revoked` that was not a decision about this device. */
+  | 'repair'
+
+export type PairingRecovery =
+  /** The route is the problem: keep every credential and try again later. */
+  | 'retry'
+  /** The link is spent — say so, and offer to pair again. */
+  | 'showPairingFailed'
+  /** The stored token is spent: forget it and go back to the QR screen. */
+  | 'forgetPairing'
+  /** The desktop no longer knows this device at all. */
+  | 'revoke'
+
+/**
+ * What to do about a pairing attempt that did not yield a session.
+ *
+ * Only a desktop that answered may cost the user their stored credentials.
+ * Every `'unreachable'` row is a retry precisely because the alternatives all
+ * end at a QR code the user cannot scan from a lift — the phone is not
+ * unpaired, it is out of range, and the fix is to wait rather than to walk
+ * back to the desktop.
+ */
+export function decidePairingRecovery(
+  failure: PairingFailure,
+  source: PairingSource
+): PairingRecovery {
+  if (failure === 'unreachable') return 'retry'
+  switch (source) {
+    case 'link':
+      return 'showPairingFailed'
+    case 'stored':
+      return 'forgetPairing'
+    case 'repair':
+      return 'revoke'
+  }
+}
+
+/**
+ * Read a non-`ok` HTTP status as one or the other kind of failure.
+ *
+ * Not every answer is an answer to the question that was asked. `429` is the
+ * server's own rate limiter (`auth.pair` throttles per address BEFORE it
+ * compares the token, so a 429 says nothing about whether the token is good),
+ * and a `5xx` is a desktop that is up but broken or a proxy in the way. Both
+ * are "ask again", and treating them as "the desktop said no" would delete a
+ * perfectly good pairing token because the user reloaded three times in a row.
+ *
+ * `4xx` other than those is the desktop declining this token: `401` from the
+ * auth store, `400` from a malformed body, `403` from the host-rebinding
+ * guard.
+ */
+export function pairingFailureFromStatus(status: number): PairingFailure {
+  if (status === 408 || status === 429 || status >= 500) return 'unreachable'
+  return 'rejected'
+}

@@ -7,6 +7,7 @@ import {
   COMMAND_TIMEOUT_MS,
   decideCommandDispatch,
   decideLiveness,
+  decidePairingRecovery,
   decideWake,
   expiredCommandIds,
   isSamePayload,
@@ -15,12 +16,14 @@ import {
   LIVENESS_TICK_MS,
   MAX_COMMAND_ARG_CHARS,
   offersResumeMarker,
+  pairingFailureFromStatus,
   RECONNECT_MAX_MS,
   reconnectDelayMs,
   shouldFailParkedCommands,
   shouldScheduleReconnect,
   tokenFromHash,
-  type LivenessState
+  type LivenessState,
+  type PairingSource
 } from './connection'
 import { OVERLAP_TAIL_CHARS, trackWritten } from './terminalAttach'
 
@@ -342,5 +345,86 @@ describe('the resume marker covers what the terminal aligns on', () => {
     // A first attach has no history to resume from, and an older client sends
     // no marker at all; both must reach the bridge unchanged.
     expect(clientMessageSchema.safeParse({ type: 'attach', agentId: 'a1' }).success).toBe(true)
+  })
+})
+
+
+/*
+ * The whole point of this table is the asymmetry: a desktop that answered may
+ * cost the user their credentials, and a route that swallowed the request may
+ * not. A phone opening its home-screen bookmark before the tailnet is up
+ * produces the second one on a perfectly good pairing, and the client used to
+ * treat it as the first.
+ */
+describe('what a pairing attempt that yielded no session means', () => {
+  const sources: PairingSource[] = ['link', 'stored', 'repair']
+
+  it('never gives up on a request that never arrived, whichever door it came in by', () => {
+    for (const source of sources) {
+      expect(decidePairingRecovery('unreachable', source)).toBe('retry')
+    }
+  })
+
+  it('sends a spent LINK to the pairing-failed screen', () => {
+    // The token was in the URL and is gone from it now; there is nothing to
+    // retry and nothing stored to forget.
+    expect(decidePairingRecovery('rejected', 'link')).toBe('showPairingFailed')
+  })
+
+  it('forgets a STORED token the desktop declined', () => {
+    // The bookmark's token outlived the desktop's; the QR code is the way back.
+    expect(decidePairingRecovery('rejected', 'stored')).toBe('forgetPairing')
+  })
+
+  it('treats a declined REPAIR as the device being unknown', () => {
+    // A `session_revoked` followed by a desktop that refuses the stored token
+    // is the one case where the revoked screen is the truth.
+    expect(decidePairingRecovery('rejected', 'repair')).toBe('revoke')
+  })
+
+  it('lets only an answering desktop cost the user a credential', () => {
+    // The invariant behind every row above, stated once: nothing reached by
+    // the 'unreachable' path may be destructive.
+    const destructive = new Set(['showPairingFailed', 'forgetPairing', 'revoke'])
+    for (const source of sources) {
+      expect(destructive.has(decidePairingRecovery('unreachable', source))).toBe(false)
+      expect(destructive.has(decidePairingRecovery('rejected', source))).toBe(true)
+    }
+  })
+})
+
+describe('reading an HTTP status as one kind of failure or the other', () => {
+  it('reads the desktop declining this token as an answer', () => {
+    // 401 from the auth store, 400 from a malformed body, 403 from the
+    // host-rebinding guard — all of them a desktop that made a decision.
+    expect(pairingFailureFromStatus(400)).toBe('rejected')
+    expect(pairingFailureFromStatus(401)).toBe('rejected')
+    expect(pairingFailureFromStatus(403)).toBe('rejected')
+    expect(pairingFailureFromStatus(404)).toBe('rejected')
+  })
+
+  it('does not read a rate-limited attempt as a bad token', () => {
+    // `RemoteAuthStore.pair` throttles per address BEFORE it compares the
+    // token, so a 429 is literally not an opinion about the token — and a user
+    // who reloads three times in a row must not lose their pairing for it.
+    expect(pairingFailureFromStatus(429)).toBe('unreachable')
+  })
+
+  it('does not read a broken desktop or a proxy in the way as a bad token', () => {
+    expect(pairingFailureFromStatus(408)).toBe('unreachable')
+    expect(pairingFailureFromStatus(500)).toBe('unreachable')
+    expect(pairingFailureFromStatus(502)).toBe('unreachable')
+    expect(pairingFailureFromStatus(503)).toBe('unreachable')
+  })
+})
+
+describe('the backoff a pairing retry rides on', () => {
+  it('is the schedule the socket already uses, bounded the same way', () => {
+    // `attemptPairing` calls `reconnectDelayMs`; this pins that the schedule
+    // it shares is bounded, since a pairing retry loop has no socket close to
+    // stop it.
+    expect(reconnectDelayMs(0)).toBeLessThanOrEqual(1_000)
+    expect(reconnectDelayMs(50)).toBe(RECONNECT_MAX_MS)
+    expect(RECONNECT_MAX_MS).toBeLessThanOrEqual(30_000)
   })
 })

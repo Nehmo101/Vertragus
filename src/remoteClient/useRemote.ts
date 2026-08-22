@@ -12,6 +12,13 @@
  * restarted and in-memory sessions died, the stored pairing token silently
  * mints a new session — the QR does not have to be scanned again.
  *
+ * Pairing has to survive the route as well, because the first thing a phone
+ * does is open the bookmark before the tailnet is up. A `POST` that never
+ * reached a desktop is a fact about the route, not about the token, so it
+ * keeps every credential and retries on the socket's own backoff and wake
+ * signals (`attemptPairing`); only a desktop that answered and declined may
+ * send the user back to the QR code (`decidePairingRecovery`).
+ *
  * Staying connected is the hard half, and it is why this hook is bigger than
  * a socket wrapper. A phone sleeps mid-run, walks out of Wi-Fi range, and
  * comes back with a socket the browser still calls `OPEN`. Three mechanisms
@@ -50,15 +57,19 @@ import {
   COMMAND_TIMEOUT_MS,
   decideCommandDispatch,
   decideLiveness,
+  decidePairingRecovery,
   decideWake,
   expiredCommandIds,
   isSamePayload,
   LIVENESS_TICK_MS,
   offersResumeMarker,
+  pairingFailureFromStatus,
   reconnectDelayMs,
   shouldFailParkedCommands,
   shouldScheduleReconnect,
-  tokenFromHash
+  tokenFromHash,
+  type PairingOutcome,
+  type PairingSource
 } from './connection'
 import { remoteCopy } from './i18n'
 import { trackWritten } from './terminalAttach'
@@ -67,10 +78,15 @@ export type RemotePhase = 'pairing' | 'connecting' | 'ready' | 'error' | 'revoke
 
 /**
  * Machine-readable error causes. The hook does not localize its phases — the
- * view maps these onto `RemoteCopy` fields so the message follows the active
- * locale.
+ * view maps these onto `RemoteCopy` fields (by this exact name) so the message
+ * follows the active locale.
+ *
+ * The two are not variants of one message. `pairingFailed` is the desktop
+ * declining a token and ends at the QR code; `unreachable` is a request that
+ * never reached a desktop, keeps every credential, and is being retried in the
+ * background while it is on screen.
  */
-export type RemoteError = 'pairingFailed'
+export type RemoteError = 'pairingFailed' | 'unreachable'
 
 const SESSION_KEY = 'vertragus.remote.session'
 const PAIRING_KEY = 'vertragus.remote.pairing'
@@ -138,6 +154,18 @@ export interface RemoteApi {
    * frame on the floor.
    */
   refresh(): void
+  /**
+   * True while a pairing exchange is on the wire. The `'unreachable'` screen
+   * retries on its own, so this is what tells the user the button they are
+   * looking at is already doing something.
+   */
+  retrying: boolean
+  /**
+   * Try a pairing attempt that failed on the route again, now, from the top of
+   * the backoff. A no-op when nothing is waiting to be retried — the manual
+   * twin of the wake-ups that already do this.
+   */
+  retryPairing(): void
   /** Re-pair from scratch (session revoked or expired). */
   reset(): void
 }
@@ -165,15 +193,36 @@ function clearAuth(): void {
   window.localStorage.removeItem(PAIRING_KEY)
 }
 
-async function pair(token: string): Promise<string | undefined> {
-  const response = await fetch('/api/auth', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pairingToken: token })
-  })
-  if (!response.ok) return undefined
-  const body = (await response.json()) as { session?: string }
-  return body.session
+/**
+ * Exchange a pairing token for a session, and say which KIND of failure it was
+ * when it does not.
+ *
+ * `fetch` rejects only for a request that never got an answer — no route to
+ * the tailnet, DNS gone, the connection dropped mid-body. On a phone that is
+ * not an exception, it is what opening the home-screen bookmark before the
+ * tailnet is up looks like, so it must not be collapsed into "the desktop said
+ * no". A body that will not parse is the same class of problem wearing a 200:
+ * this endpoint answers JSON, so HTML here is a captive portal in the way.
+ */
+async function requestPairing(token: string): Promise<PairingOutcome> {
+  let response: Response
+  try {
+    response = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pairingToken: token })
+    })
+  } catch {
+    return { kind: 'unreachable' }
+  }
+  if (!response.ok) return { kind: pairingFailureFromStatus(response.status) }
+  let body: { session?: string }
+  try {
+    body = (await response.json()) as { session?: string }
+  } catch {
+    return { kind: 'unreachable' }
+  }
+  return body.session ? { kind: 'paired', session: body.session } : { kind: 'rejected' }
 }
 
 /** One command promise the UI is waiting on. */
@@ -199,6 +248,7 @@ export function useRemote(): RemoteApi {
   const [locale, setLocale] = useState('de')
   const [online, setOnline] = useState(() => window.navigator.onLine)
   const [probing, setProbing] = useState(false)
+  const [retrying, setRetrying] = useState(false)
 
   const socketRef = useRef<WebSocket | null>(null)
   const sessionRef = useRef<string | null>(null)
@@ -246,6 +296,23 @@ export function useRemote(): RemoteApi {
   const dispatchRef = useRef<(message: ServerMessage) => void>(() => undefined)
   const connectRef = useRef<() => void>(() => undefined)
   /**
+   * The pairing attempt that is waiting to be tried again — the token and
+   * which door it came in by — plus its backoff timer, its attempt count, and
+   * whether a request is on the wire right now.
+   *
+   * A pairing attempt that failed because nothing answered is the same
+   * situation as a closed socket one layer earlier: there is a credential that
+   * is probably fine and a route that is not. So it gets the same treatment —
+   * a capped backoff, cut short by the same wake signals — instead of the
+   * spinner that never resolved.
+   */
+  const pendingPairing = useRef<{ token: string; source: PairingSource } | null>(null)
+  const pairingTimer = useRef<number | null>(null)
+  const pairingAttempt = useRef(0)
+  const pairingInFlight = useRef(false)
+  /** `attemptPairing`, for the retry it schedules for itself. See `connectRef`. */
+  const attemptPairingRef = useRef<(token: string, source: PairingSource) => void>(() => undefined)
+  /**
    * The locale as a ref: a command rejects from inside a socket callback that
    * closed over the render it was created in, and a German error on an English
    * phone is exactly the leak the i18n layer exists to prevent.
@@ -262,9 +329,11 @@ export function useRemote(): RemoteApi {
    * Bumped by every deliberate auth change — a `reset()`, a server-initiated
    * revoke. Anything that resumed after an `await` compares the generation it
    * captured against this before touching storage or the socket: without that
-   * guard an in-flight `pair()` can land after the user has logged out and
-   * write the session AND the pairing token straight back into `localStorage`,
-   * turning a log-out into a re-authentication.
+   * guard an in-flight `requestPairing()` can land after the user has logged
+   * out and write the session AND the pairing token straight back into
+   * `localStorage`, turning a log-out into a re-authentication. It is not the
+   * whole guard: see `cancelPairingRetry` for the retry that is not in flight
+   * yet.
    */
   const authGeneration = useRef(0)
 
@@ -312,6 +381,28 @@ export function useRemote(): RemoteApi {
     window.clearTimeout(reconnectTimer.current)
     reconnectTimer.current = null
   }, [])
+
+  const clearPairingTimer = useCallback(() => {
+    if (pairingTimer.current === null) return
+    window.clearTimeout(pairingTimer.current)
+    pairingTimer.current = null
+  }, [])
+
+  /**
+   * Forget the pairing attempt that was waiting to be retried.
+   *
+   * Every deliberate auth change has to call this, not just bump the
+   * generation: the generation stops an attempt that is already in flight from
+   * writing its result, but a retry still sitting on its backoff timer would
+   * start a NEW attempt afterwards — capturing the new generation, passing its
+   * own guard, and re-authenticating from a token the user just revoked.
+   */
+  const cancelPairingRetry = useCallback(() => {
+    clearPairingTimer()
+    pendingPairing.current = null
+    pairingAttempt.current = 0
+    setRetrying(false)
+  }, [clearPairingTimer])
 
   /** Reject the named commands and forget them. */
   const rejectCommands = useCallback((ids: Iterable<string>, message: string) => {
@@ -459,6 +550,95 @@ export function useRemote(): RemoteApi {
   )
 
   /**
+   * One pass at exchanging a pairing token for a session, and whatever the
+   * outcome calls for — including scheduling the next pass.
+   *
+   * The decision itself is `decidePairingRecovery`, in `connection.ts` and
+   * under test there, because the interesting part is not the fetch: it is
+   * that only a desktop which ANSWERED may cost the user their stored
+   * credentials. A request that never arrived leaves the token where it is and
+   * comes back to it, because the phone is not unpaired, it is out of range.
+   */
+  const attemptPairing = useCallback(
+    async (token: string, source: PairingSource): Promise<void> => {
+      // One at a time: a wake-up can land on top of an attempt that is already
+      // on the wire, and two exchanges of the same token race to adopt two
+      // sessions of which one is immediately orphaned.
+      if (!aliveRef.current || pairingInFlight.current) return
+      clearPairingTimer()
+      // Recorded before the request, so a wake-up or a `reset()` that lands
+      // mid-flight knows there is an attempt to hurry along or to cancel.
+      pendingPairing.current = { token, source }
+      // Captured before the `await`: a `reset()` or a revoke while the request
+      // is in flight makes everything below a decision about an auth state
+      // that no longer exists.
+      const generation = authGeneration.current
+      pairingInFlight.current = true
+      setRetrying(true)
+      const outcome = await requestPairing(token)
+      pairingInFlight.current = false
+      if (!aliveRef.current || authGeneration.current !== generation) return
+      setRetrying(false)
+      if (outcome.kind === 'paired') {
+        pendingPairing.current = null
+        pairingAttempt.current = 0
+        setError(null)
+        adoptSession(outcome.session, token)
+        return
+      }
+      switch (decidePairingRecovery(outcome.kind, source)) {
+        case 'retry': {
+          // The socket's backoff schedule, for the same reason it has one: the
+          // first retry usually wins, and the ceiling keeps a phone in a
+          // tunnel from spending its battery on a route that is not there.
+          // `wake` cuts the wait short when the phone walks back into range,
+          // so recovering costs no tap.
+          const delay = reconnectDelayMs(pairingAttempt.current)
+          pairingAttempt.current += 1
+          setError('unreachable')
+          setPhase('error')
+          pairingTimer.current = window.setTimeout(() => {
+            pairingTimer.current = null
+            if (!aliveRef.current || authGeneration.current !== generation) return
+            attemptPairingRef.current(token, source)
+          }, delay)
+          break
+        }
+        case 'showPairingFailed':
+          cancelPairingRetry()
+          setError('pairingFailed')
+          setPhase('error')
+          break
+        case 'forgetPairing':
+          cancelPairingRetry()
+          // Only here, where the desktop answered and declined the token: the
+          // stored one is spent, and the QR code is the way back.
+          window.localStorage.removeItem(PAIRING_KEY)
+          setPhase('pairing')
+          break
+        case 'revoke':
+          cancelPairingRetry()
+          clearAuth()
+          setPhase('revoked')
+          break
+      }
+    },
+    [adoptSession, cancelPairingRetry, clearPairingTimer]
+  )
+
+  useEffect(() => {
+    attemptPairingRef.current = (token, source) => void attemptPairing(token, source)
+  }, [attemptPairing])
+
+  /** Try the paused pairing attempt again now, from the top of the backoff. */
+  const retryPairing = useCallback(() => {
+    const pending = pendingPairing.current
+    if (!pending || !aliveRef.current) return
+    pairingAttempt.current = 0
+    void attemptPairing(pending.token, pending.source)
+  }, [attemptPairing])
+
+  /**
    * Replace a session that expired without anyone deciding to end it — an idle
    * timeout, or a desktop that restarted and lost every in-memory session.
    *
@@ -475,19 +655,12 @@ export function useRemote(): RemoteApi {
       return
     }
     setPhase('connecting')
-    const generation = authGeneration.current
-    void pair(pairing).then((session) => {
-      // Same guard as `beginPairing`: `aliveRef` alone only covers unmount, not
-      // a log-out that happened while this request was in flight.
-      if (!aliveRef.current || authGeneration.current !== generation) return
-      if (session) {
-        adoptSession(session, pairing)
-        return
-      }
-      clearAuth()
-      setPhase('revoked')
-    })
-  }, [adoptSession])
+    // A repair that fails on the route must NOT land on the revoked screen: a
+    // `session_revoked` can arrive on a link that is already coming apart, and
+    // "your session ended, scan the QR again" is a lie about a phone that is
+    // merely out of range — and one that costs the stored token to tell.
+    void attemptPairing(pairing, 'repair')
+  }, [attemptPairing])
 
   const dispatch = useCallback(
     (message: ServerMessage) => {
@@ -552,6 +725,7 @@ export function useRemote(): RemoteApi {
             // made the settings button cosmetic. The pairing token goes with
             // the session, and the client stops here.
             authGeneration.current += 1
+            cancelPairingRetry()
             clearAuth()
             setPhase('revoked')
             break
@@ -577,7 +751,7 @@ export function useRemote(): RemoteApi {
           break
       }
     },
-    [applyWorkspaces, flushCommandQueue, repair, sendAttach]
+    [applyWorkspaces, cancelPairingRetry, flushCommandQueue, repair, sendAttach]
   )
   // The socket handlers read these through refs; keep them current.
   useEffect(() => {
@@ -593,23 +767,12 @@ export function useRemote(): RemoteApi {
     // the hook can already be gone by the time this runs — and the branch that
     // finds a stored session opens a socket with nothing else to guard it.
     if (!aliveRef.current) return
-    // Captured before the first `await`: a `reset()` or a revoke while the
-    // request is in flight bumps the generation, and everything below is then
-    // a decision about an auth state that no longer exists.
-    const generation = authGeneration.current
-    const current = (): boolean => aliveRef.current && authGeneration.current === generation
     const token = tokenFromHash(window.location.hash)
     if (token) {
-      // Strip the token from the URL before anything can screenshot it.
+      // Strip the token from the URL before anything can screenshot it. The
+      // attempt keeps its own copy, so a retry still has it afterwards.
       history.replaceState(null, '', window.location.pathname + window.location.search)
-      const session = await pair(token)
-      if (!current()) return
-      if (session) {
-        adoptSession(session, token)
-        return
-      }
-      setError('pairingFailed')
-      setPhase('error')
+      await attemptPairing(token, 'link')
       return
     }
     const storedSession = readStored(SESSION_KEY)
@@ -620,16 +783,11 @@ export function useRemote(): RemoteApi {
     }
     const storedPairing = readStored(PAIRING_KEY)
     if (storedPairing) {
-      const session = await pair(storedPairing)
-      if (!current()) return
-      if (session) {
-        adoptSession(session, storedPairing)
-        return
-      }
-      window.localStorage.removeItem(PAIRING_KEY)
+      await attemptPairing(storedPairing, 'stored')
+      return
     }
     setPhase('pairing')
-  }, [adoptSession, connect])
+  }, [attemptPairing, connect])
 
   useEffect(() => {
     aliveRef.current = true
@@ -651,12 +809,13 @@ export function useRemote(): RemoteApi {
     return () => {
       aliveRef.current = false
       clearReconnectTimer()
+      clearPairingTimer()
       const socket = socketRef.current
       socketRef.current = null
       socket?.close()
     }
     // Runs once on mount — beginPairing owns the whole connect lifecycle.
-  }, [beginPairing, clearReconnectTimer])
+  }, [beginPairing, clearPairingTimer, clearReconnectTimer])
 
   /**
    * Find out where the connection stands, right now, instead of sitting out
@@ -665,7 +824,16 @@ export function useRemote(): RemoteApi {
    * are the same question asked by different means.
    */
   const wake = useCallback(() => {
-    if (!aliveRef.current || !sessionRef.current) return
+    if (!aliveRef.current) return
+    // A pairing attempt waiting out a backoff is the same question one layer
+    // earlier — there is no session yet BECAUSE the route was down — so a
+    // wake-up asks it again immediately rather than leaving the phone on the
+    // "cannot be reached" screen for the rest of the ceiling.
+    if (pendingPairing.current) {
+      retryPairing()
+      return
+    }
+    if (!sessionRef.current) return
     switch (decideWake(socketRef.current?.readyState ?? null)) {
       case 'reconnect':
         reconnectNow()
@@ -679,7 +847,7 @@ export function useRemote(): RemoteApi {
       case 'wait':
         break
     }
-  }, [probe, reconnectNow])
+  }, [probe, reconnectNow, retryPairing])
 
   // Wake-up: the phone came back, so find out where the connection stands
   // instead of sitting out the rest of a ten-second backoff.
@@ -795,11 +963,14 @@ export function useRemote(): RemoteApi {
       return promise
     },
     refresh: wake,
+    retrying,
+    retryPairing,
     reset: () => {
       // A deliberate log-out: anything that resumes after an `await` from here
       // on is answering a question nobody is asking any more.
       authGeneration.current += 1
       clearAuth()
+      cancelPairingRetry()
       sessionRef.current = null
       clearReconnectTimer()
       const socket = socketRef.current
