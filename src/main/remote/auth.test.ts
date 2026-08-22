@@ -95,6 +95,37 @@ describe('RemoteAuthStore session lifecycle', () => {
     expect(auth.sessionCount).toBe(0)
   })
 
+  it('verifies a session without refreshing its idle timer', () => {
+    const { auth, clock } = store('pair-secret', { idleMs: 1_000 })
+    const paired = auth.pair('pair-secret', 'x')
+    const token = paired.ok ? paired.session : ''
+
+    // A client probing its socket every 300 ms — forever, on any tab left
+    // open. `verify` answers each probe and none of them buys the session
+    // another millisecond, so the idle window still runs out on schedule.
+    // Under `touch` the same loop would keep it alive indefinitely.
+    for (let i = 0; i < 3; i++) {
+      clock.advance(300)
+      expect(auth.verify(token)).toBeDefined()
+    }
+    clock.advance(1_001)
+    expect(auth.verify(token)).toBeUndefined()
+    expect(auth.sessionCount).toBe(0)
+  })
+
+  it('touch and verify agree about what is still valid', () => {
+    const { auth } = store('pair-secret', { idleMs: 1_000 })
+    const paired = auth.pair('pair-secret', 'x')
+    const token = paired.ok ? paired.session : ''
+    expect(auth.verify(token)?.token).toBe(token)
+    expect(auth.verify('not-a-session')).toBeUndefined()
+    // Revoking is visible to both, immediately.
+    const [session] = auth.list()
+    auth.revoke(session!.id)
+    expect(auth.verify(token)).toBeUndefined()
+    expect(auth.touch(token)).toBeUndefined()
+  })
+
   it('revokes one session by its public id and revokes all', () => {
     const { auth } = store()
     auth.pair('pair-secret', 'x')
