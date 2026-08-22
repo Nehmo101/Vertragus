@@ -51,6 +51,7 @@ Remote-Server.
 | C3 Snapshot-Commit / C4 Handoff-Paket | **umgesetzt** (Track 1) — `snapshotDone` committet dirty Worktrees beim Done; `start_agent{baseBranch}` trägt Handoff-Block |
 | C5 Orchestrator-Idle-Watchdog | **umgesetzt** (Track 2) — `orchestrator_idle` Event + Panel/Remote-Hinweis; Timeouts ≠ Idle (Touch bei Call-Start und -Ende) |
 | C6 Orchestrator-Succession (Context-Handoff) | **S1 im Code** — siehe [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
+| C7 Modell/Provider-Reseat (Wechsel mitten im Lauf) | **nur Spec** — siehe [`MODEL-PROVIDER-SWITCH.md`](./MODEL-PROVIDER-SWITCH.md) |
 | D Mensch im Loop | **D1–D4 umgesetzt** (Track 3 + Follow-up) — Goal-UI, `user_message` weckt `await_events`, `ask_user` mit Ticket; D4 Stufen `yolo`/`ask-user`/`ask-orchestrator` (Store-Spiegel zu `yoloMaster`, Contract-Approval-Regel, Threat-Model im README) |
 | E integrate / briefing / eval | **Kern umgesetzt** (Track 6) — `integrate_branch` + Gate-Warnung + Promote-Klick, Briefing + `repoNotes`, Journal + Resume (E3, Briefing statt Re-Spawn), Budget-Wanduhr, Janitor/Explorer, Playbooks, Extra-MCP an Worker (E6), Loop-Eval (E5, `tests/integration/loopEval`) — Phase E vollständig |
 | F Multi-Orch (Lead, Tiefe 1) | **umgesetzt** (Track 5) — dritte Identität `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder, Reparent (`subtree_adopted`), Caps host-seitig |
@@ -287,6 +288,24 @@ gerendert (Roster, Fragen, Next Actions, Decisions, Risks, Note,
 Event-Schwanz), kein zusätzlicher JSON-Dump —, Fence `succession_in_progress` auf
 mutierenden Tools, `record_retro` währenddessen verboten. User-Button, C5
 und C3-SHA-Härtung sind später.
+
+### C7 Modell/Provider-Reseat (Wechsel mitten im Lauf)
+
+Provider und Modell sind Launch-Zeit-argv — ein lebendes PTY lässt sich nicht
+umbiegen. Was ein langer Lauf trotzdem braucht: den Root, dessen Provider ins
+Rate-Limit gelaufen ist, den Worker, der an derselben Aufgabe zweimal
+gescheitert ist, die Phase, die ein stärkeres Modell will.
+
+**Reseat** = derselbe Sitz (Rolle, Slot, Worktree, Branch, Queue, offene
+Fragen), neuer Prozess, Kontext in einem host-gebauten Paket. Für den Root ist
+das C6 mit einem zusätzlichen Feld (`request_succession{successor:{providerId,
+model, effort}}`) plus Preflight, denn ein falscher Modellstring muss abweisen,
+statt den Lauf ohne Fahrer zurückzulassen. Für einen Worker ist es ein neues
+Tool (`reseat_agent`), weil das heutige `stop_agent` + `start_agent` die nicht
+committete Arbeit, die offene Frage, die Identität und den Slot verliert — und
+die Profil-Slots gar nicht verlassen kann.
+
+Vollständiger Plan: [`docs/MODEL-PROVIDER-SWITCH.md`](./MODEL-PROVIDER-SWITCH.md).
 
 ---
 
@@ -658,6 +677,7 @@ PR #17   A1–A3 + B Remote + H3 + C1 inspect_agent + C2 Done-Fakten
      └─ Phase C   C3/C4 Snapshot-Commit + Handoff-Paket     später
             C5 Orchestrator-Idle-Watchdog             später
             C6 Orchestrator-Succession (Context-Handoff)  S1
+            C7 Modell/Provider-Reseat (braucht C3 + C6)   Spec
             F   Multi-Orch (Root entscheidet; braucht C, braucht B nicht)
             D   Goal-UI, user_message, ask_user (braucht H1/H2)
             E   integrate/gate, Briefing, Resume, Budget, Eval
