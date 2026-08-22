@@ -37,10 +37,15 @@
  *   on purpose so a live CLI cannot lose its server mid-session.
  * - `<cwd>/.grok/config.toml` — Grok Build's MCP attachment (merged). Same
  *   working-directory rule; only the `[mcp_servers.vertragus]` table is ours.
+ *   Orchestrator writes `[permission]` deny/allow as well; subagent is URL-only.
+ * - `<cwd>/.grok/agents/vertragus-orchestrator.md` — Grok orchestrator agent
+ *   (tool allowlist + `disallowedTools: Agent`). Subagents do not get this file
+ *   as their session agent.
  *
- *   These three are the only artefacts a Vertragus launch writes into user
- *   territory. Since every agent owns its worktree they can no longer collide
- *   between parallel agents — which is exactly why the worktree became
+ *   These project-file dialects are the only artefacts a Vertragus launch writes
+ *   into user territory. Since every agent owns its worktree they can no longer
+ *   collide between parallel agents — which is exactly why the worktree became
+
  *   mandatory rather than opt-in.
  * - Codex writes nothing at all: every setting is a process-local `-c` override.
  */
@@ -49,6 +54,8 @@ import {
   claudeMcpTimeoutEnv,
   CURSOR_APPROVE_MCPS_FLAG,
   grokAllowMcpArgs,
+  grokOrchestratorArgv,
+  grokOrchestratorEnv,
   codexDeveloperInstructionsArgs,
   leadAllowedTools,
   leadMcpTools,
@@ -56,6 +63,7 @@ import {
   orchestratorMcpTools,
   writeClaudeMcpConfigFile,
   writeCursorProjectMcpConfig,
+  writeGrokOrchestratorAgentFile,
   writeGrokProjectMcpConfig,
   writeKimiAgentFile,
   writeKimiProjectMcpConfig
@@ -141,6 +149,11 @@ export interface AgentArgv {
    * type this before the first task — there is no launch flag for it.
    */
   ptySystemPrompt?: string
+  /**
+   * Extra environment variables for this process. Merged over `process.env` by
+   * PtyAgent. Used by the Grok orchestrator cage (`GROK_SUBAGENTS=0`).
+   */
+  env?: Record<string, string>
 }
 
 export interface ResolvedLaunch extends AgentArgv {
@@ -238,36 +251,49 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       // - the flag also approves the user's own project servers for this run.
       writeCursorProjectMcpConfig(input.mcpUrl, input.cwd, extras)
       return [CURSOR_APPROVE_MCPS_FLAG]
-    case 'grok-project':
+    case 'grok-project': {
       // Grok reads `<cwd>/.grok/config.toml` and has no config-file flag.
-      // `--allow MCPTool(vertragus__*)` pre-approves our loopback tools so the
-      // orchestrator is not stuck on a TUI prompt. KNOWN LIMIT: no per-server
-      // tool filter on the TOML table — orchestrator scoping stays URL-side.
-      writeGrokProjectMcpConfig(input.mcpUrl, input.cwd, extras)
-      return grokAllowMcpArgs()
+      // `--tools` / `--disallowed-tools` are headless-only (ignored in TUI).
+      // Orchestrator: URL + permission deny/allow, plus `--no-subagents` /
+      // `--deny` / `--allow` / `--agent` matching the TOML. Subagent/lead:
+      // URL + `--allow MCPTool(vertragus__*)` so loopback tools skip the TUI
+      // prompt. extras is already empty for orchestrator/lead.
+      const orchestrator = input.kind === 'orchestrator'
+      writeGrokProjectMcpConfig(input.mcpUrl, input.cwd, extras, { orchestrator })
+      if (!orchestrator) return grokAllowMcpArgs()
+      writeGrokOrchestratorAgentFile(input.cwd)
+      return grokOrchestratorArgv()
+    }
     case 'none':
       return []
   }
 }
 
 /**
- * Per-launch environment for one agent — currently only the MCP tool-call
- * timeout, and only for the dialects that spell it as an env var.
+ * Per-launch environment for one agent.
  *
- * The number is the provider's `mcpToolTimeoutSec` claim; the SPELLING is the
- * dialect's, which is why the pair itself lives in `mcp/attach` next to every
- * other per-CLI attachment fact. Claude reads `MCP_TIMEOUT`/`MCP_TOOL_TIMEOUT`
- * from its environment (milliseconds), so the raise dies with the process —
- * the same philosophy as Codex' `-c` overrides and the transient config file:
- * a Vertragus launch never edits a user-global config. Codex takes its raise as
+ * Claude: MCP tool-call timeout, spelled as env vars. The number is the
+ * provider's `mcpToolTimeoutSec` claim; the SPELLING is the dialect's, which
+ * is why the pair itself lives in `mcp/attach` next to every other per-CLI
+ * attachment fact. Claude reads `MCP_TIMEOUT`/`MCP_TOOL_TIMEOUT` from its
+ * environment (milliseconds), so the raise dies with the process — the same
+ * philosophy as Codex' `-c` overrides and the transient config file: a
+ * Vertragus launch never edits a user-global config. Codex takes its raise as
  * an argument instead (`tool_timeout_sec`, see {@link buildMcpArgs}), and the
- * remaining dialects have no verified mechanism, so they get nothing.
+ * remaining dialects have no verified timeout mechanism.
  *
- * Every kind of agent gets it, not just the orchestrator: `await_events` is the
- * orchestrator's loop, but a lead runs the same loop, and a subagent whose CLI
- * survives a long tool call is never worse off.
+ * Every kind of Claude agent gets the timeout, not just the orchestrator:
+ * `await_events` is the orchestrator's loop, but a lead runs the same loop, and
+ * a subagent whose CLI survives a long tool call is never worse off.
+ *
+ * Grok orchestrator: `GROK_SUBAGENTS=0` / `GROK_WORKFLOWS=0` plus the project
+ * agent name. Subagent and lead launches must not get this — native spawn is
+ * how a Grok worker works.
  */
 export function buildAgentEnv(input: AgentLaunchInput): Record<string, string> | undefined {
+  if (input.kind === 'orchestrator' && input.provider.mcp.kind === 'grok-project') {
+    return grokOrchestratorEnv()
+  }
   if (input.provider.mcp.kind !== 'claude-json') return undefined
   return claudeMcpTimeoutEnv(input.provider.mcpToolTimeoutSec)
 }
@@ -442,6 +468,7 @@ export async function spawnAgent(
       cwd: launch.cwd,
       // Overlaid on `process.env` by the PTY; absent for a provider that needs
       // no environment, so an untouched dialect keeps spawning byte-identically.
+
       ...(launch.env ? { env: launch.env } : {}),
       ...(deps.cols ? { cols: deps.cols } : {}),
       ...(deps.rows ? { rows: deps.rows } : {})

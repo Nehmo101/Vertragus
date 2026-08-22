@@ -11,7 +11,10 @@ import {
   buildGrokSubagentArgs,
   buildKimiOrchestratorArgs,
   buildKimiSubagentArgs,
+  GROK_AGENT_NAME,
   grokAllowMcpArgs,
+  grokOrchestratorArgv,
+  grokOrchestratorEnv,
   orchestratorAllowedTools
 } from '@main/mcp/attach'
 import { ORCHESTRATOR_TOOL_NAMES } from '@main/mcp/toolsOrchestrator'
@@ -319,13 +322,19 @@ describe('buildAgentArgv — per preset', () => {
       '--append-system-prompt',
       'You are a Worker.'
     ])
+    expect(argv).not.toContain('--no-subagents')
+    expect(argv).not.toContain('--deny')
+    expect(argv).not.toContain('--agent')
     expect(ptySystemPrompt).toBeUndefined()
+    expect(buildAgentEnv(launchInput({ provider: preset('grok'), cwd }))).toBeUndefined()
     const written = readFileSync(join(cwd, '.grok', 'config.toml'), 'utf8')
     expect(written).toContain('[mcp_servers.vertragus]')
     expect(written).toContain('agent=a1')
+    expect(written).not.toContain('[permission]')
+    expect(existsSync(join(cwd, '.grok', 'agents', 'vertragus-orchestrator.md'))).toBe(false)
   })
 
-  it('composes a Grok orchestrator: allow MCP tools instead of yolo', () => {
+  it('composes a Grok orchestrator: deny+allow TOML, GROK_SUBAGENTS=0, no yolo', () => {
     const { argv } = buildAgentArgv(
       launchInput({
         provider: preset('grok'),
@@ -337,11 +346,27 @@ describe('buildAgentArgv — per preset', () => {
     )
 
     expect(argv).toEqual([
-      ...grokAllowMcpArgs(),
+      ...grokOrchestratorArgv(),
       '--append-system-prompt',
       'You orchestrate.'
     ])
     expect(argv).not.toContain('--always-approve')
+    expect(buildAgentEnv(launchInput({ provider: preset('grok'), kind: 'orchestrator', cwd }))).toEqual(
+      grokOrchestratorEnv()
+    )
+    expect(buildAgentEnv(launchInput({ provider: preset('grok'), kind: 'orchestrator', cwd }))).toMatchObject({
+      GROK_SUBAGENTS: '0',
+      GROK_WORKFLOWS: '0',
+      GROK_AGENT: GROK_AGENT_NAME
+    })
+
+    const raw = readFileSync(join(cwd, '.grok', 'config.toml'), 'utf8')
+    expect(raw).toContain('[permission]')
+    expect(raw).toContain('"Edit"')
+    expect(raw).toContain('"Write"')
+    expect(raw).toContain('"Bash"')
+    expect(raw).toContain('"MCPTool(vertragus__*)"')
+    expect(existsSync(join(cwd, '.grok', 'agents', 'vertragus-orchestrator.md'))).toBe(true)
   })
 
   it('appends a grok start-goal as a trailing positional, never -p/--single', () => {
@@ -357,7 +382,7 @@ describe('buildAgentArgv — per preset', () => {
 
     expect(argv.at(-1)).toBe('Fix the login bug')
     expect(argv).toEqual([
-      ...grokAllowMcpArgs(),
+      ...grokOrchestratorArgv(),
       '--append-system-prompt',
       'You orchestrate.',
       'Fix the login bug'
@@ -879,6 +904,28 @@ describe('spawnAgent', () => {
     expect(ensureTrust).not.toHaveBeenCalled()
   })
 
+  it('forwards grok orchestrator env so native subagents stay off', async () => {
+    const pty = new FakePty()
+    await spawnAgent(
+      launchInput({ provider: preset('grok'), kind: 'orchestrator', cwd, yolo: true }),
+      { resolve, createPty: () => pty }
+    )
+    expect(pty.spawnOptions?.env).toEqual(grokOrchestratorEnv())
+    expect(pty.spawnOptions?.args).toContain('--no-subagents')
+    expect(pty.spawnOptions?.args).not.toContain('--always-approve')
+  })
+
+  it('does not cage a grok subagent via env or argv', async () => {
+    const pty = new FakePty()
+    await spawnAgent(launchInput({ provider: preset('grok'), cwd, yolo: true }), {
+      resolve,
+      createPty: () => pty
+    })
+    expect(pty.spawnOptions && 'env' in pty.spawnOptions).toBe(false)
+    expect(pty.spawnOptions?.args).toContain('--always-approve')
+    expect(pty.spawnOptions?.args).not.toContain('--no-subagents')
+  })
+
   it('starts the agent anyway when trust pre-acceptance blows up', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const pty = new FakePty()
@@ -925,6 +972,31 @@ describe('E6 extra MCP servers', () => {
       launchInput({ provider: preset('codex'), model: 'gpt-5.6', extraMcp: EXTRA })
     )
     expect(argv).toContain('mcp_servers.browser.url="http://127.0.0.1:9200/mcp"')
+  })
+
+  it('a Grok subagent gets extra servers in the project TOML; the orchestrator does not', () => {
+    buildAgentArgv(launchInput({ provider: preset('grok'), cwd, extraMcp: EXTRA }))
+    const sub = readFileSync(join(cwd, '.grok', 'config.toml'), 'utf8')
+    expect(sub).toContain('[mcp_servers.browser]')
+    expect(sub).not.toContain('[permission]')
+
+    const orchCwd = mkdtempSync(join(tmpdir(), 'vertragus-spawn-grok-orch-'))
+    try {
+      buildAgentArgv(
+        launchInput({
+          provider: preset('grok'),
+          kind: 'orchestrator',
+          cwd: orchCwd,
+          extraMcp: EXTRA
+        })
+      )
+      const orch = readFileSync(join(orchCwd, '.grok', 'config.toml'), 'utf8')
+      expect(orch).toContain('[mcp_servers.vertragus]')
+      expect(orch).not.toContain('[mcp_servers.browser]')
+      expect(orch).toContain('[permission]')
+    } finally {
+      rmSync(orchCwd, { recursive: true, force: true })
+    }
   })
 
   it('an orchestrator and a lead NEVER get extra servers, whatever the input says', () => {
