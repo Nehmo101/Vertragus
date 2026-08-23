@@ -125,15 +125,21 @@ export type UiSettings = z.infer<typeof uiSettingsSchema>
 
 /**
  * Voice assistant. Off until the user turns it on — a mic that listens on
- * first boot is a surprise, not a feature. The API key lives here; it never
- * rides on PanelSettings / `ev:settings`.
+ * first boot is a surprise, not a feature. Raw API keys live here; they never
+ * ride on PanelSettings / `ev:settings`. Device ids are not secrets.
  */
 export const voiceSettingsSchema = z
   .object({
     enabled: z.boolean().default(false),
     wakePhrase: z.string().trim().min(1).max(80).default('Hey Vertragus'),
+    /** xAI key. Name kept so existing store rows keep working. */
     apiKey: z.string().max(200).default(''),
-    voiceId: z.string().trim().min(1).max(40).default('eve')
+    openaiApiKey: z.string().max(200).default(''),
+    provider: z.enum(['xai', 'openai']).default('xai'),
+    /** Empty = provider default at runtime (xAI eve, OpenAI alloy). */
+    voiceId: z.string().trim().max(40).default('eve'),
+    inputDeviceId: z.string().max(200).default(''),
+    outputDeviceId: z.string().max(200).default('')
   })
   .strict()
 export type VoiceSettings = z.infer<typeof voiceSettingsSchema>

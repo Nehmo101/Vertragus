@@ -52,6 +52,7 @@ import { effectiveAgentPolicy, settings } from '@main/store/settings'
 import type { AgentPolicy } from '@shared/agentPolicy'
 import { AGENT_POLICIES } from '@shared/agentPolicy'
 import type { VoicePhase } from '@main/voice/session'
+import { asInt16Pcm } from '@main/voice/pcm'
 import { discoverModels, type ModelDiscoveryResult } from '@main/providers/discovery'
 import { checkAllProviderAuth, type ProviderAuthStatus } from '@main/providers/authStatus'
 import { checkAllProviders, type ProviderHealth } from '@main/providers/health'
@@ -552,11 +553,16 @@ export interface PanelSettings {
   voiceEnabled: boolean
   voiceWakePhrase: string
   voiceVoiceId: string
+  voiceProvider: VoiceSettings['provider']
   /**
-   * Whether a key is stored. The raw key never rides on this object or on
+   * Whether an xAI key is stored. The raw key never rides on this object or on
    * `ev:settings` — a renderer that displayed it would leak it into logs.
    */
   voiceApiKeySet: boolean
+  /** Whether an OpenAI key is stored. The raw key never appears here. */
+  voiceOpenaiApiKeySet: boolean
+  voiceInputDeviceId: string
+  voiceOutputDeviceId: string
   /** Extra MCP servers attached next to Vertragus on the next spawn. */
   mcpServers: ExtraMcpServer[]
 }
@@ -893,16 +899,19 @@ export function toPanelSettings(
     voiceEnabled: value.voice.enabled,
     voiceWakePhrase: value.voice.wakePhrase,
     voiceVoiceId: value.voice.voiceId,
+    voiceProvider: value.voice.provider,
     voiceApiKeySet: value.voice.apiKey.trim().length > 0,
+    voiceOpenaiApiKeySet: value.voice.openaiApiKey.trim().length > 0,
+    voiceInputDeviceId: value.voice.inputDeviceId,
+    voiceOutputDeviceId: value.voice.outputDeviceId,
     mcpServers: value.mcpServers,
     ...(hotkey && !hotkey.registered ? { hideAllHotkeyError: hotkey.error ?? '' } : {})
   }
 }
 
 /**
- * Patch the stored voice section. An empty `apiKey` string means "leave the
- * stored key alone" — a password field that round-trips blank would wipe a
- * key the user cannot see.
+ * Patch the stored voice section. An empty `apiKey` / `openaiApiKey` string
+ * means "leave the key the user cannot see".
  */
 export function mergeVoicePatch(current: VoiceSettings, patch: unknown): VoiceSettings {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
@@ -928,22 +937,34 @@ export function mergeVoicePatch(current: VoiceSettings, patch: unknown): VoiceSe
     }
     next.voiceId = body.voiceId
   }
+  if (body.provider !== undefined) {
+    if (body.provider !== 'xai' && body.provider !== 'openai') {
+      throw new Error('settings:set rejected — voice.provider expects xai or openai')
+    }
+    next.provider = body.provider
+  }
+  if (body.inputDeviceId !== undefined) {
+    if (typeof body.inputDeviceId !== 'string') {
+      throw new Error('settings:set rejected — voice.inputDeviceId expects a string')
+    }
+    next.inputDeviceId = body.inputDeviceId
+  }
+  if (body.outputDeviceId !== undefined) {
+    if (typeof body.outputDeviceId !== 'string') {
+      throw new Error('settings:set rejected — voice.outputDeviceId expects a string')
+    }
+    next.outputDeviceId = body.outputDeviceId
+  }
   if (typeof body.apiKey === 'string' && body.apiKey.length > 0) {
     next.apiKey = body.apiKey
+  }
+  if (typeof body.openaiApiKey === 'string' && body.openaiApiKey.length > 0) {
+    next.openaiApiKey = body.openaiApiKey
   }
   return next
 }
 
-/** Coerce an IPC payload into PCM16. Anything else is dropped, not thrown. */
-export function asInt16Pcm(payload: unknown): Int16Array | undefined {
-  if (payload instanceof Int16Array) return payload
-  if (payload instanceof ArrayBuffer) return new Int16Array(payload)
-  if (ArrayBuffer.isView(payload)) {
-    const view = payload as ArrayBufferView
-    return new Int16Array(view.buffer, view.byteOffset, Math.floor(view.byteLength / 2))
-  }
-  return undefined
-}
+export { asInt16Pcm }
 
 export function createAppIpc(host: AppIpcHost): AppIpc {
   const now = host.now ?? (() => Date.now())

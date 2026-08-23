@@ -666,8 +666,8 @@ app.whenReady().then(async () => {
     )
   }
 
-  // Mic capture is a panel-window permission; CLI windows must not get it.
-  installDefaultVoicePermissions((id) => isPanelWindowSender(id))
+  // Mic capture is a panel-window permission; device labels also need it in settings.
+  installDefaultVoicePermissions((id) => isPanelWindowSender(id) || isSettingsWindowSender(id))
 
   // Hide-all: the global hotkey. A failed registration is not fatal — the
   // status reaches the panel through settings:get, and the eye still works.

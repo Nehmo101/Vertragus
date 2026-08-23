@@ -225,6 +225,8 @@ describe('createXaiClient realtime', () => {
     const append = ws.parsed()[1] as { type: string; audio: string }
     expect(append.type).toBe('input_audio_buffer.append')
     expect(append.audio).toBe(pcm16ToBase64(pcm))
+    client.commitInputAudio()
+    expect(ws.parsed()[2]).toEqual({ type: 'input_audio_buffer.commit' })
 
     ws.emitJson({
       type: 'response.output_audio.delta',

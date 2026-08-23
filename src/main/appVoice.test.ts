@@ -112,7 +112,7 @@ function stubDirectory(): WorkspaceDirectory & {
 }
 
 describe('voicePermissionAllowed', () => {
-  it('grants media and microphone only to the panel', () => {
+  it('grants media and microphone to panel and settings windows', () => {
     expect(voicePermissionAllowed(true, 'media')).toBe(true)
     expect(voicePermissionAllowed(true, 'microphone')).toBe(true)
     expect(voicePermissionAllowed(false, 'media')).toBe(false)
@@ -222,5 +222,32 @@ describe('missingApiKeyMessage', () => {
     expect(missingApiKeyMessage('en')).toMatch(/API key/)
     expect(missingApiKeyMessage('en')).not.toMatch(/[äöüÄÖÜß]/)
     expect(missingApiKeyMessage('de')).toMatch(/API-Key/)
+    expect(missingApiKeyMessage('en', 'openai')).toMatch(/OpenAI/)
+    expect(missingApiKeyMessage('de', 'openai')).toMatch(/OpenAI/)
+  })
+})
+
+describe('createAppVoice OpenAI', () => {
+  it('goes to error when the OpenAI provider has no key', async () => {
+    const store = createSettingsStore({ backend: memoryBackend(), warn: vi.fn() })
+    store.setSetting('voice', {
+      ...store.getSettings().voice,
+      enabled: true,
+      provider: 'openai'
+    })
+    const sent: { channel: string; payload: unknown }[] = []
+    const voice = createAppVoice({
+      directory: stubDirectory(),
+      store: () => store,
+      hideAll: vi.fn(),
+      openSettings: vi.fn(),
+      openProfileEditor: vi.fn(),
+      quit: vi.fn(),
+      sendToPanel: (channel, payload) => sent.push({ channel, payload })
+    })
+    const status = (await voice.port.setEnabled(true)) as VoiceStatusPayload
+    expect(status.phase).toBe('error')
+    expect(status.error).toBe(missingApiKeyMessage('de', 'openai'))
+    expect(JSON.stringify(sent)).not.toContain('sk-')
   })
 })
