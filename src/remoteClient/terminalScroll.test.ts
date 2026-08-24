@@ -5,14 +5,21 @@ import {
   MAX_FLING_PX_PER_MS,
   MIN_FLING_PX_PER_MS,
   VELOCITY_WINDOW_MS,
+  applyFingerDelta,
+  applyWheelDelta,
   bufferCanScroll,
+  clampScrollTop,
   decayVelocity,
   flingVelocity,
   isDrag,
   linesFromPixels,
+  maxScrollTop,
   momentumStep,
+  momentumStepPixels,
   pageScrollLines,
-  pushSample
+  pushSample,
+  viewportCanScroll,
+  wheelDeltaPx
 } from './terminalScroll'
 
 describe('linesFromPixels', () => {
@@ -221,5 +228,127 @@ describe('bufferCanScroll', () => {
 
   it('does not trust a baseY that is not a number', () => {
     expect(bufferCanScroll({ alternate: false, baseY: Number.NaN })).toBe(false)
+  })
+})
+
+describe('viewportCanScroll', () => {
+  it('claims a viewport whose content is taller than the box', () => {
+    expect(viewportCanScroll({ scrollHeight: 4000, clientHeight: 320 })).toBe(true)
+  })
+
+  it('leaves a flush viewport alone', () => {
+    expect(viewportCanScroll({ scrollHeight: 320, clientHeight: 320 })).toBe(false)
+    expect(viewportCanScroll({ scrollHeight: 320.4, clientHeight: 320 })).toBe(false)
+  })
+
+  it('does not trust non-numbers', () => {
+    expect(viewportCanScroll({ scrollHeight: Number.NaN, clientHeight: 320 })).toBe(false)
+    expect(viewportCanScroll({ scrollHeight: 4000, clientHeight: Number.NaN })).toBe(false)
+  })
+})
+
+describe('clampScrollTop / maxScrollTop', () => {
+  it('caps at the overflow, never below zero', () => {
+    expect(maxScrollTop(4000, 320)).toBe(3680)
+    expect(maxScrollTop(200, 320)).toBe(0)
+    expect(clampScrollTop(100, 50)).toBe(50)
+    expect(clampScrollTop(-4, 50)).toBe(0)
+    expect(clampScrollTop(20, 50)).toBe(20)
+  })
+
+  it('treats a broken max as nowhere to go', () => {
+    expect(clampScrollTop(40, 0)).toBe(0)
+    expect(clampScrollTop(40, Number.NaN)).toBe(0)
+    expect(clampScrollTop(Number.NaN, 50)).toBe(0)
+    expect(maxScrollTop(Number.NaN, 320)).toBe(0)
+  })
+})
+
+describe('applyFingerDelta', () => {
+  it('drags older output in when the finger moves down', () => {
+    // Native paper: finger down, content follows, scrollTop shrinks.
+    expect(applyFingerDelta(400, 24, 2000)).toEqual({ scrollTop: 376, moved: true })
+  })
+
+  it('drags newer output in when the finger moves up', () => {
+    expect(applyFingerDelta(400, -24, 2000)).toEqual({ scrollTop: 424, moved: true })
+  })
+
+  it('stops at both ends instead of wrapping', () => {
+    expect(applyFingerDelta(10, 40, 2000)).toEqual({ scrollTop: 0, moved: true })
+    expect(applyFingerDelta(1990, -40, 2000)).toEqual({ scrollTop: 2000, moved: true })
+    expect(applyFingerDelta(0, 10, 2000)).toEqual({ scrollTop: 0, moved: false })
+    expect(applyFingerDelta(2000, -10, 2000)).toEqual({ scrollTop: 2000, moved: false })
+  })
+
+  it('is a no-op for a zero or broken delta', () => {
+    expect(applyFingerDelta(400, 0, 2000)).toEqual({ scrollTop: 400, moved: false })
+    expect(applyFingerDelta(400, Number.NaN, 2000)).toEqual({ scrollTop: 400, moved: false })
+  })
+})
+
+describe('applyWheelDelta', () => {
+  it('scrolls toward newer output for a positive (down) wheel', () => {
+    expect(applyWheelDelta(400, 48, 2000)).toEqual({ scrollTop: 448, moved: true })
+  })
+
+  it('scrolls toward older output for a negative (up) wheel', () => {
+    expect(applyWheelDelta(400, -48, 2000)).toEqual({ scrollTop: 352, moved: true })
+  })
+
+  it('stops at the ends', () => {
+    expect(applyWheelDelta(0, -20, 2000).moved).toBe(false)
+    expect(applyWheelDelta(2000, 20, 2000).moved).toBe(false)
+  })
+})
+
+describe('wheelDeltaPx', () => {
+  it('passes pixel-mode trackpad deltas through', () => {
+    expect(wheelDeltaPx({ deltaY: 12.5, deltaMode: 0 }, 20)).toBe(12.5)
+  })
+
+  it('turns line-mode deltas into cell pixels', () => {
+    expect(wheelDeltaPx({ deltaY: 3, deltaMode: 1 }, 20)).toBe(60)
+    expect(wheelDeltaPx({ deltaY: 3, deltaMode: 1 }, 0)).toBe(48)
+  })
+
+  it('turns page-mode deltas into a screenful', () => {
+    expect(wheelDeltaPx({ deltaY: 1, deltaMode: 2 }, 20)).toBe(480)
+  })
+
+  it('ignores a broken deltaY', () => {
+    expect(wheelDeltaPx({ deltaY: Number.NaN, deltaMode: 0 }, 20)).toBe(0)
+  })
+})
+
+describe('momentumStepPixels', () => {
+  it('advances scrollTop in the direction of the velocity', () => {
+    const step = momentumStepPixels(2, 1000 / 60, 400, 2000)
+    expect(step.scrollTop).toBeCloseTo(400 + 2 * (1000 / 60))
+    expect(step.moved).toBe(true)
+    expect(step.velocity).toBeLessThan(2)
+    expect(step.velocity).toBeGreaterThan(0)
+  })
+
+  it('dies at the end of the buffer instead of oscillating', () => {
+    const atEnd = momentumStepPixels(2, 16, 2000, 2000)
+    expect(atEnd.scrollTop).toBe(2000)
+    expect(atEnd.moved).toBe(false)
+    expect(atEnd.velocity).toBe(0)
+  })
+
+  it('always comes to rest, even from the hardest possible flick', () => {
+    let velocity = MAX_FLING_PX_PER_MS
+    let scrollTop = 0
+    let frames = 0
+    while (velocity !== 0 && frames < 1000) {
+      const step = momentumStepPixels(velocity, 1000 / 60, scrollTop, 50_000)
+      velocity = step.velocity
+      scrollTop = step.scrollTop
+      frames += 1
+    }
+    expect(velocity).toBe(0)
+    expect(frames).toBeLessThan(120)
+    expect(scrollTop).toBeGreaterThan(0)
   })
 })

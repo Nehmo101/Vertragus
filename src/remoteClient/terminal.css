@@ -34,7 +34,10 @@
  * takes the touch stream in the capture phase and drops its own drag the
  * moment a second finger lands. xterm's built-in touch scrolling, which reads
  * `touches[0]` unconditionally and would pan the buffer under a pinch, never
- * sees the event.
+ * sees the event. The one-finger pan is `pan-y` on the host: forbidding it
+ * (the previous `pinch-zoom`-only value) meant the browser could not scroll
+ * `.xterm-viewport` even as a fallback, so a JS drag that quantized into
+ * whole lines was the only motion the screen had.
  */
 
 .terminal-view {
@@ -87,12 +90,42 @@
 .terminal-header {
   display: flex;
   align-items: center;
-  gap: var(--term-gap);
-  padding: max(8px, env(safe-area-inset-top)) 10px 8px;
+  gap: 4px;
+  padding: max(6px, env(safe-area-inset-top)) 8px 6px;
   border-bottom: 1px solid var(--hairline);
   background: var(--surface);
   /* See the docblock: a drag here must not pan the overview behind. */
   touch-action: pinch-zoom;
+}
+
+.header-tools {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.header-tools .icon-btn,
+.header-tools .font-btn {
+  min-width: 40px;
+}
+
+.header-tools .font-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch);
+  padding: 0 6px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.keys-toggle[aria-pressed='true'] {
+  border-color: var(--accent-line);
+  color: var(--bronze-strong);
 }
 
 .back {
@@ -227,15 +260,16 @@
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
-  /* The strip the jump-to-latest pill floats over is stage, not host. */
-  touch-action: pinch-zoom;
+  /* The strip the jump-to-latest pill floats over is stage, not host.
+     pan-y so a drag that starts on the pill's empty neighbour still pans. */
+  touch-action: pan-y pinch-zoom;
 }
 
 .terminal-host {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  padding: 8px;
+  padding: 6px 8px;
   overflow: hidden;
   /*
    * xterm keeps a private z-index ladder inside the box it renders into —
@@ -247,11 +281,14 @@
    */
   isolation: isolate;
   /*
-   * The drag over this surface is ours (see RemoteTerminal): the browser must
-   * not also pan, or every scroll fights a rubber band it cannot win. It may
-   * still pinch — the drag drops the gesture the moment a second finger lands.
+   * `pan-y` is load-bearing. The previous `pinch-zoom` forbade a one-finger
+   * pan, so the only scroll that could ever run was our JS — and that JS
+   * quantized into whole xterm lines. pan-y lets a native overflow of
+   * `.xterm-viewport` work if our preventDefault does not fire (a tap, a
+   * two-finger pinch we abandoned), and our drag still takes the gesture
+   * once it has committed, because we `preventDefault` then.
    */
-  touch-action: pinch-zoom;
+  touch-action: pan-y pinch-zoom;
   overscroll-behavior: contain;
 }
 
@@ -283,7 +320,10 @@
  * both are load-bearing rather than decorative.
  */
 .terminal-host .xterm-viewport {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  touch-action: pan-y pinch-zoom;
   scrollbar-width: thin;
   scrollbar-color: var(--accent-line) transparent;
 }
@@ -293,6 +333,20 @@
 .terminal-host .xterm-viewport::-webkit-scrollbar-thumb {
   border-radius: 3px;
   background: var(--accent-line);
+}
+
+/*
+ * A laptop has a mouse and a trackpad: the thumb is a real affordance, not
+ * the overlay ghost iOS only paints during a native pan (which our JS drag
+ * never is). Wider, always-visible, so the stage is obviously a scroller.
+ */
+@media (pointer: fine) {
+  .terminal-host .xterm-viewport {
+    scrollbar-width: auto;
+  }
+  .terminal-host .xterm-viewport::-webkit-scrollbar {
+    width: 10px;
+  }
 }
 
 .jump-latest {
@@ -360,12 +414,29 @@
   color: var(--text);
 }
 
-.nav-gap {
-  flex: 1 1 auto;
+/*
+ * On a phone the finger *is* the pager, and this row is a strip of terminal
+ * the reader does not get. Keep it for a mouse on a tall laptop. Font size
+ * moved to the header so it stays reachable when this is gone.
+ */
+@media (pointer: coarse) {
+  .nav-row {
+    display: none;
+  }
+}
+@media (max-height: 520px) {
+  .nav-row {
+    display: none;
+  }
 }
 
-.font-btn {
-  font-weight: 700;
+/*
+ * Control keys are a 44 px strip. Folded by default on the phone (the header
+ * toggle and focusing the composer both unfold them). A laptop starts with
+ * `is-keys-open` from the component.
+ */
+.terminal-view:not(.is-keys-open):not(.is-composing) .key-row {
+  display: none;
 }
 
 .terminal-note {
@@ -396,7 +467,7 @@
 
 /* --- key row --- */
 .key-row {
-  padding: 8px 0 8px 10px;
+  padding: 6px 0 6px 10px;
   border-top: 1px solid var(--hairline);
   background: var(--surface);
   /* `pan-x` so the key scroller below still works: `touch-action` is
@@ -460,7 +531,7 @@
 .input-bar {
   display: flex;
   gap: var(--term-gap);
-  padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--hairline);
   background: var(--surface);
   /* `pan-x` for the same reason as the search bar: a long command line stays

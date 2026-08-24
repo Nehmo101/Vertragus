@@ -172,6 +172,24 @@
   overflow: visible;
 }
 
+/*
+ * A laptop is not a 390 px phone. Without a measure the list stretches to
+ * the full viewport and every card becomes a paragraph-width of empty
+ * surface with a 44 px control stranded on the right. Cap the column; the
+ * sticky header stays full-bleed so the connection pill stays where a
+ * laptop user looks for chrome.
+ */
+@media (min-width: 720px) {
+  .workspace-list {
+    --anchor-offset: 72px;
+    max-width: 42rem;
+    width: 100%;
+    margin-inline: auto;
+    padding: 20px 24px 16px;
+    gap: 16px;
+  }
+}
+
 .empty {
   color: var(--text-2);
   text-align: center;
