@@ -99,20 +99,24 @@ describe('the touch stream is taken from xterm, not shared with it', () => {
     }
   })
 
-  it('drives the viewport scrollTop in pixels, not whole xterm lines', () => {
-    // The original 3/10 scroller called `scrollLines` after accumulating a
-    // cell's worth of carry. A slow drag then did nothing until ~20 px, and
-    // xterm's own scroll listener overwrote any leftover. The finger now
-    // writes `.xterm-viewport.scrollTop` the way xterm's handleTouchMove did.
+  it('drives a pixel position xterm cannot snap back, not whole lines', () => {
+    // xterm rounds scrollTop onto ydisp and snaps the DOM back to a whole
+    // row on the next frame. Writing scrollTop 1:1 then reading it back is
+    // how a slow drag still died. The finger owns `desiredTop`, paints a
+    // line-aligned scrollTop, and shifts `.xterm-screen` by the remainder.
     const start = source.indexOf('const onTouchMove = (event: TouchEvent): void => {')
     expect(start).toBeGreaterThan(-1)
     const body = source.slice(start, source.indexOf('\n    }\n', start))
     expect(body).toContain('applyFingerDelta(')
-    expect(body).toContain('writeScrollTop(')
+    expect(body).toContain('paintScroll(')
+    expect(body).toContain('readTop()')
     expect(body).toContain('event.cancelable')
     expect(body).toContain('event.preventDefault()')
     expect(body).not.toContain('scrollLines')
     expect(body).not.toContain('linesFromPixels')
+    expect(source).toContain('splitScrollPx(')
+    expect(source).toContain('subrowTransform(')
+    expect(source).toContain("querySelector('.xterm-screen')")
   })
 
   it('takes the wheel on the same pixel path so a laptop trackpad pans', () => {
@@ -121,6 +125,8 @@ describe('the touch stream is taken from xterm, not shared with it', () => {
     const body = source.slice(start, source.indexOf('\n    }\n', start))
     expect(body).toContain('applyWheelDelta(')
     expect(body).toContain('wheelDeltaPx(')
+    expect(body).toContain('readTop()')
+    expect(body).toContain('paintScroll(')
     expect(source).toContain("host.addEventListener('wheel', onWheel, { capture: true, passive: false })")
   })
 
@@ -307,5 +313,11 @@ describe('JS owns the one-finger pan', () => {
       expect(block(selector), selector).toContain('touch-action: pinch-zoom')
       expect(block(selector), selector).not.toMatch(/touch-action:[^;]*pan-y/)
     }
+  })
+
+  it('keeps the phone header on one row so the stage is the terminal', () => {
+    expect(block('.terminal-header').length).toBeGreaterThan(0)
+    expect(block('.terminal-header')).toContain('flex-wrap: nowrap')
+    expect(css).not.toMatch(/@media \(max-width: 420px\)[\s\S]*flex-wrap:\s*wrap/)
   })
 })

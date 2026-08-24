@@ -8,9 +8,10 @@
  * the remainder. That is why a slow drag felt dead: nothing moved until the
  * carry filled one cell (~20 px), and xterm's own viewport — which already
  * maps `.xterm-viewport.scrollTop` onto `ydisp` at pixel resolution — was
- * never asked. The drag now writes `scrollTop` 1:1 with the finger; xterm
- * rounds that onto lines itself, which is what its `handleTouchMove` did
- * before we took the event away from it.
+ * never asked. The drag now owns the pixel position itself; xterm is told
+ * only the whole-row origin, and `.xterm-screen` is translated by the
+ * remainder. Reading the DOM `scrollTop` back as source of truth lost every
+ * sub-line pixel to xterm's rAF snap (`scrollTop = ydisp * cellHeight`).
  *
  * A lifted finger keeps going — a phone without inertia feels broken — so the
  * fling velocity is measured over the tail of the drag only, which is what
@@ -275,4 +276,37 @@ export function isCompactChrome(input: { coarse: boolean; widthPx: number }): bo
 export function pageScrollLines(rows: number): number {
   if (!Number.isFinite(rows)) return 1
   return Math.max(1, Math.floor(rows) - 2)
+}
+
+/**
+ * Split a pixel `scrollTop` into the line-aligned value xterm will keep and
+ * the sub-row remainder a CSS `translateY` has to carry.
+ *
+ * xterm's viewport listener sets `ydisp = round(scrollTop / cellHeight)` and
+ * then `_innerRefresh` writes `scrollTop` back to `ydisp * cellHeight`. A
+ * caller that treats the DOM `scrollTop` as source of truth therefore loses
+ * every sub-line pixel on the next frame — which is why a slow drag still
+ * felt dead after the third-pass 1:1 write. The drag keeps the real position
+ * itself; it writes `lineTop` so `round(scrollTop / cell)` equals
+ * `floor(desired / cell)` (no mid-cell jump), and shifts `.xterm-screen` by
+ * `-remainderPx` so the paint follows the finger inside the cell.
+ */
+export interface SubrowPan {
+  lineTop: number
+  remainderPx: number
+}
+
+export function splitScrollPx(scrollTop: number, cellHeight: number): SubrowPan {
+  if (!Number.isFinite(scrollTop)) return { lineTop: 0, remainderPx: 0 }
+  if (!Number.isFinite(cellHeight) || cellHeight <= 0) {
+    return { lineTop: scrollTop, remainderPx: 0 }
+  }
+  const remainderPx = ((scrollTop % cellHeight) + cellHeight) % cellHeight
+  return { lineTop: scrollTop - remainderPx, remainderPx }
+}
+
+/** CSS transform that paints `remainderPx` of the next row. `'none'` at rest. */
+export function subrowTransform(remainderPx: number): string {
+  if (!Number.isFinite(remainderPx) || remainderPx === 0) return 'none'
+  return `translateY(${-remainderPx}px)`
 }

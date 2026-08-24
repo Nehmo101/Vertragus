@@ -20,6 +20,8 @@ import {
   momentumStepPixels,
   pageScrollLines,
   pushSample,
+  splitScrollPx,
+  subrowTransform,
   viewportCanScroll,
   wheelDeltaPx
 } from './terminalScroll'
@@ -367,5 +369,53 @@ describe('isCompactChrome', () => {
     expect(isCompactChrome({ coarse: false, widthPx: COMPACT_MAX_WIDTH_PX })).toBe(true)
     expect(isCompactChrome({ coarse: false, widthPx: COMPACT_MAX_WIDTH_PX + 1 })).toBe(false)
     expect(isCompactChrome({ coarse: false, widthPx: 1280 })).toBe(false)
+  })
+})
+
+describe('splitScrollPx / subrowTransform', () => {
+  it('keeps the line origin a whole number of cells so xterm will not round away', () => {
+    expect(splitScrollPx(45, 20)).toEqual({ lineTop: 40, remainderPx: 5 })
+    expect(splitScrollPx(40, 20)).toEqual({ lineTop: 40, remainderPx: 0 })
+    expect(splitScrollPx(0, 20)).toEqual({ lineTop: 0, remainderPx: 0 })
+  })
+
+  it('crosses a cell without a visual jump: lineTop + remainder is the desired pixel', () => {
+    const before = splitScrollPx(19.5, 20)
+    const after = splitScrollPx(20, 20)
+    expect(before.lineTop + before.remainderPx).toBeCloseTo(19.5)
+    expect(after.lineTop + after.remainderPx).toBe(20)
+    expect(after.lineTop).toBe(20)
+    expect(after.remainderPx).toBe(0)
+  })
+
+  it('is monotonic across a slow drag that never jumps a whole cell in one event', () => {
+    // The third-pass failure mode: 2 px per event, cell 20, xterm snaps each
+    // frame. desiredTop still accumulates, and the remainder follows it.
+    let top = 400
+    const seen: number[] = []
+    for (let i = 0; i < 15; i += 1) {
+      top = applyFingerDelta(top, 2, 2000).scrollTop
+      const split = splitScrollPx(top, 20)
+      seen.push(split.lineTop + split.remainderPx)
+      expect(split.remainderPx).toBeGreaterThanOrEqual(0)
+      expect(split.remainderPx).toBeLessThan(20)
+    }
+    expect(seen[0]).toBe(398)
+    expect(seen[seen.length - 1]).toBe(370)
+    for (let i = 1; i < seen.length; i += 1) {
+      expect(seen[i]).toBeLessThan(seen[i - 1])
+    }
+  })
+
+  it('falls back to a raw pixel when the cell has not been measured', () => {
+    expect(splitScrollPx(45, 0)).toEqual({ lineTop: 45, remainderPx: 0 })
+    expect(splitScrollPx(45, Number.NaN)).toEqual({ lineTop: 45, remainderPx: 0 })
+    expect(splitScrollPx(Number.NaN, 20)).toEqual({ lineTop: 0, remainderPx: 0 })
+  })
+
+  it('shifts the screen up by the remainder, and rests at none', () => {
+    expect(subrowTransform(5)).toBe('translateY(-5px)')
+    expect(subrowTransform(0)).toBe('none')
+    expect(subrowTransform(Number.NaN)).toBe('none')
   })
 })

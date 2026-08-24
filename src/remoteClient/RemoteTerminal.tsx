@@ -20,13 +20,14 @@
  * 2. Reading the history is a first-class job, not a side effect of xterm's
  *    viewport. `.xterm-viewport` does not pan reliably under a finger on iOS
  *    Safari *as a native overflow box*, so the drag, its inertia and the
- *    page/top/end controls are ours (`terminalScroll.ts`). xterm already maps
- *    that element's `scrollTop` onto `ydisp` at pixel resolution — its own
- *    `handleTouchMove` writes `scrollTop += lastY - currentY` — and we take
- *    the same path, with slop, a second-finger abort and a fling, because
- *    capturing the event (see below) is what stops xterm's handler from
- *    running at all. Driving `scrollLines` instead quantized every drag into
- *    whole cells and is why a slow swipe felt dead.
+ *    page/top/end controls are ours (`terminalScroll.ts`). Writing
+ *    `scrollTop` 1:1 is necessary but not sufficient: xterm's scroll listener
+ *    sets `ydisp = round(scrollTop / cellHeight)` and the next rAF snaps
+ *    `scrollTop` back to a whole row, so a slow drag that never crosses half
+ *    a cell in one frame still does nothing. The drag therefore keeps the
+ *    real pixel position itself (`desiredTop`), writes the line-aligned
+ *    `scrollTop` xterm will accept, and shifts `.xterm-screen` by the
+ *    sub-row remainder so the paint follows the finger inside a cell.
  *    Because xterm binds its own touch scrolling to an element *inside* this
  *    host, "ours" has to be taken rather than assumed. See the capture-phase
  *    listeners in the effect below.
@@ -59,6 +60,7 @@ import {
   applyFingerDelta,
   applyWheelDelta,
   bufferCanScroll,
+  clampScrollTop,
   COMPACT_MAX_WIDTH_PX,
   flingVelocity,
   isCompactChrome,
@@ -67,6 +69,8 @@ import {
   momentumStepPixels,
   pageScrollLines,
   pushSample,
+  splitScrollPx,
+  subrowTransform,
   viewportCanScroll,
   wheelDeltaPx,
   type TouchSample
@@ -447,6 +451,8 @@ export function RemoteTerminal({
    */
   const [keysOpen, setKeysOpen] = useState(() => !compactChromeNow())
   const [compact, setCompact] = useState(() => compactChromeNow())
+  /** Once the reader hits the keys toggle, compact-chrome no longer drives it. */
+  const keysTouched = useRef(false)
 
   /**
    * What the long-lived effect reads from props and state, kept current
@@ -482,10 +488,27 @@ export function RemoteTerminal({
     return () => query.removeEventListener('change', update)
   }, [])
 
+  useEffect(() => {
+    // A laptop (or a phone rotated into one) always has room for the keys.
+    // Compact chrome folds them until the reader asks, so a DevTools resize
+    // 390 → 1280 must not keep a phone-folded strip on a full stage.
+    if (!compact) {
+      setKeysOpen(true)
+      return
+    }
+    if (!keysTouched.current) setKeysOpen(false)
+  }, [compact])
+
   /** The size this client last asked the host for; reset with the terminal. */
   const sentSizeRef = useRef<TerminalSize | undefined>(undefined)
   /** True while every refit queued for the next frame is a font change. */
   const localFitRef = useRef(false)
+  /**
+   * Pixel position the gesture owns, shared with the coalesced fit so a
+   * cell-height change can drop it instead of painting a remainder measured
+   * against the old cell.
+   */
+  const desiredTopRef = useRef<number | undefined>(undefined)
 
   /**
    * Refits are coalesced into one frame: an opening keyboard fires
@@ -512,6 +535,11 @@ export function RemoteTerminal({
       // while xterm's untouched 80×24 goes to the host behind it.
       const fitted = fit.proposeDimensions()
       if (fitted) fit.fit()
+      // A leftover sub-row translate was measured against the previous cell
+      // height; drop it. The next gesture re-splits against the new cell.
+      desiredTopRef.current = undefined
+      const screen = term.element?.querySelector<HTMLElement>('.xterm-screen')
+      if (screen) screen.style.transform = 'none'
       const size = hostResize({
         fitted,
         sent: sentSizeRef.current,
@@ -611,13 +639,16 @@ export function RemoteTerminal({
     }
 
     /**
-     * xterm's real scroller. Writing `scrollTop` is what `handleTouchMove`
-     * does; the viewport's own `scroll` listener then sets `ydisp` from
-     * `round(scrollTop / cellHeight)`. Driving `scrollLines` during a drag
-     * fought that rounding and is why a sub-line swipe did nothing.
+     * xterm's real scroller. We write a *line-aligned* `scrollTop` so its
+     * `round(scrollTop / cellHeight)` matches `floor(desired / cellHeight)`
+     * and the rAF snap-back does not fight us; the sub-row remainder lives
+     * on `.xterm-screen` as a transform (see `paintScroll`).
      */
     const viewportEl = (): HTMLElement | null =>
       term.element?.querySelector('.xterm-viewport') ?? null
+
+    const screenEl = (): HTMLElement | null =>
+      term.element?.querySelector('.xterm-screen') ?? null
 
     /** Is there any history under this gesture for a drag to move? */
     const canScroll = (): boolean => {
@@ -628,17 +659,38 @@ export function RemoteTerminal({
       return bufferCanScroll({ alternate: false, baseY: buffer.baseY })
     }
 
-    /** False when the viewport did not move: the buffer ends here. */
-    const writeScrollTop = (next: number): boolean => {
+    let painting = false
+    let lastYdisp = term.buffer.active.viewportY
+
+    const readTop = (): number => {
       const port = viewportEl()
-      if (!port) return false
-      const before = port.scrollTop
-      port.scrollTop = next
-      if (port.scrollTop === before) return false
-      // `onScroll` reports this too; syncing here as well keeps the pill
-      // truthful even if a frame's worth of scrolls is coalesced away.
+      if (desiredTopRef.current !== undefined) return desiredTopRef.current
+      return port?.scrollTop ?? 0
+    }
+
+    const clearSubrow = (): void => {
+      desiredTopRef.current = undefined
+      const screen = screenEl()
+      if (screen) screen.style.transform = 'none'
+    }
+
+    /** Paint `next` as line-aligned scrollTop plus a sub-row screen shift. */
+    const paintScroll = (next: number): void => {
+      const port = viewportEl()
+      if (!port) return
+      const max = maxScrollTop(port.scrollHeight, port.clientHeight)
+      const clamped = clampScrollTop(next, max)
+      const split = splitScrollPx(clamped, cellHeight())
+      desiredTopRef.current = clamped
+      const screen = screenEl()
+      if (screen) screen.style.transform = subrowTransform(split.remainderPx)
+      painting = true
+      if (port.scrollTop !== split.lineTop) port.scrollTop = split.lineTop
+      painting = false
+      lastYdisp = term.buffer.active.viewportY
+      // `onScroll` reports a line change; syncing here keeps the pill
+      // truthful when only the remainder moved.
       syncFollowing()
-      return true
     }
 
     let momentumFrame = 0
@@ -659,12 +711,12 @@ export function RemoteTerminal({
         const advanced = momentumStepPixels(
           speed,
           now - last,
-          port.scrollTop,
+          readTop(),
           maxScrollTop(port.scrollHeight, port.clientHeight)
         )
         last = now
         speed = advanced.velocity
-        if (advanced.moved) writeScrollTop(advanced.scrollTop)
+        if (advanced.moved) paintScroll(advanced.scrollTop)
         // Hitting either end stops the glide instead of spinning a dead rAF.
         momentumFrame = speed === 0 ? 0 : window.requestAnimationFrame(step)
       }
@@ -718,8 +770,8 @@ export function RemoteTerminal({
       // Nothing to move: do not spend preventDefault on a hung screen.
       if (max <= 0 || !event.cancelable) return
       event.preventDefault()
-      const next = applyFingerDelta(port.scrollTop, delta, max)
-      if (next.moved) writeScrollTop(next.scrollTop)
+      const next = applyFingerDelta(readTop(), delta, max)
+      if (next.moved) paintScroll(next.scrollTop)
     }
 
     const onTouchEnd = (event: TouchEvent): void => {
@@ -757,14 +809,14 @@ export function RemoteTerminal({
       const delta = wheelDeltaPx(event, cellHeight())
       if (delta === 0) return
       const next = applyWheelDelta(
-        port.scrollTop,
+        readTop(),
         delta,
         maxScrollTop(port.scrollHeight, port.clientHeight)
       )
       if (!next.moved) return
       event.preventDefault()
       event.stopPropagation()
-      writeScrollTop(next.scrollTop)
+      paintScroll(next.scrollTop)
     }
 
     /*
@@ -787,8 +839,9 @@ export function RemoteTerminal({
      * It costs nothing else: `stopPropagation` does not cancel a default
      * action, so the browser's own pinch-zoom, the long-press callout and the
      * synthetic mouse events xterm's selection is built on all still happen.
-     * The drag itself writes `scrollTop` the way xterm would have, so the
-     * viewport's scroll listener is the one source of `ydisp`.
+     * The drag itself writes a line-aligned `scrollTop` plus a sub-row
+     * transform, so xterm's rounding is a follower of `desiredTop`, not the
+     * owner of the position.
      */
     const captured = { capture: true } as const
     host.addEventListener('touchstart', onTouchStart, { capture: true, passive: true })
@@ -797,7 +850,16 @@ export function RemoteTerminal({
     host.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: true })
     host.addEventListener('wheel', onWheel, { capture: true, passive: false })
 
-    const offScroll = term.onScroll(syncFollowing)
+    const offScroll = term.onScroll(() => {
+      syncFollowing()
+      const ydisp = term.buffer.active.viewportY
+      // An outside scroll (jump-to-top, page buttons, live follow) must
+      // drop the sub-row shift; one we just painted must keep it.
+      if (!painting && ydisp !== lastYdisp) {
+        clearSubrow()
+      }
+      lastYdisp = ydisp
+    })
     const offResults = search.onDidChangeResults(({ resultIndex, resultCount }) => {
       setMatches({ index: resultIndex, count: resultCount })
     })
@@ -873,6 +935,7 @@ export function RemoteTerminal({
 
     return () => {
       disposed = true
+      desiredTopRef.current = undefined
       stopMomentum()
       if (fitFrameRef.current !== 0) {
         window.cancelAnimationFrame(fitFrameRef.current)
@@ -1116,6 +1179,7 @@ export function RemoteTerminal({
             aria-pressed={keysOpen}
             onMouseDown={keepFocus}
             onClick={() => {
+              keysTouched.current = true
               setKeysOpen((open) => !open)
               haptic('tap')
             }}

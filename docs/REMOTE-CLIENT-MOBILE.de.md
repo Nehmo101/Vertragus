@@ -183,3 +183,19 @@ Bühne ließ.
 | Bühne | JS besitzt den Ein-Finger-Pan (`pinch-zoom`, nicht `pan-y`); echte Scrollbar unter `pointer: fine`. Kompaktes Chrome hängt auch an der Fensterbreite, damit DevTools-Gerätemodus einem Handy gleicht. Sprung-zum-Anfang-Pille, wenn nicht am Beginn des Verlaufs. |
 | Chrome | Pager-Zeile auf grobem Zeiger / kurzem Viewport versteckt (Finger und Sprung-zur-neuesten-Ausgabe ersetzen sie). Schriftgröße im Kopf. Steuertasten auf dem Handy eingeklappt, bis der Composer oder der Kopf-Schalter sie öffnet. |
 | Übersicht | Die Kartenliste ist auf einem breiten Schirm eine 42-rem-Spalte, kein randloses Feld leerer Fläche. |
+
+## Der vierte Durchgang — ein Pan, der innerhalb einer Zeile folgt
+
+Der dritte Durchgang schrieb `scrollTop` 1:1. xterms Viewport-Listener setzt
+weiter `ydisp = round(scrollTop / Zellhöhe)` und der nächste Animation-Frame
+schreibt `scrollTop` auf eine ganze Zeile zurück. Ein langsamer Drag, der
+in einem Event nie eine halbe Zelle überschritt, tat weiter nichts; ein
+schnellerer sprang zeilenweise. Deshalb fühlte sich ein Terminal in der Hand
+nach dem dritten Durchgang weiter wie 3/10 an.
+
+### Was sich geändert hat
+
+| Bereich | Änderung |
+| --- | --- |
+| Finger / Rad / Nachlauf | Die Geste besitzt ein Pixel-`desiredTop`. xterm bekommt ein zeilenweise ausgerichtetes `scrollTop`, damit sein Runden die Position nicht zurückschnappt; `.xterm-screen` wird um den Rest innerhalb der Zeile verschoben, damit die Zeichnung dem Finger in der Zelle folgt. |
+| Chrome | Kompakte Tasten gehen wieder auf, sobald das Fenster nicht mehr kompakt ist (Resize 390 → 1280). Der Handy-Kopf bleibt eine Zeile (Ellipse, kein Umbruch). Der Senden-Knopf des Composers bleibt verborgen, bis das Feld Fokus hat, damit die Bühne beim Lesen höher ist. |

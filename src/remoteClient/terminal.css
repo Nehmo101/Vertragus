@@ -89,6 +89,7 @@
 .terminal-header {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 4px;
   padding: max(6px, env(safe-area-inset-top)) 8px 6px;
   border-bottom: 1px solid var(--hairline);
@@ -127,16 +128,6 @@
   color: var(--bronze-strong);
 }
 
-@media (max-width: 420px) {
-  .terminal-header {
-    flex-wrap: wrap;
-  }
-  .header-tools {
-    flex: 1 1 100%;
-    justify-content: flex-end;
-  }
-}
-
 .back {
   min-width: var(--touch);
   min-height: var(--touch);
@@ -153,7 +144,9 @@
   min-width: 0;
   font-weight: 650;
   color: var(--role, var(--text));
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dot {
@@ -299,6 +292,9 @@
 
 .terminal-host .xterm {
   height: 100%;
+  /* The sub-row translateY on `.xterm-screen` must clip here, not paint into
+     the header. xterm itself does not set overflow on this box. */
+  overflow: hidden;
 }
 
 /*
@@ -582,4 +578,15 @@
   background: var(--bronze);
   color: var(--on-bronze);
   font-weight: 650;
+}
+
+.terminal-view.is-compact:not(.is-composing) .input-bar button {
+  display: none;
+}
+.terminal-view.is-compact:not(.is-composing) .input-bar {
+  padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+}
+.terminal-view.is-compact:not(.is-composing) .input-bar input {
+  min-height: 36px;
+  padding: 6px 12px;
 }

@@ -120,10 +120,11 @@ No release has been tagged yet; everything lives under Unreleased.
   expanded cards and half-typed drafts with it. The overview now stays
   mounted under the terminal's fixed overlay.
 - **The phone terminal's history jumped in whole lines and barely panned.**
-  A finger now writes `.xterm-viewport.scrollTop` 1:1 (the same path xterm's
-  own `handleTouchMove` takes); a laptop trackpad and mouse wheel share it.
-  Control keys fold on the phone so the stage is taller; the overview is a
-  42 rem column on a wide screen.
+  A finger now owns a pixel position xterm cannot snap back to a whole row:
+  the DOM `scrollTop` stays line-aligned (so xterm's rounding is a follower)
+  and `.xterm-screen` shifts by the sub-row remainder. A laptop trackpad and
+  mouse wheel share that path. Control keys fold on the phone so the stage
+  is taller; the overview is a 42 rem column on a wide screen.
 - Three reconnect races in the remote client: an uncancelled backoff timer
   that built a second socket on wake, a live socket leaked on every
   supersede, and `reset()` leaving a socket open forever. A phone that
