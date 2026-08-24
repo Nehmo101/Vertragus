@@ -83,10 +83,12 @@ import {
   createAppIpc,
   createStubWorkspaceDirectory,
   disposeAppIpc,
+  mergeMcpServersPatch,
   PROVIDER_HEALTH_TTL_MS,
   quitConfirmationText,
   registerAppIpc,
   runningAgentCount,
+  toPanelSettings,
   WRITABLE_SETTINGS,
   type AppIpc,
   type AppIpcHost,
@@ -106,6 +108,7 @@ import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import { DEFAULT_APPEARANCE } from '@shared/appearance'
 import type { AppSettings } from './store/settings'
 import type { ProviderConfig, ProviderConfigInput } from '@shared/schema/provider'
+import { extraMcpServerSchema, type ExtraMcpServer } from '@shared/schema/mcpServer'
 import { mergeProviderConfigs, providerConfigSchema } from '@shared/schema/provider'
 import type { ProviderHealth } from './providers/health'
 
@@ -1552,7 +1555,19 @@ describe('settings:set', () => {
       key: 'mcpServers',
       value: servers
     })) as PanelSettings
-    expect(next.mcpServers).toEqual(servers)
+    expect(next.mcpServers).toEqual([
+      {
+        id: 'github',
+        label: 'GitHub',
+        enabled: true,
+        transport: 'stdio',
+        command: 'npx',
+        envKeys: [],
+        headerKeys: [],
+        envSet: {},
+        headersSet: {}
+      }
+    ])
     expect(h.store.settings.mcpServers).toEqual(servers)
     expect(h.broadcasts.some((entry) => entry.channel === APP_CHANNELS.eventSettings)).toBe(true)
 
@@ -1563,11 +1578,243 @@ describe('settings:set', () => {
       })
     ).rejects.toThrow(/reserved/)
 
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+        key: 'mcpServers',
+        value: [{ id: 'VERTRAGUS', label: 'Nope', transport: 'http', url: 'http://127.0.0.1/mcp' }]
+      })
+    ).rejects.toThrow(/reserved/)
+
     for (const sender of [CLI_ID, EDITOR_ID]) {
       expect(() =>
         h.ipc.invoke(APP_CHANNELS.settingsSet, sender, { key: 'mcpServers', value: [] })
       ).toThrow(/not the panel or the settings window/)
     }
+  })
+
+  it('strips MCP env/header values from PanelSettings and ev:settings', async () => {
+    h.store.settings.mcpServers = [
+      {
+        id: 'github',
+        label: 'GitHub',
+        enabled: true,
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-github'],
+        env: { GITHUB_TOKEN: 'secret' }
+      },
+      {
+        id: 'linear',
+        label: 'Linear',
+        enabled: true,
+        transport: 'http',
+        url: 'https://mcp.linear.app/mcp',
+        headers: { Authorization: 'Bearer x' }
+      }
+    ]
+    const panel = toPanelSettings(h.store.settings)
+    expect(panel.mcpServers).toEqual([
+      {
+        id: 'github',
+        label: 'GitHub',
+        enabled: true,
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-github'],
+        envKeys: ['GITHUB_TOKEN'],
+        headerKeys: [],
+        envSet: { GITHUB_TOKEN: true },
+        headersSet: {}
+      },
+      {
+        id: 'linear',
+        label: 'Linear',
+        enabled: true,
+        transport: 'http',
+        url: 'https://mcp.linear.app/mcp',
+        envKeys: [],
+        headerKeys: ['Authorization'],
+        envSet: {},
+        headersSet: { Authorization: true }
+      }
+    ])
+    expect(JSON.stringify(panel)).not.toContain('secret')
+    expect(JSON.stringify(panel)).not.toContain('Bearer x')
+
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'mcpServers',
+      value: [
+        {
+          id: 'github',
+          label: 'GitHub',
+          enabled: true,
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-github'],
+          env: { GITHUB_TOKEN: '' }
+        },
+        {
+          id: 'linear',
+          label: 'Linear',
+          enabled: true,
+          transport: 'http',
+          url: 'https://mcp.linear.app/mcp',
+          headers: { Authorization: '' }
+        }
+      ]
+    })) as PanelSettings
+
+    expect(h.store.settings.mcpServers[0]).toMatchObject({ env: { GITHUB_TOKEN: 'secret' } })
+    expect(h.store.settings.mcpServers[1]).toMatchObject({ headers: { Authorization: 'Bearer x' } })
+    expect(next.mcpServers[0]!.envSet.GITHUB_TOKEN).toBe(true)
+    expect(next.mcpServers[0]!.envKeys).toContain('GITHUB_TOKEN')
+    expect(next.mcpServers[1]!.headersSet.Authorization).toBe(true)
+    expect(JSON.stringify(next)).not.toContain('secret')
+    expect(JSON.stringify(next)).not.toContain('Bearer x')
+
+    const eventPayload = h.broadcasts
+      .filter((entry) => entry.channel === APP_CHANNELS.eventSettings)
+      .at(-1)?.payload as PanelSettings
+    expect(JSON.stringify(eventPayload)).not.toContain('secret')
+    expect(JSON.stringify(eventPayload)).not.toContain('Bearer x')
+    expect(eventPayload.mcpServers[0]!.envSet.GITHUB_TOKEN).toBe(true)
+  })
+
+  it('deletes an env key omitted from the patch and keeps an empty-string key', async () => {
+    h.store.settings.mcpServers = [
+      {
+        id: 'github',
+        label: 'GitHub',
+        enabled: true,
+        transport: 'stdio',
+        command: 'npx',
+        args: [],
+        env: { GITHUB_TOKEN: 'secret', OTHER: 'keep-me' }
+      }
+    ]
+    await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'mcpServers',
+      value: [
+        {
+          id: 'github',
+          label: 'GitHub',
+          enabled: true,
+          transport: 'stdio',
+          command: 'npx',
+          env: { OTHER: '' }
+        }
+      ]
+    })
+    expect(h.store.settings.mcpServers[0]).toMatchObject({ env: { OTHER: 'keep-me' } })
+    expect(
+      h.store.settings.mcpServers[0]!.transport === 'stdio' && h.store.settings.mcpServers[0]!.env
+    ).not.toHaveProperty('GITHUB_TOKEN')
+  })
+
+  it('keeps GITHUB_TOKEN when the patch renames the server id', async () => {
+    h.store.settings.mcpServers = [
+      {
+        id: 'github',
+        label: 'GitHub',
+        enabled: true,
+        transport: 'stdio',
+        command: 'npx',
+        args: [],
+        env: { GITHUB_TOKEN: 'secret' }
+      }
+    ]
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'mcpServers',
+      value: [
+        {
+          id: 'gh',
+          label: 'GitHub',
+          enabled: true,
+          transport: 'stdio',
+          command: 'npx',
+          env: { GITHUB_TOKEN: '' }
+        }
+      ]
+    })) as PanelSettings
+
+    expect(h.store.settings.mcpServers).toHaveLength(1)
+    expect(h.store.settings.mcpServers[0]).toMatchObject({
+      id: 'gh',
+      transport: 'stdio',
+      env: { GITHUB_TOKEN: 'secret' }
+    })
+    expect(next.mcpServers[0]!.id).toBe('gh')
+    expect(next.mcpServers[0]!.envSet.GITHUB_TOKEN).toBe(true)
+    expect(JSON.stringify(next)).not.toContain('secret')
+  })
+
+  it('keeps the value when the patch renames an env key', async () => {
+    h.store.settings.mcpServers = [
+      {
+        id: 'github',
+        label: 'GitHub',
+        enabled: true,
+        transport: 'stdio',
+        command: 'npx',
+        args: [],
+        env: { GITHUB_TOKEN: 'secret' }
+      }
+    ]
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'mcpServers',
+      value: [
+        {
+          id: 'github',
+          label: 'GitHub',
+          enabled: true,
+          transport: 'stdio',
+          command: 'npx',
+          env: { GH_TOKEN: '' }
+        }
+      ]
+    })) as PanelSettings
+
+    expect(h.store.settings.mcpServers[0]).toMatchObject({ env: { GH_TOKEN: 'secret' } })
+    expect(
+      h.store.settings.mcpServers[0]!.transport === 'stdio' && h.store.settings.mcpServers[0]!.env
+    ).not.toHaveProperty('GITHUB_TOKEN')
+    expect(next.mcpServers[0]!.envKeys).toEqual(['GH_TOKEN'])
+    expect(next.mcpServers[0]!.envSet.GH_TOKEN).toBe(true)
+    expect(JSON.stringify(next)).not.toContain('secret')
+  })
+
+  it('does not copy one leftover secret onto two new ids of the same transport', () => {
+    const current: ExtraMcpServer[] = [
+      extraMcpServerSchema.parse({
+        id: 'github',
+        label: 'GitHub',
+        transport: 'stdio',
+        command: 'npx',
+        env: { GITHUB_TOKEN: 'secret' }
+      })
+    ]
+    const merged = mergeMcpServersPatch(current, [
+      {
+        id: 'alpha',
+        label: 'Alpha',
+        enabled: true,
+        transport: 'stdio',
+        command: 'npx',
+        env: { GITHUB_TOKEN: '' }
+      },
+      {
+        id: 'beta',
+        label: 'Beta',
+        enabled: true,
+        transport: 'stdio',
+        command: 'npx',
+        env: { GITHUB_TOKEN: '' }
+      }
+    ])
+    expect(merged).toHaveLength(2)
+    expect(merged[0]).not.toHaveProperty('env')
+    expect(merged[1]).not.toHaveProperty('env')
+    expect(JSON.stringify(merged)).not.toContain('secret')
   })
 
   it('accepts a partial voice write and never puts the raw api keys on PanelSettings', async () => {

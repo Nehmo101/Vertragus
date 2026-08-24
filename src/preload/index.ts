@@ -7,6 +7,21 @@ import type { ExtraMcpServer } from '@shared/schema/mcpServer'
 import type { Appearance } from '@shared/appearance'
 import type { BindOption, RemoteClientInfo, RemoteStatus } from '@shared/remote/types'
 
+/** Mirrors main/appIpc.PanelMcpServer — secrets never appear here. */
+export interface PanelMcpServer {
+  id: string
+  label: string
+  enabled: boolean
+  transport: ExtraMcpServer['transport']
+  command?: string
+  args?: string[]
+  url?: string
+  envKeys: string[]
+  headerKeys: string[]
+  envSet: Record<string, boolean>
+  headersSet: Record<string, boolean>
+}
+
 /**
  * The renderer bridge. One API object per window type; a CLI window only ever
  * gets the terminal surface, and that surface carries no agentId for input,
@@ -380,8 +395,11 @@ export interface PanelSettings {
   voiceOpenaiApiKeySet: boolean
   voiceInputDeviceId: string
   voiceOutputDeviceId: string
-  /** Extra MCP servers attached next to Vertragus on the next spawn. */
-  mcpServers: ExtraMcpServer[]
+  /**
+   * Extra MCP servers with secrets stripped. Env/header VALUES never appear
+   * here — only keys and a per-key `set` flag, like voice API keys.
+   */
+  mcpServers: PanelMcpServer[]
 }
 
 export type VoicePhase = 'idle' | 'listening' | 'engaged' | 'error'

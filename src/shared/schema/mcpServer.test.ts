@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   enabledExtraMcpServers,
   extraMcpServerSchema,
+  isReservedMcpServerId,
+  MAX_EXTRA_MCP_SERVERS,
   normalizeMcpServerId,
   parseExtraMcpServers,
   parseExtraMcpServersForWrite,
@@ -80,6 +82,17 @@ describe('normalizeMcpServerId', () => {
   })
 })
 
+describe('isReservedMcpServerId', () => {
+  it('matches vertragus case-insensitively', () => {
+    expect(isReservedMcpServerId('vertragus')).toBe(true)
+    expect(isReservedMcpServerId('Vertragus')).toBe(true)
+    expect(isReservedMcpServerId('VERTRAGUS')).toBe(true)
+    expect(isReservedMcpServerId('  vertragus  ')).toBe(true)
+    expect(isReservedMcpServerId('github')).toBe(false)
+    expect(isReservedMcpServerId('vertragus-extra')).toBe(false)
+  })
+})
+
 describe('parseExtraMcpServers', () => {
   it('keeps a valid stdio + http pair', () => {
     const parsed = parseExtraMcpServers([stdio, http])
@@ -115,6 +128,19 @@ describe('parseExtraMcpServers', () => {
 
   it('drops github.api on read', () => {
     expect(parseExtraMcpServers([{ ...stdio, id: 'github.api' }])).toEqual([])
+  })
+
+  it('drops VERTRAGUS on read (reserved, case-insensitive)', () => {
+    expect(parseExtraMcpServers([{ ...stdio, id: 'VERTRAGUS' }])).toEqual([])
+  })
+
+  it('caps the list at MAX_EXTRA_MCP_SERVERS', () => {
+    const many = Array.from({ length: MAX_EXTRA_MCP_SERVERS + 3 }, (_, index) => ({
+      ...stdio,
+      id: `s${index}`,
+      label: `S${index}`
+    }))
+    expect(parseExtraMcpServers(many)).toHaveLength(MAX_EXTRA_MCP_SERVERS)
   })
 })
 

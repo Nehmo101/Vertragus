@@ -18,11 +18,61 @@
  */
 import {
   extraMcpServerSchema,
+  isReservedMcpServerId,
+  MAX_EXTRA_MCP_SERVERS,
   normalizeMcpServerId,
-  RESERVED_MCP_SERVER_ID,
   type ExtraMcpServer
 } from '@shared/schema/mcpServer'
+import type { PanelMcpServer } from '../../../preload'
 import type { Translate } from '../i18n'
+
+export { MAX_EXTRA_MCP_SERVERS }
+
+/**
+ * Build the settings:set payload. Env/header values of `''` mean "keep the
+ * stored secret" — the renderer cannot see it.
+ */
+export function toMcpServersPatch(
+  servers: readonly PanelMcpServer[],
+  secretDrafts: Readonly<
+    Record<string, { env?: Record<string, string>; headers?: Record<string, string> }>
+  > = {}
+): unknown[] {
+  return servers.map((server) => {
+    const draft = secretDrafts[server.id]
+    if (server.transport === 'stdio') {
+      const env: Record<string, string> = {}
+      for (const key of server.envKeys) env[key] = ''
+      if (draft?.env) Object.assign(env, draft.env)
+      for (const key of Object.keys(env)) {
+        if (!key.trim()) delete env[key]
+      }
+      return {
+        id: server.id,
+        label: server.label,
+        enabled: server.enabled,
+        transport: 'stdio',
+        command: server.command ?? '',
+        args: server.args ?? [],
+        env
+      }
+    }
+    const headers: Record<string, string> = {}
+    for (const key of server.headerKeys) headers[key] = ''
+    if (draft?.headers) Object.assign(headers, draft.headers)
+    for (const key of Object.keys(headers)) {
+      if (!key.trim()) delete headers[key]
+    }
+    return {
+      id: server.id,
+      label: server.label,
+      enabled: server.enabled,
+      transport: 'http',
+      url: server.url ?? '',
+      headers
+    }
+  })
+}
 
 /** Everything Electron accepts to the LEFT of the final key. */
 export const ACCELERATOR_MODIFIERS = [
@@ -162,18 +212,6 @@ export function parseHeaderLines(text: string): Record<string, string> {
   return headers
 }
 
-export function formatEnvLines(env?: Record<string, string>): string {
-  return Object.entries(env ?? {})
-    .map(([key, value]) => `${key}=${value}`)
-    .join('\n')
-}
-
-export function formatHeaderLines(headers?: Record<string, string>): string {
-  return Object.entries(headers ?? {})
-    .map(([name, value]) => `${name}: ${value}`)
-    .join('\n')
-}
-
 export type McpServerDraft = {
   editingId?: string
   id: string
@@ -201,7 +239,7 @@ export function emptyMcpDraft(): McpServerDraft {
   }
 }
 
-export function draftFromServer(server: ExtraMcpServer): McpServerDraft {
+export function draftFromServer(server: PanelMcpServer): McpServerDraft {
   const base = {
     editingId: server.id,
     id: server.id,
@@ -217,16 +255,16 @@ export function draftFromServer(server: ExtraMcpServer): McpServerDraft {
     return {
       ...base,
       transport: 'stdio',
-      command: server.command,
-      argsText: server.args.join('\n'),
-      envText: formatEnvLines(server.env)
+      command: server.command ?? '',
+      argsText: (server.args ?? []).join('\n'),
+      envText: server.envKeys.map((key) => `${key}=`).join('\n')
     }
   }
   return {
     ...base,
     transport: 'http',
-    url: server.url,
-    headersText: formatHeaderLines(server.headers)
+    url: server.url ?? '',
+    headersText: server.headerKeys.map((key) => `${key}: `).join('\n')
   }
 }
 
@@ -264,13 +302,15 @@ export function serverFromDraft(draft: McpServerDraft): unknown {
 export function validateMcpDraft(
   t: Translate,
   draft: McpServerDraft,
-  existing: readonly ExtraMcpServer[]
+  existing: readonly { id: string }[]
 ): { ok: true; server: ExtraMcpServer } | { ok: false; errors: McpDraftErrors } {
   const errors: McpDraftErrors = {}
   if (!draft.label.trim()) errors.label = t('settings.errors.mcpLabel')
   const id = normalizeMcpServerId(draft.id)
   if (!id || draft.id.includes('.') || id.includes('.')) errors.id = t('settings.errors.mcpId')
-  else if (id === RESERVED_MCP_SERVER_ID) errors.id = t('settings.errors.mcpReserved')
+  else if (isReservedMcpServerId(id) || isReservedMcpServerId(draft.id)) {
+    errors.id = t('settings.errors.mcpReserved')
+  }
   else {
     const taken = existing.some(
       (server) => server.id === id && server.id !== draft.editingId

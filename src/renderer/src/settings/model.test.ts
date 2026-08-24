@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { extraMcpServerSchema } from '@shared/schema/mcpServer'
 import { translator } from '../i18n'
+import type { PanelMcpServer } from '../../../preload'
 import {
   ACCELERATOR_MODIFIERS,
   emptyMcpDraft,
   parseArgLines,
   parseEnvLines,
   parseHeaderLines,
+  toMcpServersPatch,
   validateAccelerator,
   validateMcpDraft
 } from './model'
@@ -141,6 +143,13 @@ describe('MCP draft helpers', () => {
     expect(reserved.ok).toBe(false)
     if (!reserved.ok) expect(reserved.errors.id).toContain('vertragus')
 
+    const reservedCase = validateMcpDraft(
+      t,
+      { ...emptyMcpDraft(), id: 'VERTRAGUS', label: 'X', command: 'npx' },
+      []
+    )
+    expect(reservedCase.ok).toBe(false)
+
     const duplicate = validateMcpDraft(
       t,
       { ...emptyMcpDraft(), id: 'github', label: 'Other', command: 'npx' },
@@ -180,5 +189,51 @@ describe('MCP draft helpers', () => {
         env: { TOKEN: 'secret' }
       })
     }
+  })
+})
+
+describe('mcp servers patch', () => {
+  const github: PanelMcpServer = {
+    id: 'github',
+    label: 'GitHub',
+    enabled: true,
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y', 'pkg'],
+    envKeys: ['GITHUB_TOKEN'],
+    headerKeys: [],
+    envSet: { GITHUB_TOKEN: true },
+    headersSet: {}
+  }
+
+  it('sends empty strings for already-set env keys so main keeps the secret', () => {
+    expect(toMcpServersPatch([github])).toEqual([
+      {
+        id: 'github',
+        label: 'GitHub',
+        enabled: true,
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', 'pkg'],
+        env: { GITHUB_TOKEN: '' }
+      }
+    ])
+  })
+
+  it('replaces a drafted env value and drops empty keys', () => {
+    const patch = toMcpServersPatch([github], {
+      github: { env: { GITHUB_TOKEN: 'new-secret', '': 'ignore' } }
+    })
+    expect(patch).toEqual([
+      {
+        id: 'github',
+        label: 'GitHub',
+        enabled: true,
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', 'pkg'],
+        env: { GITHUB_TOKEN: 'new-secret' }
+      }
+    ])
   })
 })

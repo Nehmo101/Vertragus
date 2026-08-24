@@ -4,6 +4,7 @@ export type {
   ModelDiscoveryResult,
   PanelAgentState,
   PanelPointerEvent,
+  PanelMcpServer,
   PanelSettings,
   ProviderHealth,
   ProviderListEntry,

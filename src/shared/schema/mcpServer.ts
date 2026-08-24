@@ -1,7 +1,11 @@
 /**
  * Extra MCP servers the user configures globally (Settings), attached next to
  * the built-in Vertragus server on every spawn whose provider `mcp.kind` is
- * not `none`.
+ * not `none`. Subagents only — the orchestrator launch stays the one-server
+ * Vertragus loopback.
+ *
+ * Secrets (env values, header values) live in AppSettings. They never ride
+ * on PanelSettings / `ev:settings`; those surfaces see keys + `set` flags.
  *
  * Pure data + zod only (no Node imports) so main, preload and renderer share
  * one source of truth. Fail-soft on read, fail-closed on write.
@@ -12,6 +16,9 @@ import { normalizeProviderId } from './provider'
 /** Built-in Vertragus MCP namespace — extra servers may not reuse this id. */
 export const RESERVED_MCP_SERVER_ID = 'vertragus'
 
+export const MAX_EXTRA_MCP_SERVERS = 16
+export const MAX_MCP_SECRET_ENTRIES = 32
+
 const MAX_ID_LENGTH = 64
 const MAX_LABEL_LENGTH = 80
 const MAX_COMMAND_LENGTH = 200
@@ -20,7 +27,12 @@ const MAX_ARG_LENGTH = 400
 const MAX_ARGS = 64
 const MAX_MAP_KEY_LENGTH = 200
 const MAX_MAP_VALUE_LENGTH = 2000
-const MAX_MAP_ENTRIES = 32
+const MAX_MAP_ENTRIES = MAX_MCP_SECRET_ENTRIES
+
+/** True for the in-app loopback server name, case-insensitive. */
+export function isReservedMcpServerId(id: string): boolean {
+  return id.trim().toLowerCase() === RESERVED_MCP_SERVER_ID
+}
 
 /**
  * Same lowercase / punctuation rules as provider ids, including `.`.
@@ -80,7 +92,7 @@ export type ExtraMcpServerInput = z.input<typeof extraMcpServerSchema>
 
 function withNormalizedId(server: ExtraMcpServer): ExtraMcpServer | undefined {
   const id = normalizeMcpServerId(server.id)
-  if (!id || id === RESERVED_MCP_SERVER_ID || mcpServerIdHasDot(id)) return undefined
+  if (!id || isReservedMcpServerId(id) || mcpServerIdHasDot(id)) return undefined
   return { ...server, id }
 }
 
@@ -93,6 +105,7 @@ export function parseExtraMcpServers(raw: unknown): ExtraMcpServer[] {
   const seen = new Set<string>()
   const result: ExtraMcpServer[] = []
   for (const entry of raw) {
+    if (result.length >= MAX_EXTRA_MCP_SERVERS) break
     const parsed = extraMcpServerSchema.safeParse(entry)
     if (!parsed.success) continue
     const server = withNormalizedId(parsed.data)
@@ -111,6 +124,9 @@ export function parseExtraMcpServersForWrite(raw: unknown): ExtraMcpServer[] {
   if (!Array.isArray(raw)) {
     throw new Error('mcpServers must be an array')
   }
+  if (raw.length > MAX_EXTRA_MCP_SERVERS) {
+    throw new Error(`at most ${MAX_EXTRA_MCP_SERVERS} MCP servers`)
+  }
   const byId = new Map<string, ExtraMcpServer>()
   for (const entry of raw) {
     const parsed = extraMcpServerSchema.safeParse(entry)
@@ -120,7 +136,7 @@ export function parseExtraMcpServersForWrite(raw: unknown): ExtraMcpServer[] {
     const id = normalizeMcpServerId(parsed.data.id)
     if (!id) throw new Error('mcp server id is empty')
     if (mcpServerIdHasDot(id)) throw new Error('mcp server id cannot contain a dot')
-    if (id === RESERVED_MCP_SERVER_ID) {
+    if (isReservedMcpServerId(id) || isReservedMcpServerId(parsed.data.id)) {
       throw new Error(`mcp server id "${RESERVED_MCP_SERVER_ID}" is reserved`)
     }
     byId.set(id, { ...parsed.data, id })
@@ -130,5 +146,5 @@ export function parseExtraMcpServersForWrite(raw: unknown): ExtraMcpServer[] {
 
 /** Enabled extras that are safe to attach — reserved id is skipped if it slipped in. */
 export function enabledExtraMcpServers(list: readonly ExtraMcpServer[]): ExtraMcpServer[] {
-  return list.filter((server) => server.enabled && server.id !== RESERVED_MCP_SERVER_ID)
+  return list.filter((server) => server.enabled && !isReservedMcpServerId(server.id))
 }

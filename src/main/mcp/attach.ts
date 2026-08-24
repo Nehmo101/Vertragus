@@ -326,9 +326,9 @@ export function writeClaudeMcpConfigFile(
 }
 
 /**
- * Claude Code launch arguments: transient MCP config, strict mode (only the
- * servers in that file — Vertragus plus enabled extras), optional system
- * prompt, optional allowlist.
+ * Claude Code launch arguments: transient MCP config, `--strict-mcp-config`
+ * (file-scoped: extras live in that same JSON, so they are allowed), optional
+ * system prompt, optional allowlist.
  */
 export function buildClaudeMcpArgs(target: McpAttachTarget): string[] {
   const configPath = writeClaudeMcpConfigFile(
@@ -399,6 +399,9 @@ export function tomlString(value: string): string {
  * up as a mute agent. `default_tools_approval_mode="approve"` pre-approves this
  * server's tools only — it is a loopback server Vertragus minted seconds ago,
  * and an approval prompt on `report_done` would deadlock the agent.
+ *
+ * Extra servers (when passed) are prepended via
+ * {@link codexExtraServerOverrides} and never get `required`.
  *
  * `tool_timeout_sec` is emitted ONLY when the provider declares
  * `mcpToolTimeoutSec` — the key exists on newer Codex builds, and no shipped
