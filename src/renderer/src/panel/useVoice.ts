@@ -14,6 +14,12 @@ const PROCESSOR_SIZE = 4096
 export interface VoiceHud {
   phase: VoicePhase
   error?: string
+  hint?: string
+}
+
+export interface VoiceDevices {
+  inputDeviceId?: string
+  outputDeviceId?: string
 }
 
 function float32ToInt16(samples: Float32Array): Int16Array {
@@ -40,11 +46,32 @@ function asInt16(payload: unknown): Int16Array | undefined {
     const view = payload as ArrayBufferView
     return new Int16Array(view.buffer, view.byteOffset, Math.floor(view.byteLength / 2))
   }
+  if (Array.isArray(payload) && payload.every((n) => typeof n === 'number')) {
+    return Int16Array.from(payload as number[])
+  }
   return undefined
 }
 
-export function useVoice(bridge: VertragusAppApi | undefined, enabled: boolean): VoiceHud {
+async function applyOutputDevice(ctx: AudioContext, outputDeviceId: string | undefined): Promise<string | undefined> {
+  if (!outputDeviceId) return undefined
+  const sinkable = ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> }
+  if (typeof sinkable.setSinkId !== 'function') return undefined
+  try {
+    await sinkable.setSinkId(outputDeviceId)
+    return undefined
+  } catch {
+    return 'output-missing'
+  }
+}
+
+export function useVoice(
+  bridge: VertragusAppApi | undefined,
+  enabled: boolean,
+  devices: VoiceDevices = {}
+): VoiceHud {
   const [hud, setHud] = useState<VoiceHud>({ phase: enabled ? 'listening' : 'idle' })
+  const inputDeviceId = devices.inputDeviceId ?? ''
+  const outputDeviceId = devices.outputDeviceId ?? ''
 
   useEffect(() => {
     if (!bridge) return
@@ -56,7 +83,7 @@ export function useVoice(bridge: VertragusAppApi | undefined, enabled: boolean):
       () => undefined
     )
     const off = bridge.onVoice((event: VoiceEventPayload) => {
-      setHud({ phase: event.phase, error: event.error })
+      setHud((prev) => ({ phase: event.phase, error: event.error, hint: prev.hint }))
     })
     return () => {
       alive = false
@@ -77,6 +104,7 @@ export function useVoice(bridge: VertragusAppApi | undefined, enabled: boolean):
 
     const playPcm = (raw: unknown): void => {
       if (!ctx || ctx.state === 'closed') return
+      if (ctx.state === 'suspended') void ctx.resume()
       const pcm = asInt16(raw)
       if (!pcm || pcm.length === 0) return
       const float = int16ToFloat32(pcm)
@@ -93,18 +121,36 @@ export function useVoice(bridge: VertragusAppApi | undefined, enabled: boolean):
 
     void (async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            channelCount: 1
+        const audio: MediaTrackConstraints = {
+          echoCancellation: true,
+          noiseSuppression: true,
+          channelCount: 1,
+          ...(inputDeviceId ? { deviceId: { exact: inputDeviceId } } : {})
+        }
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio })
+        } catch (error) {
+          const overconstrained =
+            error instanceof DOMException &&
+            (error.name === 'OverconstrainedError' || error.name === 'NotFoundError')
+          if (!inputDeviceId || !overconstrained) throw error
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
+          })
+          if (!stopped) {
+            setHud((prev) => ({ ...prev, hint: 'input-missing' }))
           }
-        })
+        }
         if (stopped) {
           for (const track of stream.getTracks()) track.stop()
           return
         }
         ctx = new AudioContext({ sampleRate: SAMPLE_RATE })
+        await ctx.resume()
+        const outputHint = await applyOutputDevice(ctx, outputDeviceId || undefined)
+        if (outputHint && !stopped) {
+          setHud((prev) => ({ ...prev, hint: outputHint }))
+        }
         source = ctx.createMediaStreamSource(stream)
         processor = ctx.createScriptProcessor(PROCESSOR_SIZE, 1, 1)
         processor.onaudioprocess = (event) => {
@@ -133,7 +179,7 @@ export function useVoice(bridge: VertragusAppApi | undefined, enabled: boolean):
       if (stream) for (const track of stream.getTracks()) track.stop()
       void ctx?.close()
     }
-  }, [bridge, enabled])
+  }, [bridge, enabled, inputDeviceId, outputDeviceId])
 
   return enabled ? hud : { phase: 'idle' }
 }

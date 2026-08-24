@@ -174,7 +174,16 @@ const SETTINGS: AppSettings = {
   autostart: false,
   updateChannel: 'main',
   modelMemory: {},
-  voice: { enabled: false, wakePhrase: 'Hey Vertragus', apiKey: '', voiceId: 'eve' },
+  voice: {
+    enabled: false,
+    wakePhrase: 'Hey Vertragus',
+    apiKey: '',
+    openaiApiKey: '',
+    provider: 'xai',
+    voiceId: 'eve',
+    inputDeviceId: '',
+    outputDeviceId: ''
+  },
   mcpServers: []
 }
 
@@ -1283,15 +1292,32 @@ describe('settings and windows', () => {
       voiceEnabled: false,
       voiceWakePhrase: 'Hey Vertragus',
       voiceVoiceId: 'eve',
+      voiceProvider: 'xai',
       voiceApiKeySet: false,
+      voiceOpenaiApiKeySet: false,
+      voiceInputDeviceId: '',
+      voiceOutputDeviceId: '',
       onboardingDismissed: false,
       mcpServers: []
     })
     // Never the app's own bookkeeping — model memory, panel bounds and the
-    // raw voice API key have no form and must not leak to a renderer.
+    // raw voice API keys have no form and must not leak to a renderer.
     expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).not.toHaveProperty('modelMemory')
     expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).not.toHaveProperty('apiKey')
     expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).not.toHaveProperty('voiceApiKey')
+    expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).not.toHaveProperty('openaiApiKey')
+  })
+
+  it('never puts stored xAI or OpenAI keys on settings:get, only the *ApiKeySet flags', () => {
+    h.store.settings.voice.apiKey = 'xai-secret'
+    h.store.settings.voice.openaiApiKey = 'sk-secret'
+    const got = h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID) as PanelSettings
+    expect(got.voiceApiKeySet).toBe(true)
+    expect(got.voiceOpenaiApiKeySet).toBe(true)
+    expect(got).not.toHaveProperty('apiKey')
+    expect(got).not.toHaveProperty('openaiApiKey')
+    expect(JSON.stringify(got)).not.toContain('xai-secret')
+    expect(JSON.stringify(got)).not.toContain('sk-secret')
   })
 
   it('answers the appearance in EVERY window — a CLI window included', () => {
@@ -1544,49 +1570,110 @@ describe('settings:set', () => {
     }
   })
 
-  it('accepts a partial voice write and never puts the raw api key on PanelSettings', async () => {
+  it('accepts a partial voice write and never puts the raw api keys on PanelSettings', async () => {
     h.store.settings.voice.apiKey = 'xai-secret'
+    h.store.settings.voice.openaiApiKey = 'sk-secret'
     const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
       key: 'voice',
-      value: { enabled: true, wakePhrase: 'Hey Grok' }
+      value: {
+        enabled: true,
+        wakePhrase: 'Hey Grok',
+        provider: 'openai',
+        inputDeviceId: 'mic-1',
+        outputDeviceId: 'spk-1'
+      }
     })) as PanelSettings
 
     expect(h.store.settings.voice).toMatchObject({
       enabled: true,
       wakePhrase: 'Hey Grok',
       apiKey: 'xai-secret',
-      voiceId: 'eve'
+      openaiApiKey: 'sk-secret',
+      provider: 'openai',
+      voiceId: 'eve',
+      inputDeviceId: 'mic-1',
+      outputDeviceId: 'spk-1'
     })
     expect(next.voiceEnabled).toBe(true)
     expect(next.voiceWakePhrase).toBe('Hey Grok')
     expect(next.voiceVoiceId).toBe('eve')
+    expect(next.voiceProvider).toBe('openai')
     expect(next.voiceApiKeySet).toBe(true)
+    expect(next.voiceOpenaiApiKeySet).toBe(true)
+    expect(next.voiceInputDeviceId).toBe('mic-1')
+    expect(next.voiceOutputDeviceId).toBe('spk-1')
     expect(next).not.toHaveProperty('apiKey')
+    expect(next).not.toHaveProperty('openaiApiKey')
     expect(JSON.stringify(next)).not.toContain('xai-secret')
+    expect(JSON.stringify(next)).not.toContain('sk-secret')
+
+    const pushed = h.broadcasts.filter((entry) => entry.channel === APP_CHANNELS.eventSettings)
+    const eventPayload = pushed.at(-1)?.payload as PanelSettings
+    expect(eventPayload.voiceApiKeySet).toBe(true)
+    expect(eventPayload.voiceOpenaiApiKeySet).toBe(true)
+    expect(eventPayload).not.toHaveProperty('apiKey')
+    expect(eventPayload).not.toHaveProperty('openaiApiKey')
+    expect(JSON.stringify(eventPayload)).not.toContain('xai-secret')
+    expect(JSON.stringify(eventPayload)).not.toContain('sk-secret')
   })
 
-  it('leaves the stored api key unchanged when the write sends an empty string', async () => {
-    h.store.settings.voice.apiKey = 'xai-keep-me'
-    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+  it('keeps the other stored api key when a partial voice write sets only one', async () => {
+    h.store.settings.voice.apiKey = 'xai-keep'
+    h.store.settings.voice.openaiApiKey = 'sk-keep'
+    const openaiOnly = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
       key: 'voice',
-      value: { apiKey: '' }
+      value: { openaiApiKey: 'sk-new' }
     })) as PanelSettings
 
-    expect(h.store.settings.voice.apiKey).toBe('xai-keep-me')
-    expect(next.voiceApiKeySet).toBe(true)
-    expect(JSON.stringify(next)).not.toContain('xai-keep-me')
-  })
+    expect(h.store.settings.voice.apiKey).toBe('xai-keep')
+    expect(h.store.settings.voice.openaiApiKey).toBe('sk-new')
+    expect(openaiOnly.voiceApiKeySet).toBe(true)
+    expect(openaiOnly.voiceOpenaiApiKeySet).toBe(true)
+    expect(JSON.stringify(openaiOnly)).not.toContain('xai-keep')
+    expect(JSON.stringify(openaiOnly)).not.toContain('sk-new')
 
-  it('replaces the stored api key when the write sends a non-empty string', async () => {
-    h.store.settings.voice.apiKey = 'xai-old'
-    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+    const xaiOnly = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
       key: 'voice',
       value: { apiKey: 'xai-new' }
     })) as PanelSettings
+    expect(h.store.settings.voice.apiKey).toBe('xai-new')
+    expect(h.store.settings.voice.openaiApiKey).toBe('sk-new')
+    expect(xaiOnly.voiceApiKeySet).toBe(true)
+    expect(xaiOnly.voiceOpenaiApiKeySet).toBe(true)
+    expect(JSON.stringify(xaiOnly)).not.toContain('xai-new')
+    expect(JSON.stringify(xaiOnly)).not.toContain('sk-new')
+  })
+
+  it('leaves stored api keys unchanged when the write sends empty strings', async () => {
+    h.store.settings.voice.apiKey = 'xai-keep-me'
+    h.store.settings.voice.openaiApiKey = 'sk-keep-me'
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'voice',
+      value: { apiKey: '', openaiApiKey: '' }
+    })) as PanelSettings
+
+    expect(h.store.settings.voice.apiKey).toBe('xai-keep-me')
+    expect(h.store.settings.voice.openaiApiKey).toBe('sk-keep-me')
+    expect(next.voiceApiKeySet).toBe(true)
+    expect(next.voiceOpenaiApiKeySet).toBe(true)
+    expect(JSON.stringify(next)).not.toContain('xai-keep-me')
+    expect(JSON.stringify(next)).not.toContain('sk-keep-me')
+  })
+
+  it('replaces stored keys when the write sends non-empty strings', async () => {
+    h.store.settings.voice.apiKey = 'xai-old'
+    h.store.settings.voice.openaiApiKey = 'sk-old'
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'voice',
+      value: { apiKey: 'xai-new', openaiApiKey: 'sk-new' }
+    })) as PanelSettings
 
     expect(h.store.settings.voice.apiKey).toBe('xai-new')
+    expect(h.store.settings.voice.openaiApiKey).toBe('sk-new')
     expect(next.voiceApiKeySet).toBe(true)
+    expect(next.voiceOpenaiApiKeySet).toBe(true)
     expect(JSON.stringify(next)).not.toContain('xai-new')
+    expect(JSON.stringify(next)).not.toContain('sk-new')
   })
 
   it('takes a new hotkey immediately instead of at the next boot', async () => {

@@ -264,7 +264,16 @@ describe('app settings', () => {
       autostart: false,
       updateChannel: 'main',
       modelMemory: {},
-      voice: { enabled: false, wakePhrase: 'Hey Vertragus', apiKey: '', voiceId: 'eve' },
+      voice: {
+        enabled: false,
+        wakePhrase: 'Hey Vertragus',
+        apiKey: '',
+        openaiApiKey: '',
+        provider: 'xai',
+        voiceId: 'eve',
+        inputDeviceId: '',
+        outputDeviceId: ''
+      },
       mcpServers: []
     })
   })
@@ -281,6 +290,10 @@ describe('app settings', () => {
     expect(settings.getSettings().voice.wakePhrase).toBe('Hey Vertragus')
     expect(settings.getSettings().voice.voiceId).toBe('eve')
     expect(settings.getSettings().voice.apiKey).toBe('')
+    expect(settings.getSettings().voice.openaiApiKey).toBe('')
+    expect(settings.getSettings().voice.provider).toBe('xai')
+    expect(settings.getSettings().voice.inputDeviceId).toBe('')
+    expect(settings.getSettings().voice.outputDeviceId).toBe('')
   })
 
   it('round-trips a voice section without touching the other keys', () => {
@@ -290,13 +303,21 @@ describe('app settings', () => {
       enabled: true,
       wakePhrase: 'Hey Grok',
       apiKey: 'xai-test-key',
-      voiceId: 'ara'
+      openaiApiKey: 'sk-test',
+      provider: 'openai',
+      voiceId: 'alloy',
+      inputDeviceId: 'mic-1',
+      outputDeviceId: 'spk-1'
     })
     expect(next.voice).toEqual({
       enabled: true,
       wakePhrase: 'Hey Grok',
       apiKey: 'xai-test-key',
-      voiceId: 'ara'
+      openaiApiKey: 'sk-test',
+      provider: 'openai',
+      voiceId: 'alloy',
+      inputDeviceId: 'mic-1',
+      outputDeviceId: 'spk-1'
     })
     expect(next.yoloMaster).toBe(false)
     expect(backend.data.voice).toEqual(next.voice)
@@ -307,7 +328,7 @@ describe('app settings', () => {
     const { store: settings } = store({
       yoloMaster: false,
       hideAllHotkey: 'Control+Shift+H',
-      voice: { enabled: 'yes', wakePhrase: '' }
+      voice: { enabled: 'yes', wakePhrase: '', provider: 'anthropic' }
     })
     const result = settings.getSettings()
     expect(result.yoloMaster).toBe(false)
@@ -316,7 +337,11 @@ describe('app settings', () => {
       enabled: false,
       wakePhrase: 'Hey Vertragus',
       apiKey: '',
-      voiceId: 'eve'
+      openaiApiKey: '',
+      provider: 'xai',
+      voiceId: 'eve',
+      inputDeviceId: '',
+      outputDeviceId: ''
     })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid settings section'))
   })

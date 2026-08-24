@@ -373,8 +373,13 @@ export interface PanelSettings {
   voiceEnabled: boolean
   voiceWakePhrase: string
   voiceVoiceId: string
-  /** Whether a key is stored. The raw key never appears here. */
+  voiceProvider: 'xai' | 'openai'
+  /** Whether an xAI key is stored. The raw key never appears here. */
   voiceApiKeySet: boolean
+  /** Whether an OpenAI key is stored. The raw key never appears here. */
+  voiceOpenaiApiKeySet: boolean
+  voiceInputDeviceId: string
+  voiceOutputDeviceId: string
   /** Extra MCP servers attached next to Vertragus on the next spawn. */
   mcpServers: ExtraMcpServer[]
 }

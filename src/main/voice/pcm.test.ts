@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  asInt16Pcm,
   base64ToPcm16,
   concatInt16,
   encodeWavPcm16,
@@ -55,5 +56,15 @@ describe('pcm', () => {
     expect(view.getUint32(40, true)).toBe(8)
     expect(view.getInt16(44, true)).toBe(1)
     expect(view.getInt16(50, true)).toBe(4)
+  })
+
+  it('coerces Int16Array, Buffer, ArrayBuffer, views and number[] into PCM16', () => {
+    expect([...(asInt16Pcm(new Int16Array([1, 2, 3])) ?? [])]).toEqual([1, 2, 3])
+    expect([...(asInt16Pcm(Buffer.from(new Int16Array([4, 5]).buffer)) ?? [])]).toEqual([4, 5])
+    expect([...(asInt16Pcm(new Int16Array([6, 7]).buffer) ?? [])]).toEqual([6, 7])
+    expect([...(asInt16Pcm(new Uint8Array(new Int16Array([8, 9]).buffer)) ?? [])]).toEqual([8, 9])
+    expect([...(asInt16Pcm([10, -11, 12]) ?? [])]).toEqual([10, -11, 12])
+    expect(asInt16Pcm(undefined)).toBeUndefined()
+    expect(asInt16Pcm({ not: 'audio' })).toBeUndefined()
   })
 })

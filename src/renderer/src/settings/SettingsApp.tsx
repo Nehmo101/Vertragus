@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   APPEARANCE_LIMITS,
@@ -70,6 +70,77 @@ function AppearanceSliderRow({
   )
 }
 
+type MediaKind = 'audioinput' | 'audiooutput'
+
+interface DeviceSnapshot {
+  inputs: { id: string; label: string }[]
+  outputs: { id: string; label: string }[]
+}
+
+const EMPTY_DEVICES: DeviceSnapshot = { inputs: [], outputs: [] }
+let deviceSnapshot: DeviceSnapshot = EMPTY_DEVICES
+const deviceListeners = new Set<() => void>()
+
+function emitDevices(): void {
+  for (const listener of deviceListeners) listener()
+}
+
+function mapDevices(list: MediaDeviceInfo[]): DeviceSnapshot {
+  const labelOf = (device: MediaDeviceInfo, fallback: string): string =>
+    device.label.trim() || fallback
+  return {
+    inputs: list
+      .filter((device) => device.kind === 'audioinput')
+      .map((device, index) => ({
+        id: device.deviceId,
+        label: labelOf(device, `mic-${index + 1}`)
+      })),
+    outputs: list
+      .filter((device) => device.kind === 'audiooutput')
+      .map((device, index) => ({
+        id: device.deviceId,
+        label: labelOf(device, `out-${index + 1}`)
+      }))
+  }
+}
+
+async function refreshDevices(): Promise<void> {
+  if (!navigator.mediaDevices?.enumerateDevices) return
+  let list = await navigator.mediaDevices.enumerateDevices()
+  const unlabeled = list.some(
+    (device) =>
+      (device.kind === 'audioinput' || device.kind === 'audiooutput') && !device.label.trim()
+  )
+  if (unlabeled) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      for (const track of stream.getTracks()) track.stop()
+      list = await navigator.mediaDevices.enumerateDevices()
+    } catch {
+      /* labels stay empty — ids still persist */
+    }
+  }
+  deviceSnapshot = mapDevices(list)
+  emitDevices()
+}
+
+function subscribeDevices(listener: () => void): () => void {
+  deviceListeners.add(listener)
+  void refreshDevices()
+  const onChange = (): void => {
+    void refreshDevices()
+  }
+  navigator.mediaDevices?.addEventListener('devicechange', onChange)
+  return () => {
+    deviceListeners.delete(listener)
+    navigator.mediaDevices?.removeEventListener('devicechange', onChange)
+  }
+}
+
+function useMediaDeviceOptions(): DeviceSnapshot {
+  return useSyncExternalStore(subscribeDevices, () => deviceSnapshot, () => EMPTY_DEVICES)
+}
+
 /**
  * Wake-phrase and voice-id drafts. Keyed by the stored pair so a settings
  * update remounts with fresh initial state instead of syncing in an effect.
@@ -117,7 +188,7 @@ function VoiceDraftFields({
           onChange={(event) => setVoiceId(event.target.value)}
           onBlur={() => {
             const trimmed = voiceId.trim()
-            if (trimmed && trimmed !== settings.voiceVoiceId) {
+            if (trimmed !== settings.voiceVoiceId) {
               set('voice', { voiceId: trimmed })
             } else {
               setVoiceId(settings.voiceVoiceId)
@@ -133,6 +204,89 @@ function VoiceDraftFields({
   )
 }
 
+function VoiceKeyField({
+  label,
+  hint,
+  placeholder,
+  setPlaceholder,
+  alreadySet,
+  onCommit
+}: {
+  label: string
+  hint: string
+  placeholder: string
+  setPlaceholder: string
+  alreadySet: boolean
+  onCommit: (value: string) => void
+}): React.JSX.Element {
+  const [value, setValue] = useState('')
+  return (
+    <div className="st-field">
+      <span className="st-label">{label}</span>
+      <input
+        type="password"
+        className="st-input st-mono"
+        value={value}
+        maxLength={200}
+        autoComplete="off"
+        placeholder={alreadySet ? setPlaceholder : placeholder}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={() => {
+          if (value.length > 0) {
+            onCommit(value)
+            setValue('')
+          }
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+        }}
+      />
+      <span className="st-hint">{hint}</span>
+    </div>
+  )
+}
+
+function VoiceDeviceSelect({
+  kind,
+  value,
+  options,
+  onChange
+}: {
+  kind: MediaKind
+  value: string
+  options: { id: string; label: string }[]
+  onChange: (deviceId: string) => void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const present = value === '' || options.some((option) => option.id === value)
+  return (
+    <div className="st-field">
+      <span className="st-label">
+        {kind === 'audioinput' ? t('settings.voiceInputDevice') : t('settings.voiceOutputDevice')}
+      </span>
+      <select
+        className="st-input"
+        value={present ? value : ''}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">{t('settings.voiceDeviceDefault')}</option>
+        {options.map((option) => (
+          <option key={option.id || option.label} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <span className="st-hint">
+        {present
+          ? kind === 'audioinput'
+            ? t('settings.voiceInputDeviceHint')
+            : t('settings.voiceOutputDeviceHint')
+          : t('settings.voiceDeviceMissing')}
+      </span>
+    </div>
+  )
+}
+
 function VoiceSection({
   settings,
   set
@@ -141,7 +295,7 @@ function VoiceSection({
   set: SettingsState['set']
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const [apiKey, setApiKey] = useState('')
+  const devices = useMediaDeviceOptions()
 
   return (
     <section className="st-glass-section">
@@ -158,37 +312,51 @@ function VoiceSection({
           <span className="st-hint">{t('settings.voiceEnabledHint')}</span>
         </span>
       </label>
+      <div className="st-field">
+        <span className="st-label">{t('settings.voiceProvider')}</span>
+        <select
+          className="st-input"
+          value={settings.voiceProvider}
+          onChange={(event) => set('voice', { provider: event.target.value })}
+        >
+          <option value="xai">{t('settings.voiceProviderXai')}</option>
+          <option value="openai">{t('settings.voiceProviderOpenai')}</option>
+        </select>
+        <span className="st-hint">{t('settings.voiceProviderHint')}</span>
+      </div>
       <VoiceDraftFields
         key={`${settings.voiceWakePhrase}\0${settings.voiceVoiceId}`}
         settings={settings}
         set={set}
       />
-      <div className="st-field">
-        <span className="st-label">{t('settings.voiceApiKey')}</span>
-        <input
-          type="password"
-          className="st-input st-mono"
-          value={apiKey}
-          maxLength={200}
-          autoComplete="off"
-          placeholder={
-            settings.voiceApiKeySet
-              ? t('settings.voiceApiKeySet')
-              : t('settings.voiceApiKeyPlaceholder')
-          }
-          onChange={(event) => setApiKey(event.target.value)}
-          onBlur={() => {
-            if (apiKey.length > 0) {
-              set('voice', { apiKey })
-              setApiKey('')
-            }
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
-          }}
-        />
-        <span className="st-hint">{t('settings.voiceApiKeyHint')}</span>
-      </div>
+      <VoiceKeyField
+        label={t('settings.voiceApiKey')}
+        hint={t('settings.voiceApiKeyHint')}
+        placeholder={t('settings.voiceApiKeyPlaceholder')}
+        setPlaceholder={t('settings.voiceApiKeySet')}
+        alreadySet={settings.voiceApiKeySet}
+        onCommit={(apiKey) => set('voice', { apiKey })}
+      />
+      <VoiceKeyField
+        label={t('settings.voiceOpenaiApiKey')}
+        hint={t('settings.voiceOpenaiApiKeyHint')}
+        placeholder={t('settings.voiceOpenaiApiKeyPlaceholder')}
+        setPlaceholder={t('settings.voiceOpenaiApiKeySet')}
+        alreadySet={settings.voiceOpenaiApiKeySet}
+        onCommit={(openaiApiKey) => set('voice', { openaiApiKey })}
+      />
+      <VoiceDeviceSelect
+        kind="audioinput"
+        value={settings.voiceInputDeviceId}
+        options={devices.inputs}
+        onChange={(inputDeviceId) => set('voice', { inputDeviceId })}
+      />
+      <VoiceDeviceSelect
+        kind="audiooutput"
+        value={settings.voiceOutputDeviceId}
+        options={devices.outputs}
+        onChange={(outputDeviceId) => set('voice', { outputDeviceId })}
+      />
     </section>
   )
 }

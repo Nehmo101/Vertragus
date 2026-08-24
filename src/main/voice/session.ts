@@ -2,6 +2,10 @@
  * Voice session state machine. Listening uses cheap local VAD + STT bursts;
  * the realtime socket is opened only after a wake hit so idle time does not
  * bill Speech-to-Speech.
+ *
+ * After `session.update`, this waits for `session.updated` (timeout ~2s)
+ * before any item, response.create, or input audio. Sending those frames
+ * earlier is a race the server drops — the silent-reply bug.
  */
 import {
   executeCommand,
@@ -9,10 +13,17 @@ import {
   type VoiceHost,
   type VoiceLocale
 } from '@shared/voice/commands'
+import {
+  SESSION_UPDATED_TIMEOUT_MS,
+  VoiceClientError,
+  type VoiceClient,
+  type VoiceFunctionCall,
+  type VoiceProvider,
+  type VoiceRealtimeHandlers
+} from './client'
 import { buildVoiceInstructions } from '@shared/voice/instructions'
 import { createVad, type Vad, type VadEvent } from './vad'
 import { matchWakePhrase } from '@shared/voice/wakePhrase'
-import { XaiError, type XaiClient, type XaiFunctionCall, type XaiRealtimeHandlers } from './xai'
 
 export type VoicePhase = 'idle' | 'listening' | 'engaged' | 'error'
 
@@ -20,12 +31,16 @@ export interface VoiceSessionConfig {
   wakePhrase: string
   voiceId: string
   locale: VoiceLocale
+  /** Default xAI. Selects the empty-remainder greeting (force_message vs user text). */
+  provider?: VoiceProvider
   idleTimeoutMs?: number
+  /** Override for tests. Production default is {@link SESSION_UPDATED_TIMEOUT_MS}. */
+  sessionUpdatedTimeoutMs?: number
 }
 
 export interface VoiceSessionDeps {
   host: VoiceHost
-  client: XaiClient
+  client: VoiceClient
   config: VoiceSessionConfig
   onPhase?: (phase: VoicePhase) => void
   onTranscript?: (text: string, origin: 'user' | 'assistant') => void
@@ -45,6 +60,7 @@ export interface VoiceSession {
 
 export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
   const idleTimeoutMs = deps.config.idleTimeoutMs ?? 20_000
+  const sessionUpdatedTimeoutMs = deps.config.sessionUpdatedTimeoutMs ?? SESSION_UPDATED_TIMEOUT_MS
   const waitForPlayback = deps.waitForPlayback ?? (async () => undefined)
   const scheduleTimeout = deps.setTimeout ?? ((handler: () => void, timeout: number) => setTimeout(handler, timeout))
   const cancelTimeout = deps.clearTimeout ?? ((id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>))
@@ -55,6 +71,10 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
   let pendingEndSession = false
   let skipNextResponseDone = false
   let socketReady = false
+  let sessionUpdated = false
+  let sessionUpdatedWaiter: ((ok: boolean) => void) | undefined
+  const provider: VoiceProvider = deps.config.provider ?? 'xai'
+  let responseInFlight = false
   let idleTimer: unknown = undefined
   const pcmQueue: Int16Array[] = []
 
@@ -88,6 +108,8 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
     pendingEndSession = false
     skipNextResponseDone = false
     socketReady = false
+    settleSessionUpdated(false)
+    responseInFlight = false
     pcmQueue.length = 0
     deps.client.close()
     vad = createVad()
@@ -95,14 +117,23 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
     setPhase('listening')
   }
 
+  function settleSessionUpdated(ok: boolean): void {
+    sessionUpdated = ok
+    const waiter = sessionUpdatedWaiter
+    sessionUpdatedWaiter = undefined
+    waiter?.(ok)
+  }
+
   function fail(error: unknown): void {
     clearIdleTimer()
     const message = error instanceof Error ? error.message : String(error)
     const authFailed =
-      (error instanceof XaiError && error.authFailed) || /401|403|unauthor|invalid_api_key/i.test(message)
+      (error instanceof VoiceClientError && error.authFailed) ||
+      /401|403|unauthor|invalid_api_key/i.test(message)
     deps.onError?.(message)
     deps.client.close()
     socketReady = false
+    settleSessionUpdated(false)
     pcmQueue.length = 0
     if (authFailed) {
       setPhase('error')
@@ -112,7 +143,31 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
     if (phase !== 'idle') setPhase('listening')
   }
 
-  const realtimeHandlers: XaiRealtimeHandlers = {
+  function waitForSessionUpdated(): Promise<boolean> {
+    if (sessionUpdated) return Promise.resolve(true)
+    return new Promise((resolve) => {
+      const timeout = scheduleTimeout(() => {
+        if (sessionUpdatedWaiter === onSettle) sessionUpdatedWaiter = undefined
+        resolve(true)
+      }, sessionUpdatedTimeoutMs)
+      const onSettle = (ok: boolean): void => {
+        cancelTimeout(timeout)
+        resolve(ok)
+      }
+      sessionUpdatedWaiter = onSettle
+    })
+  }
+
+  function askResponse(): void {
+    if (responseInFlight) return
+    responseInFlight = true
+    deps.client.requestResponse()
+  }
+
+  const realtimeHandlers: VoiceRealtimeHandlers = {
+    onSessionUpdated: () => {
+      settleSessionUpdated(true)
+    },
     onAudioOut: (pcm) => {
       clearIdleTimer()
       deps.onAudioOut?.(pcm)
@@ -127,6 +182,7 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
     },
     onFunctionCall: (call) => handleFunctionCall(call),
     onResponseDone: () => {
+      responseInFlight = false
       if (skipNextResponseDone) {
         skipNextResponseDone = false
         return
@@ -143,6 +199,7 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
         clearIdleTimer()
         deps.onError?.(message)
         deps.client.close()
+        settleSessionUpdated(false)
         setPhase('error')
         return
       }
@@ -154,7 +211,7 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
     }
   }
 
-  async function handleFunctionCall(call: XaiFunctionCall): Promise<void> {
+  async function handleFunctionCall(call: VoiceFunctionCall): Promise<void> {
     clearIdleTimer()
     if (call.name === 'end_session') {
       pendingEndSession = true
@@ -167,7 +224,13 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
       skipNextResponseDone = true
     }
     await waitForPlayback()
-    deps.client.requestResponse()
+    responseInFlight = false
+    askResponse()
+  }
+
+  function flushQueuedAudio(): void {
+    for (const chunk of pcmQueue) deps.client.appendInputAudio(chunk)
+    pcmQueue.length = 0
   }
 
   async function engage(remainder: string): Promise<void> {
@@ -176,10 +239,14 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
     pendingEndSession = false
     skipNextResponseDone = false
     socketReady = false
+    settleSessionUpdated(false)
+    sessionUpdated = false
+    responseInFlight = false
+    vad = createVad()
     try {
       await deps.client.connectRealtime(realtimeHandlers)
       deps.client.updateSession({
-        voice: deps.config.voiceId || 'eve',
+        voice: deps.config.voiceId,
         instructions: buildVoiceInstructions({
           locale: deps.config.locale,
           wakePhrase: deps.config.wakePhrase,
@@ -189,16 +256,25 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
         languageHint: deps.config.locale,
         keyterms: keyterms()
       })
+      const ready = await waitForSessionUpdated()
+      if (!ready) return
       socketReady = true
-      for (const chunk of pcmQueue) deps.client.appendInputAudio(chunk)
-      pcmQueue.length = 0
+      flushQueuedAudio()
       const rest = remainder.trim()
       if (rest) {
         deps.client.sendUserText(rest)
-        deps.client.requestResponse()
-      } else {
-        deps.client.forceMessage(deps.config.locale === 'en' ? 'Yes?' : 'Ja?')
+        askResponse()
+        return
       }
+      const prompt = deps.config.locale === 'en' ? 'Yes?' : 'Ja?'
+      if (provider === 'openai') {
+        // OpenAI has no force_message; a user turn + response.create is the greeting.
+        deps.client.sendUserText(prompt)
+        askResponse()
+        return
+      }
+      // xAI: force_message is the spoken greeting. Do not also requestResponse.
+      deps.client.forceMessage(prompt)
     } catch (error) {
       fail(error)
     }
@@ -244,6 +320,9 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
       skipNextResponseDone = false
       wakeInFlight = false
       socketReady = false
+      settleSessionUpdated(false)
+      sessionUpdated = false
+      responseInFlight = false
       pcmQueue.length = 0
       setPhase('listening')
     },
@@ -252,6 +331,9 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
       pendingEndSession = false
       skipNextResponseDone = false
       socketReady = false
+      settleSessionUpdated(false)
+      sessionUpdated = false
+      responseInFlight = false
       pcmQueue.length = 0
       deps.client.close()
       setPhase('idle')

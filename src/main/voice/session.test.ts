@@ -3,11 +3,11 @@ import type { VoiceHost, VoiceHostWorkspace } from '@shared/voice/commands'
 import { concatInt16 } from './pcm'
 import { createVoiceSession, type VoicePhase } from './session'
 import type {
-  XaiClient,
-  XaiRealtimeHandlers,
-  XaiRealtimeSessionConfig,
-  XaiSttRequest
-} from './xai'
+  VoiceClient,
+  VoiceRealtimeHandlers,
+  VoiceRealtimeSessionConfig,
+  VoiceSttRequest
+} from './client'
 
 const SAMPLE_RATE = 24_000
 
@@ -58,29 +58,36 @@ function createHost(overrides: Partial<VoiceHost> = {}): VoiceHost & { started: 
   }
 }
 
-function createFakeClient(opts?: { transcript?: string; transcribe?: XaiClient['transcribe'] }): {
-  client: XaiClient
-  handlers: () => XaiRealtimeHandlers | undefined
+function createFakeClient(opts?: {
+  transcript?: string
+  transcribe?: VoiceClient['transcribe']
+  emitSessionUpdated?: boolean
+}): {
+  client: VoiceClient
+  handlers: () => VoiceRealtimeHandlers | undefined
   userTexts: string[]
   forced: string[]
   outputs: { callId: string; json: unknown }[]
   responses: number
   closed: number
-  sessionUpdates: XaiRealtimeSessionConfig[]
-  stt: XaiSttRequest[]
+  commits: number
+  sessionUpdates: VoiceRealtimeSessionConfig[]
+  stt: VoiceSttRequest[]
   audioIn: Int16Array[]
 } {
-  let handlers: XaiRealtimeHandlers | undefined
+  let handlers: VoiceRealtimeHandlers | undefined
   const userTexts: string[] = []
   const forced: string[] = []
   const outputs: { callId: string; json: unknown }[] = []
   let responses = 0
   let closed = 0
-  const sessionUpdates: XaiRealtimeSessionConfig[] = []
-  const stt: XaiSttRequest[] = []
+  let commits = 0
+  const sessionUpdates: VoiceRealtimeSessionConfig[] = []
+  const stt: VoiceSttRequest[] = []
   const audioIn: Int16Array[] = []
+  const emitSessionUpdated = opts?.emitSessionUpdated !== false
 
-  const client: XaiClient = {
+  const client: VoiceClient = {
     transcribe: opts?.transcribe ?? (async (request) => {
       stt.push(request)
       return { text: opts?.transcript ?? 'Hey Vertragus starte den UWE workspace mit Ziel xyz' }
@@ -90,9 +97,13 @@ function createFakeClient(opts?: { transcript?: string; transcribe?: XaiClient['
     },
     updateSession: (config) => {
       sessionUpdates.push(config)
+      if (emitSessionUpdated) queueMicrotask(() => handlers?.onSessionUpdated?.())
     },
     appendInputAudio: (pcm) => {
       audioIn.push(pcm)
+    },
+    commitInputAudio: () => {
+      commits += 1
     },
     sendFunctionOutput: (callId, json) => {
       outputs.push({ callId, json })
@@ -122,6 +133,9 @@ function createFakeClient(opts?: { transcript?: string; transcribe?: XaiClient['
     },
     get closed() {
       return closed
+    },
+    get commits() {
+      return commits
     },
     sessionUpdates,
     stt,
@@ -183,17 +197,78 @@ describe('createVoiceSession', () => {
     expect(session.phase).toBe('engaged')
   })
 
-  it('acks with Ja? when the remainder is empty', async () => {
+  it('on xAI empty remainder forceMessages Ja? and does not requestResponse', async () => {
     const fake = createFakeClient({ transcript: 'Hey Vertragus.' })
+    const session = createVoiceSession({
+      host: createHost(),
+      client: fake.client,
+      config: { wakePhrase: 'Vertragus', voiceId: 'eve', locale: 'de', provider: 'xai' }
+    })
+    session.start()
+    await session.pushPcm(utterance())
+    expect(fake.forced).toEqual(['Ja?'])
+    expect(fake.userTexts).toHaveLength(0)
+    expect(fake.responses).toBe(0)
+  })
+
+  it('on OpenAI empty remainder sends a greet prompt and requestResponse, never force_message', async () => {
+    const fake = createFakeClient({ transcript: 'Hey Vertragus.' })
+    const session = createVoiceSession({
+      host: createHost(),
+      client: fake.client,
+      config: {
+        wakePhrase: 'Vertragus',
+        voiceId: 'alloy',
+        locale: 'de',
+        provider: 'openai'
+      }
+    })
+    session.start()
+    await session.pushPcm(utterance())
+    expect(fake.forced).toHaveLength(0)
+    expect(fake.userTexts).toEqual(['Ja?'])
+    expect(fake.responses).toBe(1)
+    expect(fake.sessionUpdates[0]?.voice).toBe('alloy')
+  })
+
+  it('waits for session.updated after updateSession before any item or response', async () => {
+    const fake = createFakeClient({
+      transcript: 'Hey Vertragus starte den UWE workspace',
+      emitSessionUpdated: false
+    })
     const session = createVoiceSession({
       host: createHost(),
       client: fake.client,
       config: { wakePhrase: 'Vertragus', voiceId: 'eve', locale: 'de' }
     })
     session.start()
-    await session.pushPcm(utterance())
-    expect(fake.forced).toEqual(['Ja?'])
+    const pending = session.pushPcm(utterance())
+    await vi.waitFor(() => {
+      expect(fake.sessionUpdates).toHaveLength(1)
+    })
     expect(fake.userTexts).toHaveLength(0)
+    expect(fake.forced).toHaveLength(0)
+    expect(fake.responses).toBe(0)
+    fake.handlers()?.onSessionUpdated?.()
+    await pending
+    expect(fake.userTexts[0]?.toLowerCase()).toContain('starte')
+    expect(fake.responses).toBe(1)
+  })
+
+  it('does not commit while server_vad is on — appends and lets the server end the turn', async () => {
+    const fake = createFakeClient({ transcript: 'Hey Vertragus.' })
+    const session = createVoiceSession({
+      host: createHost(),
+      client: fake.client,
+      config: { wakePhrase: 'Vertragus', voiceId: 'eve', locale: 'de', provider: 'xai' }
+    })
+    session.start()
+    await session.pushPcm(utterance())
+    expect(session.phase).toBe('engaged')
+    fake.handlers()?.onResponseDone?.()
+    await session.pushPcm(utterance())
+    expect(fake.commits).toBe(0)
+    expect(fake.audioIn.length).toBeGreaterThan(0)
   })
 
   it('forwards PCM to realtime only while engaged', async () => {
@@ -210,6 +285,28 @@ describe('createVoiceSession', () => {
     await session.pushPcm(utterance())
     await session.pushPcm(chunk)
     expect(fake.audioIn.some((pcm) => pcm === chunk || pcm.length === 2)).toBe(true)
+  })
+
+  it('releases the session.updated wait when engage fails instead of hanging', async () => {
+    const fake = createFakeClient({
+      transcript: 'Hey Vertragus.',
+      emitSessionUpdated: false
+    })
+    const session = createVoiceSession({
+      host: createHost(),
+      client: fake.client,
+      config: { wakePhrase: 'Vertragus', voiceId: 'eve', locale: 'de' }
+    })
+    session.start()
+    const pending = session.pushPcm(utterance())
+    await vi.waitFor(() => {
+      expect(fake.sessionUpdates).toHaveLength(1)
+    })
+    fake.handlers()?.onError?.('handshake failed')
+    await pending
+    expect(fake.forced).toHaveLength(0)
+    expect(fake.userTexts).toHaveLength(0)
+    expect(fake.responses).toBe(0)
   })
 
   it('stays engaged on the tool-turn response.done after end_session and drops on the follow-up', async () => {

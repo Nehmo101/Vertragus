@@ -246,6 +246,8 @@ export function PanelApp(): React.JSX.Element {
         bridge={panel.bridge}
         voiceEnabled={panel.settings?.voiceEnabled ?? false}
         voiceWakePhrase={panel.settings?.voiceWakePhrase ?? 'Hey Vertragus'}
+        voiceInputDeviceId={panel.settings?.voiceInputDeviceId ?? ''}
+        voiceOutputDeviceId={panel.settings?.voiceOutputDeviceId ?? ''}
         onToggleVoice={panel.toggleVoice}
       />
     </aside>

@@ -3,8 +3,8 @@
  * session lifecycle, and the panel-only IPC port.
  *
  * The domain engine in `voice/` is not rewritten here. This file starts and
- * stops it, recreates the xAI client when key/wake/locale/voiceId change, and
- * never logs the API key.
+ * stops it, recreates the realtime client when key/provider/wake/locale/voiceId
+ * change, and never logs the API key.
  */
 import { session as electronSession, type Session } from 'electron'
 import {
@@ -16,13 +16,10 @@ import {
 } from './appIpc'
 import { mainMessages, readLocale } from '@shared/mainMessages'
 import type { VoiceHost, VoiceHostProfile, VoiceHostWorkspace } from '@shared/voice/commands'
+import { defaultVoiceId, type VoiceClient, type VoiceProvider } from './voice/client'
 import { createVoiceSession, type VoicePhase, type VoiceSession } from './voice/session'
-import {
-  createXaiClient,
-  resolveXaiApiKey,
-  type InjectedWebSocketConstructor,
-  type XaiClient
-} from './voice/xai'
+import { createXaiClient, resolveXaiApiKey, type InjectedWebSocketConstructor } from './voice/xai'
+import { createOpenaiClient, resolveOpenaiApiKey } from './voice/openai'
 import { HeaderWebSocket } from './headerWebSocket'
 import type { AppSettings, SettingsStore } from './store/settings'
 
@@ -34,26 +31,30 @@ function keyStamp(apiKey: string): string {
   return `${apiKey.length}:${sum}`
 }
 
-export function missingApiKeyMessage(locale: AppSettings['ui']['locale']): string {
-  return mainMessages(readLocale(() => locale)).voiceMissingApiKey
+export function missingApiKeyMessage(
+  locale: AppSettings['ui']['locale'],
+  provider: VoiceProvider = 'xai'
+): string {
+  const messages = mainMessages(readLocale(() => locale))
+  return provider === 'openai' ? messages.voiceMissingOpenaiApiKey : messages.voiceMissingApiKey
 }
 
-/** media/microphone only for the panel; every other permission stays as before. */
-export function voicePermissionAllowed(isPanel: boolean, permission: string): boolean {
-  if (permission === 'media' || permission === 'microphone') return isPanel
+/** media/microphone for the panel (capture) and settings (device labels). */
+export function voicePermissionAllowed(isVoiceWindow: boolean, permission: string): boolean {
+  if (permission === 'media' || permission === 'microphone') return isVoiceWindow
   return true
 }
 
 export function installVoicePermissionHandlers(
   sess: Session,
-  isPanelSender: (webContentsId: number) => boolean
+  isVoiceWindowSender: (webContentsId: number) => boolean
 ): void {
   sess.setPermissionRequestHandler((webContents, permission, callback) => {
-    callback(voicePermissionAllowed(isPanelSender(webContents.id), permission))
+    callback(voicePermissionAllowed(isVoiceWindowSender(webContents.id), permission))
   })
   sess.setPermissionCheckHandler((webContents, permission) => {
-    const isPanel = Boolean(webContents && isPanelSender(webContents.id))
-    return voicePermissionAllowed(isPanel, permission)
+    const allowed = Boolean(webContents && isVoiceWindowSender(webContents.id))
+    return voicePermissionAllowed(allowed, permission)
   })
 }
 
@@ -136,12 +137,36 @@ export interface AppVoice {
   dispose(): void
 }
 
+function resolveVoiceKey(
+  settings: AppSettings
+): { provider: VoiceProvider; apiKey: string } | undefined {
+  const provider = settings.voice.provider
+  const apiKey =
+    provider === 'openai'
+      ? resolveOpenaiApiKey(settings.voice.openaiApiKey)
+      : resolveXaiApiKey(settings.voice.apiKey)
+  if (!apiKey) return undefined
+  return { provider, apiKey }
+}
+
+function createProviderClient(
+  provider: VoiceProvider,
+  apiKey: string,
+  fetchImpl: typeof fetch,
+  WebSocketImpl: InjectedWebSocketConstructor
+): VoiceClient {
+  if (provider === 'openai') {
+    return createOpenaiClient({ fetch: fetchImpl, WebSocket: WebSocketImpl, apiKey })
+  }
+  return createXaiClient({ fetch: fetchImpl, WebSocket: WebSocketImpl, apiKey })
+}
+
 export function createAppVoice(deps: AppVoiceDeps): AppVoice {
   const host = createVoiceCommandHost(deps)
   const fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis)
   const WebSocketImpl = deps.WebSocketImpl ?? (HeaderWebSocket as unknown as InjectedWebSocketConstructor)
 
-  let client: XaiClient | undefined
+  let client: VoiceClient | undefined
   let voiceSession: VoiceSession | undefined
   let phase: VoicePhase = 'idle'
   let lastError: string | undefined
@@ -173,8 +198,9 @@ export function createAppVoice(deps: AppVoiceDeps): AppVoice {
     lastError = undefined
   }
 
-  function configFingerprint(settings: AppSettings, apiKey: string): string {
+  function configFingerprint(settings: AppSettings, provider: VoiceProvider, apiKey: string): string {
     return [
+      provider,
       keyStamp(apiKey),
       settings.voice.wakePhrase,
       settings.voice.voiceId,
@@ -184,32 +210,29 @@ export function createAppVoice(deps: AppVoiceDeps): AppVoice {
 
   function startSession(): void {
     const settings = deps.store().getSettings()
-    const apiKey = resolveXaiApiKey(settings.voice.apiKey)
-    if (!apiKey) {
+    const resolved = resolveVoiceKey(settings)
+    if (!resolved) {
       stopSession()
       phase = 'error'
-      lastError = missingApiKeyMessage(settings.ui.locale)
+      lastError = missingApiKeyMessage(settings.ui.locale, settings.voice.provider)
       emitVoice()
       return
     }
-    const nextPrint = configFingerprint(settings, apiKey)
+    const nextPrint = configFingerprint(settings, resolved.provider, resolved.apiKey)
     if (voiceSession && fingerprint === nextPrint) {
       if (phase === 'idle' || phase === 'error') voiceSession.start()
       return
     }
     stopSession()
-    client = createXaiClient({
-      fetch: fetchImpl,
-      WebSocket: WebSocketImpl,
-      apiKey
-    })
+    client = createProviderClient(resolved.provider, resolved.apiKey, fetchImpl, WebSocketImpl)
     voiceSession = createVoiceSession({
       host,
       client,
       config: {
         wakePhrase: settings.voice.wakePhrase,
-        voiceId: settings.voice.voiceId || 'eve',
-        locale: settings.ui.locale
+        voiceId: defaultVoiceId(resolved.provider, settings.voice.voiceId),
+        locale: settings.ui.locale,
+        provider: resolved.provider
       },
       onPhase: (next) => {
         phase = next
@@ -259,7 +282,7 @@ export function createAppVoice(deps: AppVoiceDeps): AppVoice {
 }
 
 export function installDefaultVoicePermissions(
-  isPanelSender: (webContentsId: number) => boolean
+  isVoiceWindowSender: (webContentsId: number) => boolean
 ): void {
-  installVoicePermissionHandlers(electronSession.defaultSession, isPanelSender)
+  installVoicePermissionHandlers(electronSession.defaultSession, isVoiceWindowSender)
 }

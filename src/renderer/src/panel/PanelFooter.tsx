@@ -19,6 +19,8 @@ interface Props {
   bridge?: VertragusAppApi
   voiceEnabled: boolean
   voiceWakePhrase: string
+  voiceInputDeviceId: string
+  voiceOutputDeviceId: string
   onToggleVoice(): void
 }
 
@@ -48,10 +50,15 @@ export function PanelFooter({
   bridge,
   voiceEnabled,
   voiceWakePhrase,
+  voiceInputDeviceId,
+  voiceOutputDeviceId,
   onToggleVoice
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
-  const voice = useVoice(bridge, voiceEnabled)
+  const voice = useVoice(bridge, voiceEnabled, {
+    inputDeviceId: voiceInputDeviceId,
+    outputDeviceId: voiceOutputDeviceId
+  })
   const micState = voiceEnabled
     ? voice.phase === 'engaged'
       ? 'engaged'
@@ -59,14 +66,22 @@ export function PanelFooter({
         ? 'error'
         : 'listening'
     : 'off'
+  const deviceHint =
+    voice.hint === 'input-missing'
+      ? t('panel.voiceInputMissing')
+      : voice.hint === 'output-missing'
+        ? t('panel.voiceOutputMissing')
+        : undefined
   const micTitle =
     micState === 'off'
       ? t('panel.voiceToggleOn')
       : micState === 'error'
         ? t('panel.voiceError', { error: voice.error ?? t('panel.voiceMissingKey') })
-        : micState === 'engaged'
-          ? t('panel.voiceEngaged')
-          : t('panel.voiceListening', { phrase: voiceWakePhrase })
+        : deviceHint
+          ? deviceHint
+          : micState === 'engaged'
+            ? t('panel.voiceEngaged')
+            : t('panel.voiceListening', { phrase: voiceWakePhrase })
 
   return (
     <>

@@ -83,3 +83,38 @@ export function encodeWavPcm16(pcm: Int16Array, sampleRate: number = PCM_SAMPLE_
 function writeAscii(bytes: Uint8Array, offset: number, text: string): void {
   for (let i = 0; i < text.length; i += 1) bytes[offset + i] = text.charCodeAt(i)
 }
+
+/**
+ * Coerce an IPC payload into PCM16. Structured clone may deliver Int16Array,
+ * a Node Buffer, an ArrayBuffer, any ArrayBufferView, or a number[] of
+ * samples. Anything else is dropped — silence — never thrown.
+ */
+export function asInt16Pcm(payload: unknown): Int16Array | undefined {
+  if (payload instanceof Int16Array) return payload
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(payload)) {
+    return bytesToInt16(payload)
+  }
+  if (payload instanceof ArrayBuffer) {
+    const even = payload.byteLength & ~1
+    return new Int16Array(payload.slice(0, even))
+  }
+  if (ArrayBuffer.isView(payload)) {
+    const view = payload as ArrayBufferView
+    const even = view.byteLength & ~1
+    if (even <= 0) return new Int16Array(0)
+    const copy = new Uint8Array(even)
+    copy.set(new Uint8Array(view.buffer, view.byteOffset, even))
+    return new Int16Array(copy.buffer, 0, even / 2)
+  }
+  if (Array.isArray(payload) && payload.every((n) => typeof n === 'number')) {
+    return Int16Array.from(payload as number[])
+  }
+  return undefined
+}
+
+function bytesToInt16(bytes: Buffer): Int16Array {
+  const even = bytes.byteLength & ~1
+  const copy = new Uint8Array(even)
+  copy.set(bytes.subarray(0, even))
+  return new Int16Array(copy.buffer, 0, even / 2)
+}

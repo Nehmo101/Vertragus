@@ -100,6 +100,8 @@ interface MainMessages {
    * panel's voice badge, so it names the two places a key can come from.
    */
   voiceMissingApiKey: string
+  /** Same as {@link voiceMissingApiKey} when the selected provider is OpenAI. */
+  voiceMissingOpenaiApiKey: string
 }
 
 const MESSAGES: Record<MainLocale, MainMessages> = {
@@ -155,7 +157,9 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     profileEditorTitle: 'Vertragus — Profil',
     providerEditorTitle: 'Vertragus — Provider',
     zoneOverlayTitle: 'Vertragus — Zonen',
-    voiceMissingApiKey: 'Kein xAI-API-Key. Unter Einstellungen eintragen oder XAI_API_KEY setzen.'
+    voiceMissingApiKey: 'Kein xAI-API-Key. Unter Einstellungen eintragen oder XAI_API_KEY setzen.',
+    voiceMissingOpenaiApiKey:
+      'Kein OpenAI-API-Key. Unter Einstellungen eintragen oder OPENAI_API_KEY setzen.'
   },
   en: {
     stubNotWired: 'The workspace manager is not wired up yet.',
@@ -208,7 +212,8 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     profileEditorTitle: 'Vertragus — Profile',
     providerEditorTitle: 'Vertragus — Provider',
     zoneOverlayTitle: 'Vertragus — Zones',
-    voiceMissingApiKey: 'No xAI API key. Set it under Settings or XAI_API_KEY.'
+    voiceMissingApiKey: 'No xAI API key. Set it under Settings or XAI_API_KEY.',
+    voiceMissingOpenaiApiKey: 'No OpenAI API key. Set it under Settings or OPENAI_API_KEY.'
   }
 }
 
