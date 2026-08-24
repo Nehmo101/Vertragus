@@ -6,12 +6,17 @@ import {
   type Appearance,
   type AppearanceSlider
 } from '@shared/appearance'
-import type { PanelSettings } from '../../../preload'
+import type { PanelMcpServer, PanelSettings } from '../../../preload'
 import { RemoteSection } from './RemoteSection'
-import { normalizeMcpServerId, type ExtraMcpServer } from '@shared/schema/mcpServer'
+import { normalizeMcpServerId } from '@shared/schema/mcpServer'
 import {
   draftFromServer,
   emptyMcpDraft,
+  MAX_EXTRA_MCP_SERVERS,
+  parseEnvLines,
+  parseHeaderLines,
+  parseArgLines,
+  toMcpServersPatch,
   validateMcpDraft,
   type McpDraftErrors,
   type McpServerDraft
@@ -570,7 +575,9 @@ export function SettingsApp(): React.JSX.Element {
         <McpServersSection
           servers={settings.mcpServers}
           saving={view.saving}
-          onWrite={(next) => view.set('mcpServers', next)}
+          onWrite={(next, secretDrafts) =>
+            view.set('mcpServers', toMcpServersPatch(next, secretDrafts))
+          }
         />
 
         <section className="st-updates">
@@ -622,14 +629,48 @@ export function SettingsApp(): React.JSX.Element {
   )
 }
 
+function panelFromDraft(draft: McpServerDraft): PanelMcpServer {
+  const id = normalizeMcpServerId(draft.id) || draft.id.trim()
+  const env = parseEnvLines(draft.envText)
+  const headers = parseHeaderLines(draft.headersText)
+  if (draft.transport === 'http') {
+    return {
+      id,
+      label: draft.label.trim(),
+      enabled: draft.enabled,
+      transport: 'http',
+      url: draft.url.trim(),
+      envKeys: [],
+      headerKeys: Object.keys(headers),
+      envSet: {},
+      headersSet: {}
+    }
+  }
+  return {
+    id,
+    label: draft.label.trim(),
+    enabled: draft.enabled,
+    transport: 'stdio',
+    command: draft.command.trim(),
+    args: parseArgLines(draft.argsText),
+    envKeys: Object.keys(env),
+    headerKeys: [],
+    envSet: {},
+    headersSet: {}
+  }
+}
+
 function McpServersSection({
   servers,
   saving,
   onWrite
 }: {
-  servers: ExtraMcpServer[]
+  servers: PanelMcpServer[]
   saving: boolean
-  onWrite: (next: ExtraMcpServer[]) => void
+  onWrite: (
+    next: PanelMcpServer[],
+    secretDrafts?: Record<string, { env?: Record<string, string>; headers?: Record<string, string> }>
+  ) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [draft, setDraft] = useState<McpServerDraft | null>(null)
@@ -647,10 +688,15 @@ function McpServersSection({
       setErrors(result.errors)
       return
     }
+    const panel = panelFromDraft(draft)
     const next = draft.editingId
-      ? servers.map((server) => (server.id === draft.editingId ? result.server : server))
-      : [...servers, result.server]
-    onWrite(next)
+      ? servers.map((server) => (server.id === draft.editingId ? panel : server))
+      : [...servers, panel]
+    const secrets =
+      draft.transport === 'stdio'
+        ? { env: parseEnvLines(draft.envText) }
+        : { headers: parseHeaderLines(draft.headersText) }
+    onWrite(next, { [panel.id]: secrets })
     setDraft(null)
     setErrors({})
   }
@@ -743,12 +789,9 @@ function McpServersSection({
               className="st-input st-mono"
               value={draft.id}
               spellCheck={false}
-              disabled={Boolean(draft.editingId)}
               onChange={(event) => patch({ id: event.target.value })}
             />
-            <span className="st-hint">
-              {draft.editingId ? t('settings.mcp.idLocked') : t('settings.mcp.idHint')}
-            </span>
+            <span className="st-hint">{t('settings.mcp.idHint')}</span>
             {errors.id ? <span className="st-error">{errors.id}</span> : null}
           </section>
           <section className="st-field">
@@ -852,7 +895,12 @@ function McpServersSection({
         </div>
       ) : (
         <div className="st-mcp-actions">
-          <button type="button" className="st-secondary" onClick={() => setDraft(emptyMcpDraft())}>
+          <button
+            type="button"
+            className="st-secondary"
+            disabled={servers.length >= MAX_EXTRA_MCP_SERVERS}
+            onClick={() => setDraft(emptyMcpDraft())}
+          >
             {t('settings.mcp.add')}
           </button>
         </div>

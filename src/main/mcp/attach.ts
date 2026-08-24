@@ -326,9 +326,9 @@ export function writeClaudeMcpConfigFile(
 }
 
 /**
- * Claude Code launch arguments: transient MCP config, strict mode (only the
- * servers in that file — Vertragus plus enabled extras), optional system
- * prompt, optional allowlist.
+ * Claude Code launch arguments: transient MCP config, `--strict-mcp-config`
+ * (file-scoped: extras live in that same JSON, so they are allowed), optional
+ * system prompt, optional allowlist.
  */
 export function buildClaudeMcpArgs(target: McpAttachTarget): string[] {
   const configPath = writeClaudeMcpConfigFile(

@@ -42,8 +42,13 @@ import {
   ORCHESTRATOR_ROLE_ID,
   roleColor
 } from '@shared/prompts/roles'
-import type { ExtraMcpServer } from '@shared/schema/mcpServer'
-import { parseExtraMcpServersForWrite } from '@shared/schema/mcpServer'
+import {
+  extraMcpServerSchema,
+  isReservedMcpServerId,
+  MAX_EXTRA_MCP_SERVERS,
+  normalizeMcpServerId,
+  type ExtraMcpServer
+} from '@shared/schema/mcpServer'
 import type { ProviderConfig } from '@shared/schema/provider'
 import { normalizeAppearance, type Appearance } from '@shared/appearance'
 import { mainMessages, readLocale } from '@shared/mainMessages'
@@ -563,8 +568,29 @@ export interface PanelSettings {
   voiceOpenaiApiKeySet: boolean
   voiceInputDeviceId: string
   voiceOutputDeviceId: string
-  /** Extra MCP servers attached next to Vertragus on the next spawn. */
-  mcpServers: ExtraMcpServer[]
+  /**
+   * Extra MCP servers with secrets stripped. Env/header VALUES never appear
+   * here — only keys and a per-key `set` flag, like voice API keys.
+   */
+  mcpServers: PanelMcpServer[]
+}
+
+/**
+ * One extra MCP server as the settings window sees it. Command, args and url
+ * may appear — they identify the server. Secrets do not.
+ */
+export interface PanelMcpServer {
+  id: string
+  label: string
+  enabled: boolean
+  transport: ExtraMcpServer['transport']
+  command?: string
+  args?: string[]
+  url?: string
+  envKeys: string[]
+  headerKeys: string[]
+  envSet: Record<string, boolean>
+  headersSet: Record<string, boolean>
 }
 
 export type { VoicePhase }
@@ -904,9 +930,188 @@ export function toPanelSettings(
     voiceOpenaiApiKeySet: value.voice.openaiApiKey.trim().length > 0,
     voiceInputDeviceId: value.voice.inputDeviceId,
     voiceOutputDeviceId: value.voice.outputDeviceId,
-    mcpServers: value.mcpServers,
+    mcpServers: value.mcpServers.map(toPanelMcpServer),
     ...(hotkey && !hotkey.registered ? { hideAllHotkeyError: hotkey.error ?? '' } : {})
   }
+}
+
+function secretSetFlags(record: Record<string, string> | undefined): {
+  keys: string[]
+  set: Record<string, boolean>
+} {
+  const keys = record ? Object.keys(record) : []
+  const set: Record<string, boolean> = {}
+  for (const key of keys) set[key] = (record?.[key] ?? '').length > 0
+  return { keys, set }
+}
+
+/** Strip env/header values. Command, args and url may appear — they identify the server. */
+export function toPanelMcpServer(server: ExtraMcpServer): PanelMcpServer {
+  if (server.transport === 'stdio') {
+    const env = secretSetFlags(server.env)
+    return {
+      id: server.id,
+      label: server.label,
+      enabled: server.enabled,
+      transport: 'stdio',
+      command: server.command,
+      ...(server.args.length > 0 ? { args: server.args } : {}),
+      envKeys: env.keys,
+      headerKeys: [],
+      envSet: env.set,
+      headersSet: {}
+    }
+  }
+  const headers = secretSetFlags(server.headers)
+  return {
+    id: server.id,
+    label: server.label,
+    enabled: server.enabled,
+    transport: 'http',
+    url: server.url,
+    envKeys: [],
+    headerKeys: headers.keys,
+    envSet: {},
+    headersSet: headers.set
+  }
+}
+
+/**
+ * Patch the stored extra-MCP list. The patch is the full list (add/remove/reorder).
+ * Servers not in the patch are deleted. Per server, match by id. For env/headers:
+ * keys present with a non-empty value replace; keys present with `''` keep the
+ * stored value (the renderer cannot see it); keys omitted from the patch object
+ * are deleted. Omitting `env`/`headers` entirely keeps the stored record.
+ *
+ * Id rename: if a patch row's id is unknown and exactly one stored server of
+ * the same transport is absent from the patch, that row's env/headers are used
+ * as `stored`. Key rename: if exactly one stored key is missing from the patch
+ * and exactly one patch key is new with an empty value, the leftover value
+ * is copied onto the new key.
+ */
+export function mergeMcpServersPatch(current: ExtraMcpServer[], patch: unknown): ExtraMcpServer[] {
+  if (!Array.isArray(patch)) {
+    throw new Error('settings:set rejected — mcpServers expects an array')
+  }
+  if (patch.length > MAX_EXTRA_MCP_SERVERS) {
+    throw new Error(`settings:set rejected — at most ${MAX_EXTRA_MCP_SERVERS} MCP servers`)
+  }
+  const storedById = new Map(current.map((server) => [server.id, server]))
+  const seen = new Set<string>()
+  const bodies: { id: string; body: Record<string, unknown> }[] = []
+  for (const entry of patch) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error('settings:set rejected — each mcp server must be an object')
+    }
+    const body = entry as Record<string, unknown>
+    const rawId = typeof body.id === 'string' ? body.id : ''
+    const id = normalizeMcpServerId(rawId)
+    if (!id) {
+      throw new Error('settings:set rejected — mcp server id is required')
+    }
+    if (isReservedMcpServerId(id) || isReservedMcpServerId(rawId)) {
+      throw new Error('settings:set rejected — mcp server id "vertragus" is reserved')
+    }
+    if (seen.has(id)) {
+      throw new Error(`settings:set rejected — duplicate mcp server id "${id}"`)
+    }
+    seen.add(id)
+    bodies.push({ id, body })
+  }
+  const merged: ExtraMcpServer[] = []
+  for (const { id, body } of bodies) {
+    const stored = storedById.get(id) ?? leftoverStoredServer(current, seen, body.transport)
+    if (body.transport === 'stdio') {
+      const env = mergeSecretRecord(stored?.transport === 'stdio' ? stored.env : undefined, body.env)
+      merged.push(
+        extraMcpServerSchema.parse({
+          id,
+          label: body.label ?? stored?.label,
+          enabled: body.enabled,
+          transport: 'stdio',
+          command: body.command,
+          args: body.args,
+          ...(env ? { env } : {})
+        })
+      )
+    } else if (body.transport === 'http') {
+      const headers = mergeSecretRecord(
+        stored?.transport === 'http' ? stored.headers : undefined,
+        body.headers
+      )
+      merged.push(
+        extraMcpServerSchema.parse({
+          id,
+          label: body.label ?? stored?.label,
+          enabled: body.enabled,
+          transport: 'http',
+          url: body.url,
+          ...(headers ? { headers } : {})
+        })
+      )
+    } else {
+      throw new Error('settings:set rejected — mcp server transport expects stdio or http')
+    }
+  }
+  return merged
+}
+
+/** The unique stored server of this transport whose id is not in the patch — an id rename. */
+function leftoverStoredServer(
+  current: readonly ExtraMcpServer[],
+  patchIds: ReadonlySet<string>,
+  transport: unknown
+): ExtraMcpServer | undefined {
+  if (transport !== 'stdio' && transport !== 'http') return undefined
+  const leftovers = current.filter(
+    (server) => !patchIds.has(server.id) && server.transport === transport
+  )
+  return leftovers.length === 1 ? leftovers[0] : undefined
+}
+
+function mergeSecretRecord(
+  stored: Record<string, string> | undefined,
+  patch: unknown
+): Record<string, string> | undefined {
+  if (patch === undefined) return stored
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    throw new Error('settings:set rejected — mcpServers env/headers expects an object')
+  }
+  const body = patch as Record<string, unknown>
+  const source = renamedSecretRecord(stored, body)
+  const next: Record<string, string> = {}
+  for (const [key, value] of Object.entries(body)) {
+    if (typeof value !== 'string') {
+      throw new Error(`settings:set rejected — mcpServers env/headers.${key} expects a string`)
+    }
+    if (value.length > 0) {
+      next[key] = value
+      continue
+    }
+    const kept = source[key]
+    if (kept !== undefined) next[key] = kept
+  }
+  return Object.keys(next).length > 0 ? next : undefined
+}
+
+/**
+ * If the patch dropped exactly one stored key and added exactly one new key
+ * with an empty value, treat that as a rename and copy the leftover value.
+ */
+function renamedSecretRecord(
+  stored: Record<string, string> | undefined,
+  patch: Record<string, unknown>
+): Record<string, string> {
+  const source: Record<string, string> = { ...(stored ?? {}) }
+  if (!stored) return source
+  const missing = Object.keys(stored).filter((key) => !(key in patch))
+  const newEmpty = Object.keys(patch).filter((key) => !(key in stored) && patch[key] === '')
+  if (missing.length === 1 && newEmpty.length === 1) {
+    const from = missing[0]!
+    const to = newEmpty[0]!
+    source[to] = stored[from]!
+  }
+  return source
 }
 
 /**
@@ -1474,10 +1679,11 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
         }
         case 'mcpServers': {
           try {
-            const parsed = parseExtraMcpServersForWrite(body.value)
-            return panelSettings(host.store.setSetting('mcpServers', parsed))
+            const merged = mergeMcpServersPatch(host.store.getSettings().mcpServers, body.value)
+            return panelSettings(host.store.setSetting('mcpServers', merged))
           } catch (error) {
             const message = error instanceof Error ? error.message : 'invalid mcpServers'
+            if (message.startsWith('settings:set rejected')) throw error
             throw new Error(`settings:set rejected — ${message}`)
           }
         }
