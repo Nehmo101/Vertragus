@@ -262,6 +262,19 @@ export function momentumStepPixels(
  */
 export const COMPACT_MAX_WIDTH_PX = 700
 
+/**
+ * Extra rows xterm paints below the clip so a sub-row `translateY` can reveal
+ * the next line instead of a blank band. Local only: the host still hears the
+ * fitted visible size (`hostResize` uses `proposeDimensions`, not this).
+ */
+export const OVERSCAN_ROWS = 1
+
+/** Visible rows plus the local overscan. */
+export function overscanRowCount(visibleRows: number): number {
+  if (!Number.isFinite(visibleRows) || visibleRows < 1) return 1
+  return Math.floor(visibleRows) + OVERSCAN_ROWS
+}
+
 /** Should the reading chrome (pager, open keys) fold away? */
 export function isCompactChrome(input: { coarse: boolean; widthPx: number }): boolean {
   if (input.coarse) return true

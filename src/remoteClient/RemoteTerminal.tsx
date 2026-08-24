@@ -67,6 +67,8 @@ import {
   isDrag,
   maxScrollTop,
   momentumStepPixels,
+  OVERSCAN_ROWS,
+  overscanRowCount,
   pageScrollLines,
   pushSample,
   splitScrollPx,
@@ -449,10 +451,15 @@ export function RemoteTerminal({
    * a physical keyboard, so they start open. The header toggle is the way to
    * reach Esc / Ctrl-C without opening the composer.
    */
-  const [keysOpen, setKeysOpen] = useState(() => !compactChromeNow())
+  const [keysOverride, setKeysOverride] = useState<boolean | null>(null)
   const [compact, setCompact] = useState(() => compactChromeNow())
-  /** Once the reader hits the keys toggle, compact-chrome no longer drives it. */
-  const keysTouched = useRef(false)
+  /**
+   * Compact chrome folds the keys until the reader asks. A laptop always has
+   * room, so the default follows `compact` instead of a layout effect — that
+   * effect was `setState` in the body, which eslint rejects as a cascading
+   * render. Once the reader hits the toggle, `keysOverride` is the source.
+   */
+  const keysOpen = keysOverride ?? !compact
 
   /**
    * What the long-lived effect reads from props and state, kept current
@@ -487,17 +494,6 @@ export function RemoteTerminal({
     query.addEventListener('change', update)
     return () => query.removeEventListener('change', update)
   }, [])
-
-  useEffect(() => {
-    // A laptop (or a phone rotated into one) always has room for the keys.
-    // Compact chrome folds them until the reader asks, so a DevTools resize
-    // 390 → 1280 must not keep a phone-folded strip on a full stage.
-    if (!compact) {
-      setKeysOpen(true)
-      return
-    }
-    if (!keysTouched.current) setKeysOpen(false)
-  }, [compact])
 
   /** The size this client last asked the host for; reset with the terminal. */
   const sentSizeRef = useRef<TerminalSize | undefined>(undefined)
@@ -534,7 +530,13 @@ export function RemoteTerminal({
       // not laid out, so a try/catch around it guards a path that cannot happen
       // while xterm's untouched 80×24 goes to the host behind it.
       const fitted = fit.proposeDimensions()
-      if (fitted) fit.fit()
+      if (fitted) {
+        fit.fit()
+        // One extra local row, clipped by `.terminal-host { overflow: hidden }`.
+        // The sub-row translate can then reveal the next line; without this
+        // `.xterm-screen` is exactly `rows` tall and the remainder is a gap.
+        if (term.rows >= 1) term.resize(term.cols, overscanRowCount(term.rows))
+      }
       // A leftover sub-row translate was measured against the previous cell
       // height; drop it. The next gesture re-splits against the new cell.
       desiredTopRef.current = undefined
@@ -680,7 +682,13 @@ export function RemoteTerminal({
       if (!port) return
       const max = maxScrollTop(port.scrollHeight, port.clientHeight)
       const clamped = clampScrollTop(next, max)
-      const split = splitScrollPx(clamped, cellHeight())
+      const cell = cellHeight()
+      if (cell <= 0) {
+        // Pre-layout: do not write an unaligned scrollTop xterm will snap.
+        desiredTopRef.current = clamped
+        return
+      }
+      const split = splitScrollPx(clamped, cell)
       desiredTopRef.current = clamped
       const screen = screenEl()
       if (screen) screen.style.transform = subrowTransform(split.remainderPx)
@@ -731,17 +739,18 @@ export function RemoteTerminal({
     let drag: Drag | null = null
 
     const onTouchStart = (event: TouchEvent): void => {
-      event.stopPropagation()
       stopMomentum()
       const touch = event.touches[0]
       // A second finger is a pinch; hand it back to the browser untouched.
       // Nothing to scroll — the alternate screen, a session that has not filled
       // one screen — is left alone too: consuming a gesture we cannot answer
-      // makes the screen read as hung.
+      // makes the screen read as hung. Do not stopPropagation in those cases:
+      // xterm's own handler (TUI mouse, selection) is the one that should run.
       if (event.touches.length !== 1 || !touch || !canScroll()) {
         drag = null
         return
       }
+      event.stopPropagation()
       drag = {
         last: touch.clientY,
         travel: 0,
@@ -750,8 +759,8 @@ export function RemoteTerminal({
     }
 
     const onTouchMove = (event: TouchEvent): void => {
-      event.stopPropagation()
       if (!drag) return
+      event.stopPropagation()
       const touch = event.touches[0]
       // A finger joined mid-drag: abandon the gesture rather than fling on it.
       if (event.touches.length !== 1 || !touch) {
@@ -768,8 +777,10 @@ export function RemoteTerminal({
       if (!port) return
       const max = maxScrollTop(port.scrollHeight, port.clientHeight)
       // Nothing to move: do not spend preventDefault on a hung screen.
-      if (max <= 0 || !event.cancelable) return
-      event.preventDefault()
+      if (max <= 0) return
+      // Still paint if Safari already marked the move non-cancelable: returning
+      // here was a dead finger (no JS pan, and pinch-zoom grants no native one).
+      if (event.cancelable) event.preventDefault()
       const next = applyFingerDelta(readTop(), delta, max)
       if (next.moved) paintScroll(next.scrollTop)
     }
@@ -999,7 +1010,7 @@ export function RemoteTerminal({
   const page = (direction: -1 | 1): void => {
     const term = termRef.current
     if (!term) return
-    term.scrollLines(direction * pageScrollLines(term.rows))
+    term.scrollLines(direction * pageScrollLines(Math.max(1, term.rows - OVERSCAN_ROWS)))
     haptic('tap')
   }
 
@@ -1179,8 +1190,7 @@ export function RemoteTerminal({
             aria-pressed={keysOpen}
             onMouseDown={keepFocus}
             onClick={() => {
-              keysTouched.current = true
-              setKeysOpen((open) => !open)
+              setKeysOverride(!(keysOverride ?? !compact))
               haptic('tap')
             }}
           >
@@ -1235,7 +1245,11 @@ export function RemoteTerminal({
 
       {/* Named, so the one part of this screen with no visible label of its
           own can be found and entered deliberately. */}
-      <div className="terminal-stage" role="region" aria-label={copy.terminalRegion}>
+      <div
+        className={`terminal-stage${!atTop || !following ? ' has-jumps' : ''}`}
+        role="region"
+        aria-label={copy.terminalRegion}
+      >
         <div className="terminal-host" ref={hostRef} />
         {!atTop && (
           <button

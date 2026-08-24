@@ -266,6 +266,10 @@
   touch-action: pinch-zoom;
 }
 
+.terminal-stage.has-jumps > .terminal-host {
+  padding-bottom: 56px;
+}
+
 .terminal-host {
   flex: 1 1 auto;
   min-width: 0;
@@ -580,6 +584,14 @@
   font-weight: 650;
 }
 
+/*
+ * Reading is the job. On compact chrome the composer is gone until the
+ * reader opens the keys or focuses it (is-composing). Opening keys is the
+ * "I want to type" gesture and does not add a sixth header button.
+ */
+.terminal-view.is-compact:not(.is-composing):not(.is-keys-open) .input-bar {
+  display: none;
+}
 .terminal-view.is-compact:not(.is-composing) .input-bar button {
   display: none;
 }

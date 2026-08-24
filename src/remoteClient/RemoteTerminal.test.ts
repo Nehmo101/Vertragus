@@ -110,8 +110,9 @@ describe('the touch stream is taken from xterm, not shared with it', () => {
     expect(body).toContain('applyFingerDelta(')
     expect(body).toContain('paintScroll(')
     expect(body).toContain('readTop()')
-    expect(body).toContain('event.cancelable')
-    expect(body).toContain('event.preventDefault()')
+    expect(body).toContain('if (event.cancelable) event.preventDefault()')
+    expect(body).not.toMatch(/max <= 0 \|\| !event\.cancelable/)
+    expect(source).toContain('overscanRowCount(')
     expect(body).not.toContain('scrollLines')
     expect(body).not.toContain('linesFromPixels')
     expect(source).toContain('splitScrollPx(')
@@ -184,6 +185,7 @@ describe('a resize is a decision, not a side effect of every fit', () => {
     const body = fitFrameBody()
     expect(body).toContain('fit.proposeDimensions()')
     expect(body).toContain('fit.fit()')
+    expect(body).toContain('overscanRowCount(')
     // Matched as syntax, not as prose: the comment two lines above the fit in
     // that body says the words "try/catch" and is the reason they are wrong.
     expect(body).not.toMatch(/\btry\s*\{|\bcatch\s*[({]/)
@@ -301,15 +303,15 @@ describe('JS owns the one-finger pan', () => {
   }
 
   it('finds the three layers that would grant a native pan', () => {
-    expect(block('.terminal-stage').length).toBeGreaterThan(0)
-    expect(block('.terminal-host {').length).toBeGreaterThan(0)
-    expect(block('.terminal-host .xterm-viewport').length).toBeGreaterThan(0)
+    expect(block('.terminal-stage {').length).toBeGreaterThan(0)
+    expect(block('\n.terminal-host {').length).toBeGreaterThan(0)
+    expect(block('.terminal-host .xterm-viewport {').length).toBeGreaterThan(0)
   })
 
   it('does not grant pan-y on the stage, host or viewport', () => {
     // pan-y tells Safari it may start a native pan before JS preventDefault
     // can run. This overlay's drag writes scrollTop; two owners is the 3/10.
-    for (const selector of ['.terminal-stage', '.terminal-host {', '.terminal-host .xterm-viewport']) {
+    for (const selector of ['.terminal-stage {', '\n.terminal-host {', '.terminal-host .xterm-viewport {']) {
       expect(block(selector), selector).toContain('touch-action: pinch-zoom')
       expect(block(selector), selector).not.toMatch(/touch-action:[^;]*pan-y/)
     }

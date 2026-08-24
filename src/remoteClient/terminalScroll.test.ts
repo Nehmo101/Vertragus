@@ -18,6 +18,8 @@ import {
   maxScrollTop,
   momentumStep,
   momentumStepPixels,
+  OVERSCAN_ROWS,
+  overscanRowCount,
   pageScrollLines,
   pushSample,
   splitScrollPx,
@@ -369,6 +371,18 @@ describe('isCompactChrome', () => {
     expect(isCompactChrome({ coarse: false, widthPx: COMPACT_MAX_WIDTH_PX })).toBe(true)
     expect(isCompactChrome({ coarse: false, widthPx: COMPACT_MAX_WIDTH_PX + 1 })).toBe(false)
     expect(isCompactChrome({ coarse: false, widthPx: 1280 })).toBe(false)
+  })
+})
+
+describe('overscanRowCount', () => {
+  it('paints one extra local row so a sub-row shift has a next line to reveal', () => {
+    expect(overscanRowCount(24)).toBe(24 + OVERSCAN_ROWS)
+    expect(overscanRowCount(1)).toBe(2)
+  })
+
+  it('refuses a broken visible size', () => {
+    expect(overscanRowCount(0)).toBe(1)
+    expect(overscanRowCount(Number.NaN)).toBe(1)
   })
 })
 

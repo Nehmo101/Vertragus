@@ -197,5 +197,5 @@ nach dem dritten Durchgang weiter wie 3/10 an.
 
 | Bereich | Änderung |
 | --- | --- |
-| Finger / Rad / Nachlauf | Die Geste besitzt ein Pixel-`desiredTop`. xterm bekommt ein zeilenweise ausgerichtetes `scrollTop`, damit sein Runden die Position nicht zurückschnappt; `.xterm-screen` wird um den Rest innerhalb der Zeile verschoben, damit die Zeichnung dem Finger in der Zelle folgt. |
-| Chrome | Kompakte Tasten gehen wieder auf, sobald das Fenster nicht mehr kompakt ist (Resize 390 → 1280). Der Handy-Kopf bleibt eine Zeile (Ellipse, kein Umbruch). Der Senden-Knopf des Composers bleibt verborgen, bis das Feld Fokus hat, damit die Bühne beim Lesen höher ist. |
+| Finger / Rad / Nachlauf | Die Geste besitzt ein Pixel-`desiredTop`. xterm bekommt ein zeilenweise ausgerichtetes `scrollTop`, damit sein Runden die Position nicht zurückschnappt; `.xterm-screen` wird um den Rest innerhalb der Zeile verschoben, damit die Zeichnung dem Finger in der Zelle folgt. Eine extra lokale Zeile (geht nie an den Host) sorgt dafür, dass dieser Rest die nächste Zeile zeigt statt eines leeren Streifens. |
+| Chrome | Kompakte Tasten folgen dem Layout, keinem `setState`-Effekt (Resize 390 → 1280 öffnet sie wieder). Der Handy-Kopf bleibt eine Zeile (Ellipse, kein Umbruch). Der Composer ist beim Lesen auf kompaktem Chrome weg; die Tasten zu öffnen ist der Weg zum Tippen. Sprung-Pillen sitzen auf Padding, damit sie die letzten Zeilen nicht verdecken. |

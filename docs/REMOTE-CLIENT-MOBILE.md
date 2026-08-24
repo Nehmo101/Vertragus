@@ -194,5 +194,5 @@ is why a hand-held terminal still felt like 3/10 after the third pass.
 
 | Area | Change |
 | --- | --- |
-| Finger / wheel / fling | The gesture owns a pixel `desiredTop`. xterm is written a line-aligned `scrollTop` so its rounding cannot snap the position back; `.xterm-screen` is shifted by the sub-row remainder, so the paint follows the finger inside a cell. |
-| Chrome | Compact keys reopen when the window is no longer compact (a 390 → 1280 resize). The phone header stays one row (ellipsis, no wrap). The composer send button hides until the field is focused, so the stage is taller while reading. |
+| Finger / wheel / fling | The gesture owns a pixel `desiredTop`. xterm is written a line-aligned `scrollTop` so its rounding cannot snap the position back; `.xterm-screen` is shifted by the sub-row remainder, so the paint follows the finger inside a cell. One extra local row (never sent to the host) means that remainder reveals the next line instead of a blank band. |
+| Chrome | Compact keys follow layout, not a `setState` effect (a 390 → 1280 resize reopens them). The phone header stays one row (ellipsis, no wrap). The composer is gone while reading on compact chrome; opening the keys is how you type. Jump pills sit on padding so they do not cover the last rows. |
