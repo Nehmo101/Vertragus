@@ -9,8 +9,10 @@ import {
   applyWheelDelta,
   bufferCanScroll,
   clampScrollTop,
+  COMPACT_MAX_WIDTH_PX,
   decayVelocity,
   flingVelocity,
+  isCompactChrome,
   isDrag,
   linesFromPixels,
   maxScrollTop,
@@ -350,5 +352,20 @@ describe('momentumStepPixels', () => {
     expect(velocity).toBe(0)
     expect(frames).toBeLessThan(120)
     expect(scrollTop).toBeGreaterThan(0)
+  })
+})
+
+describe('isCompactChrome', () => {
+  it('folds on a coarse pointer at any width', () => {
+    expect(isCompactChrome({ coarse: true, widthPx: 1280 })).toBe(true)
+    expect(isCompactChrome({ coarse: true, widthPx: 390 })).toBe(true)
+  })
+
+  it('folds a narrow window even when the pointer is fine', () => {
+    // DevTools device mode, a split laptop window, a phone that reports fine.
+    expect(isCompactChrome({ coarse: false, widthPx: 390 })).toBe(true)
+    expect(isCompactChrome({ coarse: false, widthPx: COMPACT_MAX_WIDTH_PX })).toBe(true)
+    expect(isCompactChrome({ coarse: false, widthPx: COMPACT_MAX_WIDTH_PX + 1 })).toBe(false)
+    expect(isCompactChrome({ coarse: false, widthPx: 1280 })).toBe(false)
   })
 })

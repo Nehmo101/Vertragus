@@ -59,7 +59,9 @@ import {
   applyFingerDelta,
   applyWheelDelta,
   bufferCanScroll,
+  COMPACT_MAX_WIDTH_PX,
   flingVelocity,
+  isCompactChrome,
   isDrag,
   maxScrollTop,
   momentumStepPixels,
@@ -151,6 +153,14 @@ function Icon({ name }: { name: IconName }): React.JSX.Element {
 
 function isCoarsePointer(): boolean {
   return window.matchMedia('(pointer: coarse)').matches
+}
+
+/** Coarse pointer, or a window that is a phone in all but name. */
+function compactChromeNow(): boolean {
+  return isCompactChrome({
+    coarse: isCoarsePointer(),
+    widthPx: window.innerWidth
+  })
 }
 
 /**
@@ -416,6 +426,7 @@ export function RemoteTerminal({
   const [line, setLine] = useState('')
   const [fontSize, setFontSize] = useState(() => readFontSize(localFontStore()))
   const [following, setFollowing] = useState(true)
+  const [atTop, setAtTop] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [matches, setMatches] = useState<{ index: number; count: number } | null>(null)
@@ -434,7 +445,8 @@ export function RemoteTerminal({
    * a physical keyboard, so they start open. The header toggle is the way to
    * reach Esc / Ctrl-C without opening the composer.
    */
-  const [keysOpen, setKeysOpen] = useState(() => !isCoarsePointer())
+  const [keysOpen, setKeysOpen] = useState(() => !compactChromeNow())
+  const [compact, setCompact] = useState(() => compactChromeNow())
 
   /**
    * What the long-lived effect reads from props and state, kept current
@@ -459,6 +471,16 @@ export function RemoteTerminal({
     agentIdRef.current = agentId
     ownFieldRef.current = composing || searchOpen
   })
+
+  useEffect(() => {
+    const query = window.matchMedia(
+      `(pointer: coarse), (max-width: ${COMPACT_MAX_WIDTH_PX}px)`
+    )
+    const update = (): void => setCompact(query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
 
   /** The size this client last asked the host for; reset with the terminal. */
   const sentSizeRef = useRef<TerminalSize | undefined>(undefined)
@@ -568,9 +590,12 @@ export function RemoteTerminal({
     const syncFollowing = (): void => {
       const buffer = term.buffer.active
       const atBottom = buffer.viewportY >= buffer.baseY
-      if (atBottom === followRef.current) return
-      followRef.current = atBottom
-      setFollowing(atBottom)
+      const atStart = buffer.viewportY <= 0
+      if (atBottom !== followRef.current) {
+        followRef.current = atBottom
+        setFollowing(atBottom)
+      }
+      setAtTop(atStart)
     }
 
     /**
@@ -689,13 +714,11 @@ export function RemoteTerminal({
       if (!isDrag(drag.travel)) return
       const port = viewportEl()
       if (!port) return
-      // The listener is registered non-passively for exactly this line.
+      const max = maxScrollTop(port.scrollHeight, port.clientHeight)
+      // Nothing to move: do not spend preventDefault on a hung screen.
+      if (max <= 0 || !event.cancelable) return
       event.preventDefault()
-      const next = applyFingerDelta(
-        port.scrollTop,
-        delta,
-        maxScrollTop(port.scrollHeight, port.clientHeight)
-      )
+      const next = applyFingerDelta(port.scrollTop, delta, max)
       if (next.moved) writeScrollTop(next.scrollTop)
     }
 
@@ -723,7 +746,12 @@ export function RemoteTerminal({
      * spends whole cells. Ctrl-wheel is the browser's zoom and is left alone.
      */
     const onWheel = (event: WheelEvent): void => {
-      if (event.ctrlKey) return
+      if (event.ctrlKey) {
+        // Stop xterm seeing this: its handleWheel preventDefault's a ctrl-wheel
+        // and that is what cancels the browser's zoom. We do not preventDefault.
+        event.stopPropagation()
+        return
+      }
       const port = viewportEl()
       if (!port || !canScroll()) return
       const delta = wheelDeltaPx(event, cellHeight())
@@ -1018,7 +1046,8 @@ export function RemoteTerminal({
     'terminal-view',
     keysOpen ? 'is-keys-open' : '',
     composing ? 'is-composing' : '',
-    searchOpen ? 'is-search-open' : ''
+    searchOpen ? 'is-search-open' : '',
+    compact ? 'is-compact' : ''
   ]
     .filter((name) => name !== '')
     .join(' ')
@@ -1144,6 +1173,17 @@ export function RemoteTerminal({
           own can be found and entered deliberately. */}
       <div className="terminal-stage" role="region" aria-label={copy.terminalRegion}>
         <div className="terminal-host" ref={hostRef} />
+        {!atTop && (
+          <button
+            type="button"
+            className="jump-top"
+            onMouseDown={keepFocus}
+            onClick={() => jumpTo('top')}
+          >
+            <Icon name="top" />
+            {copy.toTop}
+          </button>
+        )}
         {!following && (
           <button
             type="button"

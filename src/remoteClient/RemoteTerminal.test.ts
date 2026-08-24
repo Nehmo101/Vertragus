@@ -109,6 +109,8 @@ describe('the touch stream is taken from xterm, not shared with it', () => {
     const body = source.slice(start, source.indexOf('\n    }\n', start))
     expect(body).toContain('applyFingerDelta(')
     expect(body).toContain('writeScrollTop(')
+    expect(body).toContain('event.cancelable')
+    expect(body).toContain('event.preventDefault()')
     expect(body).not.toContain('scrollLines')
     expect(body).not.toContain('linesFromPixels')
   })
@@ -120,6 +122,18 @@ describe('the touch stream is taken from xterm, not shared with it', () => {
     expect(body).toContain('applyWheelDelta(')
     expect(body).toContain('wheelDeltaPx(')
     expect(source).toContain("host.addEventListener('wheel', onWheel, { capture: true, passive: false })")
+  })
+
+  it('stops a ctrl-wheel reaching xterm so the browser can still zoom', () => {
+    const start = source.indexOf('const onWheel = (event: WheelEvent): void => {')
+    expect(start).toBeGreaterThan(-1)
+    const body = source.slice(start, source.indexOf('\n    }\n', start))
+    expect(body).toContain('if (event.ctrlKey)')
+    expect(body).toContain('event.stopPropagation()')
+    // The ctrl branch must not cancel the default — that is the zoom.
+    const ctrl = body.slice(body.indexOf('if (event.ctrlKey)'), body.indexOf('const port'))
+    expect(ctrl).toContain('event.stopPropagation()')
+    expect(ctrl).not.toContain('event.preventDefault()')
   })
 })
 
@@ -265,5 +279,33 @@ describe('the clipboard fallback is the only path the phone ever takes', () => {
     // leave the shape that is actually in front of the next author unguarded.
     expect(fallback).not.toMatch(/style\.(opacity|visibility|display)\s*=/)
     expect(fallback).not.toMatch(/setProperty\(\s*'(opacity|visibility|display)'/)
+  })
+})
+
+describe('JS owns the one-finger pan', () => {
+  const css = readFileSync(fileURLToPath(new URL('./terminal.css', import.meta.url)), 'utf8')
+
+  function block(selector: string): string {
+    const start = css.indexOf(selector)
+    if (start < 0) throw new Error(`self-check: ${selector} is gone`)
+    const open = css.indexOf('{', start)
+    const close = css.indexOf('\n}', open)
+    if (open < 0 || close < 0) throw new Error(`self-check: ${selector} is not a block`)
+    return css.slice(open, close)
+  }
+
+  it('finds the three layers that would grant a native pan', () => {
+    expect(block('.terminal-stage').length).toBeGreaterThan(0)
+    expect(block('.terminal-host {').length).toBeGreaterThan(0)
+    expect(block('.terminal-host .xterm-viewport').length).toBeGreaterThan(0)
+  })
+
+  it('does not grant pan-y on the stage, host or viewport', () => {
+    // pan-y tells Safari it may start a native pan before JS preventDefault
+    // can run. This overlay's drag writes scrollTop; two owners is the 3/10.
+    for (const selector of ['.terminal-stage', '.terminal-host {', '.terminal-host .xterm-viewport']) {
+      expect(block(selector), selector).toContain('touch-action: pinch-zoom')
+      expect(block(selector), selector).not.toMatch(/touch-action:[^;]*pan-y/)
+    }
   })
 })

@@ -178,6 +178,6 @@ composer) that left a short stage.
 | --- | --- |
 | Finger | `scrollTop` 1:1 with the finger, same sign as xterm, plus slop, a second-finger abort and a pixel fling. Capture still stops xterm's handler. |
 | Wheel | The same `scrollTop` path, so a laptop trackpad (pixel-mode) and a line-mode mouse both pan. Ctrl-wheel is left to the browser's zoom. |
-| Stage | `touch-action: pan-y pinch-zoom`; native overflow on `.xterm-viewport` as a fallback; a real scrollbar under `pointer: fine`. |
+| Stage | JS owns the one-finger pan (`pinch-zoom`, not `pan-y`); a real scrollbar under `pointer: fine`. Compact chrome also keys off window width, so DevTools device mode matches a phone. Jump-to-top pill when not at the start of history. |
 | Chrome | Pager row hidden on coarse / short viewports (the finger and the jump-to-latest pill replace it). Font size in the header. Control keys folded on the phone until the composer or the header toggle opens them. |
 | Overview | The card list is a 42 rem column on a wide screen, not a full-bleed stretch of empty surface. |

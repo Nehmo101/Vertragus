@@ -180,6 +180,6 @@ Bühne ließ.
 | --- | --- |
 | Finger | `scrollTop` 1:1 mit dem Finger, gleiches Vorzeichen wie xterm, plus Slop, Abbruch beim zweiten Finger und Pixel-Nachlauf. Capture hält xterms Handler weiter fern. |
 | Rad | Derselbe `scrollTop`-Pfad, damit ein Laptop-Trackpad (Pixel-Modus) und eine Maus im Zeilen-Modus beide den Verlauf bewegen. Strg-Rad bleibt der Zoom des Browsers. |
-| Bühne | `touch-action: pan-y pinch-zoom`; natives Overflow auf `.xterm-viewport` als Fallback; echte Scrollbar unter `pointer: fine`. |
+| Bühne | JS besitzt den Ein-Finger-Pan (`pinch-zoom`, nicht `pan-y`); echte Scrollbar unter `pointer: fine`. Kompaktes Chrome hängt auch an der Fensterbreite, damit DevTools-Gerätemodus einem Handy gleicht. Sprung-zum-Anfang-Pille, wenn nicht am Beginn des Verlaufs. |
 | Chrome | Pager-Zeile auf grobem Zeiger / kurzem Viewport versteckt (Finger und Sprung-zur-neuesten-Ausgabe ersetzen sie). Schriftgröße im Kopf. Steuertasten auf dem Handy eingeklappt, bis der Composer oder der Kopf-Schalter sie öffnet. |
 | Übersicht | Die Kartenliste ist auf einem breiten Schirm eine 42-rem-Spalte, kein randloses Feld leerer Fläche. |
