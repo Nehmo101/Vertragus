@@ -34,10 +34,9 @@
  * takes the touch stream in the capture phase and drops its own drag the
  * moment a second finger lands. xterm's built-in touch scrolling, which reads
  * `touches[0]` unconditionally and would pan the buffer under a pinch, never
- * sees the event. The one-finger pan is `pan-y` on the host: forbidding it
- * (the previous `pinch-zoom`-only value) meant the browser could not scroll
- * `.xterm-viewport` even as a fallback, so a JS drag that quantized into
- * whole lines was the only motion the screen had.
+ * sees the event. The one-finger pan is JS (`scrollTop`); granting `pan-y`
+ * lets Safari start a native pan on the first uncancelled touchmove, after
+ * which preventDefault is ignored — two drivers, or none.
  */
 
 .terminal-view {
@@ -90,6 +89,7 @@
 .terminal-header {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 4px;
   padding: max(6px, env(safe-area-inset-top)) 8px 6px;
   border-bottom: 1px solid var(--hairline);
@@ -144,7 +144,9 @@
   min-width: 0;
   font-weight: 650;
   color: var(--role, var(--text));
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dot {
@@ -260,9 +262,12 @@
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
-  /* The strip the jump-to-latest pill floats over is stage, not host.
-     pan-y so a drag that starts on the pill's empty neighbour still pans. */
-  touch-action: pan-y pinch-zoom;
+  /* The strip the jump-to-latest pill floats over is stage, not host. */
+  touch-action: pinch-zoom;
+}
+
+.terminal-stage.has-jumps > .terminal-host {
+  padding-bottom: 56px;
 }
 
 .terminal-host {
@@ -280,20 +285,20 @@
    * orders xterm's own layers and nothing else.
    */
   isolation: isolate;
-  /*
-   * `pan-y` is load-bearing. The previous `pinch-zoom` forbade a one-finger
-   * pan, so the only scroll that could ever run was our JS — and that JS
-   * quantized into whole xterm lines. pan-y lets a native overflow of
-   * `.xterm-viewport` work if our preventDefault does not fire (a tap, a
-   * two-finger pinch we abandoned), and our drag still takes the gesture
-   * once it has committed, because we `preventDefault` then.
-   */
-  touch-action: pan-y pinch-zoom;
+  /* pan-y is deliberately absent: this overlay's drag is JS-owned
+     (RemoteTerminal writes scrollTop). Granting pan-y lets Safari start a
+     native pan on the first uncancelled touchmove, after which preventDefault
+     is ignored — two drivers, or none. pinch-zoom still lets a second finger
+     through; the drag drops the moment that finger lands. */
+  touch-action: pinch-zoom;
   overscroll-behavior: contain;
 }
 
 .terminal-host .xterm {
   height: 100%;
+  /* The sub-row translateY on `.xterm-screen` must clip here, not paint into
+     the header. xterm itself does not set overflow on this box. */
+  overflow: hidden;
 }
 
 /*
@@ -321,9 +326,8 @@
  */
 .terminal-host .xterm-viewport {
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  touch-action: pan-y pinch-zoom;
+  touch-action: pinch-zoom;
   scrollbar-width: thin;
   scrollbar-color: var(--accent-line) transparent;
 }
@@ -347,6 +351,26 @@
   .terminal-host .xterm-viewport::-webkit-scrollbar {
     width: 10px;
   }
+}
+
+.jump-top {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--touch);
+  padding: 0 16px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 650;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  animation: term-rise 140ms ease-out;
 }
 
 .jump-latest {
@@ -415,14 +439,13 @@
 }
 
 /*
- * On a phone the finger *is* the pager, and this row is a strip of terminal
- * the reader does not get. Keep it for a mouse on a tall laptop. Font size
- * moved to the header so it stays reachable when this is gone.
+ * On a compact chrome (phone, coarse pointer, or a window ≤ 700 px) the
+ * finger is the pager. Font size lives in the header so it stays reachable.
+ * `.is-compact` is set from JS so DevTools device mode (fine pointer, 390 px)
+ * folds the same way a real phone does.
  */
-@media (pointer: coarse) {
-  .nav-row {
-    display: none;
-  }
+.terminal-view.is-compact .nav-row {
+  display: none;
 }
 @media (max-height: 520px) {
   .nav-row {
@@ -559,4 +582,23 @@
   background: var(--bronze);
   color: var(--on-bronze);
   font-weight: 650;
+}
+
+/*
+ * Reading is the job. On compact chrome the composer is gone until the
+ * reader opens the keys or focuses it (is-composing). Opening keys is the
+ * "I want to type" gesture and does not add a sixth header button.
+ */
+.terminal-view.is-compact:not(.is-composing):not(.is-keys-open) .input-bar {
+  display: none;
+}
+.terminal-view.is-compact:not(.is-composing) .input-bar button {
+  display: none;
+}
+.terminal-view.is-compact:not(.is-composing) .input-bar {
+  padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+}
+.terminal-view.is-compact:not(.is-composing) .input-bar input {
+  min-height: 36px;
+  padding: 6px 12px;
 }

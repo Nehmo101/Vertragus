@@ -178,6 +178,21 @@ composer) that left a short stage.
 | --- | --- |
 | Finger | `scrollTop` 1:1 with the finger, same sign as xterm, plus slop, a second-finger abort and a pixel fling. Capture still stops xterm's handler. |
 | Wheel | The same `scrollTop` path, so a laptop trackpad (pixel-mode) and a line-mode mouse both pan. Ctrl-wheel is left to the browser's zoom. |
-| Stage | `touch-action: pan-y pinch-zoom`; native overflow on `.xterm-viewport` as a fallback; a real scrollbar under `pointer: fine`. |
+| Stage | JS owns the one-finger pan (`pinch-zoom`, not `pan-y`); a real scrollbar under `pointer: fine`. Compact chrome also keys off window width, so DevTools device mode matches a phone. Jump-to-top pill when not at the start of history. |
 | Chrome | Pager row hidden on coarse / short viewports (the finger and the jump-to-latest pill replace it). Font size in the header. Control keys folded on the phone until the composer or the header toggle opens them. |
 | Overview | The card list is a 42 rem column on a wide screen, not a full-bleed stretch of empty surface. |
+
+## The fourth pass — a pan that moves inside a row
+
+The third pass wrote `scrollTop` 1:1. xterm's viewport listener still sets
+`ydisp = round(scrollTop / cellHeight)` and the next animation frame writes
+`scrollTop` back to a whole row. A slow drag that never crossed half a cell
+in one event still did nothing; a faster one jumped a line at a time. That
+is why a hand-held terminal still felt like 3/10 after the third pass.
+
+### What changed
+
+| Area | Change |
+| --- | --- |
+| Finger / wheel / fling | The gesture owns a pixel `desiredTop`. xterm is written a line-aligned `scrollTop` so its rounding cannot snap the position back; `.xterm-screen` is shifted by the sub-row remainder, so the paint follows the finger inside a cell. One extra local row (never sent to the host) means that remainder reveals the next line instead of a blank band. |
+| Chrome | Compact keys follow layout, not a `setState` effect (a 390 → 1280 resize reopens them). The phone header stays one row (ellipsis, no wrap). The composer is gone while reading on compact chrome; opening the keys is how you type. Jump pills sit on padding so they do not cover the last rows. |

@@ -130,11 +130,13 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   Scroll-Position, aufgeklappten Karten und halb getippten Entwürfen. Die
   Übersicht bleibt jetzt unter dem fixierten Terminal-Overlay montiert.
 - **Der Verlauf im Handy-Terminal sprang in ganzen Zeilen und ließ sich
-  kaum verschieben.** Ein Finger schreibt jetzt `.xterm-viewport.scrollTop`
-  1:1 (derselbe Weg, den xterms eigenes `handleTouchMove` nimmt); Laptop-
-  Trackpad und Mausrad teilen ihn. Die Steuertasten klappen auf dem Handy
-  ein, damit die Bühne höher ist; die Übersicht ist auf einem breiten
-  Schirm eine 42-rem-Spalte.
+  kaum verschieben.** Ein Finger besitzt jetzt eine Pixelposition, die
+  xterm nicht auf eine ganze Zeile zurückschnappen kann: das DOM-`scrollTop`
+  bleibt zeilenweise ausgerichtet (xterms Runden ist nur noch Mitläufer)
+  und `.xterm-screen` verschiebt sich um den Rest innerhalb der Zeile.
+  Laptop-Trackpad und Mausrad teilen denselben Weg. Die Steuertasten klappen
+  auf dem Handy ein, damit die Bühne höher ist; die Übersicht ist auf einem
+  breiten Schirm eine 42-rem-Spalte.
 - Drei Wettläufe beim Neuverbinden im Remote-Client: ein nicht abgebrochener
   Backoff-Timer, der beim Aufwachen einen zweiten Socket baute, ein pro
   Ablösung geleakter offener Socket und ein `reset()`, das den Socket für

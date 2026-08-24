@@ -180,6 +180,22 @@ Bühne ließ.
 | --- | --- |
 | Finger | `scrollTop` 1:1 mit dem Finger, gleiches Vorzeichen wie xterm, plus Slop, Abbruch beim zweiten Finger und Pixel-Nachlauf. Capture hält xterms Handler weiter fern. |
 | Rad | Derselbe `scrollTop`-Pfad, damit ein Laptop-Trackpad (Pixel-Modus) und eine Maus im Zeilen-Modus beide den Verlauf bewegen. Strg-Rad bleibt der Zoom des Browsers. |
-| Bühne | `touch-action: pan-y pinch-zoom`; natives Overflow auf `.xterm-viewport` als Fallback; echte Scrollbar unter `pointer: fine`. |
+| Bühne | JS besitzt den Ein-Finger-Pan (`pinch-zoom`, nicht `pan-y`); echte Scrollbar unter `pointer: fine`. Kompaktes Chrome hängt auch an der Fensterbreite, damit DevTools-Gerätemodus einem Handy gleicht. Sprung-zum-Anfang-Pille, wenn nicht am Beginn des Verlaufs. |
 | Chrome | Pager-Zeile auf grobem Zeiger / kurzem Viewport versteckt (Finger und Sprung-zur-neuesten-Ausgabe ersetzen sie). Schriftgröße im Kopf. Steuertasten auf dem Handy eingeklappt, bis der Composer oder der Kopf-Schalter sie öffnet. |
 | Übersicht | Die Kartenliste ist auf einem breiten Schirm eine 42-rem-Spalte, kein randloses Feld leerer Fläche. |
+
+## Der vierte Durchgang — ein Pan, der innerhalb einer Zeile folgt
+
+Der dritte Durchgang schrieb `scrollTop` 1:1. xterms Viewport-Listener setzt
+weiter `ydisp = round(scrollTop / Zellhöhe)` und der nächste Animation-Frame
+schreibt `scrollTop` auf eine ganze Zeile zurück. Ein langsamer Drag, der
+in einem Event nie eine halbe Zelle überschritt, tat weiter nichts; ein
+schnellerer sprang zeilenweise. Deshalb fühlte sich ein Terminal in der Hand
+nach dem dritten Durchgang weiter wie 3/10 an.
+
+### Was sich geändert hat
+
+| Bereich | Änderung |
+| --- | --- |
+| Finger / Rad / Nachlauf | Die Geste besitzt ein Pixel-`desiredTop`. xterm bekommt ein zeilenweise ausgerichtetes `scrollTop`, damit sein Runden die Position nicht zurückschnappt; `.xterm-screen` wird um den Rest innerhalb der Zeile verschoben, damit die Zeichnung dem Finger in der Zelle folgt. Eine extra lokale Zeile (geht nie an den Host) sorgt dafür, dass dieser Rest die nächste Zeile zeigt statt eines leeren Streifens. |
+| Chrome | Kompakte Tasten folgen dem Layout, keinem `setState`-Effekt (Resize 390 → 1280 öffnet sie wieder). Der Handy-Kopf bleibt eine Zeile (Ellipse, kein Umbruch). Der Composer ist beim Lesen auf kompaktem Chrome weg; die Tasten zu öffnen ist der Weg zum Tippen. Sprung-Pillen sitzen auf Padding, damit sie die letzten Zeilen nicht verdecken. |
