@@ -400,6 +400,9 @@ export function tomlString(value: string): string {
  * server's tools only — it is a loopback server Vertragus minted seconds ago,
  * and an approval prompt on `report_done` would deadlock the agent.
  *
+ * Extra servers (when passed) are prepended via
+ * {@link codexExtraServerOverrides} and never get `required`.
+ *
  * `tool_timeout_sec` is emitted ONLY when the provider declares
  * `mcpToolTimeoutSec` — the key exists on newer Codex builds, and no shipped
  * preset claims it, because an older codex meeting an unknown key under
