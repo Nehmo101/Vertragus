@@ -152,3 +152,34 @@ innerhalb einer Komponente ist also von Bauart her ungetestet. Der
 Scroll-Akkumulator, der Nachlauf, die Aggregation des Fragen-Eingangs, die
 Gruppierung der Aufgaben, der History-Automat und das Reveal-Prädikat
 werden jetzt in Tests verhandelt, nicht im Browser.
+
+## Der dritte Durchgang — Scrollen, das dem Finger folgt
+
+Der zweite Durchgang verhinderte, dass das Terminal unter dem Lesenden
+neu gebaut wird. In der Hand und auf dem Laptop, über Tailscale, blieb
+er bei 3/10: der Verlauf ließ sich nicht verschieben. Diesmal war es ein
+Gesten-Problem, kein Zustands-Problem.
+
+### Warum der Scroller des zweiten Durchgangs weiter 3/10 war
+
+xterm mappt `.xterm-viewport.scrollTop` schon pixelgenau auf `ydisp`.
+Sein eigenes `handleTouchMove` schreibt `scrollTop += lastY - currentY`.
+Der zweite Durchgang hat dieses Event abgefangen (richtig: sonst hätten
+xterm und der Client den Puffer beide bewegt) und durch `scrollLines`
+nach einem Zellhöhen-Carry ersetzt. Ein langsamer Drag tat dann nichts,
+bis ~20 px gelaufen waren, jede Bewegung sprang eine ganze Zeile, und
+`touch-action: pinch-zoom` auf dem Host verbot dem Browser, die
+Overflow-Box als Fallback zu verschieben. Ein Laptop-Trackpad kam in diesen
+Pfad gar nicht: Wheel blieb bei xterm, mit 6-px-Overlay-Scrollbar und
+einem Chrome-Stapel (Kopf, Pager, Tasten, Composer), der nur eine kurze
+Bühne ließ.
+
+### Was sich geändert hat
+
+| Bereich | Änderung |
+| --- | --- |
+| Finger | `scrollTop` 1:1 mit dem Finger, gleiches Vorzeichen wie xterm, plus Slop, Abbruch beim zweiten Finger und Pixel-Nachlauf. Capture hält xterms Handler weiter fern. |
+| Rad | Derselbe `scrollTop`-Pfad, damit ein Laptop-Trackpad (Pixel-Modus) und eine Maus im Zeilen-Modus beide den Verlauf bewegen. Strg-Rad bleibt der Zoom des Browsers. |
+| Bühne | `touch-action: pan-y pinch-zoom`; natives Overflow auf `.xterm-viewport` als Fallback; echte Scrollbar unter `pointer: fine`. |
+| Chrome | Pager-Zeile auf grobem Zeiger / kurzem Viewport versteckt (Finger und Sprung-zur-neuesten-Ausgabe ersetzen sie). Schriftgröße im Kopf. Steuertasten auf dem Handy eingeklappt, bis der Composer oder der Kopf-Schalter sie öffnet. |
+| Übersicht | Die Kartenliste ist auf einem breiten Schirm eine 42-rem-Spalte, kein randloses Feld leerer Fläche. |

@@ -19,10 +19,17 @@
  *    through a ref instead; nothing outside `agentId` may enter its deps.
  * 2. Reading the history is a first-class job, not a side effect of xterm's
  *    viewport. `.xterm-viewport` does not pan reliably under a finger on iOS
- *    Safari, so the drag, its inertia and the page/top/end controls are ours
- *    (`terminalScroll.ts`) — and, because xterm binds its own touch scrolling
- *    to an element *inside* this host, "ours" has to be taken rather than
- *    assumed. See the capture-phase listeners in the effect below.
+ *    Safari *as a native overflow box*, so the drag, its inertia and the
+ *    page/top/end controls are ours (`terminalScroll.ts`). xterm already maps
+ *    that element's `scrollTop` onto `ydisp` at pixel resolution — its own
+ *    `handleTouchMove` writes `scrollTop += lastY - currentY` — and we take
+ *    the same path, with slop, a second-finger abort and a fling, because
+ *    capturing the event (see below) is what stops xterm's handler from
+ *    running at all. Driving `scrollLines` instead quantized every drag into
+ *    whole cells and is why a slow swipe felt dead.
+ *    Because xterm binds its own touch scrolling to an element *inside* this
+ *    host, "ours" has to be taken rather than assumed. See the capture-phase
+ *    listeners in the effect below.
  * 3. Nothing moves the reader's viewport unless the reader asked for it. New
  *    output never yanks a paused reader, and neither does a reconnect: the
  *    phone reconnects routinely by design, and re-attaching continues the
@@ -49,13 +56,17 @@ import { clampFontSize, localFontStore, readFontSize, writeFontSize } from './te
 import { viewportDisplacementPx } from './revealPolicy'
 import { hostResize, isTransientViewport, type TerminalSize } from './terminalResize'
 import {
+  applyFingerDelta,
+  applyWheelDelta,
   bufferCanScroll,
   flingVelocity,
   isDrag,
-  linesFromPixels,
-  momentumStep,
+  maxScrollTop,
+  momentumStepPixels,
   pageScrollLines,
   pushSample,
+  viewportCanScroll,
+  wheelDeltaPx,
   type TouchSample
 } from './terminalScroll'
 
@@ -109,6 +120,7 @@ type IconName =
   | 'prev'
   | 'next'
   | 'latest'
+  | 'keys'
 
 /**
  * Inline paths rather than glyphs: the CSP forbids an icon font, and the
@@ -125,7 +137,8 @@ const ICON_PATHS: Record<IconName, string> = {
   pageDown: 'M12 5v12M6 11l6 6 6-6',
   prev: 'M6 15l6-6 6 6',
   next: 'M6 9l6 6 6-6',
-  latest: 'M12 5v13M6 12l6 6 6-6'
+  latest: 'M12 5v13M6 12l6 6 6-6',
+  keys: 'M3 7h18v11H3zM6 10h2v2H6zm4 0h2v2h-2zm4 0h2v2h-2zm4 0h1v2h-1zM6 14h12'
 }
 
 function Icon({ name }: { name: IconName }): React.JSX.Element {
@@ -414,6 +427,14 @@ export function RemoteTerminal({
   const [note, setNote] = useState<{ kind: 'copied' | 'copyFailed'; seq: number } | null>(null)
   const noteSeq = useRef(0)
   const [composing, setComposing] = useState(false)
+  /**
+   * Control keys cost a 44 px strip the terminal is hungrier for. A phone
+   * starts with them folded so reading is the full stage; focusing the
+   * composer unfolds them (the keyboard is already up). A laptop has room and
+   * a physical keyboard, so they start open. The header toggle is the way to
+   * reach Esc / Ctrl-C without opening the composer.
+   */
+  const [keysOpen, setKeysOpen] = useState(() => !isCoarsePointer())
 
   /**
    * What the long-lived effect reads from props and state, kept current
@@ -554,10 +575,9 @@ export function RemoteTerminal({
 
     /**
      * The rendered cell height, not the configured one: xterm rounds the line
-     * height to device pixels, and a drag that assumes otherwise drifts away
-     * from the finger over a long swipe. Zero rather than a guess when there is
-     * nothing to measure — `linesFromPixels` carries those pixels instead of
-     * spending them at the wrong scale.
+     * height to device pixels, and a wheel in `deltaMode: 1` (lines) has to
+     * spend them at that scale. Zero rather than a guess when there is nothing
+     * to measure — `wheelDeltaPx` falls back to a 16 px line instead.
      */
     const cellHeight = (): number => {
       const rows = term.element?.querySelector<HTMLElement>('.xterm-rows')
@@ -565,20 +585,35 @@ export function RemoteTerminal({
       return 0
     }
 
+    /**
+     * xterm's real scroller. Writing `scrollTop` is what `handleTouchMove`
+     * does; the viewport's own `scroll` listener then sets `ydisp` from
+     * `round(scrollTop / cellHeight)`. Driving `scrollLines` during a drag
+     * fought that rounding and is why a sub-line swipe did nothing.
+     */
+    const viewportEl = (): HTMLElement | null =>
+      term.element?.querySelector('.xterm-viewport') ?? null
+
     /** Is there any history under this gesture for a drag to move? */
     const canScroll = (): boolean => {
       const buffer = term.buffer.active
-      return bufferCanScroll({ alternate: buffer.type === 'alternate', baseY: buffer.baseY })
+      if (buffer.type === 'alternate') return false
+      const port = viewportEl()
+      if (port && viewportCanScroll(port)) return true
+      return bufferCanScroll({ alternate: false, baseY: buffer.baseY })
     }
 
     /** False when the viewport did not move: the buffer ends here. */
-    const scrollByLines = (lines: number): boolean => {
-      const before = term.buffer.active.viewportY
-      term.scrollLines(lines)
+    const writeScrollTop = (next: number): boolean => {
+      const port = viewportEl()
+      if (!port) return false
+      const before = port.scrollTop
+      port.scrollTop = next
+      if (port.scrollTop === before) return false
       // `onScroll` reports this too; syncing here as well keeps the pill
       // truthful even if a frame's worth of scrolls is coalesced away.
       syncFollowing()
-      return term.buffer.active.viewportY !== before
+      return true
     }
 
     let momentumFrame = 0
@@ -589,15 +624,23 @@ export function RemoteTerminal({
     const startMomentum = (velocity: number): void => {
       if (velocity === 0 || prefersReducedMotion()) return
       let speed = velocity
-      let carry = 0
       let last = performance.now()
       const step = (now: number): void => {
-        const advanced = momentumStep(speed, now - last, cellHeight(), carry)
+        const port = viewportEl()
+        if (!port) {
+          momentumFrame = 0
+          return
+        }
+        const advanced = momentumStepPixels(
+          speed,
+          now - last,
+          port.scrollTop,
+          maxScrollTop(port.scrollHeight, port.clientHeight)
+        )
         last = now
         speed = advanced.velocity
-        carry = advanced.carry
+        if (advanced.moved) writeScrollTop(advanced.scrollTop)
         // Hitting either end stops the glide instead of spinning a dead rAF.
-        if (advanced.lines !== 0 && !scrollByLines(advanced.lines)) speed = 0
         momentumFrame = speed === 0 ? 0 : window.requestAnimationFrame(step)
       }
       momentumFrame = window.requestAnimationFrame(step)
@@ -606,7 +649,6 @@ export function RemoteTerminal({
     interface Drag {
       last: number
       travel: number
-      carry: number
       samples: readonly TouchSample[]
     }
     let drag: Drag | null = null
@@ -626,7 +668,6 @@ export function RemoteTerminal({
       drag = {
         last: touch.clientY,
         travel: 0,
-        carry: 0,
         samples: [{ y: touch.clientY, t: event.timeStamp }]
       }
     }
@@ -646,11 +687,16 @@ export function RemoteTerminal({
       drag.samples = pushSample(drag.samples, { y: touch.clientY, t: event.timeStamp })
       // Below the slop this is still a tap: leave it to xterm's selection.
       if (!isDrag(drag.travel)) return
+      const port = viewportEl()
+      if (!port) return
       // The listener is registered non-passively for exactly this line.
       event.preventDefault()
-      const step = linesFromPixels(-delta, cellHeight(), drag.carry)
-      drag.carry = step.carry
-      if (step.lines !== 0) scrollByLines(step.lines)
+      const next = applyFingerDelta(
+        port.scrollTop,
+        delta,
+        maxScrollTop(port.scrollHeight, port.clientHeight)
+      )
+      if (next.moved) writeScrollTop(next.scrollTop)
     }
 
     const onTouchEnd = (event: TouchEvent): void => {
@@ -666,6 +712,31 @@ export function RemoteTerminal({
 
     const onTouchCancel = (): void => {
       drag = null
+    }
+
+    /**
+     * Trackpads and mice send `wheel`, not touch. xterm already listens, but
+     * our capture-phase touch handlers do not cover it, and on a laptop the
+     * complaint was the same as on the phone: the stage does not pan. Driving
+     * `scrollTop` here is the same path the finger takes, so a pixel-mode
+     * trackpad (deltaMode 0) moves 1:1 and a line-mode mouse (deltaMode 1)
+     * spends whole cells. Ctrl-wheel is the browser's zoom and is left alone.
+     */
+    const onWheel = (event: WheelEvent): void => {
+      if (event.ctrlKey) return
+      const port = viewportEl()
+      if (!port || !canScroll()) return
+      const delta = wheelDeltaPx(event, cellHeight())
+      if (delta === 0) return
+      const next = applyWheelDelta(
+        port.scrollTop,
+        delta,
+        maxScrollTop(port.scrollHeight, port.clientHeight)
+      )
+      if (!next.moved) return
+      event.preventDefault()
+      event.stopPropagation()
+      writeScrollTop(next.scrollTop)
     }
 
     /*
@@ -688,12 +759,15 @@ export function RemoteTerminal({
      * It costs nothing else: `stopPropagation` does not cancel a default
      * action, so the browser's own pinch-zoom, the long-press callout and the
      * synthetic mouse events xterm's selection is built on all still happen.
+     * The drag itself writes `scrollTop` the way xterm would have, so the
+     * viewport's scroll listener is the one source of `ydisp`.
      */
     const captured = { capture: true } as const
     host.addEventListener('touchstart', onTouchStart, { capture: true, passive: true })
     host.addEventListener('touchmove', onTouchMove, { capture: true, passive: false })
     host.addEventListener('touchend', onTouchEnd, { capture: true, passive: true })
     host.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: true })
+    host.addEventListener('wheel', onWheel, { capture: true, passive: false })
 
     const offScroll = term.onScroll(syncFollowing)
     const offResults = search.onDidChangeResults(({ resultIndex, resultCount }) => {
@@ -783,6 +857,7 @@ export function RemoteTerminal({
       host.removeEventListener('touchmove', onTouchMove, captured)
       host.removeEventListener('touchend', onTouchEnd, captured)
       host.removeEventListener('touchcancel', onTouchCancel, captured)
+      host.removeEventListener('wheel', onWheel, captured)
       offScroll.dispose()
       offResults.dispose()
       offInput.dispose()
@@ -939,8 +1014,17 @@ export function RemoteTerminal({
       ? copy.searchResult(matches.index + 1, matches.count)
       : matchDigits
 
+  const viewClass = [
+    'terminal-view',
+    keysOpen ? 'is-keys-open' : '',
+    composing ? 'is-composing' : '',
+    searchOpen ? 'is-search-open' : ''
+  ]
+    .filter((name) => name !== '')
+    .join(' ')
+
   return (
-    <div className="terminal-view" style={{ '--role': roleColor } as React.CSSProperties}>
+    <div className={viewClass} style={{ '--role': roleColor } as React.CSSProperties}>
       <header className="terminal-header">
         <button
           className="back"
@@ -958,25 +1042,58 @@ export function RemoteTerminal({
           aria-label={exited === null ? copy.terminalLive : copy.terminalDead}
           title={exited === null ? copy.terminalLive : copy.terminalDead}
         />
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label={searchOpen ? copy.searchClose : copy.searchOpen}
-          aria-expanded={searchOpen}
-          onMouseDown={keepFocus}
-          onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
-        >
-          <Icon name={searchOpen ? 'close' : 'search'} />
-        </button>
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label={copy.copyBuffer}
-          onMouseDown={keepFocus}
-          onClick={copyBuffer}
-        >
-          <Icon name="copy" />
-        </button>
+        <div className="header-tools">
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label={searchOpen ? copy.searchClose : copy.searchOpen}
+            aria-expanded={searchOpen}
+            onMouseDown={keepFocus}
+            onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+          >
+            <Icon name={searchOpen ? 'close' : 'search'} />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label={copy.copyBuffer}
+            onMouseDown={keepFocus}
+            onClick={copyBuffer}
+          >
+            <Icon name="copy" />
+          </button>
+          <button
+            type="button"
+            className="font-btn"
+            onMouseDown={keepFocus}
+            onClick={() => bumpFont(-1)}
+            aria-label={copy.fontSmaller}
+          >
+            A−
+          </button>
+          <button
+            type="button"
+            className="font-btn"
+            onMouseDown={keepFocus}
+            onClick={() => bumpFont(1)}
+            aria-label={copy.fontLarger}
+          >
+            A+
+          </button>
+          <button
+            type="button"
+            className="icon-btn keys-toggle"
+            aria-label={keysOpen ? copy.keysHide : copy.keysShow}
+            aria-pressed={keysOpen}
+            onMouseDown={keepFocus}
+            onClick={() => {
+              setKeysOpen((open) => !open)
+              haptic('tap')
+            }}
+          >
+            <Icon name="keys" />
+          </button>
+        </div>
       </header>
 
       {searchOpen && (
@@ -1045,7 +1162,12 @@ export function RemoteTerminal({
         {following ? copy.following : copy.paused}
       </p>
 
-      {/* Hidden while the keyboard is up: those rows are worth more as terminal. */}
+      {/*
+        Page/top/end on a pointer-fine, tall screen. Hidden on the phone by
+        CSS: pixel scrolling and the jump-to-latest pill do that job, and the
+        strip is a whole row of terminal. Font size lives in the header so it
+        stays reachable when this row is gone.
+      */}
       {!composing && !searchOpen && (
         <div className="nav-row" role="group" aria-label={copy.historyControls}>
           <button type="button" aria-label={copy.toTop} onClick={() => jumpTo('top')}>
@@ -1059,23 +1181,6 @@ export function RemoteTerminal({
           </button>
           <button type="button" aria-label={copy.toBottom} onClick={() => jumpTo('bottom')}>
             <Icon name="bottom" />
-          </button>
-          <span className="nav-gap" />
-          <button
-            type="button"
-            className="font-btn"
-            onClick={() => bumpFont(-1)}
-            aria-label={copy.fontSmaller}
-          >
-            A−
-          </button>
-          <button
-            type="button"
-            className="font-btn"
-            onClick={() => bumpFont(1)}
-            aria-label={copy.fontLarger}
-          >
-            A+
           </button>
         </div>
       )}

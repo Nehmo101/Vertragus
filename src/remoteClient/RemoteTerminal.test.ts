@@ -98,6 +98,29 @@ describe('the touch stream is taken from xterm, not shared with it', () => {
       expect(body).toContain('event.stopPropagation()')
     }
   })
+
+  it('drives the viewport scrollTop in pixels, not whole xterm lines', () => {
+    // The original 3/10 scroller called `scrollLines` after accumulating a
+    // cell's worth of carry. A slow drag then did nothing until ~20 px, and
+    // xterm's own scroll listener overwrote any leftover. The finger now
+    // writes `.xterm-viewport.scrollTop` the way xterm's handleTouchMove did.
+    const start = source.indexOf('const onTouchMove = (event: TouchEvent): void => {')
+    expect(start).toBeGreaterThan(-1)
+    const body = source.slice(start, source.indexOf('\n    }\n', start))
+    expect(body).toContain('applyFingerDelta(')
+    expect(body).toContain('writeScrollTop(')
+    expect(body).not.toContain('scrollLines')
+    expect(body).not.toContain('linesFromPixels')
+  })
+
+  it('takes the wheel on the same pixel path so a laptop trackpad pans', () => {
+    const start = source.indexOf('const onWheel = (event: WheelEvent): void => {')
+    expect(start).toBeGreaterThan(-1)
+    const body = source.slice(start, source.indexOf('\n    }\n', start))
+    expect(body).toContain('applyWheelDelta(')
+    expect(body).toContain('wheelDeltaPx(')
+    expect(source).toContain("host.addEventListener('wheel', onWheel, { capture: true, passive: false })")
+  })
 })
 
 describe('a re-attach continues the terminal instead of rebuilding it', () => {

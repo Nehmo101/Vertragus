@@ -151,3 +151,33 @@ sake: this project has no DOM test runner, so logic left inside a component
 is untested by construction. The scroll accumulator, the momentum decay, the
 inbox aggregation, the task grouping, the history state machine and the
 reveal predicate are all argued about in tests now, not in a browser.
+
+## The third pass — scrolling that actually pans
+
+The second pass stopped the terminal from being rebuilt under the reader.
+Held on a phone and a laptop over Tailscale it still rated 3/10: the
+history would not pan. That was a gesture problem this time, not a state
+one.
+
+### Why the second-pass scroller still rated 3/10
+
+xterm already maps `.xterm-viewport.scrollTop` onto `ydisp` at pixel
+resolution. Its own `handleTouchMove` writes `scrollTop += lastY - currentY`.
+The second pass captured that event (correctly: otherwise xterm and the
+client both moved the buffer) and replaced it with `scrollLines` after a
+cell-height carry. A slow drag then did nothing until ~20 px of travel,
+every motion jumped a whole line, and `touch-action: pinch-zoom` on the
+host forbade the browser from panning the overflow box as a fallback. A
+laptop trackpad never entered that path at all: wheel was left to xterm,
+with a 6 px overlay scrollbar and a chrome stack (header, pager, keys,
+composer) that left a short stage.
+
+### What changed
+
+| Area | Change |
+| --- | --- |
+| Finger | `scrollTop` 1:1 with the finger, same sign as xterm, plus slop, a second-finger abort and a pixel fling. Capture still stops xterm's handler. |
+| Wheel | The same `scrollTop` path, so a laptop trackpad (pixel-mode) and a line-mode mouse both pan. Ctrl-wheel is left to the browser's zoom. |
+| Stage | `touch-action: pan-y pinch-zoom`; native overflow on `.xterm-viewport` as a fallback; a real scrollbar under `pointer: fine`. |
+| Chrome | Pager row hidden on coarse / short viewports (the finger and the jump-to-latest pill replace it). Font size in the header. Control keys folded on the phone until the composer or the header toggle opens them. |
+| Overview | The card list is a 42 rem column on a wide screen, not a full-bleed stretch of empty surface. |
