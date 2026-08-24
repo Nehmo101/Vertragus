@@ -92,7 +92,7 @@ export type ExtraMcpServerInput = z.input<typeof extraMcpServerSchema>
 
 function withNormalizedId(server: ExtraMcpServer): ExtraMcpServer | undefined {
   const id = normalizeMcpServerId(server.id)
-  if (!id || id === RESERVED_MCP_SERVER_ID || mcpServerIdHasDot(id)) return undefined
+  if (!id || isReservedMcpServerId(id) || mcpServerIdHasDot(id)) return undefined
   return { ...server, id }
 }
 

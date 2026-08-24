@@ -983,11 +983,12 @@ export function toPanelMcpServer(server: ExtraMcpServer): PanelMcpServer {
  * stored value (the renderer cannot see it); keys omitted from the patch object
  * are deleted. Omitting `env`/`headers` entirely keeps the stored record.
  *
- * Id rename: if a patch row's id is unknown and exactly one stored server of
- * the same transport is absent from the patch, that row's env/headers are used
- * as `stored`. Key rename: if exactly one stored key is missing from the patch
- * and exactly one patch key is new with an empty value, the leftover value
- * is copied onto the new key.
+ * Id rename: if exactly one patch row of a transport has an unknown id AND
+ * exactly one stored server of that transport is absent from the patch, that
+ * leftover's env/headers are used as `stored`. Two new ids of the same
+ * transport do not inherit one leftover secret. Key rename: if exactly one
+ * stored key is missing from the patch and exactly one patch key is new with
+ * an empty value, the leftover value is copied onto the new key.
  */
 export function mergeMcpServersPatch(current: ExtraMcpServer[], patch: unknown): ExtraMcpServer[] {
   if (!Array.isArray(patch)) {
@@ -1018,16 +1019,21 @@ export function mergeMcpServersPatch(current: ExtraMcpServer[], patch: unknown):
     seen.add(id)
     bodies.push({ id, body })
   }
+  const leftoverByTransport = leftoverByTransportMap(current, storedById, seen, bodies)
   const merged: ExtraMcpServer[] = []
   for (const { id, body } of bodies) {
-    const stored = storedById.get(id) ?? leftoverStoredServer(current, seen, body.transport)
+    const stored =
+      storedById.get(id) ??
+      (body.transport === 'stdio' || body.transport === 'http'
+        ? leftoverByTransport.get(body.transport)
+        : undefined)
     if (body.transport === 'stdio') {
       const env = mergeSecretRecord(stored?.transport === 'stdio' ? stored.env : undefined, body.env)
       merged.push(
         extraMcpServerSchema.parse({
           id,
           label: body.label ?? stored?.label,
-          enabled: body.enabled,
+          enabled: body.enabled ?? stored?.enabled,
           transport: 'stdio',
           command: body.command,
           args: body.args,
@@ -1043,7 +1049,7 @@ export function mergeMcpServersPatch(current: ExtraMcpServer[], patch: unknown):
         extraMcpServerSchema.parse({
           id,
           label: body.label ?? stored?.label,
-          enabled: body.enabled,
+          enabled: body.enabled ?? stored?.enabled,
           transport: 'http',
           url: body.url,
           ...(headers ? { headers } : {})
@@ -1056,17 +1062,30 @@ export function mergeMcpServersPatch(current: ExtraMcpServer[], patch: unknown):
   return merged
 }
 
-/** The unique stored server of this transport whose id is not in the patch — an id rename. */
-function leftoverStoredServer(
+/**
+ * A leftover is only a rename when the mapping is 1:1 per transport: exactly
+ * one stored server of that transport is missing from the patch, and exactly
+ * one patch row of that transport has an unknown id.
+ */
+function leftoverByTransportMap(
   current: readonly ExtraMcpServer[],
+  storedById: ReadonlyMap<string, ExtraMcpServer>,
   patchIds: ReadonlySet<string>,
-  transport: unknown
-): ExtraMcpServer | undefined {
-  if (transport !== 'stdio' && transport !== 'http') return undefined
-  const leftovers = current.filter(
-    (server) => !patchIds.has(server.id) && server.transport === transport
-  )
-  return leftovers.length === 1 ? leftovers[0] : undefined
+  bodies: readonly { id: string; body: Record<string, unknown> }[]
+): Map<'stdio' | 'http', ExtraMcpServer> {
+  const leftovers = new Map<'stdio' | 'http', ExtraMcpServer>()
+  for (const transport of ['stdio', 'http'] as const) {
+    const unused = current.filter(
+      (server) => !patchIds.has(server.id) && server.transport === transport
+    )
+    const newcomers = bodies.filter(
+      (entry) => !storedById.has(entry.id) && entry.body.transport === transport
+    )
+    if (unused.length === 1 && newcomers.length === 1) {
+      leftovers.set(transport, unused[0]!)
+    }
+  }
+  return leftovers
 }
 
 function mergeSecretRecord(

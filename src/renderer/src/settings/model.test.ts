@@ -143,6 +143,13 @@ describe('MCP draft helpers', () => {
     expect(reserved.ok).toBe(false)
     if (!reserved.ok) expect(reserved.errors.id).toContain('vertragus')
 
+    const reservedCase = validateMcpDraft(
+      t,
+      { ...emptyMcpDraft(), id: 'VERTRAGUS', label: 'X', command: 'npx' },
+      []
+    )
+    expect(reservedCase.ok).toBe(false)
+
     const duplicate = validateMcpDraft(
       t,
       { ...emptyMcpDraft(), id: 'github', label: 'Other', command: 'npx' },

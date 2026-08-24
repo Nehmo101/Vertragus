@@ -130,6 +130,10 @@ describe('parseExtraMcpServers', () => {
     expect(parseExtraMcpServers([{ ...stdio, id: 'github.api' }])).toEqual([])
   })
 
+  it('drops VERTRAGUS on read (reserved, case-insensitive)', () => {
+    expect(parseExtraMcpServers([{ ...stdio, id: 'VERTRAGUS' }])).toEqual([])
+  })
+
   it('caps the list at MAX_EXTRA_MCP_SERVERS', () => {
     const many = Array.from({ length: MAX_EXTRA_MCP_SERVERS + 3 }, (_, index) => ({
       ...stdio,

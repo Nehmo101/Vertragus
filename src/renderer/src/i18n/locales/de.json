@@ -408,7 +408,7 @@
     },
     "mcp": {
       "title": "MCP-Server",
-      "hint": "Zusätzliche Server gelten nur für Subagenten, nicht für den Orchestrator. Änderungen wirken beim nächsten Workspace. Umgebungs- und Header-Werte verlassen den App-Store nicht — leere Felder behalten ein gespeichertes Geheimnis. Gilt für Claude, Codex, Kimi und Cursor — nicht für Ollama. Header reisen bei Claude, Kimi und Cursor mit; Codex-HTTP-Server bekommen nur die Url.",
+      "hint": "Zusätzliche Server gelten nur für Subagenten, nicht für den Orchestrator. Änderungen wirken beim nächsten Agentenstart. Umgebungs- und Header-Werte liegen unverschlüsselt in vertragus-v2.json — leere Felder behalten ein gespeichertes Geheimnis. Gilt für Claude, Codex, Kimi und Cursor — nicht für Ollama. Header reisen bei Claude, Kimi und Cursor mit; Codex-HTTP-Server bekommen nur die Url.",
       "add": "+ MCP-Server hinzufügen",
       "empty": "Noch kein zusätzlicher MCP-Server.",
       "transport": "Transport",
@@ -416,7 +416,6 @@
       "transportHttp": "URL",
       "id": "Id",
       "idHint": "Buchstaben, Ziffern, Strich oder Unterstrich — kein Punkt. Umbenennen behält gespeicherte Geheimnisse.",
-      "idLocked": "Die Id bleibt, weil laufende Agenten sie schon kennen.",
       "label": "Anzeigename",
       "enabled": "Aktiv",
       "command": "Befehl",

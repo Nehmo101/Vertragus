@@ -408,7 +408,7 @@
     },
     "mcp": {
       "title": "MCP servers",
-      "hint": "Extra servers attach to subagents only, not the orchestrator. Changes apply on the next workspace. Environment and header values never leave the app store — empty fields keep a stored secret. Applies to Claude, Codex, Kimi and Cursor — not Ollama. Headers travel with Claude, Kimi and Cursor; Codex HTTP extras are URL-only.",
+      "hint": "Extra servers attach to subagents only, not the orchestrator. Changes apply the next time an agent starts. Environment and header values stay in plaintext in vertragus-v2.json — empty fields keep a stored secret. Applies to Claude, Codex, Kimi and Cursor — not Ollama. Headers travel with Claude, Kimi and Cursor; Codex HTTP extras are URL-only.",
       "add": "+ Add MCP server",
       "empty": "No extra MCP servers yet.",
       "transport": "Transport",
@@ -416,7 +416,6 @@
       "transportHttp": "URL",
       "id": "Id",
       "idHint": "Letters, digits, dashes or underscores — no dots. Renaming keeps stored secrets.",
-      "idLocked": "The id stays because running agents already refer to it.",
       "label": "Display name",
       "enabled": "Enabled",
       "command": "Command",

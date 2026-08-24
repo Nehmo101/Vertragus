@@ -83,6 +83,7 @@ import {
   createAppIpc,
   createStubWorkspaceDirectory,
   disposeAppIpc,
+  mergeMcpServersPatch,
   PROVIDER_HEALTH_TTL_MS,
   quitConfirmationText,
   registerAppIpc,
@@ -107,6 +108,7 @@ import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import { DEFAULT_APPEARANCE } from '@shared/appearance'
 import type { AppSettings } from './store/settings'
 import type { ProviderConfig, ProviderConfigInput } from '@shared/schema/provider'
+import { extraMcpServerSchema, type ExtraMcpServer } from '@shared/schema/mcpServer'
 import { mergeProviderConfigs, providerConfigSchema } from '@shared/schema/provider'
 import type { ProviderHealth } from './providers/health'
 
@@ -1779,6 +1781,40 @@ describe('settings:set', () => {
     expect(next.mcpServers[0]!.envKeys).toEqual(['GH_TOKEN'])
     expect(next.mcpServers[0]!.envSet.GH_TOKEN).toBe(true)
     expect(JSON.stringify(next)).not.toContain('secret')
+  })
+
+  it('does not copy one leftover secret onto two new ids of the same transport', () => {
+    const current: ExtraMcpServer[] = [
+      extraMcpServerSchema.parse({
+        id: 'github',
+        label: 'GitHub',
+        transport: 'stdio',
+        command: 'npx',
+        env: { GITHUB_TOKEN: 'secret' }
+      })
+    ]
+    const merged = mergeMcpServersPatch(current, [
+      {
+        id: 'alpha',
+        label: 'Alpha',
+        enabled: true,
+        transport: 'stdio',
+        command: 'npx',
+        env: { GITHUB_TOKEN: '' }
+      },
+      {
+        id: 'beta',
+        label: 'Beta',
+        enabled: true,
+        transport: 'stdio',
+        command: 'npx',
+        env: { GITHUB_TOKEN: '' }
+      }
+    ])
+    expect(merged).toHaveLength(2)
+    expect(merged[0]).not.toHaveProperty('env')
+    expect(merged[1]).not.toHaveProperty('env')
+    expect(JSON.stringify(merged)).not.toContain('secret')
   })
 
   it('accepts a partial voice write and never puts the raw api keys on PanelSettings', async () => {

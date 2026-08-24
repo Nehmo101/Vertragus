@@ -18,9 +18,9 @@
  */
 import {
   extraMcpServerSchema,
+  isReservedMcpServerId,
   MAX_EXTRA_MCP_SERVERS,
   normalizeMcpServerId,
-  RESERVED_MCP_SERVER_ID,
   type ExtraMcpServer
 } from '@shared/schema/mcpServer'
 import type { PanelMcpServer } from '../../../preload'
@@ -212,18 +212,6 @@ export function parseHeaderLines(text: string): Record<string, string> {
   return headers
 }
 
-export function formatEnvLines(env?: Record<string, string>): string {
-  return Object.entries(env ?? {})
-    .map(([key, value]) => `${key}=${value}`)
-    .join('\n')
-}
-
-export function formatHeaderLines(headers?: Record<string, string>): string {
-  return Object.entries(headers ?? {})
-    .map(([name, value]) => `${name}: ${value}`)
-    .join('\n')
-}
-
 export type McpServerDraft = {
   editingId?: string
   id: string
@@ -320,7 +308,9 @@ export function validateMcpDraft(
   if (!draft.label.trim()) errors.label = t('settings.errors.mcpLabel')
   const id = normalizeMcpServerId(draft.id)
   if (!id || draft.id.includes('.') || id.includes('.')) errors.id = t('settings.errors.mcpId')
-  else if (id === RESERVED_MCP_SERVER_ID) errors.id = t('settings.errors.mcpReserved')
+  else if (isReservedMcpServerId(id) || isReservedMcpServerId(draft.id)) {
+    errors.id = t('settings.errors.mcpReserved')
+  }
   else {
     const taken = existing.some(
       (server) => server.id === id && server.id !== draft.editingId
