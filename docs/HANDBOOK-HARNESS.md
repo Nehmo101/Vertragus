@@ -937,7 +937,10 @@ profile editor lists Orchestrator, Lead and every role template. A **new**
 profile ships with short starter texts (`INITIAL_ROLE_PROMPTS` in
 `prompts/rolePrompt.ts`) the user can edit, clear, or restore; an existing
 profile that never stored extras stays empty. Empty means the shipped /
-host-generated prompt only. A filled field is
+host-generated prompt only. Starters are a **communication overlay**
+(who reads the report, the language of the goal, a distilled handoff) —
+not a second copy of the shipped role duties or the orchestrator loop.
+A filled field is
 **appended** at spawn (`appendUserRolePrompt`) after the Worker/Tester
 role text, the orchestrator loop prompt, the lead prompt, and the
 successor seed alike. It never replaces those, so a user cannot erase

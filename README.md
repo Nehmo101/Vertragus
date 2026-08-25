@@ -46,11 +46,11 @@ keyboard handshake as any assignment, so what the card shows is what the
 orchestrator really received. **Playbooks** are one-click goal templates on
 that fold-out, never a pre-configured crew. The profile editor also takes an
 optional **system prompt per identity** (Orchestrator, Lead, Worker, Tester,
-…). A new profile starts with short starter texts (same language as the
-goal, how to report); you can edit, clear or restore them. Each extra is
-appended to the host-generated or shipped role prompt, so you can steer
-language, tone and how the agent reports back without replacing the loop
-or the reporting contract.
+…). A new profile starts with short English starter texts (who reads the
+report, same language as the goal, distilled handoff); you can edit,
+clear or restore them. Each extra is appended to the host-generated or
+shipped role prompt, so you can steer language, tone and how the agent
+reports back without replacing the loop or the reporting contract.
 
 Everything the orchestrator can do goes through its MCP tools — there is no
 second path:
