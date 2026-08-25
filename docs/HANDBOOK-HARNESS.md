@@ -658,6 +658,8 @@ lifecycle and tokens right there.
 - **This handbook as a parallel lifecycle/auth rework** — that is A/B
 - Tunnels, TLS, an account system, internet exposure, a native app, the
   archive's `apps/mobile` (BigBoy non-goals, adopted here)
+- Pi as a seventh provider (the wrap overlays spawn; slots stay Claude /
+  Cursor / Codex / Kimi / Grok / Ollama)
 
 ---
 
@@ -753,6 +755,51 @@ Open from the plan: loop-eval scenarios for G3/G4 (schema tester, two-task
 board with succession) — unit/integration tests cover the paths, the
 end-to-end scenario is follow-up work.
 
+## Phase H — Pi harness wrap: implemented
+
+Pi is a spawn overlay, not a provider. Slots stay Claude / Cursor / Codex /
+Kimi / Grok / Ollama (model route and subscription). When the wrap is on,
+every agent process is `pi`; native CLIs are not spawned. Default off;
+resolved at workspace start like `yoloMaster` (next Play).
+
+### H1 overlay, not a seventh provider — **implemented**
+
+`PROVIDER_PRESET_IDS` is unchanged. `agents/piHarness.ts` maps preset → Pi
+`--provider` (`claude`→`anthropic`, `codex`→`openai-codex`,
+`kimi`→`kimi-coding`, `cursor`→`github-copilot`, `grok`→`xai`; `ollama`
+and custom omit `--provider` and pass `--model` only). `spawn.ts` replaces
+argv entirely — Ollama's `run --nowordwrap` must not leak. Native yolo
+flags are not forwarded (Pi has no permission prompts). `--tools` is not
+restricted in v1 (it can hide MCP tools).
+
+### H2 MCP via `.pi/mcp.json` — **implemented**
+
+Pi has no native MCP. The launch writes `.pi/mcp.json` (`mcpServers`, same
+key as Cursor, different file) and loads only the pinned `pi-mcp-adapter`
+(`--no-extensions -e`). Native attach (`.cursor/mcp.json`, Claude
+transient JSON, Grok cage, Claude/Kimi trust preaccept) is skipped. The
+file is on `WORKTREE_SECRET_FILES`. Wrap-on Ollama reports over MCP
+(`isPtyOnly` is false).
+
+### H3 settings toggle — **implemented**
+
+`piHarnessEnabled` in app settings, IPC, and Settings. Cursor's closest Pi
+backend is `github-copilot`; Ollama has no Pi backend — both are
+documented, not papered over.
+
+### H4 lockfile pin and Dependabot — **implemented**
+
+`@mariozechner/pi-coding-agent` and `pi-mcp-adapter` are production
+dependencies. Spawn runs Electron as Node on the package `bin.pi`
+(`dist/cli.js`), with `ELECTRON_RUN_AS_NODE=1`, and `-e` loads the
+installed adapter directory (versioned `npm:pi-mcp-adapter@x.y.z` if the
+package is missing). PATH `pi` remains the fallback when the CLI is not
+on disk. `.github/dependabot.yml` allow-lists only those two names,
+grouped as `pi-harness`, weekly, no automerge — overlay flags are a
+contract. npm currently deprecates the `mariozechner` name in favor of
+`@earendil-works/pi-coding-agent`; the lockfile stays on the declared
+name so Dependabot bumps what we actually spawn.
+
 ## Phase A3 — automation: adoption without a click, and the run's pull request
 
 Off by default, per profile (`automation` in `shared/schema/profile.ts`),
@@ -808,3 +855,4 @@ host already merged.
 | Worker "never commit" + host snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` "cursor has no agent_done" | outdated (`none` = Ollama) | ignore |
 | Automation: adoption without a click, run pull request | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest`, `agents/pullRequest.ts` | **A3** |
+| Pi harness wrap (not a seventh provider) | `agents/piHarness.ts`, `spawn.ts` overlay, `.pi/mcp.json`, settings `piHarnessEnabled`, lockfile pin, `.github/dependabot.yml` | **H** |

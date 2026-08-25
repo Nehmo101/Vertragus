@@ -98,6 +98,8 @@ async function resolvePosixCommand(command: string): Promise<string> {
 }
 
 async function resolvePath(command: string): Promise<string> {
+  if (isAbsolute(command)) return command
+
   const cached = cache.get(command)
   if (cached) return cached
 

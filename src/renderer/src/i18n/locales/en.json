@@ -329,6 +329,8 @@
     "agentPolicyAskUser": "Ask user — the CLI asks in its terminal",
     "agentPolicyAskOrchestrator": "Ask orchestrator — risky actions need its approval",
     "agentPolicyHint": "Yolo: full autonomy. Ask user: the CLI's own permission prompt waits for you in the agent terminal (hard boundary). Ask orchestrator: subagents run autonomously, but their contract requires the orchestrator's approval before risky actions (soft boundary — see the README threat model).",
+    "piHarness": "Run agents through Pi",
+    "piHarnessHint": "Off by default. On: the roster still says Claude, Cursor, Codex, Kimi, Grok or Ollama — only the process is the bundled Pi CLI, with the slot's model and a mapped Pi backend. Native CLIs are not spawned. Takes effect on the next Play. PATH pi is the fallback if the package is missing. Cursor maps to github-copilot; Ollama has no Pi backend, so only --model is passed. Pi has no permission prompts, so native yolo flags are not forwarded.",
     "hotkey": "“Hide everything” hotkey",
     "hotkeyHint": "Electron format: join modifiers with +, e.g. Control+Alt+V. Takes effect right after saving.",
     "hotkeyPlaceholder": "Control+Alt+V",
@@ -408,7 +410,7 @@
     },
     "mcp": {
       "title": "MCP servers",
-      "hint": "Extra servers attach to subagents only, not the orchestrator. Changes apply the next time an agent starts. Environment and header values stay in plaintext in vertragus-v2.json — empty fields keep a stored secret. Applies to Claude, Codex, Kimi and Cursor — not Ollama. Headers travel with Claude, Kimi and Cursor; Codex HTTP extras are URL-only.",
+      "hint": "Extra servers attach to subagents only, not the orchestrator. Changes apply the next time an agent starts. Environment and header values stay in plaintext in vertragus-v2.json — empty fields keep a stored secret. Applies to Claude, Codex, Kimi and Cursor — not Ollama. With the Pi wrap on, extras attach for every slot including Ollama. Headers travel with Claude, Kimi and Cursor; Codex HTTP extras are URL-only.",
       "add": "+ Add MCP server",
       "empty": "No extra MCP servers yet.",
       "transport": "Transport",
