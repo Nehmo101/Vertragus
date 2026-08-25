@@ -73,11 +73,9 @@ function waitForPiTui(child: {
   return new Promise((resolve) => {
     let out = ''
     let settled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
     const finish = () => {
       if (settled) return
       settled = true
-      if (timer) clearTimeout(timer)
       try {
         child.kill()
       } catch {
@@ -91,7 +89,7 @@ function waitForPiTui(child: {
     }
     child.stdout?.on('data', onChunk)
     child.stderr?.on('data', onChunk)
-    timer = setTimeout(finish, 8_000)
+    setTimeout(finish, 8_000)
     child.on('exit', finish)
   })
 }
@@ -274,11 +272,9 @@ describe('lockfile Pi CLI and adapter', () => {
     const result = await new Promise<{ out: string }>((resolve) => {
       let out = ''
       let settled = false
-      let timer: ReturnType<typeof setTimeout> | undefined
       const finish = () => {
         if (settled) return
         settled = true
-        if (timer) clearTimeout(timer)
         stopData()
         stopExit()
         pty.kill()
@@ -295,7 +291,7 @@ describe('lockfile Pi CLI and adapter', () => {
         cwd,
         env: { HOME: cwd, ELECTRON_RUN_AS_NODE: '1', PI_SKIP_VERSION_CHECK: '1' }
       })
-      timer = setTimeout(finish, 8_000)
+      setTimeout(finish, 8_000)
     })
     expect(result.out).toContain('?2004h')
     expect(result.out).not.toMatch(/No API key found/i)
