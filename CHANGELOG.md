@@ -124,6 +124,15 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Fixed
 
+- **Cursor Agent on Windows died at Play with "never became ready"** while the
+  orchestrator window already showed `An Application Control policy has
+  blocked this file` (`file_service.win32-x64-msvc.node` under
+  `%LOCALAPPDATA%\cursor-agent\`). Smart App Control / AppLocker / WDAC
+  blocks unsigned native addons; the seed handshake treated the crash dump
+  as a quiet banner and waited out the keyboard timeout. Boot now fails
+  fast, the panel names the blocked file, and
+  [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) records the
+  workaround (Vertragus cannot override the policy).
 - **Pi wrap exited immediately on Play.** The lockfile still spawned
   `@mariozechner/pi-coding-agent` 0.73.1 while `pi-mcp-adapter` 2.27
   imports `@earendil-works/pi-coding-agent`, so extension load failed and

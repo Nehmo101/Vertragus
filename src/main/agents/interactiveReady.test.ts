@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   BRACKETED_PASTE_OFF,
   BRACKETED_PASTE_ON,
@@ -13,6 +16,11 @@ import {
   waitForInteractiveReady,
   waitForKeyboardTaken
 } from './interactiveReady'
+
+const APP_CONTROL_DUMP = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '__fixtures__', 'cursor-agent-app-control.txt'),
+  'utf8'
+)
 
 /** A task contract is always multi-line — the shape that triggered the bug. */
 const MULTILINE_TASK = ['line one', 'line two'].join('\n')
@@ -103,6 +111,14 @@ describe('interactiveReady', () => {
     ).resolves.toBe(false)
   })
 
+  it('gives up on the keyboard wait as soon as Application Control blocks a native addon', async () => {
+    const started = Date.now()
+    await expect(
+      waitForKeyboardTaken(() => ({ buffer: APP_CONTROL_DUMP, alive: true }), 5_000, 5)
+    ).resolves.toBe(false)
+    expect(Date.now() - started).toBeLessThan(400)
+  })
+
   it('returns false when agent is no longer alive', async () => {
     await expect(
       waitForInteractiveReady(() => ({ buffer: '', alive: false }), {
@@ -110,6 +126,39 @@ describe('interactiveReady', () => {
         pollMs: 20
       })
     ).resolves.toBe(false)
+  })
+
+  /**
+   * The idle heuristic would otherwise treat the crash dump as a quiet banner
+   * (plenty of characters, then silence) and the handshake would paste the
+   * orchestrator prompt on top of it — which is how "never became ready"
+   * hid a Windows Application Control block.
+   */
+  it('does not treat an Application Control crash dump as a ready banner', async () => {
+    const started = Date.now()
+    await expect(
+      waitForInteractiveReady(() => ({ buffer: APP_CONTROL_DUMP, alive: true }), {
+        timeoutMs: 2_000,
+        idleMs: 20,
+        minChars: 8,
+        pollMs: 10,
+        keyboardMs: 2_000
+      })
+    ).resolves.toBe(false)
+    expect(Date.now() - started).toBeLessThan(400)
+  })
+
+  it('does not paste into a CLI blocked by Application Control', async () => {
+    const write = vi.fn()
+    await expect(
+      seedWithReadyHandshake(
+        write,
+        () => ({ buffer: APP_CONTROL_DUMP, alive: true }),
+        'orchestrator prompt',
+        { ready: { timeoutMs: 500, idleMs: 20, minChars: 8, pollMs: 10, keyboardMs: 2_000 } }
+      )
+    ).resolves.toBe(false)
+    expect(write).not.toHaveBeenCalled()
   })
 
   it('seeds with bounded retries after ready handshake', async () => {

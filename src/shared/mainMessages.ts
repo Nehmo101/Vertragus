@@ -102,6 +102,22 @@ interface MainMessages {
   voiceMissingApiKey: string
   /** Same as {@link voiceMissingApiKey} when the selected provider is OpenAI. */
   voiceMissingOpenaiApiKey: string
+  /**
+   * Seed handshake: Windows Application Control (Smart App Control / AppLocker
+   * / WDAC) blocked a native `.node` addon. `blockedPath` is the file the CLI
+   * named, or {@link cliNativeAddon} when the dump had no path.
+   */
+  cliBlockedByAppControl: (name: string, provider: string, blockedPath: string) => string
+  /** Fallback label when the dump named no `.node` path. */
+  cliNativeAddon: string
+  /** Seed handshake: orchestrator prompt never landed. */
+  cliNeverReadyPrompt: (name: string, provider: string) => string
+  /** Seed handshake: subagent task never landed. */
+  cliNeverReadyTask: (name: string, provider: string) => string
+  /** Seed handshake: lead area never landed. */
+  cliNeverReadyArea: (name: string, provider: string) => string
+  /** Quoted PTY tail appended to a generic seed failure. */
+  cliOutputExcerpt: (excerpt: string) => string
 }
 
 const MESSAGES: Record<MainLocale, MainMessages> = {
@@ -159,7 +175,20 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     zoneOverlayTitle: 'Vertragus — Zonen',
     voiceMissingApiKey: 'Kein xAI-API-Key. Unter Einstellungen eintragen oder XAI_API_KEY setzen.',
     voiceMissingOpenaiApiKey:
-      'Kein OpenAI-API-Key. Unter Einstellungen eintragen oder OPENAI_API_KEY setzen.'
+      'Kein OpenAI-API-Key. Unter Einstellungen eintragen oder OPENAI_API_KEY setzen.',
+    cliBlockedByAppControl: (name, provider, blockedPath) =>
+      `${name} (${provider}) konnte nicht starten — Windows Application Control hat ${blockedPath} ` +
+      'blockiert (Smart App Control, AppLocker oder WDAC). Vertragus kann diese Richtlinie nicht ' +
+      'umgehen. Smart App Control ausschalten oder eine Ausnahme für %LOCALAPPDATA%\\cursor-agent ' +
+      'setzen. Siehe docs/TROUBLESHOOTING.md.',
+    cliNativeAddon: 'ein natives .node-Addon',
+    cliNeverReadyPrompt: (name, provider) =>
+      `${name} (${provider}) wurde nicht bereit — der Orchestrator-Prompt wurde nicht zugestellt.`,
+    cliNeverReadyTask: (name, provider) =>
+      `${name} (${provider}) wurde nicht bereit — die CLI hat ihre Aufgabe nicht angenommen.`,
+    cliNeverReadyArea: (name, provider) =>
+      `${name} (${provider}) wurde nicht bereit — die CLI hat ihren Bereich nicht angenommen.`,
+    cliOutputExcerpt: (excerpt) => `CLI-Ausgabe:\n${excerpt}`
   },
   en: {
     stubNotWired: 'The workspace manager is not wired up yet.',
@@ -213,7 +242,20 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     providerEditorTitle: 'Vertragus — Provider',
     zoneOverlayTitle: 'Vertragus — Zones',
     voiceMissingApiKey: 'No xAI API key. Set it under Settings or XAI_API_KEY.',
-    voiceMissingOpenaiApiKey: 'No OpenAI API key. Set it under Settings or OPENAI_API_KEY.'
+    voiceMissingOpenaiApiKey: 'No OpenAI API key. Set it under Settings or OPENAI_API_KEY.',
+    cliBlockedByAppControl: (name, provider, blockedPath) =>
+      `${name} (${provider}) could not start — Windows Application Control blocked ${blockedPath} ` +
+      '(Smart App Control, AppLocker, or WDAC). Vertragus cannot override that policy. Turn Smart ' +
+      'App Control off, or add an exception for %LOCALAPPDATA%\\cursor-agent. See ' +
+      'docs/TROUBLESHOOTING.md.',
+    cliNativeAddon: 'a native .node addon',
+    cliNeverReadyPrompt: (name, provider) =>
+      `${name} (${provider}) never became ready — the orchestrator prompt was not delivered.`,
+    cliNeverReadyTask: (name, provider) =>
+      `${name} (${provider}) never became ready — the CLI did not accept its task.`,
+    cliNeverReadyArea: (name, provider) =>
+      `${name} (${provider}) never became ready — the CLI did not accept its area.`,
+    cliOutputExcerpt: (excerpt) => `CLI output:\n${excerpt}`
   }
 }
 

@@ -114,6 +114,33 @@ than rendering as an unpainted rectangle. Zone tiling is also unreliable
 under Wayland, which gives applications no absolute window positioning at
 all — that is a platform limit, not a setting.
 
+## Cursor Agent crashes immediately on Windows
+
+The orchestrator window prints `Error: node-loader:` / `An Application
+Control policy has blocked this file`, then the panel says the orchestrator
+never became ready. The blocked file lives under
+`%LOCALAPPDATA%\cursor-agent\versions\…\` and is an unsigned native addon
+(`.node`) — commonly `file_service.win32-x64-msvc.node` or
+`merkle-tree-napi.win32-x64-msvc.node`.
+
+That is Windows Smart App Control, AppLocker, or WDAC refusing to load the
+addon. Vertragus cannot override the policy. Confirm it outside the panel:
+`cursor-agent` in a normal terminal dies the same way.
+
+What to do:
+
+- **Smart App Control** (Windows Security → App & browser control). Microsoft
+  documents no per-file exception; turning it off and restarting is the
+  workaround they publish. [Cursor tracks this](https://forum.cursor.com/t/windows-11-pro-smart-app-control-cursor-agent-fails-to-start-because-merkle-tree-napi-win32-x64-msvc-node-is-blocked/164831)
+  as unsigned native modules in the agent install — signing those files is
+  Cursor's fix, not Vertragus's.
+- **AppLocker / WDAC / company EDR.** Ask for an allow rule covering
+  `%LOCALAPPDATA%\cursor-agent\`. Defender exclusions do not bypass
+  Application Control.
+- If Smart App Control is already off and a normal terminal still dies, this
+  is a Cursor CLI bug. Open it with them; attaching the orchestrator window
+  dump is enough.
+
 ## Something else
 
 Open an issue with your OS, the Vertragus version (Settings shows it), the
