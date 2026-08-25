@@ -97,6 +97,7 @@ import {
   seedOptionsFromProvider,
   type SeedWithReadyOptions
 } from '@main/agents/interactiveReady'
+import { formatSeedFailure, type SeedFailurePurpose } from '@main/agents/cliBootFailure'
 import type { AgentPolicy } from '@shared/agentPolicy'
 import { buildReminderSuffix, type ReportingMode } from '@shared/prompts/contract'
 import {
@@ -268,6 +269,11 @@ export interface WorkspaceDeps {
   now?: () => number
   newId?: () => string
   random?: () => number
+  /**
+   * Stored UI locale for seed-failure errors that reach the panel banner.
+   * A function so a locale change after boot is picked up on the next Play.
+   */
+  locale?(): string | undefined
   /** Seed-handshake tuning; tests shorten it so the suite stays fast. */
   seedOptions?: SeedWithReadyOptions
   worktreeDeps?: WorktreeDeps
@@ -976,9 +982,7 @@ export class Workspace implements AgentHost {
         : input.task
       const accepted = await this.seed(record, seedText, this.autoSubmitTasks)
       if (!accepted) {
-        throw new Error(
-          `${pending.name} (${provider.label}) never became ready — the CLI did not accept its area.`
-        )
+        throw this.seedNotAccepted(pending.name, provider, 'area', spawned.pty)
       }
       record.seeded = true
       record.assignmentCursor = this.queueFor(record.agentId).cursor
@@ -1063,9 +1067,7 @@ export class Workspace implements AgentHost {
         : input.task
       const accepted = await this.seed(record, seedText, this.autoSubmitTasks)
       if (!accepted) {
-        throw new Error(
-          `${pending.name} (${provider.label}) never became ready — the CLI did not accept its task.`
-        )
+        throw this.seedNotAccepted(pending.name, provider, 'task', spawned.pty)
       }
       record.seeded = true
       record.assignmentCursor = this.queueFor(record.agentId).cursor
@@ -1813,9 +1815,7 @@ export class Workspace implements AgentHost {
       if (spawned.launch.ptySystemPrompt) {
         const accepted = await this.seed(record, spawned.launch.ptySystemPrompt, true)
         if (!accepted) {
-          throw new Error(
-            `${input.name} (${provider.label}) never became ready — the orchestrator prompt was not delivered.`
-          )
+          throw this.seedNotAccepted(input.name, provider, 'orchestrator-prompt', spawned.pty)
         }
       }
       record.seeded = true
@@ -2705,6 +2705,28 @@ export class Workspace implements AgentHost {
         }
       }
     })
+  }
+
+  /**
+   * Seed handshake refused: name the CLI dump when it already explained itself
+   * (Windows Application Control blocking a `.node` addon) instead of the
+   * generic "never became ready" that used to hide it.
+   */
+  private seedNotAccepted(
+    name: string,
+    provider: ProviderConfig,
+    purpose: SeedFailurePurpose,
+    pty: AgentPty
+  ): Error {
+    return new Error(
+      formatSeedFailure({
+        name,
+        providerLabel: provider.label,
+        purpose,
+        buffer: pty.snapshot(),
+        locale: this.deps.locale?.()
+      })
+    )
   }
 
   /**

@@ -52,4 +52,18 @@ describe('mainMessages', () => {
     expect(mainMessages('en').settingsWindowTitle).toBe('Vertragus — Settings')
     expect(mainMessages('en').zoneOverlayTitle).toBe('Vertragus — Zones')
   })
+
+  it('names the blocked native addon in the Application Control seed failure', () => {
+    const path = 'C:\\Users\\t\\file_service.win32-x64-msvc.node'
+    expect(mainMessages('en').cliBlockedByAppControl('Stazio', 'Cursor Agent', path)).toContain(path)
+    expect(mainMessages('en').cliBlockedByAppControl('Stazio', 'Cursor Agent', path)).toContain(
+      'Application Control'
+    )
+    expect(mainMessages('de').cliBlockedByAppControl('Stazio', 'Cursor Agent', path)).toContain(
+      'konnte nicht starten'
+    )
+    expect(mainMessages('en').cliNeverReadyPrompt('Stazio', 'Cursor Agent')).toContain(
+      'never became ready'
+    )
+  })
 })

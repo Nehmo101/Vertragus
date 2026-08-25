@@ -4,6 +4,8 @@
  * a bounded number of times so a slow CLI still receives the briefing.
  */
 
+import { isFatalCliBootOutput } from './cliBootFailure'
+
 export interface InteractiveSnapshot {
   buffer: string
   alive: boolean
@@ -35,6 +37,15 @@ const DEFAULT_WAIT: Required<WaitForReadyOptions> = {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Dead, or already showing a crash dump that will never take the keyboard
+ * (Windows Application Control blocking a `.node` addon). The idle heuristic
+ * would otherwise treat that dump as a quiet banner and paste into it.
+ */
+function bootDoomed(snapshot: InteractiveSnapshot): boolean {
+  return !snapshot.alive || isFatalCliBootOutput(snapshot.buffer)
 }
 
 /**
@@ -71,12 +82,13 @@ export async function waitForKeyboardTaken(
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    const { buffer, alive } = getSnapshot()
-    if (!alive) return false
-    if (bracketedPasteActive(buffer)) return true
+    const snapshot = getSnapshot()
+    if (bootDoomed(snapshot)) return false
+    if (bracketedPasteActive(snapshot.buffer)) return true
     await sleep(pollMs)
   }
-  return bracketedPasteActive(getSnapshot().buffer)
+  const last = getSnapshot()
+  return !bootDoomed(last) && bracketedPasteActive(last.buffer)
 }
 
 /**
@@ -92,27 +104,27 @@ export async function waitForInteractiveReady(
   const opts = { ...DEFAULT_WAIT, ...options }
   if (opts.keyboardMs > 0) {
     await waitForKeyboardTaken(getSnapshot, opts.keyboardMs, opts.pollMs)
-    if (!getSnapshot().alive) return false
+    if (bootDoomed(getSnapshot())) return false
   }
   const deadline = Date.now() + opts.timeoutMs
   let lastLen = 0
   let lastChange = Date.now()
 
   while (Date.now() < deadline) {
-    const { buffer, alive } = getSnapshot()
-    if (!alive) return false
-    if (buffer.length !== lastLen) {
-      lastLen = buffer.length
+    const snapshot = getSnapshot()
+    if (bootDoomed(snapshot)) return false
+    if (snapshot.buffer.length !== lastLen) {
+      lastLen = snapshot.buffer.length
       lastChange = Date.now()
     }
-    if (buffer.length >= opts.minChars && Date.now() - lastChange >= opts.idleMs) {
+    if (snapshot.buffer.length >= opts.minChars && Date.now() - lastChange >= opts.idleMs) {
       return true
     }
     await sleep(opts.pollMs)
   }
 
-  const { buffer, alive } = getSnapshot()
-  return alive && buffer.length > 0
+  const last = getSnapshot()
+  return !bootDoomed(last) && last.buffer.length > 0
 }
 
 /**
@@ -313,7 +325,7 @@ async function waitForSettled(
   let lastChange = Date.now()
   while (Date.now() < deadline) {
     const snap = getSnapshot()
-    if (!snap.alive) return false
+    if (bootDoomed(snap)) return false
     if (snap.buffer !== prev) {
       prev = snap.buffer
       changed = true
@@ -430,7 +442,7 @@ export async function seedWithReadyHandshake(
 
   for (let attempt = 0; attempt < textAttempts; attempt++) {
     const before = getSnapshot()
-    if (!before.alive) return false
+    if (bootDoomed(before)) return false
     textBaseline = before.buffer
     write(payload)
     if (attempt === textAttempts - 1) break
@@ -440,7 +452,7 @@ export async function seedWithReadyHandshake(
     while (Date.now() < deadline) {
       await sleep(Math.min(acceptancePollMs, Math.max(1, deadline - Date.now())))
       const after = getSnapshot()
-      if (!after.alive) return false
+      if (bootDoomed(after)) return false
       if (after.buffer !== before.buffer) {
         reacted = true
         break
@@ -451,7 +463,7 @@ export async function seedWithReadyHandshake(
 
   if (!autoSubmit) return true
   await sleep(submitDelayMs)
-  if (!getSnapshot().alive) return false
+  if (bootDoomed(getSnapshot())) return false
 
   if (submitAcceptance === 'sustained-activity') {
     const outcome = await submitWithSustainedActivity(write, getSnapshot, textBaseline, {
@@ -469,7 +481,7 @@ export async function seedWithReadyHandshake(
   let confirmed = false
   for (let attempt = 0; attempt < submitRetries; attempt++) {
     const before = getSnapshot()
-    if (!before.alive) return false
+    if (bootDoomed(before)) return false
     // Separate write from the prompt text — never glue Enter onto the paste.
     write(SUBMIT_KEY)
 
@@ -481,7 +493,7 @@ export async function seedWithReadyHandshake(
     while (Date.now() < deadline) {
       await sleep(Math.min(acceptancePollMs, Math.max(1, deadline - Date.now())))
       const after = getSnapshot()
-      if (!after.alive) return false
+      if (bootDoomed(after)) return false
       if (after.buffer !== before.buffer) {
         confirmed = true
         break
@@ -541,7 +553,7 @@ async function submitWithSustainedActivity(
     )
     if (!settled) return dead
     const before = getSnapshot()
-    if (!before.alive) return dead
+    if (bootDoomed(before)) return dead
     write(SUBMIT_KEY)
 
     const watchMs = opts.submitWatchMs * (attempt + 1)
@@ -552,7 +564,7 @@ async function submitWithSustainedActivity(
     while (Date.now() < deadline) {
       await sleep(Math.min(opts.pollMs, Math.max(1, deadline - Date.now())))
       const after = getSnapshot()
-      if (!after.alive) return dead
+      if (bootDoomed(after)) return dead
       if (after.buffer !== prev) {
         prev = after.buffer
         const now = Date.now()

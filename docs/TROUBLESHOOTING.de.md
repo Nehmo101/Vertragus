@@ -123,6 +123,33 @@ ist unter Wayland ebenfalls unzuverlässig, weil Wayland Anwendungen gar keine
 absolute Fensterpositionierung gibt — das ist eine Plattform-Grenze, keine
 Einstellung.
 
+## Cursor Agent stürzt unter Windows sofort ab
+
+Das Orchestrator-Fenster druckt `Error: node-loader:` / `An Application
+Control policy has blocked this file`, danach sagt das Panel, der
+Orchestrator sei nicht bereit geworden. Die blockierte Datei liegt unter
+`%LOCALAPPDATA%\cursor-agent\versions\…\` und ist ein unsigniertes natives
+Addon (`.node`) — häufig `file_service.win32-x64-msvc.node` oder
+`merkle-tree-napi.win32-x64-msvc.node`.
+
+Das ist Windows Smart App Control, AppLocker oder WDAC, das das Addon nicht
+laden lässt. Vertragus kann die Richtlinie nicht umgehen. Prüfe es außerhalb
+des Panels: `cursor-agent` in einem normalen Terminal stirbt genauso.
+
+Was tun:
+
+- **Smart App Control** (Windows-Sicherheit → App- und Browsersicherheit).
+  Microsoft dokumentiert keine Ausnahme pro Datei; Ausschalten und
+  Neustart ist der Workaround, den sie veröffentlichen. [Cursor führt das](https://forum.cursor.com/t/windows-11-pro-smart-app-control-cursor-agent-fails-to-start-because-merkle-tree-napi-win32-x64-msvc-node-is-blocked/164831)
+  auf unsignierte native Module in der Agent-Installation zurück — die zu
+  signieren ist Cursors Fix, nicht der von Vertragus.
+- **AppLocker / WDAC / Firmen-EDR.** Eine Allow-Regel für
+  `%LOCALAPPDATA%\cursor-agent\` beantragen. Defender-Ausschlüsse umgehen
+  Application Control nicht.
+- Ist Smart App Control schon aus und stirbt ein normales Terminal trotzdem,
+  ist das ein Bug der Cursor-CLI. Dort öffnen; der Dump im
+  Orchestrator-Fenster reicht als Anhang.
+
 ## Etwas anderes
 
 Öffne ein Issue mit deinem Betriebssystem, der Vertragus-Version (die

@@ -96,6 +96,8 @@ export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManage
     agentPolicy: () => effectiveAgentPolicy(getSettings()),
     piHarness: () => getSettings().piHarnessEnabled,
     extraMcpServers: () => enabledExtraMcpServers(getSettings().mcpServers),
+    // Seed-failure errors (Application Control, dead CLI) follow the panel language.
+    locale: () => getSettings().ui.locale,
     // The retro loop: run stats and learnings land in the settings store, and
     // the accumulated knowledge returns via the next orchestrator prompt.
     retro: createRetroSink({ store: settings() }),

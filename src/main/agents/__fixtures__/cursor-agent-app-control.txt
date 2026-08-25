@@ -1,0 +1,4 @@
+Error: node-loader:
+Error: An Application Control policy has blocked this file.
+
+C:\Users\Lasse\AppData\Local\cursor-agent\versions\2026.08.11-e8db854\file_service.win32-x64-msvc.node

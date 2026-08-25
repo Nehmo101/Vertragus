@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BRACKETED_PASTE_ON, PASTE_BEGIN, PASTE_END } from '@main/agents/interactiveReady'
 import { buildAgentArgv } from '@main/agents/spawn'
@@ -307,7 +308,10 @@ describe('startAgent', () => {
 
   it('releases name, window and process when the seed never lands', async () => {
     const { workspace, windows, registry, spawns } = harness({
-      deps: { seed: (async () => false) as unknown as WorkspaceDeps['seed'] }
+      deps: {
+        seed: (async () => false) as unknown as WorkspaceDeps['seed'],
+        locale: () => 'en'
+      }
     })
 
     await expect(workspace.startAgent({ role: 'worker', task: 'x' })).rejects.toThrow(
@@ -827,6 +831,72 @@ describe('startOrchestrator', () => {
       deps: { providers: testProviders().map((p) => ({ ...p, enabled: false })) }
     })
     await expect(disabled.workspace.startOrchestrator()).rejects.toThrow(/is disabled/)
+  })
+
+  /**
+   * cursor-agent 2026.08.11 on Windows with Smart App Control: the PTY prints
+   * the node-loader dump and never takes the keyboard. The generic "never
+   * became ready" hid that; the panel must name the blocked file.
+   */
+  it('names a Windows Application Control block instead of "never became ready"', async () => {
+    const dump = readFileSync(
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        '..',
+        'agents',
+        '__fixtures__',
+        'cursor-agent-app-control.txt'
+      ),
+      'utf8'
+    )
+    const { workspace, spawns } = harness({
+      ptySystemPrompt: true,
+      banner: dump,
+      profile: testProfile({ orchestrator: { providerId: 'cursor' } }),
+      deps: {
+        seed: (async () => false) as unknown as WorkspaceDeps['seed'],
+        locale: () => 'en'
+      }
+    })
+
+    await expect(workspace.startOrchestrator()).rejects.toThrow(
+      /Application Control[\s\S]*file_service\.win32-x64-msvc\.node/
+    )
+    expect(workspace.orchestrator).toBeUndefined()
+    expect(spawns[0]!.pty.killed).toBe(1)
+  })
+
+  it('does not paste the orchestrator prompt on top of an Application Control dump', async () => {
+    const dump = readFileSync(
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        '..',
+        'agents',
+        '__fixtures__',
+        'cursor-agent-app-control.txt'
+      ),
+      'utf8'
+    )
+    const { workspace, spawns } = harness({
+      ptySystemPrompt: true,
+      banner: dump,
+      profile: testProfile({ orchestrator: { providerId: 'cursor' } }),
+      deps: {
+        seed: undefined,
+        seedOptions: {
+          ready: { idleMs: 5, pollMs: 1, minChars: 1, timeoutMs: 500, keyboardMs: 2_000 },
+          maxAttempts: 1,
+          submitDelayMs: 5,
+          submitRetries: 1
+        },
+        locale: () => 'en'
+      }
+    })
+
+    const started = Date.now()
+    await expect(workspace.startOrchestrator()).rejects.toThrow(/Application Control/)
+    expect(Date.now() - started).toBeLessThan(800)
+    expect(spawns[0]!.pty.written).toEqual([])
   })
 
   it('puts a grok start-goal on spawn argv and records goalText without PTY-seeding it', async () => {

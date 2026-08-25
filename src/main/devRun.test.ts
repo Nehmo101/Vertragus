@@ -25,6 +25,11 @@ describe('createAppWorkspaceManager', () => {
       /setReflowNeighborsGetter\(\(\) => getSettings\(\)\.ui\.reflowNeighbors\)/
     )
   })
+
+  it('hands the stored UI locale to workspace seed-failure errors', () => {
+    const source = readFileSync(join(__dirname, 'devRun.ts'), 'utf8')
+    expect(source).toMatch(/locale:\s*\(\)\s*=>\s*getSettings\(\)\.ui\.locale/)
+  })
 })
 
 describe('buildDevProfile', () => {
