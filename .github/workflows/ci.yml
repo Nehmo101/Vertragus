@@ -99,6 +99,11 @@ jobs:
     # Proves the installers still BUILD on every platform. Nothing is published
     # here — that is release.yml's job, and only from main.
     #
+    # macos-latest is required: a universal merge (@electron/universal +
+    # mac.x64ArchFiles) cannot be proven on Windows or Linux. A missing native
+    # scope only failed in release.yml after #56, which blocked the main-channel
+    # prerelease for every platform.
+    #
     # Skipped on tags: release.yml packages the very same commit on the very
     # same runners a minute later, and it publishes what it builds. Doing it
     # twice would double the slowest part of a release for no extra signal.
@@ -109,7 +114,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -133,5 +138,7 @@ jobs:
             release/**/*.exe
             release/**/*.AppImage
             release/**/*.deb
+            release/**/*.dmg
+            release/**/*.zip
           if-no-files-found: error
           retention-days: 7

@@ -798,7 +798,16 @@ on disk. `.github/dependabot.yml` allow-lists only those two names,
 grouped as `pi-harness`, weekly, no automerge — overlay flags are a
 contract. npm currently deprecates the `mariozechner` name in favor of
 `@earendil-works/pi-coding-agent`; the lockfile stays on the declared
-name so Dependabot bumps what we actually spawn.
+name so Dependabot bumps what we actually spawn. The CLI, photon WASM,
+the MCP adapter, and native keyring trees are unpacked (`asarUnpack` in
+`electron-builder.yml`). Universal macOS sets `mac.x64ArchFiles` to
+`**/node_modules/**`: per-arch optional `.node` files (clipboard, koffi,
+keyring, node-pty) are byte-identical across the two temp apps, and
+`@electron/universal` refuses to skip lipo unless the pattern says that
+is expected. A scoped brace list misses unscoped addons such as koffi.
+`mac.mergeASARs` stays false: the unpacked Pi trees make
+`@electron/universal`'s brace-glob of unpack paths overflow minimatch
+(`pattern is too long`), and the JS inside asar is already arch-identical.
 
 ## Phase A3 — automation: adoption without a click, and the run's pull request
 
@@ -855,4 +864,4 @@ host already merged.
 | Worker "never commit" + host snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` "cursor has no agent_done" | outdated (`none` = Ollama) | ignore |
 | Automation: adoption without a click, run pull request | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest`, `agents/pullRequest.ts` | **A3** |
-| Pi harness wrap (not a seventh provider) | `agents/piHarness.ts`, `spawn.ts` overlay, `.pi/mcp.json`, settings `piHarnessEnabled`, lockfile pin, `.github/dependabot.yml` | **H** |
+| Pi harness wrap (not a seventh provider) | `agents/piHarness.ts`, `spawn.ts` overlay, `.pi/mcp.json`, settings `piHarnessEnabled`, lockfile pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |

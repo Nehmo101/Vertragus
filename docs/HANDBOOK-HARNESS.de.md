@@ -808,6 +808,17 @@ Fallback, wenn die CLI nicht auf der Platte liegt.
 Vertrag. npm markiert den Namen `mariozechner` derzeit als veraltet
 zugunsten von `@earendil-works/pi-coding-agent`; das Lockfile bleibt beim
 deklarierten Namen, damit Dependabot das bumpt, was wir wirklich starten.
+CLI, Photon-WASM, der MCP-Adapter und die nativen Keyring-Bäume werden
+ausgepackt (`asarUnpack` in `electron-builder.yml`). Universal-macOS setzt
+`mac.x64ArchFiles` auf `**/node_modules/**`: die architektur-spezifischen
+optionalen `.node`-Dateien (Clipboard, koffi, Keyring, node-pty) sind in
+beiden Temp-Apps bytegleich, und `@electron/universal` verweigert das
+Überspringen von lipo, solange das Pattern das nicht als erwartet
+ausweist. Eine Scope-Klammerliste verfehlt unscoped Addons wie koffi.
+`mac.mergeASARs` bleibt false: die ausgepackten Pi-Bäume lassen das
+Brace-Glob der Unpack-Pfade in `@electron/universal` über minimatch
+laufen (`pattern is too long`), und das JS in asar ist bereits
+architekturidentisch.
 
 ## Phase A3 — Automatisierung: Übernahme ohne Klick und der Pull Request des Laufs
 
@@ -868,4 +879,4 @@ gemergt hat.
 | Worker „nie committen” + Host-Snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, Handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` „Cursor hat kein agent_done“ | veraltet (`none` = Ollama) | ignorieren |
 | Automatisierung: Übernahme ohne Klick, Pull Request des Laufs | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest`, `agents/pullRequest.ts` | **A3** |
-| Pi-Harness-Wrap (kein siebter Provider) | `agents/piHarness.ts`, `spawn.ts`-Overlay, `.pi/mcp.json`, Setting `piHarnessEnabled`, Lockfile-Pin, `.github/dependabot.yml` | **H** |
+| Pi-Harness-Wrap (kein siebter Provider) | `agents/piHarness.ts`, `spawn.ts`-Overlay, `.pi/mcp.json`, Setting `piHarnessEnabled`, Lockfile-Pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |

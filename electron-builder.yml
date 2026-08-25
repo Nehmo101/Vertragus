@@ -78,10 +78,21 @@ mac:
   # plain hardened runtime; these entitlements are the documented Electron set.
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  # @lydell/node-pty ships prebuilt per-arch packages whose darwin binaries are
-  # byte-identical across x64 and arm64; @electron/universal rejects that unless
-  # the pattern is declared here. The package picks its sub-binary at runtime.
-  x64ArchFiles: '**/{@lydell,@koromix}/**'
+  # Prebuilt native addons land in both universal temp apps as identical
+  # Mach-O files: per-arch optional packages (@lydell/node-pty, Pi clipboard,
+  # @napi-rs/keyring) and unscoped trees that ship every arch in one folder
+  # (koffi via pi-tui). @electron/universal refuses to skip lipo unless the
+  # path matches this pattern. A scoped brace list is not enough — koffi has
+  # no @scope. `**/node_modules/**` covers every addon and still excludes
+  # Electron's own helpers. scripts/piHarnessPin.test.ts pins the glob.
+  x64ArchFiles: '**/node_modules/**'
+  # The Pi CLI/adapter trees must be unpacked (spawned as Node via
+  # ELECTRON_RUN_AS_NODE, so asar is opaque). @electron/universal then
+  # rebuilds the unpack list as one brace glob of absolute paths; that
+  # string exceeds minimatch 3's 64 KiB limit (`pattern is too long`).
+  # Merging ASARs is unnecessary here: JS inside asar is arch-identical,
+  # natives live in asar.unpacked and are handled by x64ArchFiles above.
+  mergeASARs: false
   target:
     - target: dmg
       arch:
