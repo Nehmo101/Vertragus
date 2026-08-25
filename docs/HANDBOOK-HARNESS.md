@@ -900,8 +900,10 @@ pattern is mapped in
 [`RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md`](./RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md);
 the wider Obsidian + agentic-development landscape (cwd vs MCP vs embed,
 worktree melt, vault as extra MCP) is
-[`RESEARCH-OBSIDIAN-AGENTIC.md`](./RESEARCH-OBSIDIAN-AGENTIC.md). Neither
-adds tools, RAG, or a PKM product.
+[`RESEARCH-OBSIDIAN-AGENTIC.md`](./RESEARCH-OBSIDIAN-AGENTIC.md);
+the sibling product UWE (wiki/graph/two brains/MCP — not a markdown
+vault) is [`RESEARCH-UWE-KNOWLEDGE.md`](./RESEARCH-UWE-KNOWLEDGE.md).
+None of those add tools, RAG, or a PKM product to this harness.
 
 ## Phase A3 — automation: adoption without a click, and the run's pull request
 
@@ -962,4 +964,4 @@ host already merged.
 | Live `user_message` targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium `/browser` bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
 | Pi harness wrap (not a seventh provider) | `agents/piHarness.ts`, `spawn.ts` overlay, `.pi/mcp.json`, settings `piHarnessEnabled`, lockfile pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |
-| Related research: Obsidian + Pi vault, agentic landscape | [`RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md`](./RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md), [`RESEARCH-OBSIDIAN-AGENTIC.md`](./RESEARCH-OBSIDIAN-AGENTIC.md) | not a product track |
+| Related research: Obsidian + Pi vault, agentic landscape, UWE knowledge host | [`RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md`](./RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md), [`RESEARCH-OBSIDIAN-AGENTIC.md`](./RESEARCH-OBSIDIAN-AGENTIC.md), [`RESEARCH-UWE-KNOWLEDGE.md`](./RESEARCH-UWE-KNOWLEDGE.md) | not a product track |

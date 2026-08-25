@@ -11,6 +11,8 @@ jobs people keep mixing up. Purpose: map the pattern onto Vertragus
 This is not a product track. It does not add tools, roles, or MCP
 surface. Companion video deep dive (Eero Alvar):
 [`RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md`](./RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md).
+Sibling product (UWE already is the Obsidian-shaped knowledge OS):
+[`RESEARCH-UWE-KNOWLEDGE.md`](./RESEARCH-UWE-KNOWLEDGE.md).
 Doctrine: [`HANDBOOK-HARNESS.md`](./HANDBOOK-HARNESS.md). Historical
 plugin research: [`RESEARCH-DEEPSEEK-HARNESS.md`](./RESEARCH-DEEPSEEK-HARNESS.md).
 
@@ -360,6 +362,18 @@ Nothing in the wider landscape weakens the Alvar mapping: do not
 become a second brain; do not add RAG; Pi wrap is the right
 overlay for non-coding vault work; extra MCP is the right bridge
 for job B.
+
+---
+
+## Relation to UWE
+
+[UWE](https://github.com/Nehmo101/UWE) is the owner's knowledge
+host. It is not a markdown vault and not an embedded
+Obsidian.app: wiki, graph, wikilinks, vault ZIP import, World-Brain
+and Personal Brain live in SQLite behind four HTTP MCP servers.
+Folder-as-cwd, Filesystem MCP, and Claudian fight that product.
+The remap (recipe UWE-B, no new Vertragus tools) is
+[`RESEARCH-UWE-KNOWLEDGE.md`](./RESEARCH-UWE-KNOWLEDGE.md).
 
 ---
 

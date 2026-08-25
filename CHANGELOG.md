@@ -230,6 +230,10 @@ No release has been tagged yet; everything lives under Unreleased.
   is the wider landscape: folder-as-cwd vs embedded CLIs vs vault MCP,
   kepano skills, Local REST API, the worktree-in-vault melt, and two
   recipes that use existing extra MCP / worktrees without new tools.
+  [`docs/RESEARCH-UWE-KNOWLEDGE.md`](docs/RESEARCH-UWE-KNOWLEDGE.md)
+  remaps that landscape onto the sibling product UWE: the "internal
+  Obsidian" is already wiki, graph, two brains, and four MCP servers
+  on SQLite — not a vault cwd and not an embedded Obsidian.app.
 - **The app version is `1.0.0`** — the first tagged release. The committed
   version is a patch BASE (`X.Y.0`): main-channel prereleases add the run
   number to it, so main is opened at `X.(Y+1).0` right after a tag. Those

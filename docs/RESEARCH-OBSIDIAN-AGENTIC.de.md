@@ -12,6 +12,8 @@ abbilden, ohne ein PKM-Produkt zu starten.
 Das ist kein Produkt-Track. Es kommen keine Tools, Rollen oder
 MCP-Fläche hinzu. Begleitender Video-Deepdive (Eero Alvar):
 [`RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md`](./RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md).
+Schwesterprodukt (UWE ist bereits das Obsidian-förmige Wissens-OS):
+[`RESEARCH-UWE-KNOWLEDGE.md`](./RESEARCH-UWE-KNOWLEDGE.md).
 Doktrin: [`HANDBOOK-HARNESS.md`](./HANDBOOK-HARNESS.md). Historische
 Plugin-Recherche: [`RESEARCH-DEEPSEEK-HARNESS.md`](./RESEARCH-DEEPSEEK-HARNESS.md).
 
@@ -366,6 +368,19 @@ Nichts in der weiteren Landschaft schwächt das Alvar-Mapping: kein
 Second Brain werden; kein RAG; Pi-Wrap ist das richtige Overlay für
 Nicht-Coding-Vault-Arbeit; Extra-MCP ist die richtige Brücke für
 Job B.
+
+---
+
+## Verhältnis zu UWE
+
+[UWE](https://github.com/Nehmo101/UWE) ist der Wissenshost des
+Owners. Es ist kein Markdown-Vault und kein eingebettetes
+Obsidian.app: Wiki, Graph, Wikilinks, Vault-ZIP-Import, World-Brain
+und Personal Brain leben in SQLite hinter vier HTTP-MCP-Servern.
+Ordner-als-cwd, Filesystem-MCP und Claudian kämpfen gegen dieses
+Produkt. Das Remap (Rezept UWE-B, keine neuen Vertragus-Tools)
+steht in
+[`RESEARCH-UWE-KNOWLEDGE.md`](./RESEARCH-UWE-KNOWLEDGE.md).
 
 ---
 

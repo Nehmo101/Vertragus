@@ -254,6 +254,10 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   ist die weitere Landschaft: Ordner-als-cwd vs. eingebettete CLIs vs.
   Vault-MCP, kepano-Skills, Local REST API, der Worktree-im-Vault-Melt und
   zwei Rezepte, die vorhandenes Extra-MCP / Worktrees nutzen, ohne neue Tools.
+  [`docs/RESEARCH-UWE-KNOWLEDGE.md`](docs/RESEARCH-UWE-KNOWLEDGE.md)
+  bildet diese Landschaft auf das Schwesterprodukt UWE ab: das „interne
+  Obsidian“ ist bereits Wiki, Graph, zwei Brains und vier MCP-Server auf
+  SQLite — kein Vault-cwd und kein eingebettetes Obsidian.app.
 - **Die App-Version ist `1.0.0`** — das erste getaggte Release. Die
   eingecheckte Version ist eine Patch-BASIS (`X.Y.0`): Prereleases des
   `main`-Kanals addieren die Run-Nummer darauf, main wird deshalb direkt nach

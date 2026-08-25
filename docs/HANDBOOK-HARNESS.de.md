@@ -916,8 +916,10 @@ steht in
 [`RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md`](./RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md);
 die weitere Landschaft Obsidian + agentische Entwicklung (cwd vs. MCP vs.
 Embed, Worktree-Melt, Vault als Extra-MCP) steht in
-[`RESEARCH-OBSIDIAN-AGENTIC.md`](./RESEARCH-OBSIDIAN-AGENTIC.md). Keines von
-beiden fügt Tools, RAG oder ein PKM-Produkt hinzu.
+[`RESEARCH-OBSIDIAN-AGENTIC.md`](./RESEARCH-OBSIDIAN-AGENTIC.md);
+das Schwesterprodukt UWE (Wiki/Graph/zwei Brains/MCP — kein Markdown-Vault)
+steht in [`RESEARCH-UWE-KNOWLEDGE.md`](./RESEARCH-UWE-KNOWLEDGE.md).
+Keines davon fügt diesem Harness Tools, RAG oder ein PKM-Produkt hinzu.
 
 ## Phase A3 — Automatisierung: Übernahme ohne Klick und der Pull Request des Laufs
 
@@ -982,4 +984,4 @@ gemergt hat.
 | Live-`user_message`-Targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium-`/browser`-Bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
 | Pi-Harness-Wrap (kein siebter Provider) | `agents/piHarness.ts`, `spawn.ts`-Overlay, `.pi/mcp.json`, Setting `piHarnessEnabled`, Lockfile-Pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |
-| Verwandte Recherche: Obsidian + Pi-Vault, agentische Landschaft | [`RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md`](./RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md), [`RESEARCH-OBSIDIAN-AGENTIC.md`](./RESEARCH-OBSIDIAN-AGENTIC.md) | kein Produkt-Track |
+| Verwandte Recherche: Obsidian + Pi-Vault, agentische Landschaft, UWE-Wissenshost | [`RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md`](./RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md), [`RESEARCH-OBSIDIAN-AGENTIC.md`](./RESEARCH-OBSIDIAN-AGENTIC.md), [`RESEARCH-UWE-KNOWLEDGE.md`](./RESEARCH-UWE-KNOWLEDGE.md) | kein Produkt-Track |

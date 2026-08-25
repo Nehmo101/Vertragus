@@ -13,6 +13,8 @@ Das ist kein Produkt-Track. Es kommen keine Tools, Rollen oder
 MCP-Fläche hinzu. Begleitende Landschaft (Obsidian + agentische
 Entwicklung):
 [`RESEARCH-OBSIDIAN-AGENTIC.md`](./RESEARCH-OBSIDIAN-AGENTIC.md).
+Schwesterprodukt (UWE-Wissens-OS versus diese Landschaft):
+[`RESEARCH-UWE-KNOWLEDGE.md`](./RESEARCH-UWE-KNOWLEDGE.md).
 Begleitende historische Recherche:
 [`RESEARCH-DEEPSEEK-HARNESS.md`](./RESEARCH-DEEPSEEK-HARNESS.md).
 Doktrin: [`HANDBOOK-HARNESS.md`](./HANDBOOK-HARNESS.md).
@@ -488,6 +490,10 @@ nicht so tut, als wären sie der ganze Kanal:
 - No Boilerplate wird für die Temporal-Contract-Formulierung credited;
   Alvar ist unsicher, wer sie geprägt hat. Als benannte Idee
   behandeln, nicht als Spec, die wir implementieren müssen.
+- Der Owner betreibt bereits einen Obsidian-förmigen Host, der *kein*
+  Markdown-Vault ist: [UWE](https://github.com/Nehmo101/UWE). Capture,
+  zwei Brains, Wikilinks und MCP leben dort. Abbildung:
+  [`RESEARCH-UWE-KNOWLEDGE.md`](./RESEARCH-UWE-KNOWLEDGE.md).
 
 ---
 

@@ -12,6 +12,8 @@ is worth taking without starting a second product.
 This is not a product track. It does not add tools, roles, or MCP
 surface. Companion landscape (Obsidian + agentic development):
 [`RESEARCH-OBSIDIAN-AGENTIC.md`](./RESEARCH-OBSIDIAN-AGENTIC.md).
+Sibling product (UWE knowledge OS versus that landscape):
+[`RESEARCH-UWE-KNOWLEDGE.md`](./RESEARCH-UWE-KNOWLEDGE.md).
 Companion historical research:
 [`RESEARCH-DEEPSEEK-HARNESS.md`](./RESEARCH-DEEPSEEK-HARNESS.md).
 Doctrine: [`HANDBOOK-HARNESS.md`](./HANDBOOK-HARNESS.md).
@@ -462,6 +464,10 @@ pretend they are the whole channel:
 - No Boilerplate is credited for the temporal-contract phrasing;
   Alvar is unsure who coined it. Treat it as a named idea, not as a
   spec we must implement.
+- The owner already runs an Obsidian-shaped host that is *not* a
+  markdown vault: [UWE](https://github.com/Nehmo101/UWE). Capture,
+  two brains, wikilinks, and MCP live there. Map:
+  [`RESEARCH-UWE-KNOWLEDGE.md`](./RESEARCH-UWE-KNOWLEDGE.md).
 
 ---
 
