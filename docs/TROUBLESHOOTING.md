@@ -36,9 +36,11 @@ two minutes. That is different from a crash: long-polls do not trigger it,
 because a parked `await_events` counts as activity.
 
 Usually the CLI is waiting on something invisible — a permission prompt in
-its own terminal, or a model that stopped mid-turn. Focus its window and
-look. If it is genuinely stuck, **Replace orchestrator** on the card starts a
-successor with a fresh context that keeps the team, the queue and the board.
+its own terminal, or a model that stopped mid-turn. If the session overlay
+is up, click **CLI** in the title bar to see the vendor TUI (permission
+dialogs live there). Focus its window and look. If it is genuinely stuck,
+**Replace orchestrator** on the card starts a successor with a fresh
+context that keeps the team, the queue and the board.
 
 ## An agent's window died without reporting
 
@@ -127,9 +129,11 @@ stop on tool calls. `ask-user` and orchestrator launches never get that
 mode.
 
 If the TUI still stops on a confirmation, the greyhound overlay lifts to
-click-through (`waiting`) so you can click Approve in the window. The first
-turn stays on hold until the Vertragus MCP session exists — that is
-deliberate, so `await_events` does not burn tokens against missing tools.
+click-through (`waiting`) so you can click Approve in the window. Session
+chrome also steps aside in that phase; if you already peeked to **Session**,
+click **CLI** in the title bar. The first turn stays on hold until the
+Vertragus MCP session exists — that is deliberate, so `await_events` does
+not burn tokens against missing tools.
 
 If approvals keep returning after an update, the hash format Cursor uses
 may have changed — open an issue with the Cursor CLI version.

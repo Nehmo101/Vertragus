@@ -374,6 +374,18 @@ After that, not in B: tiers `yolo` / `ask-user` / `ask-orchestrator`.
 Remote v1 must not try to make CLI permission TUIs pretty on the phone —
 that is exactly the path that does not replace H1.
 
+### D5 unified CLI session chrome
+
+**Status: implemented.** Vendor TUIs disagree (Cursor paints version tips
+and a full worktree path). The CLI window overlays **host-truth session
+chrome** — status, short `vertragus/*` branch, event log, questions,
+follow-up composer — from workspace events, so every provider window
+looks like Vertragus. Default `ui.cliSurface: session`. Title-bar peek
+to raw (permission dialogs live in the TUI). Boot phase `waiting` forces
+raw so leftover Cursor MCP approvals stay clickable. Follow-ups and
+answers take `postUserMessage` / `answerQuestion` — never a PTY write.
+Phone xterm is out of scope. This is not a TUI parser.
+
 ---
 
 ## Phase E — integration, memory, eval (late)
@@ -670,6 +682,8 @@ lifecycle and tokens right there.
   archive's `apps/mobile` (BigBoy non-goals, adopted here)
 - Pi as a seventh provider (the wrap overlays spawn; slots stay Claude /
   Cursor / Codex / Kimi / Grok / Ollama)
+- Parsing or re-skinning vendor TUIs (session chrome reads host events;
+  permission dialogs stay in the raw PTY)
 
 ---
 
@@ -982,3 +996,4 @@ that role *speaks* in this project.
 | Chromium `/browser` bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
 | Pi harness wrap (not a seventh provider) | `agents/piHarness.ts`, `spawn.ts` overlay, `.pi/mcp.json`, settings `piHarnessEnabled`, lockfile pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |
 | Per-identity extra system prompt | `schema/profile.ts` `rolePrompts`, `prompts/rolePrompt.ts`, profile editor | **this** |
+| Unified CLI session chrome | `cliSurface.ts`, `cliSession.ts`, `cliSessionFeed.ts`, `terminal/SessionPane.tsx` | **this** |

@@ -169,6 +169,7 @@ const SETTINGS: AppSettings = {
     theme: 'dark',
     locale: 'de',
     appearance: DEFAULT_APPEARANCE,
+    cliSurface: 'session',
     reflowNeighbors: true,
     onboardingDismissed: false
   },
@@ -1305,6 +1306,7 @@ describe('settings and windows', () => {
       updateChannel: 'main',
       autostartSupported: true,
       appearance: DEFAULT_APPEARANCE,
+      cliSurface: 'session',
       reflowNeighbors: true,
       voiceEnabled: false,
       voiceWakePhrase: 'Hey Vertragus',
@@ -1565,6 +1567,7 @@ describe('settings:set', () => {
       'theme',
       'locale',
       'appearance',
+      'cliSurface',
       'reflowNeighbors',
       'voice',
       'agentPolicy',
@@ -2046,6 +2049,7 @@ describe('settings:set', () => {
       theme: 'light',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
+      cliSurface: 'session',
       reflowNeighbors: true,
       onboardingDismissed: false
     })
@@ -2070,6 +2074,27 @@ describe('settings:set', () => {
       h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'reflowNeighbors', value: 'ja' })
     ).rejects.toThrow(/expects a boolean/)
     expect(h.store.settings.ui.reflowNeighbors).toBe(true)
+  })
+
+  it('patches cliSurface into ui and rejects junk', async () => {
+    const raw = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'cliSurface',
+      value: 'raw'
+    })) as PanelSettings
+    expect(raw.cliSurface).toBe('raw')
+    expect(h.store.settings.ui.cliSurface).toBe('raw')
+    expect(h.store.settings.ui.theme).toBe('dark')
+
+    const session = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'cliSurface',
+      value: 'session'
+    })) as PanelSettings
+    expect(session.cliSurface).toBe('session')
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'cliSurface', value: 'native' })
+    ).rejects.toThrow(/expects session or raw/)
+    expect(h.store.settings.ui.cliSurface).toBe('session')
   })
 
   it('lets the panel close the first-run card for good (WP-7)', async () => {

@@ -13,6 +13,13 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Einheitliches CLI-Session-Chrome.** Agent-Fenster zeigen standardmäßig
+  ein Vertragus-Overlay (Status, kurzer Branch, Host-Event-Log, Fragen,
+  Follow-up) statt jeder Vendor-TUI. Native CLI ist ein Titelleisten-
+  Peek; Warten-auf-MCP zeigt weiter das rohe TUI, damit übrig gebliebene
+  Cursor-Freigaben klickbar bleiben. Follow-ups und Antworten laufen
+  über die Panel-Host-Pfade, nie ein PTY-Write. Setting: Agent-Fenster
+  in den Einstellungen.
 - **Pi-Play-Smoke.** CI bootet die echte Electron-App mit isoliertem
   userData, Pi-Wrap an und einem Wegwerf-Git-Repo
   (`scripts/pi-play-smoke.mjs`). Er wird nur grün, wenn das

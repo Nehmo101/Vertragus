@@ -39,10 +39,12 @@ Tool mehr gerufen. Das ist etwas anderes als ein Absturz, und Long-Polls
 lösen es nicht aus — ein geparktes `await_events` zählt als Aktivität.
 
 Meist wartet die CLI auf etwas Unsichtbares: eine Berechtigungsabfrage in
-ihrem eigenen Terminal oder ein Modell, das mitten im Zug stehen blieb. Hol
-das Fenster nach vorn und sieh nach. Hängt sie wirklich, startet
-**Orchestrator ersetzen** auf der Karte einen Nachfolger mit frischem
-Kontext, der Team, Queue und Board behält.
+ihrem eigenen Terminal oder ein Modell, das mitten im Zug stehen blieb.
+Liegt das Session-Overlay oben, klicke **CLI** in der Titelleiste, um die
+Vendor-TUI zu sehen (Berechtigungsdialoge leben dort). Hol das Fenster nach
+vorn und sieh nach. Hängt sie wirklich, startet **Orchestrator ersetzen**
+auf der Karte einen Nachfolger mit frischem Kontext, der Team, Queue und
+Board behält.
 
 ## Das Fenster eines Agenten ist gestorben, ohne zu berichten
 
@@ -137,7 +139,9 @@ Orchestrator-Starts bekommen diesen Modus nie.
 
 Stoppt die TUI trotzdem an einer Bestätigung, wird das Windhund-Overlay
 klickdurchlässig (`waiting`), damit du im Fenster auf Approve klicken
-kannst. Der erste Turn bleibt gehalten, bis die Vertragus-MCP-Session
+kannst. Session-Chrome tritt in dieser Phase ebenfalls zurück; wenn du
+schon auf **Session** gepeekt hast, klicke **CLI** in der Titelleiste.
+Der erste Turn bleibt gehalten, bis die Vertragus-MCP-Session
 steht — absichtlich, damit `await_events` keine Tokens gegen fehlende
 Tools verbrennt.
 

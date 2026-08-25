@@ -12,6 +12,12 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **Unified CLI session chrome.** Agent windows default to one Vertragus
+  overlay (status, short branch, host event log, questions, follow-up)
+  instead of each vendor TUI. Native CLI is a title-bar peek; waiting
+  for MCP still shows the raw TUI so leftover Cursor approvals stay
+  clickable. Follow-ups and answers take the panel host paths, never a
+  PTY write. Setting: Agent windows in Settings.
 - **Pi Play smoke.** CI boots the real Electron app with isolated userData,
   the Pi wrap on, and a throwaway git repo (`scripts/pi-play-smoke.mjs`).
   It passes only when the orchestrator PTY shows a TUI and Vertragus MCP

@@ -4,6 +4,7 @@ import { activeLocale, applyLocale } from '../i18n'
 import { LoreTip } from '../lore/LoreTip'
 import { applyTheme } from '../theme'
 import { metaBlurb } from './titleBlurb'
+import { SessionPane } from './SessionPane'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
@@ -18,6 +19,13 @@ import {
   isTerminalBootPhase,
   type TerminalBootPhase
 } from '@shared/terminalBoot'
+import {
+  DEFAULT_CLI_SURFACE,
+  effectiveCliSurface,
+  normalizeCliSurface,
+  type CliSurface
+} from '@shared/cliSurface'
+import type { CliSession } from '@shared/cliSession'
 import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
 import { shouldFocusTerminal, trackWindowFocus } from './windowFocus'
@@ -121,6 +129,10 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
   const termRef = useRef<Terminal | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [boot, setBoot] = useState<TerminalBootPhase | null>(null)
+  const [session, setSession] = useState<CliSession | undefined>(undefined)
+  const [cliSurface, setCliSurface] = useState<CliSurface>(DEFAULT_CLI_SURFACE)
+  const [peek, setPeek] = useState<CliSurface | null>(null)
+  const sessionOpenRef = useRef(false)
 
   // The bridge is injected by preload before the bundle runs — stable for the
   // lifetime of the window, so it is read during render, not in the effect.
@@ -208,6 +220,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
     const offBoot = bridge.onBoot((event) => {
       setBoot(isTerminalBootPhase(event.boot) ? event.boot : null)
     })
+    const offSession = bridge.onSession((event) => setSession(event.session))
     const offInput = term.onData((data) => bridge.input(data))
 
     const observer = new ResizeObserver(() => applyFit())
@@ -216,6 +229,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
     // Panel click / later OS focus after showInactive: attach skipped term.focus().
     const onWindowFocus = (): void => {
       if (disposed) return
+      if (sessionOpenRef.current) return
       if (shouldFocusTerminal(document.hasFocus())) term.focus()
     }
     window.addEventListener('focus', onWindowFocus)
@@ -231,13 +245,15 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
         setTask(result.task)
         setMaximized(result.maximized)
         setBoot(isTerminalBootPhase(result.boot) ? result.boot : null)
+        setSession(result.session)
+        if (result.cliSurface) setCliSurface(normalizeCliSurface(result.cliSurface))
         if (result.exit) setExit(result.exit)
         term.write(result.snapshot)
         attached = true
         for (const chunk of queued) term.write(chunk)
         queued.length = 0
         applyFit()
-        if (shouldFocusTerminal(document.hasFocus())) term.focus()
+        if (!sessionOpenRef.current && shouldFocusTerminal(document.hasFocus())) term.focus()
       })
       .catch((cause: unknown) => {
         if (disposed) return
@@ -252,12 +268,47 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       offExit()
       offTask()
       offBoot()
+      offSession()
       offInput.dispose()
       searchRef.current = null
       termRef.current = null
       term.dispose()
     }
   }, [agentId, bridge, t])
+
+  const appBridge = window.vertragus?.app
+  useEffect(() => {
+    if (!appBridge?.onSettings) return
+    return appBridge.onSettings((settings) => {
+      setCliSurface(normalizeCliSurface(settings.cliSurface))
+      setPeek(null)
+    })
+  }, [appBridge])
+
+  const shown = effectiveCliSurface({ setting: cliSurface, peek, boot })
+  const sessionOpen = shown === 'session' && session !== undefined
+  sessionOpenRef.current = sessionOpen
+
+  const followUp = useCallback(
+    async (text: string) => {
+      if (!bridge) throw new Error(t('common.bridgeMissing'))
+      await bridge.followUp(text)
+    },
+    [bridge, t]
+  )
+  const answerQuestion = useCallback(
+    async (questionId: string, text: string) => {
+      if (!bridge) throw new Error(t('common.bridgeMissing'))
+      await bridge.answer(questionId, text)
+    },
+    [bridge, t]
+  )
+  const toggleSurface = useCallback(() => {
+    setPeek((current) => {
+      const now = effectiveCliSurface({ setting: cliSurface, peek: current, boot })
+      return now === 'session' ? 'raw' : 'session'
+    })
+  }, [cliSurface, boot])
 
   // The bar renders after the state flip; focus it once it exists.
   useEffect(() => {
@@ -300,6 +351,18 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
           }
         />
         <span className="cli-label">{metaLabel(t, activeLocale(i18n.language), meta, agentId, task)}</span>
+        {session ? (
+          <button
+            type="button"
+            className="cli-surface"
+            onClick={toggleSurface}
+            title={sessionOpen ? t('terminal.showCli') : t('terminal.showSession')}
+            aria-label={sessionOpen ? t('terminal.showCli') : t('terminal.showSession')}
+            aria-pressed={sessionOpen}
+          >
+            {sessionOpen ? t('terminal.showCli') : t('terminal.showSession')}
+          </button>
+        ) : null}
         <button
           className="cli-minimize"
           onClick={minimize}
@@ -351,7 +414,25 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
           </button>
         </div>
       ) : null}
+      {!sessionOpen && session?.pendingQuestion ? (
+        <div className="cli-raw-banner">
+          <span>{t('terminal.sessionRawQuestion')}</span>
+          <button type="button" onClick={() => setPeek('session')}>
+            {t('terminal.showSession')}
+          </button>
+        </div>
+      ) : null}
       <div className="cli-terminal" ref={hostRef} />
+      {sessionOpen && session ? (
+        <SessionPane
+          session={session}
+          task={task}
+          running={running}
+          onFollowUp={followUp}
+          onAnswer={answerQuestion}
+          focusComposer={!bootOverlayVisible(boot)}
+        />
+      ) : null}
       {bootOverlayVisible(boot) && boot ? (
         <div
           className={`cli-boot${bootOverlayClickThrough(boot) ? ' is-waiting' : ''}`}
