@@ -5,13 +5,17 @@
  * connected/disconnected pill updates live, no writable settings key for the
  * pairing token (rotation lives here, not on `settings:set`).
  */
-import type { BrowserExtensionStatus } from '@shared/browserExtension'
+import type {
+  BrowserExtensionInstallResult,
+  BrowserExtensionStatus
+} from '@shared/browserExtension'
 import type { BrowserBridge } from '@main/mcp/browserBridge'
 
 export const BROWSER_EXTENSION_CHANNELS = {
   get: 'settings:browserExtension',
   regenerate: 'settings:browserExtensionRegenerate',
   reveal: 'settings:browserExtensionReveal',
+  install: 'settings:browserExtensionInstall',
   event: 'ev:browserExtension'
 } as const
 
@@ -27,6 +31,7 @@ export interface BrowserExtensionIpcDeps {
   bridge: () => BrowserBridge | undefined
   extensionPath: () => string
   reveal: (path: string) => Promise<string>
+  install: (extensionDir: string) => Promise<BrowserExtensionInstallResult>
   isSettingsSender: (webContentsId: number) => boolean
   broadcast: (channel: string, payload: unknown) => void
 }
@@ -83,6 +88,10 @@ export function registerBrowserExtensionIpc(deps: BrowserExtensionIpcDeps): Brow
       if (error) throw new Error(error)
       return true
     }) as IpcListener
+  )
+  deps.ipcMain.handle(
+    BROWSER_EXTENSION_CHANNELS.install,
+    guard(async (): Promise<BrowserExtensionInstallResult> => deps.install(deps.extensionPath())) as IpcListener
   )
 
   return {

@@ -31,6 +31,12 @@ function harness(settingsId = 7): {
     bridge: () => bridge,
     extensionPath: () => '/repo/extensions/chromium',
     reveal: async () => '',
+    install: async () => ({
+      ok: true,
+      openedExtensionsPage: true,
+      revealed: true,
+      browser: 'Google Chrome'
+    }),
     isSettingsSender: (id) => id === settingsId,
     broadcast: (channel, payload) => broadcasts.push({ channel, payload })
   })
@@ -43,9 +49,12 @@ function harness(settingsId = 7): {
 }
 
 describe('browser extension IPC', () => {
-  it('refuses non-settings senders', () => {
+  it('refuses non-settings senders on every invoke channel', () => {
     const { call } = harness()
-    expect(() => call(BROWSER_EXTENSION_CHANNELS.get, 99)).toThrow(/not available/)
+    for (const channel of Object.values(BROWSER_EXTENSION_CHANNELS)) {
+      if (channel === BROWSER_EXTENSION_CHANNELS.event) continue
+      expect(() => call(channel, 99)).toThrow(/not available/)
+    }
   })
 
   it('returns pairing status and rotates the token', async () => {
@@ -68,11 +77,48 @@ describe('browser extension IPC', () => {
       bridge: () => undefined,
       extensionPath: () => '/ext',
       reveal,
+      install: async () => ({ ok: true, openedExtensionsPage: false, revealed: true }),
       isSettingsSender: () => true,
       broadcast: () => undefined
     })
     const handler = ipc.handlers.get(BROWSER_EXTENSION_CHANNELS.reveal)!
     await expect(handler({ sender: { id: 1 } } as never)).resolves.toBe(true)
     expect(reveal).toHaveBeenCalledWith('/ext')
+
+    const failing = new FakeIpc()
+    registerBrowserExtensionIpc({
+      ipcMain: failing as unknown as BrowserExtensionIpcDeps['ipcMain'],
+      bridge: () => undefined,
+      extensionPath: () => '/ext',
+      reveal: async () => 'ENOENT',
+      install: async () => ({ ok: false, error: 'reveal_failed', detail: 'ENOENT' }),
+      isSettingsSender: () => true,
+      broadcast: () => undefined
+    })
+    await expect(failing.handlers.get(BROWSER_EXTENSION_CHANNELS.reveal)!({ sender: { id: 1 } } as never)).rejects.toThrow(
+      'ENOENT'
+    )
+  })
+
+  it('installs by opening chrome://extensions and revealing the folder', async () => {
+    const ipc = new FakeIpc()
+    const install = vi.fn(async (_extensionDir: string) => ({
+      ok: true as const,
+      openedExtensionsPage: true,
+      revealed: true,
+      browser: 'Google Chrome'
+    }))
+    registerBrowserExtensionIpc({
+      ipcMain: ipc as unknown as BrowserExtensionIpcDeps['ipcMain'],
+      bridge: () => undefined,
+      extensionPath: () => '/ext',
+      reveal: async () => '',
+      install,
+      isSettingsSender: () => true,
+      broadcast: () => undefined
+    })
+    const result = await ipc.handlers.get(BROWSER_EXTENSION_CHANNELS.install)!({ sender: { id: 1 } } as never)
+    expect(result).toMatchObject({ ok: true, openedExtensionsPage: true, revealed: true })
+    expect(install).toHaveBeenCalledWith('/ext')
   })
 })

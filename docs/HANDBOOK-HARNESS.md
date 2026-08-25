@@ -820,7 +820,9 @@ a silent no-op. Orchestrators and leads do not get the tools — they
 delegate.
 
 Unpacked MV3 in `extensions/chromium/`; packaged as extraResources
-`chromium-extension`. Settings copies the pairing URL. How-to:
+`chromium-extension`. Settings has an **Install Chromium extension**
+button that opens `chrome://extensions` and the unpacked folder, then
+copies the pairing URL. How-to:
 [`CHROMIUM-EXTENSION.md`](./CHROMIUM-EXTENSION.md). MCP tool-contract
 version bumped to `1.1.0`.
 

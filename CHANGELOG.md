@@ -23,7 +23,10 @@ No release has been tagged yet; everything lives under Unreleased.
   on loopback `/browser` so a worker can drive the user's real Chromium
   tabs (`browser_*` tools; disconnected is a tool error). MCP
   tool-contract version is now `1.1.0`. How-to:
-  [`docs/CHROMIUM-EXTENSION.md`](docs/CHROMIUM-EXTENSION.md).
+  [`docs/CHROMIUM-EXTENSION.md`](docs/CHROMIUM-EXTENSION.md). Settings →
+  Browser extension has an **Install Chromium extension** button that
+  opens `chrome://extensions` and the unpacked folder (Chromium will not
+  silent-load an unpacked MV3 from Electron).
 - **Automation band in the profile (all switches off by default):**
   - Adopt a finished agent branch without the panel click — into the
     orchestrator's worktree (`autoIntegrate`) and/or into the repository's

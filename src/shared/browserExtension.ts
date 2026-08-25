@@ -30,6 +30,22 @@ export interface BrowserExtensionStatus {
   extensionPath: string
 }
 
+/** Settings "Install Chromium extension" — Chrome cannot be loaded silently. */
+export type BrowserExtensionInstallError = 'missing_extension' | 'reveal_failed'
+
+export type BrowserExtensionInstallResult =
+  | {
+      ok: true
+      openedExtensionsPage: boolean
+      revealed: boolean
+      browser?: string
+    }
+  | {
+      ok: false
+      error: BrowserExtensionInstallError
+      detail?: string
+    }
+
 /**
  * The string Settings copies and the extension popup pastes. Host is always
  * loopback; the token is the only secret.

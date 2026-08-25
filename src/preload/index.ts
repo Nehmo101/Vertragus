@@ -6,7 +6,7 @@ import type { Zone, ZoneLayout } from '@shared/schema/zones'
 import type { ExtraMcpServer } from '@shared/schema/mcpServer'
 import type { Appearance } from '@shared/appearance'
 import type { BindOption, RemoteClientInfo, RemoteStatus } from '@shared/remote/types'
-import type { BrowserExtensionStatus } from '@shared/browserExtension'
+import type { BrowserExtensionInstallResult, BrowserExtensionStatus } from '@shared/browserExtension'
 
 /** Mirrors main/appIpc.PanelMcpServer — secrets never appear here. */
 export interface PanelMcpServer {
@@ -222,6 +222,7 @@ const APP = {
   browserExtensionGet: 'settings:browserExtension',
   browserExtensionRegenerate: 'settings:browserExtensionRegenerate',
   browserExtensionReveal: 'settings:browserExtensionReveal',
+  browserExtensionInstall: 'settings:browserExtensionInstall',
   eventBrowserExtension: 'ev:browserExtension'
 } as const
 
@@ -770,6 +771,8 @@ const app = {
   regenerateBrowserExtensionToken: (): Promise<BrowserExtensionStatus> =>
     ipcRenderer.invoke(APP.browserExtensionRegenerate),
   revealBrowserExtension: (): Promise<boolean> => ipcRenderer.invoke(APP.browserExtensionReveal),
+  installBrowserExtension: (): Promise<BrowserExtensionInstallResult> =>
+    ipcRenderer.invoke(APP.browserExtensionInstall),
   onBrowserExtension: (listener: (status: BrowserExtensionStatus) => void): (() => void) =>
     subscribe(APP.eventBrowserExtension, listener)
 }

@@ -31,12 +31,14 @@ still refuses them (DNS-rebinding defence stays tight for agent CLIs).
 
 ## Load and pair
 
-1. Open **Settings → Browser extension** and copy the pairing URL.
-2. In Chromium: `chrome://extensions` → Developer mode → **Load unpacked**.
-3. Point it at the folder Settings reveals (`extensions/chromium` in a
-   dev checkout, `chromium-extension` next to the packaged app).
-4. Open the extension popup, paste the pairing URL, connect.
-5. The Settings pill turns connected. A worker can then call
+1. Open **Settings → Browser extension** and click **Install Chromium
+   extension**. That opens `chrome://extensions` and the unpacked folder,
+   and copies the pairing URL.
+2. In Chromium: Developer mode → **Load unpacked**, and choose the
+   revealed folder (`extensions/chromium` in a dev checkout,
+   `chromium-extension` next to the packaged app).
+3. Open the extension popup, paste the pairing URL, connect.
+4. The Settings pill turns connected. A worker can then call
    `browser_status`.
 
 Rotate the token from Settings if the URL leaked — that disconnects the

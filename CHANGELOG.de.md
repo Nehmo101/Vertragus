@@ -25,7 +25,10 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   damit ein Worker die echten Chromium-Tabs des Nutzers fahren kann
   (`browser_*`-Tools; getrennt ist ein Tool-Fehler). MCP-Tool-Contract-
   Version ist jetzt `1.1.0`. How-to:
-  [`docs/CHROMIUM-EXTENSION.md`](docs/CHROMIUM-EXTENSION.md).
+  [`docs/CHROMIUM-EXTENSION.md`](docs/CHROMIUM-EXTENSION.md). Einstellungen →
+  Browser-Erweiterung hat einen Button **Chromium-Erweiterung
+  installieren**, der `chrome://extensions` und den entpackten Ordner
+  öffnet (Chromium lädt ein unpacked MV3 nicht still aus Electron).
 - **Automatisierungs-Band im Profil (alle Schalter standardmäßig aus):**
   - Fertige Agenten-Branches ohne den Panel-Klick übernehmen — in den
     Worktree des Orchestrators (`autoIntegrate`) und/oder in das eigene

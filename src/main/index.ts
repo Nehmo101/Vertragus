@@ -60,6 +60,7 @@ import { bindOptions } from './remote/interfaces'
 import { createPairingTokenFile } from './remote/tokenFile'
 import { registerBrowserExtensionIpc } from './browserExtension/ipc'
 import { resolveChromiumExtensionDir } from './browserExtension/path'
+import { installChromiumExtension } from './browserExtension/install'
 import { orderByParent } from './workspace/orderByParent'
 import { resolveUserMessageTarget } from './workspace/userMessageTarget'
 import { armWindowCapture } from './windows/smokeCapture'
@@ -658,6 +659,11 @@ app.whenReady().then(async () => {
           ]
         }),
       reveal: (path) => shell.openPath(path),
+      install: (extensionDir) =>
+        installChromiumExtension({
+          extensionDir,
+          reveal: (path) => shell.openPath(path)
+        }),
       isSettingsSender: (id) => isSettingsWindowSender(id),
       broadcast: broadcastSettings
     })

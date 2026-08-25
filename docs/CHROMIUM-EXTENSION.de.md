@@ -34,14 +34,14 @@ eng).
 
 ## Laden und pairen
 
-1. **Einstellungen → Browser-Erweiterung** öffnen und die Pairing-URL
-   kopieren.
-2. In Chromium: `chrome://extensions` → Entwicklermodus → **Entpackt
-   laden**.
-3. Auf den Ordner zeigen, den Settings zeigt (`extensions/chromium` im
-   Dev-Checkout, `chromium-extension` neben der gepackten App).
-4. Das Popup der Erweiterung öffnen, Pairing-URL einfügen, verbinden.
-5. Die Settings-Pille wird verbunden. Ein Worker kann dann
+1. **Einstellungen → Browser-Erweiterung** öffnen und **Chromium-
+   Erweiterung installieren** klicken. Das öffnet `chrome://extensions`
+   und den entpackten Ordner und kopiert die Pairing-URL.
+2. In Chromium: Entwicklermodus → **Entpackt laden**, und den gezeigten
+   Ordner wählen (`extensions/chromium` im Dev-Checkout,
+   `chromium-extension` neben der gepackten App).
+3. Das Popup der Erweiterung öffnen, Pairing-URL einfügen, verbinden.
+4. Die Settings-Pille wird verbunden. Ein Worker kann dann
    `browser_status` rufen.
 
 Token in Settings rotieren, wenn die URL geleakt ist — das trennt die

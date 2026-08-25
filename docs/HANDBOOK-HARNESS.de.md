@@ -828,7 +828,9 @@ Loopback-Token. Origins `chrome-extension:` / `moz-extension:` werden
 bekommen die Tools nicht — sie delegieren.
 
 Unpacked MV3 in `extensions/chromium/`; packaged als extraResources
-`chromium-extension`. Settings kopiert die Pairing-URL. How-to:
+`chromium-extension`. Settings hat einen Button **Chromium-Erweiterung
+installieren**, der `chrome://extensions` und den entpackten Ordner
+öffnet und die Pairing-URL kopiert. How-to:
 [`CHROMIUM-EXTENSION.md`](./CHROMIUM-EXTENSION.md). MCP-Tool-Contract-
 Version auf `1.1.0` angehoben.
 
