@@ -13,6 +13,12 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Pi-Play-Smoke.** CI bootet die echte Electron-App mit isoliertem
+  userData, Pi-Wrap an und einem Wegwerf-Git-Repo
+  (`scripts/pi-play-smoke.mjs`). Er wird nur grün, wenn das
+  Orchestrator-PTY eine TUI zeigt und Vertragus-MCP hängt — die
+  Windows-Regression mit leerem Fenster. Keine Provider-Keys; nicht Teil
+  von `pnpm run ci`.
 - **Phase H — Nested Worker, Live-Steering, First-Party Chromium-
   Erweiterung.** MCP-Worker dürfen eine Helper-Ebene spawnen (Cap 3;
   Helper nesten nicht; Lead-startet-Lead bleibt verboten). Helper-Events

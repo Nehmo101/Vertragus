@@ -80,6 +80,11 @@ import {
 import { revealRunFolder } from './workspace/revealRunFolder'
 import { taskWindow } from './workspace/taskWindow'
 import { createWorktreeCleanup } from './workspace/worktreeCleanup'
+import { applyIsolatedUserData } from './isolatedUserData'
+import { armPiPlaySmoke } from './piPlaySmoke'
+
+// Before whenReady: electron-store binds userData on first settings read.
+applyIsolatedUserData()
 
 /**
  * Headless smoke hook: <envVar>=<path> boots the window, captures it and exits.
@@ -724,6 +729,24 @@ app.whenReady().then(async () => {
       const { getCliWindow } = await import('./windows/cliWindow')
       const win = getCliWindow(devRun.workspace.orchestrator?.agentId ?? '')
       if (win) armScreenshotHook(win, 'VERTRAGUS_DEV_RUN_SCREENSHOT', 12_000)
+    }
+    const smokeLog = process.env.VERTRAGUS_PI_PLAY_SMOKE?.trim()
+    if (smokeLog) {
+      const agentId = devRun?.workspace.orchestrator?.agentId
+      if (!devRun || !agentId) {
+        armPiPlaySmoke({ logPath: smokeLog, snapshot: () => '', failedToStart: true })
+      } else {
+        armPiPlaySmoke({
+          logPath: smokeLog,
+          snapshot: () => getAgentRegistry().getAgent(agentId)?.pty.snapshot() ?? '',
+          alive: () => getAgentRegistry().getAgent(agentId)?.pty.isAlive === true
+        })
+      }
+    }
+  } else {
+    const smokeLog = process.env.VERTRAGUS_PI_PLAY_SMOKE?.trim()
+    if (smokeLog) {
+      armPiPlaySmoke({ logPath: smokeLog, snapshot: () => '', failedToStart: true })
     }
   }
 

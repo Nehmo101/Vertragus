@@ -158,6 +158,9 @@ What to do:
   `ANTHROPIC_API_KEY` / the mapped backend). A Claude Code login is a
   different store; the TUI may show "No API key found" even when MCP
   attached.
+- Confirm the wrap outside your real settings: `node scripts/pi-play-smoke.mjs`
+  boots Electron with isolated userData and a throwaway repo. It must print
+  `ok` (TUI + MCP). It does not use `~/.pi` or provider API keys.
 
 ## Something else
 
