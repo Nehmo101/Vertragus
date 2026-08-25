@@ -22,10 +22,9 @@ import { providerPreset, providerPresets } from '@main/providers/presets'
 import { extraMcpServerSchema } from '@shared/schema/mcpServer'
 import { providerConfigSchema, type ProviderConfig } from '@shared/schema/provider'
 import {
+  PI_CLI_ENTRY_FILE,
   PI_HARNESS_COMMAND,
   PI_MCP_ADAPTER_EXTENSION,
-  PI_TTY_PRELOAD_FILE,
-  PI_TTY_PRELOAD_SOURCE,
   resolvePiHarnessCli
 } from './piHarness'
 import {
@@ -1158,17 +1157,14 @@ describe('Pi harness wrap', () => {
       { resolve }
     )
 
-    expect(resolve).toHaveBeenCalledWith(
-      process.execPath,
-      ['-r', join(configDir, 'vertragus-mcp', PI_TTY_PRELOAD_FILE), cli, ...launch.argv],
-      expect.anything()
-    )
+    const entry = join(configDir, 'vertragus-mcp', PI_CLI_ENTRY_FILE)
+    expect(resolve).toHaveBeenCalledWith(process.execPath, [entry, ...launch.argv], expect.anything())
     expect(launch.command).toBe(PI_HARNESS_COMMAND)
     expect(launch.file).toBe(process.execPath)
-    expect(launch.args[0]).toBe('-r')
-    expect(launch.args[1]).toBe(join(configDir, 'vertragus-mcp', PI_TTY_PRELOAD_FILE))
-    expect(launch.args[2]).toBe(cli)
-    expect(readFileSync(launch.args[1]!, 'utf8')).toBe(PI_TTY_PRELOAD_SOURCE)
+    expect(launch.args[0]).toBe(entry)
+    expect(launch.args).not.toContain('-r')
+    expect(launch.args).not.toContain(cli)
+    expect(readFileSync(entry, 'utf8')).toContain(JSON.stringify(cli))
     expect(launch.argv[0]).toBe('--no-session')
     expect(launch.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
     expect(buildAgentEnv(launchInput({ harness: 'pi', cwd, kind: 'orchestrator' }))).toEqual({
@@ -1269,7 +1265,7 @@ describe('Pi harness wrap', () => {
     expect(grokBundled.spawnOptions?.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
     expect(grokBundled.spawnOptions?.env).not.toHaveProperty('GROK_SUBAGENTS')
     expect(grokBundled.spawnOptions?.args).not.toContain('--no-subagents')
-    expect(grokBundled.spawnOptions?.args?.[0]).toBe('-r')
+    expect(grokBundled.spawnOptions?.args?.[0]).toBe(join(configDir, 'vertragus-mcp', PI_CLI_ENTRY_FILE))
   })
 
   it('a subagent gets extras in .pi/mcp.json; orchestrator and lead never do', () => {

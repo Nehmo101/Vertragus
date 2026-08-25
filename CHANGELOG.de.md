@@ -148,12 +148,16 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   2.27 `@earendil-works/pi-coding-agent` importiert — das Laden der
   Extension scheiterte und Pi machte `process.exit(1)` vor
   `session_start`. Electron-as-node ließ stdin/stdout außerdem ohne TTY,
-  sodass selbst eine passende CLI in den Print-Modus gegangen wäre, das
-  Ziel einmalig abgefeuert und keine weiteren Turns angenommen hätte.
-  Spawn startet jetzt `@earendil-works/pi-coding-agent`, lädt vor
-  `dist/cli.js` ein Preload, das die TTY-Flags setzt, schreibt den
+  sodass selbst eine passende CLI in den Print-Modus gegangen wäre; ein
+  Play-Ziel ruft dann `session.prompt` auf, und Pi beendet mit Exit 1,
+  wenn kein Provider-API-Key vorliegt (Claude-Code-Login ist ein anderer
+  Speicher). Spawn startet jetzt `@earendil-works/pi-coding-agent` über
+  einen CJS-Entrypoint, der TTY polyfillt und dann `dist/cli.js`
+  importiert (kein Node-`-r` — Pi's `-r` ist `--resume`), schreibt den
   Rollenprompt nach `.pi/APPEND_SYSTEM.md` und hängt den
-  Vertragus-MCP-Server eager an.
+  Vertragus-MCP-Server eager an. Packaged Builds packen `typebox` und
+  `jiti` aus, damit der Adapter aus dem asar-unpacked `loader.js` laden
+  kann.
 - **Speichern im Zonen-Overlay rutschte auf kleinen Bildschirmen aus dem
   sichtbaren Bereich.** Die untere Leiste war eine einzige nowrap-Zeile,
   die mit jedem Rollen-Chip wuchs, sodass Abbrechen und Speichern über die

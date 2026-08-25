@@ -137,11 +137,15 @@ No release has been tagged yet; everything lives under Unreleased.
   `@mariozechner/pi-coding-agent` 0.73.1 while `pi-mcp-adapter` 2.27
   imports `@earendil-works/pi-coding-agent`, so extension load failed and
   Pi `process.exit(1)` before `session_start`. Electron-as-node also left
-  stdin/stdout non-TTY, so even a matching CLI would pick print mode,
-  one-shot the goal, and take no further turns. Spawn now runs
-  `@earendil-works/pi-coding-agent`, preloads a TTY flag before
-  `dist/cli.js`, writes the role prompt to `.pi/APPEND_SYSTEM.md`, and
-  eager-attaches the Vertragus MCP server.
+  stdin/stdout non-TTY, so even a matching CLI would pick print mode; a
+  Play goal then calls `session.prompt` and Pi exits 1 when it has no
+  provider API key (Claude Code login is a different store). Spawn now
+  runs `@earendil-works/pi-coding-agent` via a CJS entry that polyfills
+  TTY then imports `dist/cli.js` (not Node `-r` — Pi's `-r` is
+  `--resume`), writes the role prompt to `.pi/APPEND_SYSTEM.md`, and
+  eager-attaches the Vertragus MCP server. Packaged builds unpack
+  `typebox` and `jiti` so the adapter can load from asar-unpacked
+  `loader.js`.
 - **Zone overlay Save slid off small screens.** The bottom chrome was a
   single nowrap row that grew with every role chip, so Cancel and Save
   painted past the work area. The bar now wraps inside the overlay; Save

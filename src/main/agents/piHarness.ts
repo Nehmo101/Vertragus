@@ -230,13 +230,25 @@ export function piHarnessEnv(cliPath: string | undefined): Record<string, string
 }
 
 /**
- * Filename under `<configDir>/vertragus-mcp/`. Electron-as-node leaves
- * `stdin`/`stdout`.isTTY unset even inside a PTY; Pi then picks print mode
- * (`!stdinIsTTY || !stdoutIsTTY`) and one-shots or exits.
+ * Filename under `<configDir>/vertragus-mcp/`. Snapshot of the TTY polyfill
+ * alone; the launch script is {@link PI_CLI_ENTRY_FILE}.
  */
 export const PI_TTY_PRELOAD_FILE = 'pi-tty-preload.cjs'
 
-/** CJS source loaded with Node `-r` before `dist/cli.js`. Exported for snapshots. */
+/**
+ * CJS that runs as the Node/Electron-as-node *script* (argv[1]), then
+ * `import()`s `dist/cli.js`. Do not put this behind Node `-r` in front of
+ * the CLI: Pi's own `-r` is `--resume`, and if Electron does not consume
+ * `-r` the flag leaks, print mode stays on, and a trailing goal plus no
+ * Pi API key is `process.exit(1)`.
+ */
+export const PI_CLI_ENTRY_FILE = 'pi-cli-entry.cjs'
+
+/**
+ * Force interactive mode under Electron-as-node / piped stdio. Pi 0.84
+ * picks print mode when `!stdin.isTTY || !stdout.isTTY`, and print mode
+ * plus a first user prompt exits 1 when the mapped provider has no key.
+ */
 export const PI_TTY_PRELOAD_SOURCE = `'use strict'
 for (const stream of [process.stdin, process.stdout, process.stderr]) {
   if (!stream) continue
@@ -246,13 +258,44 @@ for (const stream of [process.stdin, process.stdout, process.stderr]) {
     stream.isTTY = true
   }
 }
+if (process.stdin && typeof process.stdin.setRawMode !== 'function') {
+  process.stdin.setRawMode = function setRawMode() {
+    return process.stdin
+  }
+}
+if (process.stdout && (process.stdout.columns === undefined || process.stdout.columns === 0)) {
+  process.stdout.columns = 80
+}
+if (process.stdout && (process.stdout.rows === undefined || process.stdout.rows === 0)) {
+  process.stdout.rows = 24
+}
 `
 
-/** Write the TTY preload next to Claude's transient MCP configs. */
+/** Write the TTY polyfill next to Claude's transient MCP configs. */
 export function writePiTtyPreload(configDir: string): string {
   const dir = join(configDir, 'vertragus-mcp')
   mkdirSync(dir, { recursive: true })
   const path = join(dir, PI_TTY_PRELOAD_FILE)
   writeFileSync(path, PI_TTY_PRELOAD_SOURCE)
+  return path
+}
+
+/** CJS that polyfills TTY and then loads the lockfile CLI as ESM. */
+export function piCliEntrySource(cliPath: string): string {
+  return `${PI_TTY_PRELOAD_SOURCE}
+const { pathToFileURL } = require('node:url')
+import(pathToFileURL(${JSON.stringify(cliPath)}).href).catch((error) => {
+  console.error(error)
+  process.exit(1)
+})
+`
+}
+
+/** Write the Electron-as-node entry next to Claude's transient MCP configs. */
+export function writePiCliEntry(configDir: string, cliPath: string): string {
+  const dir = join(configDir, 'vertragus-mcp')
+  mkdirSync(dir, { recursive: true })
+  const path = join(dir, PI_CLI_ENTRY_FILE)
+  writeFileSync(path, piCliEntrySource(cliPath))
   return path
 }
