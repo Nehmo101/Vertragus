@@ -46,10 +46,14 @@ const electronBinary = resolveElectronBinary()
 function wrapCwdWithPiMcp(): string {
   const cwd = mkdtempSync(join(tmpdir(), 'vertragus-pi-cwd-'))
   mkdirSync(join(cwd, '.pi'), { recursive: true })
+  // Lazy on purpose: the URL is a black hole (port 9). Production Pi configs
+  // use eager, but these tests measure TTY-preload / print-mode, not MCP
+  // connect. Windows Pi treats a refused eager fetch as fatal and exits
+  // before DECSET 2004 — which is not the invariant under test.
   writeFileSync(
     join(cwd, '.pi', 'mcp.json'),
     JSON.stringify({
-      mcpServers: { vertragus: { url: 'http://127.0.0.1:9/mcp', lifecycle: 'eager' } }
+      mcpServers: { vertragus: { url: 'http://127.0.0.1:9/mcp', lifecycle: 'lazy' } }
     })
   )
   return cwd
@@ -94,9 +98,27 @@ function waitForPiTui(child: {
     child.stdout?.on('data', onChunk)
     child.stderr?.on('data', onChunk)
     setTimeout(finish, 8_000)
-    child.on('exit', finish)
+    // An early MCP connect failure used to resolve here with only
+    // "fetch failed" and fail the TUI assertion. Stay until DECSET 2004
+    // or the timeout so a slow TUI after a connect log still counts.
+    child.on('exit', () => {
+      if (out.includes('?2004h')) finish()
+    })
   })
 }
+
+describe('wrapCwdWithPiMcp', () => {
+  it('does not eager-connect the dummy MCP black hole (Windows Pi would exit)', () => {
+    const cwd = wrapCwdWithPiMcp()
+    const written = JSON.parse(readFileSync(join(cwd, '.pi', 'mcp.json'), 'utf8')) as {
+      mcpServers: { vertragus: { url: string; lifecycle: string } }
+    }
+    expect(written.mcpServers.vertragus).toEqual({
+      url: 'http://127.0.0.1:9/mcp',
+      lifecycle: 'lazy'
+    })
+  })
+})
 
 describe('piProviderFor', () => {
   it('maps each shipped preset onto a published Pi backend, and omits Ollama', () => {
