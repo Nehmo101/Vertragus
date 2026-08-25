@@ -287,7 +287,9 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
 
   const shown = effectiveCliSurface({ setting: cliSurface, peek, boot })
   const sessionOpen = shown === 'session' && session !== undefined
-  sessionOpenRef.current = sessionOpen
+  useEffect(() => {
+    sessionOpenRef.current = sessionOpen
+  }, [sessionOpen])
 
   const followUp = useCallback(
     async (text: string) => {

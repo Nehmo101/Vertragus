@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentEvent } from '@shared/schema/events'
+import type { AgentEvent, AgentEventPayload } from '@shared/schema/events'
 import { cliChromeForWorkspace, workspaceOwningAgent } from './cliSessionFeed'
 
 const identity = { agentId: 'a1', name: 'Caronte', roleId: 'worker' }
 
-function event(partial: Omit<AgentEvent, 'seq'> & { seq?: number }): AgentEvent {
-  return { seq: partial.seq ?? 1, ...partial } as AgentEvent
+function event(payload: AgentEventPayload & { seq?: number; ts?: number }): AgentEvent {
+  return { seq: 1, ts: 1, ...payload }
 }
 
 describe('cliChromeForWorkspace', () => {

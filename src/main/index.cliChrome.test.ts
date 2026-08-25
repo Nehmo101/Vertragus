@@ -25,7 +25,7 @@ describe('CLI session chrome wiring', () => {
   it('routes CLI follow-ups and answers through the panel host paths', () => {
     const start = source.indexOf('setTerminalSessionActions({')
     if (start < 0) throw new Error('self-check: setTerminalSessionActions block is gone')
-    const block = source.slice(start, start + 900)
+    const block = source.slice(start, start + 1200)
     expect(block).toContain('directory.postUserMessage')
     expect(block).toContain('directory.answerQuestion')
     expect(block).not.toMatch(/pty\.write/)

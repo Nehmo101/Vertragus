@@ -642,7 +642,9 @@ app.whenReady().then(async () => {
       answer: async (agentId, questionId, text) => {
         const ws = workspaceOwningAgent(manager.list(), agentId)
         if (!ws) throw new Error(`answer rejected — unknown agent ${agentId}`)
-        const userQuestion = appMcp.openQuestion(ws.workspaceId, 'user')
+        const mcp = appMcp
+        if (!mcp) throw new Error('answer rejected — MCP is not running')
+        const userQuestion = mcp.openQuestion(ws.workspaceId, 'user')
         const target = userQuestion?.questionId === questionId ? 'user' : agentId
         await directory.answerQuestion(ws.workspaceId, target, questionId, text)
       }
