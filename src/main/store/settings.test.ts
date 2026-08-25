@@ -260,6 +260,7 @@ describe('app settings', () => {
       },
       remote: { enabled: false, bindAddress: '', port: 9482 },
       yoloMaster: true,
+      piHarnessEnabled: false,
       hideAllHotkey: 'Control+Alt+V',
       autostart: false,
       updateChannel: 'main',
@@ -372,6 +373,15 @@ describe('app settings', () => {
     expect(next.yoloMaster).toBe(false)
     expect(next.hideAllHotkey).toBe('Control+Alt+V')
     expect(backend.data.yoloMaster).toBe(false)
+  })
+
+  it('defaults the Pi harness wrap off and round-trips a write', () => {
+    const { store: settings, backend } = store()
+    expect(settings.getSettings().piHarnessEnabled).toBe(false)
+    const next = settings.setSetting('piHarnessEnabled', true)
+    expect(next.piHarnessEnabled).toBe(true)
+    expect(backend.data.piHarnessEnabled).toBe(true)
+    expect(settings.getSettings().piHarnessEnabled).toBe(true)
   })
 
   it('persists the panel position and the locale', () => {

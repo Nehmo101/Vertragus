@@ -59,12 +59,18 @@ import {
   toClaudeMcpConfig,
   toCursorMcpConfig,
   toKimiMcpConfig,
+  toPiMcpConfig,
+  PI_MCP_FILE,
+  PI_PROJECT_DIR,
+  WORKTREE_SECRET_FILES,
   tomlString,
   usableExtraMcp,
   withoutKimiAgentFileArgs,
   writeClaudeMcpConfigFile,
   writeCursorProjectMcpConfig,
-  writeKimiProjectMcpConfig
+  writeKimiProjectMcpConfig,
+  writePiHarnessMcpConfig,
+  assertWrittenPiMcpConfig
 } from './attach'
 import { ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
 
@@ -437,6 +443,88 @@ describe('cursor attach', () => {
   })
 })
 
+describe('pi harness attach', () => {
+  it('installs .pi/mcp.json in the WORKING directory with a bare url', () => {
+    const path = writePiHarnessMcpConfig(URL, workspaceDir)
+    expect(path).toBe(join(workspaceDir, PI_PROJECT_DIR, PI_MCP_FILE))
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
+      mcpServers: { vertragus: { url: URL } }
+    })
+    // Same JSON key as Cursor; a wrap must never mutate Cursor's project file.
+    expect(existsSync(join(workspaceDir, CURSOR_PROJECT_DIR, CURSOR_MCP_FILE))).toBe(false)
+  })
+
+  it('merges vertragus into an existing file and preserves foreign servers', () => {
+    const dir = join(workspaceDir, PI_PROJECT_DIR)
+    writePiHarnessMcpConfig('http://127.0.0.1:1/old', workspaceDir)
+    writeFileSync(
+      join(dir, PI_MCP_FILE),
+      JSON.stringify({
+        mcpServers: {
+          'user-server': { url: 'http://127.0.0.1:9/user' },
+          vertragus: { url: 'http://127.0.0.1:1/stale' }
+        },
+        extraTopLevel: true
+      })
+    )
+
+    const path = writePiHarnessMcpConfig(URL, workspaceDir)
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
+      mcpServers: {
+        'user-server': { url: 'http://127.0.0.1:9/user' },
+        vertragus: { url: URL }
+      },
+      extraTopLevel: true
+    })
+  })
+
+  it('replaces a corrupt existing file instead of guessing', () => {
+    const dir = join(workspaceDir, PI_PROJECT_DIR)
+    writePiHarnessMcpConfig(URL, workspaceDir)
+    writeFileSync(join(dir, PI_MCP_FILE), '{not-json')
+
+    const path = writePiHarnessMcpConfig(URL, workspaceDir)
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
+      mcpServers: { vertragus: { url: URL } }
+    })
+  })
+
+  it('replaces a non-object JSON file the same way (fail-closed)', () => {
+    const dir = join(workspaceDir, PI_PROJECT_DIR)
+    writePiHarnessMcpConfig(URL, workspaceDir)
+    writeFileSync(join(dir, PI_MCP_FILE), JSON.stringify(['garbage']))
+
+    expect(JSON.parse(readFileSync(writePiHarnessMcpConfig(URL, workspaceDir), 'utf8'))).toEqual({
+      mcpServers: { vertragus: { url: URL } }
+    })
+  })
+
+  it('builds the merge from an absent existing object', () => {
+    expect(toPiMcpConfig(null, URL)).toEqual({
+      mcpServers: { vertragus: { url: URL } }
+    })
+    expect(toPiMcpConfig({ mcpServers: { other: { url: 'x' } } }, URL)).toEqual({
+      mcpServers: { other: { url: 'x' }, vertragus: { url: URL } }
+    })
+  })
+
+  it('rejects a project config that lost its server entry', () => {
+    const path = writePiHarnessMcpConfig(URL, workspaceDir)
+    writeFileSync(path, JSON.stringify({ mcpServers: {} }))
+    expect(() => assertWrittenPiMcpConfig(path)).toThrow(/Invalid Vertragus Pi MCP config/)
+  })
+
+  it('lists the wrap file next to the other token-carrying project files', () => {
+    expect(WORKTREE_SECRET_FILES).toContain('.pi/mcp.json')
+    expect(WORKTREE_SECRET_FILES).toEqual([
+      '.cursor/mcp.json',
+      '.kimi-code/mcp.json',
+      '.grok/config.toml',
+      '.pi/mcp.json'
+    ])
+  })
+})
+
 describe('grok attach', () => {
   it('installs .grok/config.toml in the WORKING directory with a TOML url', () => {
     const path = writeGrokProjectMcpConfig(URL, workspaceDir)
@@ -646,6 +734,15 @@ describe('E6 extra MCP servers', () => {
     })
   })
 
+  it('pi: extra servers merge without touching foreign entries', () => {
+    const existing = { mcpServers: { theirs: { url: 'http://example.test/mcp' } } }
+    expect(toPiMcpConfig(existing, URL, EXTRA).mcpServers).toEqual({
+      theirs: { url: 'http://example.test/mcp' },
+      vertragus: { url: URL },
+      browser: { url: 'http://127.0.0.1:9200/mcp' }
+    })
+  })
+
   it('grok: one table per extra server, replaced on re-run, foreign tables intact', () => {
     const existing = '[permission]\nmode = "ask"\n\n[mcp_servers.browser]\nurl = "http://old"\n'
     const merged = mergeGrokConfigToml(existing, URL, EXTRA)
@@ -824,6 +921,16 @@ describe('extra MCP servers', () => {
       headers: { Authorization: 'Bearer x' }
     })
     expect(cursor.mcpServers.linear).not.toHaveProperty('type')
+
+    const piPath = writePiHarnessMcpConfig(URL, workspaceDir, [LINEAR])
+    const pi = JSON.parse(readFileSync(piPath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(pi.mcpServers.linear).toEqual({
+      url: 'https://mcp.linear.app/mcp',
+      headers: { Authorization: 'Bearer x' }
+    })
+    expect(pi.mcpServers.linear).not.toHaveProperty('type')
 
     const extras = codexExtraServerOverrides([LINEAR]).join(' ')
     expect(extras).toContain('mcp_servers.linear.url="https://mcp.linear.app/mcp"')

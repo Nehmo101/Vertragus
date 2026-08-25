@@ -142,6 +142,7 @@ describe('createWorktree', () => {
     expect(exclude).toContain('/.cursor/mcp.json')
     expect(exclude).toContain('/.kimi-code/mcp.json')
     expect(exclude).toContain('/.grok/config.toml')
+    expect(exclude).toContain('/.pi/mcp.json')
 
     // The proof is git's own view, inside the agent's worktree: a config file
     // an attach dialect writes there stays invisible to `git add -A`.

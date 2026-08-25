@@ -94,6 +94,7 @@ export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManage
     // D4: the tier wins over the boolean; read fresh so a settings change
     // reaches the next workspace without a restart.
     agentPolicy: () => effectiveAgentPolicy(getSettings()),
+    piHarness: () => getSettings().piHarnessEnabled,
     extraMcpServers: () => enabledExtraMcpServers(getSettings().mcpServers),
     // The retro loop: run stats and learnings land in the settings store, and
     // the accumulated knowledge returns via the next orchestrator prompt.

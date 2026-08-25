@@ -173,16 +173,17 @@ export const READONLY_CLAUDE_TOOLS = ['Read', 'Glob', 'Grep', 'TodoWrite'] as co
 
 /**
  * Worktree-relative files the project-file dialects (Kimi, Cursor, Grok)
- * write into an agent's checkout — each carries the agent's tokenised MCP
- * URL. `createWorktree` puts them on the repository's shared
- * `.git/info/exclude`, because an agent running `git add -A` in its own
- * worktree must not be able to commit its token into the user's history.
+ * and the Pi harness wrap write into an agent's checkout — each carries the
+ * agent's tokenised MCP URL. `createWorktree` puts them on the repository's
+ * shared `.git/info/exclude`, because an agent running `git add -A` in its
+ * own worktree must not be able to commit its token into the user's history.
  * (Claude's config lives outside the repo; Codex passes argv overrides.)
  */
 export const WORKTREE_SECRET_FILES = [
   '.cursor/mcp.json',
   '.kimi-code/mcp.json',
-  '.grok/config.toml'
+  '.grok/config.toml',
+  '.pi/mcp.json'
 ] as const
 
 /** Fully-qualified MCP tool names as the CLIs expect them in an allowlist. */
@@ -790,6 +791,83 @@ export function writeCursorProjectMcpConfig(
 
   writeFileSync(configPath, JSON.stringify(toCursorMcpConfig(existing, url, extras), null, 2))
   assertWrittenCursorMcpConfig(configPath)
+  return configPath
+}
+
+// --- Pi harness wrap -----------------------------------------------------
+
+/**
+ * Pi has no native MCP. The community adapter (`npm:pi-mcp-adapter`) reads
+ * standard MCP JSON. Preferred shared file is `.mcp.json`; `.pi/mcp.json` is
+ * the Pi-owned project overlay and the highest-precedence Pi layer — so a
+ * Vertragus launch writes THAT file in the agent's worktree and never the
+ * user's `.mcp.json`.
+ *
+ * The adapter uses the same `mcpServers` key as Cursor; the file lives at
+ * `.pi/mcp.json` so a wrap never mutates `.cursor/mcp.json`. HTTP is a bare
+ * `url`; stdio extras reuse the Cursor-shaped `{ command, args, env }`
+ * because that is what the adapter's examples use.
+ */
+export const PI_PROJECT_DIR = '.pi'
+export const PI_MCP_FILE = 'mcp.json'
+
+export function toPiMcpConfig(
+  existing: Record<string, unknown> | null | undefined,
+  url: string,
+  extras?: readonly AttachableExtra[]
+): { mcpServers: Record<string, unknown> } {
+  const prevServers = existing?.mcpServers
+  const servers =
+    prevServers && typeof prevServers === 'object' && !Array.isArray(prevServers)
+      ? { ...(prevServers as Record<string, unknown>) }
+      : {}
+  for (const extra of extrasToAttach(extras)) {
+    if (extra.id === MCP_SERVER_NAME) continue
+    servers[extra.id] = dialectEntry(extra, 'cursor')
+  }
+  servers[MCP_SERVER_NAME] = { url }
+  const base =
+    existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...existing } : {}
+  return { ...base, mcpServers: servers }
+}
+
+export function assertWrittenPiMcpConfig(configPath: string): void {
+  const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>
+  const servers = parsed.mcpServers as Record<string, { url?: string }> | undefined
+  if (!servers || typeof servers !== 'object' || !servers[MCP_SERVER_NAME]?.url) {
+    throw new Error(`Invalid Vertragus Pi MCP config written to ${configPath}`)
+  }
+}
+
+/**
+ * Install / merge `<workspaceDir>/.pi/mcp.json`.
+ *
+ * Same merge rules as Cursor: preserve foreign servers, replace a corrupt
+ * file, Vertragus last. Two Pi-wrapped agents sharing one working directory
+ * share one file — they cannot, because every agent owns its worktree.
+ */
+export function writePiHarnessMcpConfig(
+  url: string,
+  workspaceDir: string,
+  extras?: readonly AttachableExtra[]
+): string {
+  const dir = join(workspaceDir, PI_PROJECT_DIR)
+  mkdirSync(dir, { recursive: true })
+  const configPath = join(dir, PI_MCP_FILE)
+
+  let existing: Record<string, unknown> | null = null
+  try {
+    const raw = readFileSync(configPath, 'utf8')
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      existing = parsed as Record<string, unknown>
+    }
+  } catch {
+    // Absent or unparseable → replace / create.
+  }
+
+  writeFileSync(configPath, JSON.stringify(toPiMcpConfig(existing, url, extras), null, 2))
+  assertWrittenPiMcpConfig(configPath)
   return configPath
 }
 

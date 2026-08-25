@@ -251,6 +251,12 @@ export interface WorkspaceDeps {
    */
   agentPolicy?: AgentPolicy
   /**
+   * Pi harness wrap. When true, every agent process is `pi`; the slot's
+   * provider id (Claude / Cursor / …) stays on the record. Resolved at
+   * workspace start, like yoloMaster — a settings change reaches the next Play.
+   */
+  piHarness?: boolean
+  /**
    * Extra MCP servers from global settings. A getter is resolved at EACH
    * subagent spawn so a settings edit reaches the next worker of a running
    * workspace. Orchestrator and lead never receive them.
@@ -739,6 +745,14 @@ export class Workspace implements AgentHost {
   }
 
   /**
+   * Overlay, not a provider. Omitted when off so existing spawn snapshots stay
+   * byte-identical.
+   */
+  private piLaunch(): { harness: 'pi' } | Record<string, never> {
+    return this.deps.piHarness ? { harness: 'pi' } : {}
+  }
+
+  /**
    * How long `await_events` may block, derived from the ORCHESTRATOR provider's
    * declared MCP tool timeout — it is that CLI that kills a tool call, and the
    * orchestrator (plus every lead, which runs the same provider and shares this
@@ -937,7 +951,8 @@ export class Workspace implements AgentHost {
         mcpUrl: urls.leadUrl(pending.agentId),
         fileTag: `lead-${pending.agentId}`,
         configDir: this.deps.configDir,
-        systemPrompt
+        systemPrompt,
+        ...this.piLaunch()
       })
       this.assertOpenDuringStart(pending)
 
@@ -1017,7 +1032,8 @@ export class Workspace implements AgentHost {
         fileTag: `sub-${pending.agentId}`,
         configDir: this.deps.configDir,
         systemPrompt: template.prompt,
-        extraMcpServers: this.extraMcpServersForLaunch()
+        extraMcpServers: this.extraMcpServersForLaunch(),
+        ...this.piLaunch()
       }
       spawned = await (this.deps.spawn ?? spawnAgent)(launchInput)
       this.assertOpenDuringStart(pending)
@@ -1587,8 +1603,10 @@ export class Workspace implements AgentHost {
    *
    * When `initialPrompt` is set and the provider declares
    * `initialPromptDelivery`, the text rides the spawn argv as the CLI's first
-   * user turn and {@link goalText} is set. Providers without that surface
-   * ignore it here — the caller PTY-seeds via {@link assignGoal}.
+   * user turn and {@link goalText} is set. The Pi wrap always accepts a
+   * positional first prompt, so wrap-on delivers it even when the native CLI
+   * would not. Providers without that surface (and wrap off) ignore it here —
+   * the caller PTY-seeds via {@link assignGoal}.
    *
    * The orchestrator gets its own worktree like every other agent: it never
    * edits files itself, but its CLI still leaves per-agent artefacts in its
@@ -1617,7 +1635,7 @@ export class Workspace implements AgentHost {
     this.noteOrchestratorActivity()
     if (initialPrompt) {
       const provider = this.requireProvider(this.profile.orchestrator.providerId)
-      if (buildInitialPromptArgs(provider, initialPrompt).length > 0) {
+      if (this.deps.piHarness || buildInitialPromptArgs(provider, initialPrompt).length > 0) {
         this.recordDeliveredGoal(initialPrompt)
       }
     }
@@ -1761,7 +1779,9 @@ export class Workspace implements AgentHost {
     let spawned: SpawnedAgent | undefined
     try {
       const worktree = await this.createWorktreeFor(input.agentId, input.name)
-      const [argvInitialPrompt] = buildInitialPromptArgs(provider, input.initialPrompt)
+      const argvInitialPrompt = this.deps.piHarness
+        ? input.initialPrompt?.trim() || undefined
+        : buildInitialPromptArgs(provider, input.initialPrompt)[0]
       spawned = await (this.deps.spawn ?? spawnAgent)({
         kind: 'orchestrator',
         provider,
@@ -1773,7 +1793,8 @@ export class Workspace implements AgentHost {
         fileTag: `orch-${input.agentId}`,
         configDir: this.deps.configDir,
         systemPrompt: input.systemPrompt,
-        ...(argvInitialPrompt ? { initialPrompt: argvInitialPrompt } : {})
+        ...(argvInitialPrompt ? { initialPrompt: argvInitialPrompt } : {}),
+        ...this.piLaunch()
       })
 
       const record = this.track({
@@ -2590,6 +2611,8 @@ export class Workspace implements AgentHost {
 
   /** True for a provider that declared `mcp: none` — reports via sentinel lines. */
   private isPtyOnly(providerId: string): boolean {
+    // Pi wrap attaches MCP through the adapter, including Ollama slots.
+    if (this.deps.piHarness) return false
     return (
       this.deps.providers.find((candidate) => candidate.id === providerId)?.mcp.kind === 'none'
     )

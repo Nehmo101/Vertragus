@@ -175,6 +175,15 @@ token-tragende Dateien bleiben aus der Git-Historie des Nutzers heraus).
 Orchestratoren und Leads laufen auf einer strikten Tool-Allow-List; Worker
 laufen unbeschränkt — ihre Disziplin ist der Contract, kein Tool-Käfig.
 
+**Pi ist kein siebter Provider.** Ein Settings-Schalter (standardmäßig aus)
+kann den Spawn wrappen, sodass der Prozess `pi` ist, während die Slots
+weiter Claude, Cursor, Codex, Kimi, Grok oder Ollama heißen: das Preset
+wird auf Pis `--provider` gemappt, das Modell des Slots auf `--model`. MCP
+hängt über `.pi/mcp.json` und den Community-Adapter `npm:pi-mcp-adapter`.
+Cursors nächstes Pi-Backend ist `github-copilot`; Ollama hat kein
+Pi-Backend, daher nur `--model`. Wirkt beim nächsten Play
+(`npm i -g --ignore-scripts @mariozechner/pi-coding-agent`).
+
 Ein Slot kann **zusätzliche MCP-Server** deklarieren
 (`extraMcp: [{name, url}]`, z. B. ein Browser-Tool), die seine Agenten
 zusätzlich zu Vertragus anbinden — nur Subagenten, nie der Orchestrator oder

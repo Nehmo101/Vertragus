@@ -21,6 +21,7 @@ import { ORCHESTRATOR_TOOL_NAMES } from '@main/mcp/toolsOrchestrator'
 import { providerPreset, providerPresets } from '@main/providers/presets'
 import { extraMcpServerSchema } from '@shared/schema/mcpServer'
 import { providerConfigSchema, type ProviderConfig } from '@shared/schema/provider'
+import { PI_HARNESS_COMMAND, PI_MCP_ADAPTER_EXTENSION } from './piHarness'
 import {
   buildAgentArgv,
   buildAgentEnv,
@@ -1027,6 +1028,219 @@ describe('E6 extra MCP servers', () => {
       )
       expect(codex.argv.join(' ')).not.toContain('mcp_servers.browser')
       expect(codex.argv.join(' ')).not.toContain('mcp_servers.github')
+    }
+  })
+})
+
+describe('Pi harness wrap', () => {
+  const EXTRA = [{ name: 'browser', url: 'http://127.0.0.1:9200/mcp' }]
+
+  function piConfig(): { mcpServers: Record<string, unknown> } {
+    return JSON.parse(readFileSync(join(cwd, '.pi', 'mcp.json'), 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+  }
+
+  it('starts `pi` for a Claude slot: mapped provider, no native MCP, no yolo', () => {
+    const fileTag = 'pi-wrap-claude'
+    const { argv, ptySystemPrompt } = buildAgentArgv(
+      launchInput({
+        harness: 'pi',
+        cwd,
+        fileTag,
+        model: 'opus',
+        effort: 'high',
+        yolo: true,
+        systemPrompt: 'You are a Worker.'
+      })
+    )
+
+    expect(argv).toEqual([
+      '--no-session',
+      '--approve',
+      '--no-extensions',
+      '-e',
+      PI_MCP_ADAPTER_EXTENSION,
+      '--provider',
+      'anthropic',
+      '--model',
+      'opus',
+      '--thinking',
+      'high',
+      '--append-system-prompt',
+      'You are a Worker.'
+    ])
+    expect(ptySystemPrompt).toBeUndefined()
+    expect(argv.join(' ')).not.toMatch(/yolo|dangerously|always-approve/)
+    expect(existsSync(join(configDir, 'vertragus-mcp', `${fileTag}.json`))).toBe(false)
+    expect(piConfig()).toEqual({
+      mcpServers: { vertragus: { url: launchInput().mcpUrl } }
+    })
+  })
+
+  it('does not leak Ollama provider.args — omit --provider, keep --model', () => {
+    const { argv, ptySystemPrompt } = buildAgentArgv(
+      launchInput({
+        harness: 'pi',
+        cwd,
+        provider: preset('ollama'),
+        model: 'qwen3:32b',
+        yolo: true,
+        systemPrompt: 'You are a Worker.'
+      })
+    )
+
+    expect(argv).not.toContain('run')
+    expect(argv).not.toContain('--nowordwrap')
+    expect(argv).not.toContain('--provider')
+    expect(argv).toEqual([
+      '--no-session',
+      '--approve',
+      '--no-extensions',
+      '-e',
+      PI_MCP_ADAPTER_EXTENSION,
+      '--model',
+      'qwen3:32b',
+      '--append-system-prompt',
+      'You are a Worker.'
+    ])
+    expect(ptySystemPrompt).toBeUndefined()
+  })
+
+  it('delivers a Cursor system prompt as --append-system-prompt, not PTY, and skips .cursor/mcp.json', () => {
+    const { argv, ptySystemPrompt } = buildAgentArgv(
+      launchInput({
+        harness: 'pi',
+        cwd,
+        provider: preset('cursor'),
+        kind: 'orchestrator',
+        yolo: true,
+        systemPrompt: 'You orchestrate.'
+      })
+    )
+
+    expect(ptySystemPrompt).toBeUndefined()
+    expect(argv).toContain('--append-system-prompt')
+    expect(argv).toContain('You orchestrate.')
+    expect(argv).toContain('--provider')
+    expect(argv).toContain('github-copilot')
+    expect(argv).not.toContain('--trust')
+    expect(argv).not.toContain('--approve-mcps')
+    expect(argv).not.toContain('--yolo')
+    expect(existsSync(join(cwd, '.cursor', 'mcp.json'))).toBe(false)
+    expect(existsSync(join(cwd, '.pi', 'mcp.json'))).toBe(true)
+  })
+
+  it('resolves the `pi` command and drops Claude timeout env', async () => {
+    const resolve = vi.fn(async (command: string, args: string[]) => ({
+      file: `/bin/${command}`,
+      args
+    }))
+    const launch = await buildAgentLaunch(
+      launchInput({
+        harness: 'pi',
+        cwd,
+        kind: 'orchestrator',
+        model: 'opus',
+        systemPrompt: 'You orchestrate.'
+      }),
+      { resolve }
+    )
+
+    expect(resolve).toHaveBeenCalledWith(PI_HARNESS_COMMAND, launch.argv, expect.anything())
+    expect(launch.command).toBe('pi')
+    expect(launch.file).toBe('/bin/pi')
+    expect(launch.env).toBeUndefined()
+    expect(buildAgentEnv(launchInput({ harness: 'pi', cwd, kind: 'orchestrator' }))).toBeUndefined()
+  })
+
+  it('skips Claude/Kimi trust pre-acceptance and Grok cage env', async () => {
+    const resolve = async (_command: string, args: string[]): Promise<{ file: string; args: string[] }> => ({
+      file: '/bin/pi',
+      args
+    })
+    const ensureTrust = vi.fn()
+
+    await spawnAgent(launchInput({ harness: 'pi', cwd, provider: preset('claude') }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureTrust
+    })
+    await spawnAgent(launchInput({ harness: 'pi', cwd, provider: preset('kimi') }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureTrust
+    })
+    expect(ensureTrust).not.toHaveBeenCalled()
+
+    const grok = new FakePty()
+    await spawnAgent(
+      launchInput({
+        harness: 'pi',
+        cwd,
+        provider: preset('grok'),
+        kind: 'orchestrator',
+        yolo: true
+      }),
+      { resolve, createPty: () => grok }
+    )
+    expect(grok.spawnOptions && 'env' in grok.spawnOptions).toBe(false)
+    expect(grok.spawnOptions?.args).not.toContain('--no-subagents')
+    expect(grok.spawnOptions?.args).not.toContain('--always-approve')
+  })
+
+  it('a subagent gets extras in .pi/mcp.json; orchestrator and lead never do', () => {
+    const github = extraMcpServerSchema.parse({
+      id: 'github',
+      label: 'GitHub',
+      transport: 'stdio',
+      command: 'npx'
+    })
+    const linear = extraMcpServerSchema.parse({
+      id: 'linear',
+      label: 'Linear',
+      transport: 'http',
+      url: 'https://mcp.linear.app/mcp',
+      headers: { Authorization: 'Bearer x' }
+    })
+
+    buildAgentArgv(
+      launchInput({
+        harness: 'pi',
+        cwd,
+        extraMcp: EXTRA,
+        extraMcpServers: [github, linear]
+      })
+    )
+    const sub = piConfig()
+    expect(sub.mcpServers.browser).toEqual({ url: 'http://127.0.0.1:9200/mcp' })
+    expect(sub.mcpServers.github).toEqual({ command: 'npx' })
+    expect(sub.mcpServers.linear).toEqual({
+      url: 'https://mcp.linear.app/mcp',
+      headers: { Authorization: 'Bearer x' }
+    })
+    expect(sub.mcpServers.vertragus).toEqual({ url: launchInput().mcpUrl })
+
+    for (const kind of ['orchestrator', 'lead'] as const) {
+      const isolated = mkdtempSync(join(tmpdir(), 'vertragus-spawn-pi-'))
+      try {
+        buildAgentArgv(
+          launchInput({
+            harness: 'pi',
+            kind,
+            cwd: isolated,
+            extraMcp: EXTRA,
+            extraMcpServers: [github]
+          })
+        )
+        const written = JSON.parse(readFileSync(join(isolated, '.pi', 'mcp.json'), 'utf8')) as {
+          mcpServers: Record<string, unknown>
+        }
+        expect(Object.keys(written.mcpServers)).toEqual(['vertragus'])
+        expect(existsSync(join(isolated, '.cursor', 'mcp.json'))).toBe(false)
+      } finally {
+        rmSync(isolated, { recursive: true, force: true })
+      }
     }
   })
 })

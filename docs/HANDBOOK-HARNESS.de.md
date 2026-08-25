@@ -664,6 +664,8 @@ gerade Lifecycle und Tokens anfasst.
 - **Dieses Handbuch als parallelen Lifecycle-/Auth-Umbau** — das ist A/B
 - Tunnel, TLS, Account-System, Internet-Exposure, native App, Archiv-
   `apps/mobile` (BigBoy-Non-Goals, hier übernommen)
+- Pi als siebten Provider (der Wrap überlagert den Spawn; Slots bleiben
+  Claude / Cursor / Codex / Kimi / Grok / Ollama)
 
 ---
 
@@ -758,6 +760,41 @@ Offen aus dem Plan: Loop-Eval-Szenarien für G3/G4 (Schema-Tester,
 Zwei-Task-Board mit Succession) — Unit-/Integrationstests decken die
 Pfade, das End-to-End-Szenario ist Folgearbeit.
 
+## Phase H — Pi-Harness-Wrap: umgesetzt
+
+Pi ist ein Spawn-Overlay, kein Provider. Slots bleiben Claude / Cursor /
+Codex / Kimi / Grok / Ollama (Modellroute und Abo). Ist der Wrap an, ist
+jeder Agentenprozess `pi`; native CLIs werden nicht gestartet.
+Standardmäßig aus; aufgelöst beim Workspace-Start wie `yoloMaster`
+(nächstes Play).
+
+### H1 Overlay, kein siebter Provider — **umgesetzt**
+
+`PROVIDER_PRESET_IDS` bleibt unverändert. `agents/piHarness.ts` mappt
+Preset → Pi `--provider` (`claude`→`anthropic`, `codex`→`openai-codex`,
+`kimi`→`kimi-coding`, `cursor`→`github-copilot`, `grok`→`xai`; `ollama`
+und Custom lassen `--provider` weg und übergeben nur `--model`).
+`spawn.ts` ersetzt argv vollständig — Ollamas `run --nowordwrap` darf
+nicht durchsickern. Native Yolo-Flags werden nicht durchgereicht (Pi hat
+keine Berechtigungsabfragen). `--tools` wird in v1 nicht eingeschränkt
+(kann MCP-Tools verstecken).
+
+### H2 MCP über `.pi/mcp.json` — **umgesetzt**
+
+Pi hat kein natives MCP. Der Launch schreibt `.pi/mcp.json` (`mcpServers`,
+derselbe Key wie Cursor, andere Datei) und lädt nur `npm:pi-mcp-adapter`
+(`--no-extensions -e`). Native Attachments (`.cursor/mcp.json`, Claude-
+transientes JSON, Grok-Käfig, Claude/Kimi-Trust-Preaccept) entfallen. Die
+Datei steht auf `WORKTREE_SECRET_FILES`. Wrap-an-Ollama reportet über MCP
+(`isPtyOnly` ist false).
+
+### H3 Settings-Toggle — **umgesetzt**
+
+`piHarnessEnabled` in App-Settings, IPC und Settings. Cursors nächstes Pi-
+Backend ist `github-copilot`; Ollama hat kein Pi-Backend — beides ist
+dokumentiert, nicht übertüncht. Installation:
+`npm i -g --ignore-scripts @mariozechner/pi-coding-agent`.
+
 ## Phase A3 — Automatisierung: Übernahme ohne Klick und der Pull Request des Laufs
 
 Standardmäßig aus, pro Profil (`automation` in
@@ -817,3 +854,4 @@ gemergt hat.
 | Worker „nie committen” + Host-Snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, Handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` „Cursor hat kein agent_done“ | veraltet (`none` = Ollama) | ignorieren |
 | Automatisierung: Übernahme ohne Klick, Pull Request des Laufs | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest`, `agents/pullRequest.ts` | **A3** |
+| Pi-Harness-Wrap (kein siebter Provider) | `agents/piHarness.ts`, `spawn.ts`-Overlay, `.pi/mcp.json`, Setting `piHarnessEnabled` | **H** |
