@@ -191,6 +191,10 @@ Was tun:
   `ANTHROPIC_API_KEY` / das gemappte Backend). Ein Claude-Code-Login ist
   ein anderer Speicher; die TUI kann "No API key found" zeigen, obwohl MCP
   hängt.
+- Den Wrap außerhalb der echten Einstellungen prüfen:
+  `node scripts/pi-play-smoke.mjs` startet Electron mit isoliertem userData
+  und einem Wegwerf-Repo. Es muss `ok` drucken (TUI + MCP). Es nutzt weder
+  `~/.pi` noch Provider-API-Keys.
 
 ## Etwas anderes
 

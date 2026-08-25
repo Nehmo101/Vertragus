@@ -13,6 +13,12 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Pi-Play-Smoke.** CI bootet die echte Electron-App mit isoliertem
+  userData, Pi-Wrap an und einem Wegwerf-Git-Repo
+  (`scripts/pi-play-smoke.mjs`). Er wird nur grün, wenn das
+  Orchestrator-PTY eine TUI zeigt und Vertragus-MCP hängt — die
+  Windows-Regression mit leerem Fenster. Keine Provider-Keys; nicht Teil
+  von `pnpm run ci`.
 - **Schnellere MCP-Übergabe, kein verbrannter erster Turn, Windhund-Boot-Overlay.**
   Das CLI-Fenster öffnet, sobald der Host ein PTY hat — vor Worktree und
   Spawn —, sodass MCP-Initialize mit dem CLI-Boot überlappt statt dahinter

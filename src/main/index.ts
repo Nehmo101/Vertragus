@@ -80,6 +80,11 @@ import {
 import { revealRunFolder } from './workspace/revealRunFolder'
 import { taskWindow } from './workspace/taskWindow'
 import { createWorktreeCleanup } from './workspace/worktreeCleanup'
+import { applyIsolatedUserData } from './isolatedUserData'
+import { armPiPlaySmoke } from './piPlaySmoke'
+
+// Before whenReady: electron-store binds userData on first settings read.
+applyIsolatedUserData()
 
 /**
  * Headless smoke hook: <envVar>=<path> boots the window, captures it and exits.
@@ -711,6 +716,25 @@ app.whenReady().then(async () => {
   armSettingsWindowSmoke()
   armZoneOverlaySmoke()
   void startDevAgent()
+  const smokeLog = process.env.VERTRAGUS_PI_PLAY_SMOKE?.trim()
+  // Arm before awaiting the workspace: a hung startWorkspace used to skip
+  // the hook entirely (macOS CI timed out at 90 s with an empty log).
+  let smokeStartFailed = false
+  if (smokeLog) {
+    armPiPlaySmoke({
+      logPath: smokeLog,
+      snapshot: () => {
+        const agentId = devRun?.workspace.orchestrator?.agentId
+        return agentId ? (getAgentRegistry().getAgent(agentId)?.pty.snapshot() ?? '') : ''
+      },
+      alive: () => {
+        const agentId = devRun?.workspace.orchestrator?.agentId
+        if (!agentId) return true
+        return getAgentRegistry().getAgent(agentId)?.pty.isAlive === true
+      },
+      failedToStart: () => smokeStartFailed
+    })
+  }
   if (appMcp && appManager) {
     const mcp = appMcp
     const manager = appManager
@@ -718,6 +742,9 @@ app.whenReady().then(async () => {
       startServer: async () => mcp,
       createManager: () => manager
     })
+    if (smokeLog && !devRun?.workspace.orchestrator?.agentId) {
+      smokeStartFailed = true
+    }
     // Owner verification of the real orchestrator boot: capture its CLI
     // window (real claude with MCP attach) and exit.
     if (devRun && process.env.VERTRAGUS_DEV_RUN_SCREENSHOT) {
@@ -725,6 +752,8 @@ app.whenReady().then(async () => {
       const win = getCliWindow(devRun.workspace.orchestrator?.agentId ?? '')
       if (win) armScreenshotHook(win, 'VERTRAGUS_DEV_RUN_SCREENSHOT', 12_000)
     }
+  } else if (smokeLog) {
+    smokeStartFailed = true
   }
 
   // Also the way back from the panel's − : createPanelWindow restores and

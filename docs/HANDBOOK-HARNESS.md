@@ -880,6 +880,9 @@ imports the package `bin.pi` (`dist/cli.js`), with `ELECTRON_RUN_AS_NODE=1`.
 Windows spawn uses PATH `node` for that same entry and omits the env:
 ConPTY cannot attach stdio to `electron.exe` (WINDOWS subsystem) and the
 agent window stays blank. Node.js must be on PATH.
+CI boots that Play-shaped path (`scripts/pi-play-smoke.mjs`): isolated
+userData, wrap on via the settings store, throwaway git repo, pass only
+when the orchestrator PTY shows a TUI and Vertragus MCP attached.
 Pi 0.84 treats `-r` as `--resume`, so the entry is the *script* (argv[1]),
 not a Node `-r` in front of the CLI — if Electron does not consume `-r`,
 print mode stays on and a trailing Play goal plus no Pi API key is

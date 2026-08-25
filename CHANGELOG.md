@@ -12,6 +12,11 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **Pi Play smoke.** CI boots the real Electron app with isolated userData,
+  the Pi wrap on, and a throwaway git repo (`scripts/pi-play-smoke.mjs`).
+  It passes only when the orchestrator PTY shows a TUI and Vertragus MCP
+  attached — the Windows blank-window regression. No provider keys; not
+  part of `pnpm run ci`.
 - **Faster MCP handover, no wasted first turn, greyhound boot overlay.**
   The CLI window opens as soon as the host has a PTY — before worktree and
   spawn — so MCP initialize overlaps CLI boot instead of waiting behind it.
