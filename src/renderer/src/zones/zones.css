@@ -4,7 +4,8 @@
  * The window is transparent and covers one display's work area, so this sheet
  * has no frame of its own: a faint wash proves the overlay is live, the two
  * glass slabs carry the chrome, and everything else is the zones themselves.
- * Nothing here scrolls — the surface IS the screen.
+ * Nothing here scrolls — the surface IS the screen. The slabs wrap inside the
+ * overlay so Save cannot paint past a small work area.
  */
 
 .zones {
@@ -39,9 +40,15 @@
   left: 50%;
   transform: translateX(-50%);
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
+  justify-content: center;
   gap: 14px;
-  max-width: 92vw;
+  box-sizing: border-box;
+  /* 100% is the overlay (the work area). vw can disagree, and a nowrap
+     min-content size would grow the pill past max-width. */
+  max-width: calc(100% - 32px);
+  min-width: 0;
   padding: 10px 18px;
   border: 1px solid var(--hairline-strong);
   border-radius: 999px;
@@ -55,12 +62,16 @@
   letter-spacing: 0.02em;
   color: var(--bronze-bright);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .zones-hint-text {
   font: 500 12px var(--font-body);
   color: var(--text-2);
-  white-space: nowrap;
+  min-width: 0;
 }
 
 .zones-hint-meta {
@@ -160,15 +171,30 @@
   bottom: 26px;
   transform: translateX(-50%);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  max-width: 94vw;
+  box-sizing: border-box;
+  /* Shrink-to-fit on a wide display; never wider than the overlay. min-width:0
+     is what stops nowrap chips from raising min-width above max-width. */
+  width: max-content;
+  max-width: calc(100% - 32px);
+  min-width: 0;
   padding: 10px 12px 10px 18px;
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-panel);
   background: linear-gradient(180deg, var(--glass-top), var(--glass-bottom));
   box-shadow: var(--shadow-panel);
   backdrop-filter: var(--glass-blur);
+}
+
+.zones-bar-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 12rem;
+  min-width: 0;
 }
 
 .zones-bar-label {
@@ -182,17 +208,24 @@
 
 .zones-palette {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  /* The bar is one line: role chips never shrink and never wrap, the bar grows
-     with them (a 16-role profile is not the case this surface optimizes for). */
-  flex: 0 0 auto;
-  flex-wrap: nowrap;
+  /* Role chips keep their natural size and wrap onto new lines. Stretching
+     the slab past the overlay is what hid Save on a small work area. */
+  flex: 1 1 8rem;
+  min-width: 0;
 }
 
-.zones-bar-spacer {
-  flex: 0 0 auto;
-  width: 18px;
+.zones-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-start: auto;
 }
 
 .zones-role {
@@ -211,7 +244,7 @@
 }
 
 .zones-error {
-  max-width: 320px;
+  max-width: min(320px, 100%);
   font: 500 11.5px var(--font-body);
   color: var(--err-text);
 }
