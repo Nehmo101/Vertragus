@@ -776,10 +776,16 @@ restricted in v1 (it can hide MCP tools).
 
 Pi has no native MCP. The launch writes `.pi/mcp.json` (`mcpServers`, same
 key as Cursor, different file) and loads only the pinned `pi-mcp-adapter`
-(`--no-extensions -e`). Native attach (`.cursor/mcp.json`, Claude
-transient JSON, Grok cage, Claude/Kimi trust preaccept) is skipped. The
-file is on `WORKTREE_SECRET_FILES`. Wrap-on Ollama reports over MCP
-(`isPtyOnly` is false).
+(`--no-extensions -e`). The Vertragus server is `{ url, lifecycle: "eager" }`
+so MCP tools exist before the first user turn (the adapter's default is lazy
+and races the trailing positional prompt). Extra servers stay as `{ url }` /
+stdio. Native attach (`.cursor/mcp.json`, Claude transient JSON, Grok cage,
+Claude/Kimi trust preaccept) is skipped. The file is on
+`WORKTREE_SECRET_FILES`. The role prompt is written to `.pi/APPEND_SYSTEM.md`
+and passed as `--append-system-prompt <absolute path>` so argv never carries
+a multiline prompt; that file has no token and is not on
+`WORKTREE_SECRET_FILES`. Wrap-on Ollama reports over MCP (`isPtyOnly` is
+false).
 
 ### H3 settings toggle — **implemented**
 
@@ -789,23 +795,25 @@ documented, not papered over.
 
 ### H4 lockfile pin and Dependabot — **implemented**
 
-`@mariozechner/pi-coding-agent` and `pi-mcp-adapter` are production
-dependencies. Spawn runs Electron as Node on the package `bin.pi`
-(`dist/cli.js`), with `ELECTRON_RUN_AS_NODE=1`, and `-e` loads the
-installed adapter directory (versioned `npm:pi-mcp-adapter@x.y.z` if the
-package is missing). PATH `pi` remains the fallback when the CLI is not
-on disk. `.github/dependabot.yml` allow-lists only those two names,
-grouped as `pi-harness`, weekly, no automerge — overlay flags are a
-contract. npm currently deprecates the `mariozechner` name in favor of
-`@earendil-works/pi-coding-agent`; the lockfile stays on the declared
-name so Dependabot bumps what we actually spawn. The CLI, photon WASM,
-the MCP adapter, and native keyring trees are unpacked (`asarUnpack` in
-`electron-builder.yml`). Universal macOS sets `mac.x64ArchFiles` to
-`**/node_modules/**`: per-arch optional `.node` files (clipboard, koffi,
-keyring, node-pty) are byte-identical across the two temp apps, and
-`@electron/universal` refuses to skip lipo unless the pattern says that
-is expected. A scoped brace list misses unscoped addons such as koffi.
-`mac.mergeASARs` stays false: the unpacked Pi trees make
+`@earendil-works/pi-coding-agent` and `pi-mcp-adapter` are production
+dependencies (the same package name the adapter imports — staying on the
+deprecated `@mariozechner/pi-coding-agent` 0.73.1 made `-e` fail at
+extension load and Pi `process.exit(1)` before `session_start`). Spawn
+runs Electron as Node on the package `bin.pi` (`dist/cli.js`), with
+`ELECTRON_RUN_AS_NODE=1` and a Node `-r` preload that sets
+`stdin`/`stdout`/`stderr`.isTTY so Pi does not pick print mode under
+Electron-as-node. `-e` loads the installed adapter directory (versioned
+`npm:pi-mcp-adapter@x.y.z` if the package is missing). PATH `pi` remains
+the fallback when the CLI is not on disk (no preload, no `RUN_AS_NODE`).
+`.github/dependabot.yml` allow-lists only those two names, grouped as
+`pi-harness`, weekly, no automerge — overlay flags are a contract. The CLI,
+photon WASM, the MCP adapter, and native keyring trees are unpacked
+(`asarUnpack` in `electron-builder.yml`). Universal macOS sets
+`mac.x64ArchFiles` to `**/node_modules/**`: per-arch optional `.node` files
+(clipboard, koffi, keyring, node-pty) are byte-identical across the two
+temp apps, and `@electron/universal` refuses to skip lipo unless the
+pattern says that is expected. A scoped brace list misses unscoped addons
+such as koffi. `mac.mergeASARs` stays false: the unpacked Pi trees make
 `@electron/universal`'s brace-glob of unpack paths overflow minimatch
 (`pattern is too long`), and the JS inside asar is already arch-identical.
 

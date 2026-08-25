@@ -783,9 +783,16 @@ keine Berechtigungsabfragen). `--tools` wird in v1 nicht eingeschränkt
 
 Pi hat kein natives MCP. Der Launch schreibt `.pi/mcp.json` (`mcpServers`,
 derselbe Key wie Cursor, andere Datei) und lädt nur den gepinnten
-`pi-mcp-adapter` (`--no-extensions -e`). Native Attachments
-(`.cursor/mcp.json`, Claude-transientes JSON, Grok-Käfig,
-Claude/Kimi-Trust-Preaccept) entfallen. Die Datei steht auf
+`pi-mcp-adapter` (`--no-extensions -e`). Der Vertragus-Server ist
+`{ url, lifecycle: "eager" }`, damit MCP-Tools vor dem ersten User-Turn
+existieren (der Adapter ist standardmäßig lazy und läuft mit dem
+nachgestellten Positions-Prompt um die Wette). Extra-Server bleiben
+`{ url }` / stdio. Native Attachments (`.cursor/mcp.json`,
+Claude-transientes JSON, Grok-Käfig, Claude/Kimi-Trust-Preaccept)
+entfallen. Die Datei steht auf `WORKTREE_SECRET_FILES`. Der Rollenprompt
+wird nach `.pi/APPEND_SYSTEM.md` geschrieben und als
+`--append-system-prompt <absoluter Pfad>` übergeben, damit argv keinen
+mehrzeiligen Prompt trägt; die Datei hat kein Token und steht nicht auf
 `WORKTREE_SECRET_FILES`. Wrap-an-Ollama reportet über MCP (`isPtyOnly`
 ist false).
 
@@ -797,28 +804,30 @@ dokumentiert, nicht übertüncht.
 
 ### H4 Lockfile-Pin und Dependabot — **umgesetzt**
 
-`@mariozechner/pi-coding-agent` und `pi-mcp-adapter` sind
-Produktionsabhängigkeiten. Spawn startet Electron als Node auf dem
-Paket-`bin.pi` (`dist/cli.js`), mit `ELECTRON_RUN_AS_NODE=1`, und `-e`
-lädt das installierte Adapter-Verzeichnis (versioniertes
-`npm:pi-mcp-adapter@x.y.z`, wenn das Paket fehlt). PATH-`pi` bleibt der
-Fallback, wenn die CLI nicht auf der Platte liegt.
+`@earendil-works/pi-coding-agent` und `pi-mcp-adapter` sind
+Produktionsabhängigkeiten (derselbe Paketname, den der Adapter importiert
+— auf dem veralteten `@mariozechner/pi-coding-agent` 0.73.1 scheiterte
+`-e` beim Laden und Pi machte `process.exit(1)` vor `session_start`).
+Spawn startet Electron als Node auf dem Paket-`bin.pi` (`dist/cli.js`),
+mit `ELECTRON_RUN_AS_NODE=1` und einem Node-`-r`-Preload, das
+`stdin`/`stdout`/`stderr`.isTTY setzt, damit Pi unter Electron-as-node
+nicht in den Print-Modus geht. `-e` lädt das installierte
+Adapter-Verzeichnis (versioniertes `npm:pi-mcp-adapter@x.y.z`, wenn das
+Paket fehlt). PATH-`pi` bleibt der Fallback, wenn die CLI nicht auf der
+Platte liegt (kein Preload, kein `RUN_AS_NODE`).
 `.github/dependabot.yml` erlaubt nur diese zwei Namen, gruppiert als
 `pi-harness`, wöchentlich, kein Automerge — Overlay-Flags sind ein
-Vertrag. npm markiert den Namen `mariozechner` derzeit als veraltet
-zugunsten von `@earendil-works/pi-coding-agent`; das Lockfile bleibt beim
-deklarierten Namen, damit Dependabot das bumpt, was wir wirklich starten.
-CLI, Photon-WASM, der MCP-Adapter und die nativen Keyring-Bäume werden
-ausgepackt (`asarUnpack` in `electron-builder.yml`). Universal-macOS setzt
-`mac.x64ArchFiles` auf `**/node_modules/**`: die architektur-spezifischen
-optionalen `.node`-Dateien (Clipboard, koffi, Keyring, node-pty) sind in
-beiden Temp-Apps bytegleich, und `@electron/universal` verweigert das
-Überspringen von lipo, solange das Pattern das nicht als erwartet
-ausweist. Eine Scope-Klammerliste verfehlt unscoped Addons wie koffi.
-`mac.mergeASARs` bleibt false: die ausgepackten Pi-Bäume lassen das
-Brace-Glob der Unpack-Pfade in `@electron/universal` über minimatch
-laufen (`pattern is too long`), und das JS in asar ist bereits
-architekturidentisch.
+Vertrag. CLI, Photon-WASM, der MCP-Adapter und die nativen Keyring-Bäume
+werden ausgepackt (`asarUnpack` in `electron-builder.yml`). Universal-macOS
+setzt `mac.x64ArchFiles` auf `**/node_modules/**`: die
+architektur-spezifischen optionalen `.node`-Dateien (Clipboard, koffi,
+Keyring, node-pty) sind in beiden Temp-Apps bytegleich, und
+`@electron/universal` verweigert das Überspringen von lipo, solange das
+Pattern das nicht als erwartet ausweist. Eine Scope-Klammerliste verfehlt
+unscoped Addons wie koffi. `mac.mergeASARs` bleibt false: die
+ausgepackten Pi-Bäume lassen das Brace-Glob der Unpack-Pfade in
+`@electron/universal` über minimatch laufen (`pattern is too long`), und
+das JS in asar ist bereits architekturidentisch.
 
 ## Phase A3 — Automatisierung: Übernahme ohne Klick und der Pull Request des Laufs
 

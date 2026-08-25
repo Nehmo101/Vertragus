@@ -45,6 +45,13 @@
  *   INSTEAD of the native dialect files when the wrap is on. The slot's
  *   provider (Claude / Cursor / …) stays; only the process is the lockfile
  *   `pi` CLI (Electron as Node, or PATH `pi` if the package is missing).
+ * - `<cwd>/.pi/APPEND_SYSTEM.md` — Pi wrap role / orchestrator prompt. No
+ *   token; `--append-system-prompt` gets the absolute path so argv stays
+ *   one-line. Removed when the launch has no prompt, so a stale file cannot
+ *   be auto-discovered after `--approve`.
+ * - `<configDir>/vertragus-mcp/pi-tty-preload.cjs` — Electron-as-node only.
+ *   Node `-r` preload that sets stdin/stdout/stderr `.isTTY` before Pi's
+ *   CLI runs; without it Pi picks print mode and exits after one turn.
  *
  *   These project-file dialects are the only artefacts a Vertragus launch writes
  *   into user territory. Since every agent owns its worktree they can no longer
@@ -71,13 +78,15 @@ import {
   writeGrokProjectMcpConfig,
   writeKimiAgentFile,
   writeKimiProjectMcpConfig,
+  writePiHarnessAppendSystemPrompt,
   writePiHarnessMcpConfig
 } from '@main/mcp/attach'
 import {
   buildPiHarnessArgv,
   PI_HARNESS_COMMAND,
   piHarnessEnv,
-  resolvePiHarnessCli
+  resolvePiHarnessCli,
+  writePiTtyPreload
 } from './piHarness'
 import type { ExtraMcpServer } from '@shared/schema/mcpServer'
 import type { ExtraMcpServer as SlotExtraMcpServer } from '@shared/schema/profile'
@@ -310,8 +319,9 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
  * how a Grok worker works.
  *
  * Pi wrap: when the lockfile CLI is used, `ELECTRON_RUN_AS_NODE=1` so Electron's
- * binary runs `dist/cli.js` as Node. PATH fallback (no bundled CLI) adds
- * nothing — wrap-on Grok must not inherit the native cage env.
+ * binary runs `dist/cli.js` as Node, plus a `-r` TTY preload (see
+ * {@link writePiTtyPreload}). PATH fallback (no bundled CLI) adds nothing —
+ * wrap-on Grok must not inherit the native cage env.
  */
 export function buildAgentEnv(
   input: AgentLaunchInput,
@@ -374,12 +384,16 @@ export function buildAgentArgv(input: AgentLaunchInput): AgentArgv {
         ? [...(input.extraMcpServers ?? []), ...(input.extraMcp ?? [])]
         : []
     writePiHarnessMcpConfig(input.mcpUrl, input.cwd, extras)
+    const appendSystemPromptFile = writePiHarnessAppendSystemPrompt(
+      input.cwd,
+      input.systemPrompt
+    )
     return {
       argv: buildPiHarnessArgv({
         presetId: input.provider.presetId,
         model: input.model,
         effort: input.effort,
-        systemPrompt: input.systemPrompt,
+        appendSystemPromptFile,
         initialPrompt: input.initialPrompt
       })
     }
@@ -427,7 +441,9 @@ export async function buildAgentLaunch(
   const command = input.harness === 'pi' ? PI_HARNESS_COMMAND : input.provider.command
   const piCli = input.harness === 'pi' ? (deps.resolvePiCli ?? resolvePiHarnessCli)() : undefined
   const resolveCommand = piCli ? process.execPath : command
-  const resolveArgs = piCli ? [piCli, ...argv] : argv
+  const resolveArgs = piCli
+    ? ['-r', writePiTtyPreload(input.configDir), piCli, ...argv]
+    : argv
   const resolved = await resolve(resolveCommand, resolveArgs, {
     requireFaithfulArgs: needsFaithfulArgs(argv),
     ...(input.platform ? { platform: input.platform } : {})

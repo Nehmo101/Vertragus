@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -9,13 +9,16 @@ import {
   PI_MCP_ADAPTER_EXTENSION,
   PI_MCP_ADAPTER_NPM_SPEC,
   PI_MCP_ADAPTER_PACKAGE,
+  PI_TTY_PRELOAD_FILE,
+  PI_TTY_PRELOAD_SOURCE,
   buildPiHarnessArgv,
   piHarnessEnv,
   piMcpAdapterExtension,
   piProviderFor,
   piThinkingFor,
   preferAsarUnpacked,
-  resolvePiHarnessCli
+  resolvePiHarnessCli,
+  writePiTtyPreload
 } from './piHarness'
 
 describe('piProviderFor', () => {
@@ -64,7 +67,7 @@ describe('lockfile Pi CLI and adapter', () => {
     expect(cli).toMatch(/dist[/\\]cli\.js$/)
     expect(existsSync(cli!)).toBe(true)
     expect(PI_HARNESS_COMMAND).toBe('pi')
-    expect(PI_CODING_AGENT_PACKAGE).toBe('@mariozechner/pi-coding-agent')
+    expect(PI_CODING_AGENT_PACKAGE).toBe('@earendil-works/pi-coding-agent')
   })
 
   it('pins the adapter to the installed version and prefers the lockfile copy', () => {
@@ -78,6 +81,19 @@ describe('lockfile Pi CLI and adapter', () => {
   it('only sets ELECTRON_RUN_AS_NODE when a bundled CLI path exists', () => {
     expect(piHarnessEnv(undefined)).toBeUndefined()
     expect(piHarnessEnv('/tmp/pi/dist/cli.js')).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
+  })
+
+  it('writes a CJS TTY preload that forces stdin/stdout/stderr.isTTY', () => {
+    const root = mkdtempSync(join(tmpdir(), 'vertragus-pi-preload-'))
+    const path = writePiTtyPreload(root)
+    expect(path).toBe(join(root, 'vertragus-mcp', PI_TTY_PRELOAD_FILE))
+    expect(existsSync(path)).toBe(true)
+    const source = readFileSync(path, 'utf8')
+    expect(source).toBe(PI_TTY_PRELOAD_SOURCE)
+    expect(source).toContain("defineProperty(stream, 'isTTY'")
+    expect(source).toContain('process.stdin')
+    expect(source).toContain('process.stdout')
+    expect(source).toContain('process.stderr')
   })
 
   it('rewrites app.asar to app.asar.unpacked when that copy exists', () => {
@@ -160,6 +176,23 @@ describe('buildPiHarnessArgv', () => {
       '--no-extensions',
       '-e',
       PI_MCP_ADAPTER_EXTENSION
+    ])
+  })
+
+  it('prefers an append-system-prompt file path over inline text', () => {
+    expect(
+      buildPiHarnessArgv({
+        systemPrompt: 'inline, should not win',
+        appendSystemPromptFile: '/tmp/work/.pi/APPEND_SYSTEM.md'
+      })
+    ).toEqual([
+      '--no-session',
+      '--approve',
+      '--no-extensions',
+      '-e',
+      PI_MCP_ADAPTER_EXTENSION,
+      '--append-system-prompt',
+      '/tmp/work/.pi/APPEND_SYSTEM.md'
     ])
   })
 })

@@ -64,7 +64,7 @@
  * `--allowedTools` at all: they are meant to work, and restricting them is what
  * produced the "permission-starved" workers in the old retros.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   enabledExtraMcpServers,
@@ -805,11 +805,16 @@ export function writeCursorProjectMcpConfig(
  *
  * The adapter uses the same `mcpServers` key as Cursor; the file lives at
  * `.pi/mcp.json` so a wrap never mutates `.cursor/mcp.json`. HTTP is a bare
- * `url`; stdio extras reuse the Cursor-shaped `{ command, args, env }`
- * because that is what the adapter's examples use.
+ * `url`; the Vertragus entry also sets `lifecycle: "eager"` so MCP tools
+ * exist before the first user turn (the adapter's default is lazy and races
+ * the trailing positional prompt). Extra servers stay as `{ url }` / stdio.
  */
 export const PI_PROJECT_DIR = '.pi'
 export const PI_MCP_FILE = 'mcp.json'
+/** Adapter lifecycle so Vertragus tools attach at extension load, not later. */
+export const PI_MCP_LIFECYCLE_EAGER = 'eager'
+/** Role / orchestrator prompt passed as `--append-system-prompt` (no token). */
+export const PI_APPEND_SYSTEM_FILE = 'APPEND_SYSTEM.md'
 
 export function toPiMcpConfig(
   existing: Record<string, unknown> | null | undefined,
@@ -825,7 +830,7 @@ export function toPiMcpConfig(
     if (extra.id === MCP_SERVER_NAME) continue
     servers[extra.id] = dialectEntry(extra, 'cursor')
   }
-  servers[MCP_SERVER_NAME] = { url }
+  servers[MCP_SERVER_NAME] = { url, lifecycle: PI_MCP_LIFECYCLE_EAGER }
   const base =
     existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...existing } : {}
   return { ...base, mcpServers: servers }
@@ -833,8 +838,16 @@ export function toPiMcpConfig(
 
 export function assertWrittenPiMcpConfig(configPath: string): void {
   const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>
-  const servers = parsed.mcpServers as Record<string, { url?: string }> | undefined
-  if (!servers || typeof servers !== 'object' || !servers[MCP_SERVER_NAME]?.url) {
+  const servers = parsed.mcpServers as
+    | Record<string, { url?: string; lifecycle?: string }>
+    | undefined
+  const vertragus = servers?.[MCP_SERVER_NAME]
+  if (
+    !servers ||
+    typeof servers !== 'object' ||
+    !vertragus?.url ||
+    vertragus.lifecycle !== PI_MCP_LIFECYCLE_EAGER
+  ) {
     throw new Error(`Invalid Vertragus Pi MCP config written to ${configPath}`)
   }
 }
@@ -868,6 +881,31 @@ export function writePiHarnessMcpConfig(
 
   writeFileSync(configPath, JSON.stringify(toPiMcpConfig(existing, url, extras), null, 2))
   assertWrittenPiMcpConfig(configPath)
+  return configPath
+}
+
+/**
+ * Write or remove `<workspaceDir>/.pi/APPEND_SYSTEM.md`. Empty/absent prompt
+ * deletes a stale file so `--approve` auto-discovery cannot load a previous
+ * role prompt. Returns the absolute path when a file was written.
+ */
+export function writePiHarnessAppendSystemPrompt(
+  workspaceDir: string,
+  prompt: string | undefined
+): string | undefined {
+  const dir = join(workspaceDir, PI_PROJECT_DIR)
+  mkdirSync(dir, { recursive: true })
+  const configPath = join(dir, PI_APPEND_SYSTEM_FILE)
+  const text = prompt?.trim()
+  if (!text) {
+    try {
+      unlinkSync(configPath)
+    } catch {
+      // Absent is the desired state.
+    }
+    return undefined
+  }
+  writeFileSync(configPath, text)
   return configPath
 }
 
