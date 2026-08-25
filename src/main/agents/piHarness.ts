@@ -224,9 +224,32 @@ export function buildPiHarnessArgv(input: PiHarnessArgvInput): string[] {
   return argv
 }
 
+/**
+ * Interpreter that runs {@link writePiCliEntry}. POSIX uses Electron-as-node.
+ * Windows ConPTY cannot attach stdio to `electron.exe` (WINDOWS subsystem):
+ * the child exits 0 with a blank PTY. Console-subsystem `node` from PATH
+ * works; {@link piHarnessEnv} is omitted there.
+ */
+export const PI_WINDOWS_NODE_COMMAND = 'node'
+
+export function piInterpreterCommand(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? PI_WINDOWS_NODE_COMMAND : process.execPath
+}
+
+/** True when a resolved Windows file is Electron, which ConPTY cannot host. */
+export function isWindowsElectronBinary(file: string): boolean {
+  const base = file.replace(/^.*[/\\]/, '').toLowerCase()
+  return base === 'electron.exe' || base === 'electron'
+}
+
 /** Env overlay so Electron's binary behaves like Node when running the CLI. */
-export function piHarnessEnv(cliPath: string | undefined): Record<string, string> | undefined {
-  return cliPath ? { ELECTRON_RUN_AS_NODE: '1' } : undefined
+export function piHarnessEnv(
+  cliPath: string | undefined,
+  platform: NodeJS.Platform = process.platform
+): Record<string, string> | undefined {
+  if (!cliPath) return undefined
+  if (platform === 'win32') return undefined
+  return { ELECTRON_RUN_AS_NODE: '1' }
 }
 
 /**

@@ -161,6 +161,27 @@ What to do:
   is a Cursor CLI bug. Open it with them; attaching the orchestrator window
   dump is enough.
 
+## Pi wrap window is blank on Windows
+
+Play with **Run agents through Pi** on starts a process, then the agent
+window stays empty and the child exits 0 within a few seconds.
+
+ConPTY cannot attach stdio to `electron.exe` (WINDOWS subsystem). The wrap
+therefore runs PATH `node` against the bundled CJS entry, not Electron-as-node.
+POSIX still uses Electron-as-node.
+
+What to do:
+
+- Install [Node.js](https://nodejs.org/) so `node` is on PATH, then Play
+  again. Confirm outside the panel: `node -v` in a normal terminal.
+- Pi still needs **its own** provider keys (`~/.pi/agent` or
+  `ANTHROPIC_API_KEY` / the mapped backend). A Claude Code login is a
+  different store; the TUI may show "No API key found" even when MCP
+  attached.
+- Confirm the wrap outside your real settings: `node scripts/pi-play-smoke.mjs`
+  boots Electron with isolated userData and a throwaway repo. It must print
+  `ok` (TUI + MCP). It does not use `~/.pi` or provider API keys.
+
 ## Something else
 
 Open an issue with your OS, the Vertragus version (Settings shows it), the

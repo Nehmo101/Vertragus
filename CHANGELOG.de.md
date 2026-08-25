@@ -13,6 +13,12 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Pi-Play-Smoke.** CI bootet die echte Electron-App mit isoliertem
+  userData, Pi-Wrap an und einem Wegwerf-Git-Repo
+  (`scripts/pi-play-smoke.mjs`). Er wird nur grün, wenn das
+  Orchestrator-PTY eine TUI zeigt und Vertragus-MCP hängt — die
+  Windows-Regression mit leerem Fenster. Keine Provider-Keys; nicht Teil
+  von `pnpm run ci`.
 - **System-Prompts pro Identität im Profil-Editor.** Orchestrator, Lead,
   Worker, Tester und jede andere Rolle können einen optionalen Extra-Prompt
   tragen (Ton, Sprache, Art der Rückmeldung). Er wird an den
@@ -181,6 +187,10 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   Vertragus-MCP-Server eager an. Packaged Builds packen `typebox` und
   `jiti` aus, damit der Adapter aus dem asar-unpacked `loader.js` laden
   kann.
+- **Der Pi-Wrap unter Windows öffnete ein leeres Agentenfenster.** ConPTY
+  kann `electron.exe` (WINDOWS-Subsystem) nicht anbinden; das Kind beendete
+  mit Exit 0 ohne Ausgabe. Der Wrap startet unter Windows PATH-`node` und
+  bleibt unter POSIX Electron-as-node. Node.js muss auf dem PATH liegen.
 - **Speichern im Zonen-Overlay rutschte auf kleinen Bildschirmen aus dem
   sichtbaren Bereich.** Die untere Leiste war eine einzige nowrap-Zeile,
   die mit jedem Rollen-Chip wuchs, sodass Abbrechen und Speichern über die

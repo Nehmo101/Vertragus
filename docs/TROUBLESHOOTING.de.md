@@ -172,6 +172,30 @@ Was tun:
   ist das ein Bug der Cursor-CLI. Dort öffnen; der Dump im
   Orchestrator-Fenster reicht als Anhang.
 
+## Pi-Wrap-Fenster bleibt unter Windows leer
+
+Play mit **Agenten über Pi starten** startet einen Prozess, danach bleibt
+das Agentenfenster leer und das Kind beendet mit Exit 0 innerhalb weniger
+Sekunden.
+
+ConPTY kann `electron.exe` (WINDOWS-Subsystem) nicht anbinden. Der Wrap
+startet deshalb PATH-`node` gegen den mitgelieferten CJS-Entrypoint, nicht
+Electron-as-node. POSIX bleibt Electron-as-node.
+
+Was tun:
+
+- [Node.js](https://nodejs.org/) installieren, sodass `node` auf dem PATH
+  liegt, dann erneut Play. Außerhalb des Panels prüfen: `node -v` in einem
+  normalen Terminal.
+- Pi braucht weiterhin **eigene** Provider-Keys (`~/.pi/agent` oder
+  `ANTHROPIC_API_KEY` / das gemappte Backend). Ein Claude-Code-Login ist
+  ein anderer Speicher; die TUI kann "No API key found" zeigen, obwohl MCP
+  hängt.
+- Den Wrap außerhalb der echten Einstellungen prüfen:
+  `node scripts/pi-play-smoke.mjs` startet Electron mit isoliertem userData
+  und einem Wegwerf-Repo. Es muss `ok` drucken (TUI + MCP). Es nutzt weder
+  `~/.pi` noch Provider-API-Keys.
+
 ## Etwas anderes
 
 Öffne ein Issue mit deinem Betriebssystem, der Vertragus-Version (die

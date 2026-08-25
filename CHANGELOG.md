@@ -12,6 +12,11 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **Pi Play smoke.** CI boots the real Electron app with isolated userData,
+  the Pi wrap on, and a throwaway git repo (`scripts/pi-play-smoke.mjs`).
+  It passes only when the orchestrator PTY shows a TUI and Vertragus MCP
+  attached — the Windows blank-window regression. No provider keys; not
+  part of `pnpm run ci`.
 - **Per-identity system prompts in the profile editor.** Orchestrator, Lead,
   Worker, Tester and every other role can carry an optional extra prompt
   (tone, language, how they report back). It is appended to the host-generated
@@ -167,6 +172,10 @@ No release has been tagged yet; everything lives under Unreleased.
   eager-attaches the Vertragus MCP server. Packaged builds unpack
   `typebox` and `jiti` so the adapter can load from asar-unpacked
   `loader.js`.
+- **Pi wrap on Windows opened a blank agent window.** ConPTY cannot attach
+  stdio to `electron.exe` (WINDOWS subsystem); the child exited 0 with no
+  output. The wrap now runs PATH `node` on Windows and keeps Electron-as-node
+  on POSIX. Node.js must be on PATH.
 - **Zone overlay Save slid off small screens.** The bottom chrome was a
   single nowrap row that grew with every role chip, so Cancel and Save
   painted past the work area. The bar now wraps inside the overlay; Save

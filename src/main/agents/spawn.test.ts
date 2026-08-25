@@ -25,6 +25,7 @@ import {
   PI_CLI_ENTRY_FILE,
   PI_HARNESS_COMMAND,
   PI_MCP_ADAPTER_EXTENSION,
+  PI_WINDOWS_NODE_COMMAND,
   resolvePiHarnessCli
 } from './piHarness'
 import {
@@ -1285,7 +1286,7 @@ describe('Pi harness wrap', () => {
     expect(existsSync(join(cwd, '.pi', 'mcp.json'))).toBe(true)
   })
 
-  it('resolves Electron-as-node onto the bundled Pi CLI and sets RUN_AS_NODE', async () => {
+  it('on POSIX runs Electron-as-node onto the bundled Pi CLI and sets RUN_AS_NODE', async () => {
     const cli = resolvePiHarnessCli()
     expect(cli).toBeDefined()
     const resolve = vi.fn(async (command: string, args: string[]) => ({
@@ -1298,7 +1299,8 @@ describe('Pi harness wrap', () => {
         cwd,
         kind: 'orchestrator',
         model: 'opus',
-        systemPrompt: 'You orchestrate.'
+        systemPrompt: 'You orchestrate.',
+        platform: 'linux'
       }),
       { resolve }
     )
@@ -1313,9 +1315,57 @@ describe('Pi harness wrap', () => {
     expect(readFileSync(entry, 'utf8')).toContain(JSON.stringify(cli))
     expect(launch.argv[0]).toBe('--no-session')
     expect(launch.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
-    expect(buildAgentEnv(launchInput({ harness: 'pi', cwd, kind: 'orchestrator' }))).toEqual({
-      ELECTRON_RUN_AS_NODE: '1'
-    })
+    expect(
+      buildAgentEnv(launchInput({ harness: 'pi', cwd, kind: 'orchestrator', platform: 'linux' }))
+    ).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
+  })
+
+  it('on Windows runs PATH node, not Electron — ConPTY cannot host electron.exe', async () => {
+    const cli = resolvePiHarnessCli()
+    expect(cli).toBeDefined()
+    const resolve = vi.fn(async (command: string, args: string[]) => ({
+      file: command,
+      args
+    }))
+    const launch = await buildAgentLaunch(
+      launchInput({
+        harness: 'pi',
+        cwd,
+        kind: 'orchestrator',
+        model: 'opus',
+        systemPrompt: 'You orchestrate.',
+        platform: 'win32'
+      }),
+      { resolve }
+    )
+
+    const entry = join(configDir, 'vertragus-mcp', PI_CLI_ENTRY_FILE)
+    expect(resolve).toHaveBeenCalledWith(PI_WINDOWS_NODE_COMMAND, [entry, ...launch.argv], expect.anything())
+    expect(launch.command).toBe(PI_HARNESS_COMMAND)
+    expect(launch.file).toBe(PI_WINDOWS_NODE_COMMAND)
+    expect(launch.args[0]).toBe(entry)
+    expect(launch.env).toBeUndefined()
+    expect(
+      buildAgentEnv(launchInput({ harness: 'pi', cwd, kind: 'orchestrator', platform: 'win32' }))
+    ).toBeUndefined()
+  })
+
+  it('refuses a Windows wrap that resolved onto Electron instead of node', async () => {
+    const resolve = vi.fn(async (_command: string, args: string[]) => ({
+      file: 'C:\\App\\electron.exe',
+      args
+    }))
+    await expect(
+      buildAgentLaunch(
+        launchInput({
+          harness: 'pi',
+          cwd,
+          kind: 'orchestrator',
+          platform: 'win32'
+        }),
+        { resolve }
+      )
+    ).rejects.toThrow(/Node\.js (on PATH|auf dem PATH)/i)
   })
 
   it('falls back to PATH `pi` with no Electron env when the package is missing', async () => {
@@ -1408,8 +1458,10 @@ describe('Pi harness wrap', () => {
       }),
       { resolve, createPty: () => grokBundled }
     )
-    expect(grokBundled.spawnOptions?.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
-    expect(grokBundled.spawnOptions?.env).not.toHaveProperty('GROK_SUBAGENTS')
+    expect(grokBundled.spawnOptions?.env).toEqual(
+      process.platform === 'win32' ? undefined : { ELECTRON_RUN_AS_NODE: '1' }
+    )
+    expect(grokBundled.spawnOptions?.env?.GROK_SUBAGENTS).toBeUndefined()
     expect(grokBundled.spawnOptions?.args).not.toContain('--no-subagents')
     expect(grokBundled.spawnOptions?.args?.[0]).toBe(join(configDir, 'vertragus-mcp', PI_CLI_ENTRY_FILE))
   })

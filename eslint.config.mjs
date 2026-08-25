@@ -12,6 +12,8 @@ export default tseslint.config(
       'dist/**',
       '**/dist/**',
       'coverage/**',
+      // Run journals and Cursor worktrees (built `out/` copies of the app).
+      '.vertragus/**',
       // MV3 extension: plain JS with the `chrome` global, guarded by
       // scripts/chromiumExtension.test.ts rather than this TypeScript config.
       'extensions/**'

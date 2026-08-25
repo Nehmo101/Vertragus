@@ -16,8 +16,10 @@ import {
   PI_TTY_PRELOAD_FILE,
   PI_TTY_PRELOAD_SOURCE,
   buildPiHarnessArgv,
+  isWindowsElectronBinary,
   piCliEntrySource,
   piHarnessEnv,
+  piInterpreterCommand,
   piMcpAdapterExtension,
   piProviderFor,
   piThinkingFor,
@@ -197,9 +199,19 @@ describe('lockfile Pi CLI and adapter', () => {
     expect(PI_MCP_ADAPTER_EXTENSION).not.toMatch(/^npm:/)
   })
 
-  it('only sets ELECTRON_RUN_AS_NODE when a bundled CLI path exists', () => {
+  it('only sets ELECTRON_RUN_AS_NODE on POSIX when a bundled CLI path exists', () => {
     expect(piHarnessEnv(undefined)).toBeUndefined()
-    expect(piHarnessEnv('/tmp/pi/dist/cli.js')).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
+    expect(piHarnessEnv('/tmp/pi/dist/cli.js', 'linux')).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
+    expect(piHarnessEnv('/tmp/pi/dist/cli.js', 'darwin')).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
+    expect(piHarnessEnv('/tmp/pi/dist/cli.js', 'win32')).toBeUndefined()
+  })
+
+  it('picks PATH node on Windows and Electron-as-node elsewhere', () => {
+    expect(piInterpreterCommand('win32')).toBe('node')
+    expect(piInterpreterCommand('linux')).toBe(process.execPath)
+    expect(isWindowsElectronBinary('C:\\App\\electron.exe')).toBe(true)
+    expect(isWindowsElectronBinary('/usr/bin/electron')).toBe(true)
+    expect(isWindowsElectronBinary('C:\\Program Files\\nodejs\\node.exe')).toBe(false)
   })
 
   it('writes a CJS TTY polyfill that forces isTTY and a setRawMode stub', () => {
@@ -332,14 +344,15 @@ describe('lockfile Pi CLI and adapter', () => {
     PI_TUI_TEST_MS
   )
 
-  it.skipIf(!electronBinary)(
-    'Electron-as-node on a PTY with the CJS entry stays up (production spawn shape)',
+  it.skipIf(process.platform !== 'win32' && !electronBinary)(
+    'PTY with the CJS entry stays up (production spawn shape)',
     async () => {
       const cli = resolvePiHarnessCli()
       expect(cli).toBeDefined()
       const root = mkdtempSync(join(tmpdir(), 'vertragus-pi-electron-pty-'))
       const cwd = wrapCwdWithPiMcp()
       const entry = writePiCliEntry(root, cli!)
+      const file = process.platform === 'win32' ? process.execPath : electronBinary!
       const pty = new PtyAgent()
       const result = await new Promise<{ out: string }>((resolve) => {
         let out = ''
@@ -358,10 +371,13 @@ describe('lockfile Pi CLI and adapter', () => {
         })
         const stopExit = pty.onExit(finish)
         pty.spawn({
-          file: electronBinary!,
+          file,
           args: [entry, ...PI_WRAP_ARGV],
           cwd,
-          env: piIsolatedEnv(cwd, { ELECTRON_RUN_AS_NODE: '1' })
+          env: piIsolatedEnv(
+            cwd,
+            process.platform === 'win32' ? {} : { ELECTRON_RUN_AS_NODE: '1' }
+          )
         })
         setTimeout(finish, PI_TUI_WAIT_MS)
       })

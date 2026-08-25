@@ -81,6 +81,11 @@ interface MainMessages {
   /** Windows shim that cannot receive arguments faithfully (resolveLaunch). */
   noFaithfulLaunch: (command: string, resolved: string) => string
   /**
+   * Pi wrap on Windows resolved to Electron. ConPTY cannot attach stdio to a
+   * WINDOWS-subsystem binary, so the agent window would stay blank.
+   */
+  piNeedsNodeOnWindows: string
+  /**
    * Model discovery failed on a missing login. `login` is the full provider
    * login command when the descriptor declares one; the CLI's own `failure`
    * sentence rides along because it names the alternatives (API key, env var).
@@ -165,6 +170,9 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
       `Kein argumenttreuer Startpfad für '${command}' gefunden (aufgelöst zu ${resolved}). ` +
       'Ein cmd.exe/PowerShell-Wrapper würde mehrzeilige Prompts abschneiden und Shell-Metazeichen ' +
       'ausführbar machen. Erwartet wird ein direkt startbares .exe oder ein Node-Entrypoint neben dem Shim.',
+    piNeedsNodeOnWindows:
+      'Pi-Wrap unter Windows braucht Node.js auf dem PATH. Electron.exe (WINDOWS-Subsystem) ' +
+      'kann ConPTY nicht anbinden — das Agentenfenster bleibt leer. Node.js installieren und Play erneut.',
     authNotLoggedIn: (login, failure) =>
       `nicht angemeldet — ${login ? `'${login}' ausführen` : 'bitte anmelden'} (${failure})`,
     discoveryNoModels: 'keine Modelle in der Antwort',
@@ -233,6 +241,9 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
       `No argument-faithful launch path found for '${command}' (resolved to ${resolved}). ` +
       'A cmd.exe/PowerShell wrapper would truncate multi-line prompts and make shell metacharacters ' +
       'executable. Expected is a directly runnable .exe or a Node entrypoint next to the shim.',
+    piNeedsNodeOnWindows:
+      'Pi wrap on Windows needs Node.js on PATH. Electron.exe (WINDOWS subsystem) cannot attach ' +
+      'to a ConPTY — the agent window stays blank. Install Node.js and press Play again.',
     authNotLoggedIn: (login, failure) =>
       `not logged in — ${login ? `run '${login}'` : 'please log in'} (${failure})`,
     discoveryNoModels: 'no models in the response',
