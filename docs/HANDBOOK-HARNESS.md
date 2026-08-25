@@ -47,7 +47,7 @@ server.
 | Hook / phase | Status |
 | --- | --- |
 | H1 `answer_question` on the gateway | **implemented** (Track 0) — one host path (`mcp/answerQuestion.ts`), gateway verb, panel badge |
-| H2 `workspaces:start {goal}` | **implemented** (Track 0) — goal seed over the assignment handshake, back-compat without a goal; refill (`workspaces:goal`) hands a bare-started run its goal later |
+| H2 `workspaces:start {goal}` | **implemented** (Track 0) — goal seed over the assignment handshake (PTY-prompt providers paste system prompt + goal as one first turn); back-compat without a goal; refill (`workspaces:goal`) hands a bare-started run its goal later; `meta.json` records a goal only after the CLI accepted it |
 | C3 snapshot commit / C4 handoff package | **implemented** (Track 1) — `snapshotDone` commits dirty worktrees on done; `start_agent{baseBranch}` carries a handoff block |
 | C5 orchestrator idle watchdog | **implemented** (Track 2) — `orchestrator_idle` event + panel/remote hint; timeouts ≠ idle (touch at call start and end) |
 | C6 orchestrator succession (context handoff) | **S1 in the code** — see [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
@@ -115,6 +115,8 @@ with `goal_already_set`, because a second first-turn typed into a CLI that
 drives the MCP loop is the two-brains failure H1 documents; steering a
 running goal stays `user_message`'s job. A delivered refill also rewrites the
 run's `meta.json`, so E3 Resume briefs on the goal the run actually got.
+Start-with-goal is the same rule: the identity `meta.json` is written without
+a goal, and the goal is added only after the CLI took it.
 
 ### H3 — done in PR #17
 

@@ -1639,8 +1639,11 @@ export class Workspace implements AgentHost {
    * `initialPromptDelivery`, the text rides the spawn argv as the CLI's first
    * user turn and {@link goalText} is set. The Pi wrap always accepts a
    * positional first prompt, so wrap-on delivers it even when the native CLI
-   * would not. Providers without that surface (and wrap off) ignore it here —
-   * the caller PTY-seeds via {@link assignGoal}.
+   * would not. Providers that type the system prompt into the PTY (Cursor,
+   * Ollama) fold the goal into that first paste — the same prompt-then-task
+   * join every subagent assignment takes — so the goal is the first user turn,
+   * not a second Enter into a CLI that is already generating. Everyone else
+   * still PTY-seeds via {@link assignGoal} after boot.
    *
    * The orchestrator gets its own worktree like every other agent: it never
    * edits files itself, but its CLI still leaves per-agent artefacts in its
@@ -1865,14 +1868,23 @@ export class Workspace implements AgentHost {
         { createPty: () => record.pty }
       )
       this.setBoot(record, 'cli')
+      // Argv-delivered goals (Grok positional, Pi wrap) must not also ride the
+      // PTY. When the system prompt IS the first paste, the start-goal joins
+      // it — two submitted turns is the extra-follow-up Cursor's seed
+      // handshake exists to prevent.
+      const ptyGoal = argvInitialPrompt ? undefined : input.initialPrompt?.trim() || undefined
+      const promptSeed = spawned.launch.ptySystemPrompt
+      const seedText =
+        promptSeed && ptyGoal ? `${promptSeed}\n\n${ptyGoal}` : promptSeed
       await this.seedWhenMcpReady(
         record,
-        spawned.launch.ptySystemPrompt,
+        seedText,
         true,
         provider,
         'orchestrator-prompt',
         spawned.pty
       )
+      if (promptSeed && ptyGoal) this.recordDeliveredGoal(ptyGoal)
       record.assignmentCursor = this.events.cursor
       return record
     } catch (error) {

@@ -1024,6 +1024,21 @@ describe('startOrchestrator', () => {
     expect(prompts).toEqual([])
   })
 
+  it('folds a PTY system-prompt and the start-goal into one seed (Cursor / Ollama)', async () => {
+    const { workspace, prompts, seedOptions, spawns } = harness({
+      profile: testProfile({ orchestrator: { providerId: 'cursor' } }),
+      ptySystemPrompt: true
+    })
+    await workspace.startOrchestrator({ initialPrompt: '  Fix the login bug  ' })
+
+    expect(spawns[0]!.input.initialPrompt).toBeUndefined()
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toMatch(/\n\nFix the login bug$/)
+    expect(workspace.goalText).toBe('Fix the login bug')
+    expect(workspace.orchestratorTaskText).toBe('Fix the login bug')
+    expect(seedOptions[0]?.autoSubmit).toBe(true)
+  })
+
   it('does not replace a grok start-goal on a later CLI submit', async () => {
     const { workspace } = harness({
       profile: testProfile({ orchestrator: { providerId: 'grok' } })

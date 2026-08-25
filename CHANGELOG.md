@@ -150,6 +150,13 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Fixed
 
+- **Start-with-goal on Cursor/Ollama submitted two turns.** Providers that
+  type the orchestrator prompt into the PTY (no launch flag) used to submit
+  that prompt, then PTY-seed the user's goal as a second Enter — the extra
+  follow-up the Cursor seed handshake warns about. The first paste is now
+  `prompt + goal`, like a subagent assignment. A failed delivery also no
+  longer writes the goal into `meta.json`, so Resume cannot brief on a goal
+  the run never got.
 - **Cursor Agent on Windows died at Play with "never became ready"** while the
   orchestrator window already showed `An Application Control policy has
   blocked this file` (`file_service.win32-x64-msvc.node` under

@@ -163,6 +163,14 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Fixed
 
+- **Start-mit-Ziel unter Cursor/Ollama schickte zwei Turns.** Provider, die
+  den Orchestrator-Prompt ins PTY tippen (kein Launch-Flag), haben zuerst
+  diesen Prompt abgeschickt und danach das Ziel als zweites Enter — genau
+  der Extra-Follow-up, vor dem der Cursor-Seed-Handshake warnt. Die erste
+  Paste ist jetzt `Prompt + Ziel`, wie bei einer Subagent-Zuweisung. Eine
+  fehlgeschlagene Zustellung schreibt das Ziel auch nicht mehr in
+  `meta.json`, damit Resume nicht auf einem Ziel briefed, das der Lauf
+  nie bekommen hat.
 - **Cursor Agent unter Windows starb beim Play mit „wurde nicht bereit"**,
   während das Orchestrator-Fenster schon `An Application Control policy has
   blocked this file` zeigte (`file_service.win32-x64-msvc.node` unter
