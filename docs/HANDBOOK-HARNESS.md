@@ -665,6 +665,8 @@ lifecycle and tokens right there.
 - **This handbook as a parallel lifecycle/auth rework** — that is A/B
 - Tunnels, TLS, an account system, internet exposure, a native app, the
   archive's `apps/mobile` (BigBoy non-goals, adopted here)
+- Pi as a seventh provider (the wrap overlays spawn; slots stay Claude /
+  Cursor / Codex / Kimi / Grok / Ollama)
 
 ---
 
@@ -826,6 +828,60 @@ copies the pairing URL. How-to:
 [`CHROMIUM-EXTENSION.md`](./CHROMIUM-EXTENSION.md). MCP tool-contract
 version bumped to `1.1.0`.
 
+## Phase H — Pi harness wrap: implemented
+
+Pi is a spawn overlay, not a provider. Slots stay Claude / Cursor / Codex /
+Kimi / Grok / Ollama (model route and subscription). When the wrap is on,
+every agent process is `pi`; native CLIs are not spawned. Default off;
+resolved at workspace start like `yoloMaster` (next Play).
+
+### H1 overlay, not a seventh provider — **implemented**
+
+`PROVIDER_PRESET_IDS` is unchanged. `agents/piHarness.ts` maps preset → Pi
+`--provider` (`claude`→`anthropic`, `codex`→`openai-codex`,
+`kimi`→`kimi-coding`, `cursor`→`github-copilot`, `grok`→`xai`; `ollama`
+and custom omit `--provider` and pass `--model` only). `spawn.ts` replaces
+argv entirely — Ollama's `run --nowordwrap` must not leak. Native yolo
+flags are not forwarded (Pi has no permission prompts). `--tools` is not
+restricted in v1 (it can hide MCP tools).
+
+### H2 MCP via `.pi/mcp.json` — **implemented**
+
+Pi has no native MCP. The launch writes `.pi/mcp.json` (`mcpServers`, same
+key as Cursor, different file) and loads only the pinned `pi-mcp-adapter`
+(`--no-extensions -e`). Native attach (`.cursor/mcp.json`, Claude
+transient JSON, Grok cage, Claude/Kimi trust preaccept) is skipped. The
+file is on `WORKTREE_SECRET_FILES`. Wrap-on Ollama reports over MCP
+(`isPtyOnly` is false).
+
+### H3 settings toggle — **implemented**
+
+`piHarnessEnabled` in app settings, IPC, and Settings. Cursor's closest Pi
+backend is `github-copilot`; Ollama has no Pi backend — both are
+documented, not papered over.
+
+### H4 lockfile pin and Dependabot — **implemented**
+
+`@mariozechner/pi-coding-agent` and `pi-mcp-adapter` are production
+dependencies. Spawn runs Electron as Node on the package `bin.pi`
+(`dist/cli.js`), with `ELECTRON_RUN_AS_NODE=1`, and `-e` loads the
+installed adapter directory (versioned `npm:pi-mcp-adapter@x.y.z` if the
+package is missing). PATH `pi` remains the fallback when the CLI is not
+on disk. `.github/dependabot.yml` allow-lists only those two names,
+grouped as `pi-harness`, weekly, no automerge — overlay flags are a
+contract. npm currently deprecates the `mariozechner` name in favor of
+`@earendil-works/pi-coding-agent`; the lockfile stays on the declared
+name so Dependabot bumps what we actually spawn. The CLI, photon WASM,
+the MCP adapter, and native keyring trees are unpacked (`asarUnpack` in
+`electron-builder.yml`). Universal macOS sets `mac.x64ArchFiles` to
+`**/node_modules/**`: per-arch optional `.node` files (clipboard, koffi,
+keyring, node-pty) are byte-identical across the two temp apps, and
+`@electron/universal` refuses to skip lipo unless the pattern says that
+is expected. A scoped brace list misses unscoped addons such as koffi.
+`mac.mergeASARs` stays false: the unpacked Pi trees make
+`@electron/universal`'s brace-glob of unpack paths overflow minimatch
+(`pattern is too long`), and the JS inside asar is already arch-identical.
+
 ## Phase A3 — automation: adoption without a click, and the run's pull request
 
 Off by default, per profile (`automation` in `shared/schema/profile.ts`),
@@ -884,3 +940,4 @@ host already merged.
 | Worker helpers (one extra level) | `types.ts` `canSpawnHelpers` / `ensureNest` / `MAX_HELPERS_PER_WORKER` | **Phase H** |
 | Live `user_message` targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium `/browser` bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
+| Pi harness wrap (not a seventh provider) | `agents/piHarness.ts`, `spawn.ts` overlay, `.pi/mcp.json`, settings `piHarnessEnabled`, lockfile pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |

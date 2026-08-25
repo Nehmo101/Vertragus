@@ -671,6 +671,8 @@ gerade Lifecycle und Tokens anfasst.
 - **Dieses Handbuch als parallelen Lifecycle-/Auth-Umbau** — das ist A/B
 - Tunnel, TLS, Account-System, Internet-Exposure, native App, Archiv-
   `apps/mobile` (BigBoy-Non-Goals, hier übernommen)
+- Pi als siebten Provider (der Wrap überlagert den Spawn; Slots bleiben
+  Claude / Cursor / Codex / Kimi / Grok / Ollama)
 
 ---
 
@@ -834,6 +836,66 @@ installieren**, der `chrome://extensions` und den entpackten Ordner
 [`CHROMIUM-EXTENSION.md`](./CHROMIUM-EXTENSION.md). MCP-Tool-Contract-
 Version auf `1.1.0` angehoben.
 
+## Phase H — Pi-Harness-Wrap: umgesetzt
+
+Pi ist ein Spawn-Overlay, kein Provider. Slots bleiben Claude / Cursor /
+Codex / Kimi / Grok / Ollama (Modellroute und Abo). Ist der Wrap an, ist
+jeder Agentenprozess `pi`; native CLIs werden nicht gestartet.
+Standardmäßig aus; aufgelöst beim Workspace-Start wie `yoloMaster`
+(nächstes Play).
+
+### H1 Overlay, kein siebter Provider — **umgesetzt**
+
+`PROVIDER_PRESET_IDS` bleibt unverändert. `agents/piHarness.ts` mappt
+Preset → Pi `--provider` (`claude`→`anthropic`, `codex`→`openai-codex`,
+`kimi`→`kimi-coding`, `cursor`→`github-copilot`, `grok`→`xai`; `ollama`
+und Custom lassen `--provider` weg und übergeben nur `--model`).
+`spawn.ts` ersetzt argv vollständig — Ollamas `run --nowordwrap` darf
+nicht durchsickern. Native Yolo-Flags werden nicht durchgereicht (Pi hat
+keine Berechtigungsabfragen). `--tools` wird in v1 nicht eingeschränkt
+(kann MCP-Tools verstecken).
+
+### H2 MCP über `.pi/mcp.json` — **umgesetzt**
+
+Pi hat kein natives MCP. Der Launch schreibt `.pi/mcp.json` (`mcpServers`,
+derselbe Key wie Cursor, andere Datei) und lädt nur den gepinnten
+`pi-mcp-adapter` (`--no-extensions -e`). Native Attachments
+(`.cursor/mcp.json`, Claude-transientes JSON, Grok-Käfig,
+Claude/Kimi-Trust-Preaccept) entfallen. Die Datei steht auf
+`WORKTREE_SECRET_FILES`. Wrap-an-Ollama reportet über MCP (`isPtyOnly`
+ist false).
+
+### H3 Settings-Toggle — **umgesetzt**
+
+`piHarnessEnabled` in App-Settings, IPC und Settings. Cursors nächstes Pi-
+Backend ist `github-copilot`; Ollama hat kein Pi-Backend — beides ist
+dokumentiert, nicht übertüncht.
+
+### H4 Lockfile-Pin und Dependabot — **umgesetzt**
+
+`@mariozechner/pi-coding-agent` und `pi-mcp-adapter` sind
+Produktionsabhängigkeiten. Spawn startet Electron als Node auf dem
+Paket-`bin.pi` (`dist/cli.js`), mit `ELECTRON_RUN_AS_NODE=1`, und `-e`
+lädt das installierte Adapter-Verzeichnis (versioniertes
+`npm:pi-mcp-adapter@x.y.z`, wenn das Paket fehlt). PATH-`pi` bleibt der
+Fallback, wenn die CLI nicht auf der Platte liegt.
+`.github/dependabot.yml` erlaubt nur diese zwei Namen, gruppiert als
+`pi-harness`, wöchentlich, kein Automerge — Overlay-Flags sind ein
+Vertrag. npm markiert den Namen `mariozechner` derzeit als veraltet
+zugunsten von `@earendil-works/pi-coding-agent`; das Lockfile bleibt beim
+deklarierten Namen, damit Dependabot das bumpt, was wir wirklich starten.
+CLI, Photon-WASM, der MCP-Adapter und die nativen Keyring-Bäume werden
+ausgepackt (`asarUnpack` in `electron-builder.yml`). Universal-macOS setzt
+`mac.x64ArchFiles` auf `**/node_modules/**`: die architektur-spezifischen
+optionalen `.node`-Dateien (Clipboard, koffi, Keyring, node-pty) sind in
+beiden Temp-Apps bytegleich, und `@electron/universal` verweigert das
+Überspringen von lipo, solange das Pattern das nicht als erwartet
+ausweist. Eine Scope-Klammerliste verfehlt unscoped Addons wie koffi.
+`mac.mergeASARs` bleibt false: die ausgepackten Pi-Bäume lassen das
+Brace-Glob der Unpack-Pfade in `@electron/universal` über minimatch
+laufen (`pattern is too long`), und das JS in asar ist bereits
+architekturidentisch.
+
 ## Phase A3 — Automatisierung: Übernahme ohne Klick und der Pull Request des Laufs
 
 Standardmäßig aus, pro Profil (`automation` in
@@ -896,3 +958,4 @@ gemergt hat.
 | Worker-Helper (eine Extra-Ebene) | `types.ts` `canSpawnHelpers` / `ensureNest` / `MAX_HELPERS_PER_WORKER` | **Phase H** |
 | Live-`user_message`-Targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium-`/browser`-Bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
+| Pi-Harness-Wrap (kein siebter Provider) | `agents/piHarness.ts`, `spawn.ts`-Overlay, `.pi/mcp.json`, Setting `piHarnessEnabled`, Lockfile-Pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |

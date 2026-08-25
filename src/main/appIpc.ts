@@ -538,6 +538,11 @@ export interface PanelSettings {
   yoloMaster: boolean
   /** D4: the effective tier — stored policy, or derived from `yoloMaster`. */
   agentPolicy: AgentPolicy
+  /**
+   * Spawn overlay: run agent processes through Pi. Not a seventh provider —
+   * the roster still names Claude / Cursor / Codex / Kimi / Grok / Ollama.
+   */
+  piHarnessEnabled: boolean
   hideAllHotkey: string
   locale: AppSettings['ui']['locale']
   theme: AppSettings['ui']['theme']
@@ -639,6 +644,7 @@ export const WRITABLE_SETTINGS = [
   'reflowNeighbors',
   'voice',
   'agentPolicy',
+  'piHarnessEnabled',
   'onboardingDismissed',
   'mcpServers'
 ] as const
@@ -919,6 +925,7 @@ export function toPanelSettings(
   return {
     yoloMaster: value.yoloMaster,
     agentPolicy: effectiveAgentPolicy(value),
+    piHarnessEnabled: value.piHarnessEnabled,
     hideAllHotkey: value.hideAllHotkey,
     locale: value.ui.locale,
     theme: value.ui.theme,
@@ -1706,6 +1713,12 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
             )
           }
           return panelSettings(host.store.setSetting('agentPolicy', policy))
+        }
+        case 'piHarnessEnabled': {
+          if (typeof body.value !== 'boolean') {
+            throw new Error('settings:set rejected — piHarnessEnabled expects a boolean')
+          }
+          return panelSettings(host.store.setSetting('piHarnessEnabled', body.value))
         }
         case 'mcpServers': {
           try {

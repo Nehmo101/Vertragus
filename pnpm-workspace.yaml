@@ -15,6 +15,13 @@ allowBuilds:
   electron-winstaller: false
   esbuild: true
   sharp: true
+  # Transitive from the Pi lockfile pin (`@google/genai` via pi-ai, protobufjs
+  # via genai, optional koffi via pi-tui). Their install scripts are not needed
+  # to spawn the bundled CLI; leaving them off keeps `pnpm install` from failing
+  # on pnpm 11's ignored-builds gate.
+  '@google/genai': false
+  koffi: false
+  protobufjs: false
 
 # Force transitively-pulled dev tooling (e.g. vitest's bundled vite/esbuild) to
 # patched versions that clear dev-server advisories (GHSA vite fs.deny / esbuild).

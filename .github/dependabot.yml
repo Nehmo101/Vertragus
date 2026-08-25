@@ -1,0 +1,22 @@
+# Dependabot for the Pi harness pin only.
+#
+# Pi is a lockfile dependency so version bumps arrive as PRs, not as a silent
+# `@latest` on Play. Native CLIs stay PATH binaries; this file must not flood
+# the repo with Electron/React bumps. No automerge — overlay flags
+# (`--no-session`, `--approve`, `--no-extensions`, `-e`,
+# `--append-system-prompt`) are a contract that CI + review gate.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    allow:
+      - dependency-name: '@mariozechner/pi-coding-agent'
+      - dependency-name: pi-mcp-adapter
+    groups:
+      pi-harness:
+        patterns:
+          - '@mariozechner/pi-coding-agent'
+          - pi-mcp-adapter

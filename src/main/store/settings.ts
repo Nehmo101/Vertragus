@@ -177,6 +177,11 @@ export const appSettingsSchema = z
      * mirrors the two keys so they can never disagree.
      */
     agentPolicy: z.enum(AGENT_POLICIES).optional(),
+    /**
+     * Spawn overlay: run agent processes through Pi. Not a seventh provider —
+     * slots stay Claude / Cursor / …. Default off. Takes effect on the next Play.
+     */
+    piHarnessEnabled: z.boolean().default(false),
     /** Electron accelerator; registration failure must be shown, never swallowed. */
     hideAllHotkey: z.string().trim().min(1).max(80).default('Control+Alt+V'),
     autostart: z.boolean().default(false),
@@ -212,6 +217,7 @@ export const SETTINGS_KEYS = [
   'remote',
   'yoloMaster',
   'agentPolicy',
+  'piHarnessEnabled',
   'hideAllHotkey',
   'autostart',
   'updateChannel',

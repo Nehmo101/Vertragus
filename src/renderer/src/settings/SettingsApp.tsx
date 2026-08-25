@@ -438,6 +438,21 @@ export function SettingsApp(): React.JSX.Element {
         </section>
 
         <section className="st-field">
+          <label className="st-switch">
+            <input
+              type="checkbox"
+              className="st-switch-input"
+              checked={settings.piHarnessEnabled}
+              onChange={(event) => view.set('piHarnessEnabled', event.target.checked)}
+            />
+            <span className="st-switch-text">
+              <span className="st-switch-label">{t('settings.piHarness')}</span>
+              <span className="st-hint">{t('settings.piHarnessHint')}</span>
+            </span>
+          </label>
+        </section>
+
+        <section className="st-field">
           <span className="st-label">{t('settings.hotkey')}</span>
           <div className="st-row">
             <input

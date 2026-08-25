@@ -41,6 +41,10 @@
  * - `<cwd>/.grok/agents/vertragus-orchestrator.md` — Grok orchestrator agent
  *   (tool allowlist + `disallowedTools: Agent`). Subagents do not get this file
  *   as their session agent.
+ * - `<cwd>/.pi/mcp.json` — Pi harness wrap MCP attachment (merged). Written
+ *   INSTEAD of the native dialect files when the wrap is on. The slot's
+ *   provider (Claude / Cursor / …) stays; only the process is the lockfile
+ *   `pi` CLI (Electron as Node, or PATH `pi` if the package is missing).
  *
  *   These project-file dialects are the only artefacts a Vertragus launch writes
  *   into user territory. Since every agent owns its worktree they can no longer
@@ -66,8 +70,15 @@ import {
   writeGrokOrchestratorAgentFile,
   writeGrokProjectMcpConfig,
   writeKimiAgentFile,
-  writeKimiProjectMcpConfig
+  writeKimiProjectMcpConfig,
+  writePiHarnessMcpConfig
 } from '@main/mcp/attach'
+import {
+  buildPiHarnessArgv,
+  PI_HARNESS_COMMAND,
+  piHarnessEnv,
+  resolvePiHarnessCli
+} from './piHarness'
 import type { ExtraMcpServer } from '@shared/schema/mcpServer'
 import type { ExtraMcpServer as SlotExtraMcpServer } from '@shared/schema/profile'
 import {
@@ -136,6 +147,14 @@ export interface AgentLaunchInput {
    * built-in Vertragus server.
    */
   extraMcpServers?: readonly ExtraMcpServer[]
+  /**
+   * Overlay, not a provider. `'pi'` starts the lockfile Pi CLI (Electron as
+   * Node, or PATH `pi` if the package is missing) with the slot's preset
+   * mapped onto `--provider` and the slot's model onto `--model`.
+   * Native CLI args, yolo flags and native MCP attach are skipped. Absent =
+   * current behavior (spawn `claude` / `cursor-agent` / …).
+   */
+  harness?: 'pi'
   /** Platform override for testing the Windows resolution off-Windows. */
   platform?: NodeJS.Platform
 }
@@ -289,8 +308,19 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
  * Grok orchestrator: `GROK_SUBAGENTS=0` / `GROK_WORKFLOWS=0` plus the project
  * agent name. Subagent and lead launches must not get this — native spawn is
  * how a Grok worker works.
+ *
+ * Pi wrap: when the lockfile CLI is used, `ELECTRON_RUN_AS_NODE=1` so Electron's
+ * binary runs `dist/cli.js` as Node. PATH fallback (no bundled CLI) adds
+ * nothing — wrap-on Grok must not inherit the native cage env.
  */
-export function buildAgentEnv(input: AgentLaunchInput): Record<string, string> | undefined {
+export function buildAgentEnv(
+  input: AgentLaunchInput,
+  deps: Pick<LaunchDeps, 'resolvePiCli'> = {}
+): Record<string, string> | undefined {
+  if (input.harness === 'pi') {
+    const cli = (deps.resolvePiCli ?? resolvePiHarnessCli)()
+    return piHarnessEnv(cli)
+  }
   if (input.kind === 'orchestrator' && input.provider.mcp.kind === 'grok-project') {
     return grokOrchestratorEnv()
   }
@@ -335,6 +365,25 @@ export function buildSystemPromptArgs(input: AgentLaunchInput): AgentArgv {
  * declares it).
  */
 export function buildAgentArgv(input: AgentLaunchInput): AgentArgv {
+  if (input.harness === 'pi') {
+    // Overlay replaces the native argv entirely. `provider.args` (Ollama's
+    // `run --nowordwrap`) would break Pi if it leaked through. Extras still
+    // reach SUBAGENTS only — same rule as the native dialects.
+    const extras =
+      input.kind === 'subagent'
+        ? [...(input.extraMcpServers ?? []), ...(input.extraMcp ?? [])]
+        : []
+    writePiHarnessMcpConfig(input.mcpUrl, input.cwd, extras)
+    return {
+      argv: buildPiHarnessArgv({
+        presetId: input.provider.presetId,
+        model: input.model,
+        effort: input.effort,
+        systemPrompt: input.systemPrompt,
+        initialPrompt: input.initialPrompt
+      })
+    }
+  }
   const { provider } = input
   const argv = [...provider.args]
   argv.push(...buildModelArgs(provider, input.model))
@@ -353,6 +402,11 @@ export interface LaunchDeps {
     args: string[],
     options?: ResolveLaunchOptions
   ) => Promise<{ file: string; args: string[] }>
+  /**
+   * Test seam for the bundled Pi CLI. Production calls
+   * {@link resolvePiHarnessCli}. Returning undefined falls back to PATH `pi`.
+   */
+  resolvePiCli?: () => string | undefined
 }
 
 /** True when any argument would be mangled by a cmd.exe/PowerShell wrapper. */
@@ -370,15 +424,19 @@ export async function buildAgentLaunch(
 ): Promise<ResolvedLaunch> {
   const { argv, ptySystemPrompt } = buildAgentArgv(input)
   const resolve = deps.resolve ?? resolveLaunch
-  const resolved = await resolve(input.provider.command, argv, {
+  const command = input.harness === 'pi' ? PI_HARNESS_COMMAND : input.provider.command
+  const piCli = input.harness === 'pi' ? (deps.resolvePiCli ?? resolvePiHarnessCli)() : undefined
+  const resolveCommand = piCli ? process.execPath : command
+  const resolveArgs = piCli ? [piCli, ...argv] : argv
+  const resolved = await resolve(resolveCommand, resolveArgs, {
     requireFaithfulArgs: needsFaithfulArgs(argv),
     ...(input.platform ? { platform: input.platform } : {})
   })
-  const env = buildAgentEnv(input)
+  const env = buildAgentEnv(input, deps)
   return {
     file: resolved.file,
     args: resolved.args,
-    command: input.provider.command,
+    command,
     argv,
     cwd: input.cwd,
     ptySystemPrompt,
@@ -451,7 +509,7 @@ export async function spawnAgent(
   deps: SpawnAgentDeps = {}
 ): Promise<SpawnedAgent> {
   const launch = await buildAgentLaunch(input, deps)
-  const preaccept = trustPreacceptanceFor(input.provider)
+  const preaccept = input.harness === 'pi' ? undefined : trustPreacceptanceFor(input.provider)
   if (preaccept) {
     const ensureTrust = deps.ensureTrust ?? preaccept
     try {

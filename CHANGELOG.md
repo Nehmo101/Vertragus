@@ -124,6 +124,10 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Fixed
 
+- **Zone overlay Save slid off small screens.** The bottom chrome was a
+  single nowrap row that grew with every role chip, so Cancel and Save
+  painted past the work area. The bar now wraps inside the overlay; Save
+  stays on screen.
 - **The phone terminal rebuilt itself on nearly every render.** `useRemote()`
   returns a fresh object literal, so `api` changed identity on every render
   of `App`, and the terminal's create-and-attach effect depended on it —
