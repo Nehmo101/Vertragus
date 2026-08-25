@@ -100,6 +100,7 @@ import {
   type ProviderConfig
 } from '@shared/schema/provider'
 import { ensureClaudeWorkspaceTrust } from './claudeTrust'
+import { ensureCursorMcpApprovals } from './cursorMcpApprovals'
 import { ensureKimiWorkspaceTrust } from './kimiTrust'
 import { PtyAgent, type PtyAgentLike, type PtySpawnOptions } from './PtyAgent'
 import { resolveLaunch, type ResolveLaunchOptions } from './resolveCommand'
@@ -275,7 +276,9 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
     case 'cursor-project':
       // Cursor reads `<cwd>/.cursor/mcp.json` and has no config-file flag.
       // `--approve-mcps` is required because approval is per-URL hashed and
-      // never reusable across Vertragus agents. KNOWN LIMITS (verified):
+      // never reusable across Vertragus agents. The TUI still prompts per
+      // server on many builds, so spawn also writes mcp-approvals.json
+      // (see ensureCursorMcpApprovals) — flag AND state file. KNOWN LIMITS:
       // - no per-server tool filter — orchestrator scoping stays URL-side
       //   (same declared limit as Codex' missing `--strict-mcp-config`);
       // - the flag also approves the user's own project servers for this run.
@@ -467,6 +470,12 @@ export interface SpawnAgentDeps extends LaunchDeps {
   rows?: number
   /** Injectable trust pre-acceptance; see {@link ensureClaudeWorkspaceTrust}. */
   ensureTrust?: (workspaceDir: string) => void
+  /**
+   * Injectable Cursor MCP approval write. Production writes
+   * `~/.cursor/projects/<slug>/mcp-approvals.json` so the TUI does not stop
+   * on every server. Tests pass a spy so they never touch the real home.
+   */
+  ensureCursorApprovals?: (workspaceDir: string) => void
 }
 
 /**
@@ -532,6 +541,17 @@ export async function spawnAgent(
       ensureTrust(launch.cwd)
     } catch (error) {
       console.warn('[spawn] trust pre-acceptance failed — the CLI may ask:', error)
+    }
+  }
+  // Cursor: `--approve-mcps` is on argv (see buildMcpArgs). The approvals
+  // file is the belt that stops the TUI asking for every extra / leftover
+  // project server. Pi wrap never writes `.cursor/mcp.json`.
+  if (input.harness !== 'pi' && input.provider.mcp.kind === 'cursor-project') {
+    const approve = deps.ensureCursorApprovals ?? ensureCursorMcpApprovals
+    try {
+      approve(launch.cwd)
+    } catch (error) {
+      console.warn('[spawn] Cursor MCP pre-approval failed — the CLI may ask:', error)
     }
   }
   const pty = deps.createPty ? deps.createPty() : new PtyAgent()

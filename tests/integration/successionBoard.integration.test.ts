@@ -33,6 +33,7 @@ import type { OrchestratorHandoffPackage } from '@shared/schema/handoff'
 import { createTaskBoard, type TaskBoard } from '@main/workspace/taskBoard'
 import { Workspace, type WorkspaceDeps } from '@main/workspace/Workspace'
 import {
+  FakePty,
   FakeRegistry,
   FakeWindows,
   fakeSeed,
@@ -154,6 +155,7 @@ async function makeHarness(): Promise<Harness> {
       // Fake processes, REAL worktrees: createWorktree/worktreeDeps stay unset.
       spawn: spawner.spawn as unknown as WorkspaceDeps['spawn'],
       seed: fakeSeed().seed as unknown as WorkspaceDeps['seed'],
+      createPty: () => new FakePty(),
       newId: sequentialIds('agent'),
       writeSuccession: (pkg) => packages.push(pkg)
     }
@@ -162,7 +164,12 @@ async function makeHarness(): Promise<Harness> {
   // shared question registry, then install ONE real board in both places —
   // the runtime (tool calls) and the workspace (succession package).
   const registered = handle.registerWorkspace(workspace.mcpContext())
-  workspace.attachMcp(registered)
+  workspace.attachMcp({
+    ...registered,
+    // Fake spawn never handshakes; without this the host would wait 20s then
+    // hold Enter for a session that will never arrive.
+    waitForSession: async () => true
+  })
   workspace.attachQuestions(registered.runtime.questions)
   const board = createTaskBoard(repo, workspace.workspaceId)
   registered.runtime.taskBoard = board

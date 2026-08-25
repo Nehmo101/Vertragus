@@ -23,6 +23,7 @@ import type { WorkspaceRuntime } from '@main/mcp/types'
 import type { AgentEvent } from '@shared/schema/events'
 import { Workspace, type WorkspaceDeps } from '@main/workspace/Workspace'
 import {
+  FakePty,
   FakeRegistry,
   FakeWindows,
   fakeSeed,
@@ -105,13 +106,18 @@ async function makeHarness(): Promise<Harness> {
       spawn: fakeSpawn().spawn as unknown as WorkspaceDeps['spawn'],
       seed: fakeSeed().seed as unknown as WorkspaceDeps['seed'],
       createWorktree: fakeWorktrees().createWorktree,
+      createPty: () => new FakePty(),
       newId: sequentialIds('agent')
     }
   )
   // Mirror the WorkspaceManager wiring: register first, then attach the URLs
   // and the shared question registry.
   const registered = handle.registerWorkspace(workspace.mcpContext())
-  workspace.attachMcp(registered)
+  workspace.attachMcp({
+    ...registered,
+    // Fake spawn never handshakes; tests drive MCP from SDK clients instead.
+    waitForSession: async () => true
+  })
   workspace.attachQuestions(registered.runtime.questions)
 
   const orchestrator = new Client({ name: 'fake-orchestrator', version: '1.0.0' })

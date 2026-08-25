@@ -478,6 +478,55 @@ describe('terminal:task', () => {
   })
 })
 
+describe('terminal:boot', () => {
+  it('rides on the attach result once a phase is set', () => {
+    expect(attach(10).boot).toBeUndefined()
+    registry.setAgentBoot('agent-a', 'preparing')
+    expect(attach(10).boot).toBe('preparing')
+    expect(attach(20).boot).toBeUndefined()
+  })
+
+  it('pushes a change to the attached window and dedupes repeats', () => {
+    attach(10)
+    registry.setAgentBoot('agent-a', 'mcp')
+    registry.setAgentBoot('agent-a', 'mcp')
+
+    expect(sent).toEqual([
+      {
+        agentId: 'agent-a',
+        channel: TERMINAL_CHANNELS.boot,
+        payload: { agentId: 'agent-a', boot: 'mcp' }
+      }
+    ])
+  })
+
+  it('stays quiet for a detached window — the next attach carries the phase', () => {
+    registry.setAgentBoot('agent-a', 'handshake')
+    expect(sent).toHaveLength(0)
+    expect(attach(10).boot).toBe('handshake')
+  })
+
+  it('clears the overlay when the host sends null', () => {
+    attach(10)
+    registry.setAgentBoot('agent-a', 'waiting')
+    registry.setAgentBoot('agent-a', null)
+
+    expect(sent[1]).toEqual({
+      agentId: 'agent-a',
+      channel: TERMINAL_CHANNELS.boot,
+      payload: { agentId: 'agent-a', boot: null }
+    })
+    expect(attach(10).boot).toBeUndefined()
+  })
+
+  it('ignores unknown agents and survives a re-registration', () => {
+    expect(() => registry.setAgentBoot('ghost', 'cli')).not.toThrow()
+    registry.setAgentBoot('agent-a', 'cli')
+    registry.registerAgent({ pty: new FakePty(), meta: meta('agent-a') })
+    expect(attach(10).boot).toBe('cli')
+  })
+})
+
 describe('AgentRegistry', () => {
   it('lists and looks up registered agents', () => {
     expect(registry.listAgents().map((entry) => entry.meta.agentId)).toEqual(['agent-a', 'agent-b'])

@@ -829,6 +829,31 @@ describe('spawnAgent', () => {
     })
   })
 
+  it('pre-approves Cursor MCP servers at spawn so the TUI does not stop on each one', async () => {
+    const ensureCursorApprovals = vi.fn()
+    await spawnAgent(launchInput({ provider: preset('cursor'), cwd }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureCursorApprovals
+    })
+    expect(ensureCursorApprovals).toHaveBeenCalledExactlyOnceWith(cwd)
+  })
+
+  it('does not write Cursor approvals for a Pi wrap or a non-Cursor CLI', async () => {
+    const ensureCursorApprovals = vi.fn()
+    await spawnAgent(launchInput({ provider: preset('claude'), cwd }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureCursorApprovals
+    })
+    await spawnAgent(launchInput({ provider: preset('cursor'), cwd, harness: 'pi' }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureCursorApprovals
+    })
+    expect(ensureCursorApprovals).not.toHaveBeenCalled()
+  })
+
   it('hands the raised MCP timeout to the process, and nothing when unclaimed', async () => {
     const claiming = new FakePty()
     await spawnAgent(launchInput({ kind: 'orchestrator' }), {
@@ -890,7 +915,9 @@ describe('spawnAgent', () => {
       await spawnAgent(launchInput({ provider: preset(id), cwd }), {
         resolve,
         createPty: () => new FakePty(),
-        ensureTrust
+        ensureTrust,
+        // Cursor would otherwise write ~/.cursor/projects/<slug>/mcp-approvals.json.
+        ensureCursorApprovals: () => undefined
       })
     }
     expect(ensureTrust).not.toHaveBeenCalled()

@@ -38,6 +38,7 @@ import type { AgentEvent } from '@shared/schema/events'
 import type { OrchestratorHandoffPackage } from '@shared/schema/handoff'
 import { Workspace, type WorkspaceDeps } from '@main/workspace/Workspace'
 import {
+  FakePty,
   FakeRegistry,
   FakeWindows,
   fakeSeed,
@@ -156,11 +157,17 @@ async function makeHarness(): Promise<Harness> {
       // persist path is part of what this test measures.
       spawn: spawner.spawn as unknown as WorkspaceDeps['spawn'],
       seed: fakeSeed().seed as unknown as WorkspaceDeps['seed'],
+      createPty: () => new FakePty(),
       newId: sequentialIds('agent')
     }
   )
   const registered = handle.registerWorkspace(workspace.mcpContext())
-  workspace.attachMcp(registered)
+  workspace.attachMcp({
+    ...registered,
+    // Fake spawn never handshakes; without this the host would wait 20s then
+    // hold Enter for a session that will never arrive.
+    waitForSession: async () => true
+  })
   workspace.attachQuestions(registered.runtime.questions)
 
   const clients: Client[] = []

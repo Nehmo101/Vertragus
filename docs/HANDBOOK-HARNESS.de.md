@@ -144,7 +144,7 @@ Caps bleiben sync über die Reservierung.
 
 | Schicht | Stand |
 | --- | --- |
-| Runtime | PTYs, sichtbare Terminals, gemessener Seed-Handshake |
+| Runtime | PTYs, sichtbare Terminals, Boot-Overlay bis zur MCP-Session, gemessener Seed-Handshake |
 | Isolation | Pflicht-Worktrees, kein Shared-Checkout, kein Autodelete |
 | Kommunikation | `await_events`, `ask_orchestrator` mit Ticket |
 | Delegation | Slots = Bauplan, nicht vorstartetes Team |

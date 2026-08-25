@@ -471,4 +471,30 @@ describe('startMcpServer', () => {
     const client = await connect(oldUrl)
     await client.close()
   })
+
+  it('waitForSession resolves once the orchestrator MCP handshake completes', async () => {
+    const registered = handle.registerWorkspace(context({ workspaceId: 'w-wait' }))
+    const waiting = registered.waitForSession({ kind: 'orchestrator' }, 5_000)
+    const client = await connect(registered.orchestratorUrl)
+    expect(await waiting).toBe(true)
+    expect(await registered.waitForSession({ kind: 'orchestrator' }, 50)).toBe(true)
+    await client.close()
+  })
+
+  it('waitForSession times out when nobody connects', async () => {
+    const registered = handle.registerWorkspace(context({ workspaceId: 'w-wait-out' }))
+    await expect(registered.waitForSession({ kind: 'orchestrator' }, 30)).resolves.toBe(false)
+  })
+
+  it('waitForSession is per identity — a subagent handshake does not release the orchestrator', async () => {
+    const ctx = context({ workspaceId: 'w-wait-id' })
+    const registered = handle.registerWorkspace(ctx)
+    const orchWait = registered.waitForSession({ kind: 'orchestrator' }, 200)
+    const sub = await connect(registered.subagentUrl('agent-1'))
+    await expect(orchWait).resolves.toBe(false)
+    await expect(registered.waitForSession({ kind: 'subagent', agentId: 'agent-1' }, 50)).resolves.toBe(
+      true
+    )
+    await sub.close()
+  })
 })

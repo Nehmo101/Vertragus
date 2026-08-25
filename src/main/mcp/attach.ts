@@ -39,8 +39,10 @@
  * - Project file shape: `{ "mcpServers": { "<id>": { "url": "http://…" } } }`.
  * - Server approval is per-project-dir AND per-URL (hash covers the URL in
  *   `~/.cursor/projects/<slug>/mcp-approvals.json`), so a stored approval can
- *   never be reused across Vertragus agents — `--approve-mcps` is the only
- *   mechanism that scales. It also writes the approval entry itself.
+ *   never be reused across Vertragus agents. `--approve-mcps` is the CLI's
+ *   own path; spawn also writes the approvals file (see
+ *   `agents/cursorMcpApprovals.ts`) because the interactive TUI still stops
+ *   on a per-server click for many builds even with the flag.
  * - Tool-call approval is covered by `--force` / `--yolo` (preset yoloArgs).
  * - Workspace trust: a fresh directory blocks on a TUI modal before anything
  *   runs; the verified `--trust` flag suppresses it (preset `args`, not here).
@@ -705,7 +707,9 @@ export const CURSOR_MCP_FILE = 'mcp.json'
  * subagents (already on `--force`/`--yolo`) that stays inside the same trust
  * envelope; documented rather than papered over. Approval is per-URL hashed,
  * so a stored entry never covers the next Vertragus agent's personal token —
- * the flag is required on every spawn.
+ * the flag is required on every spawn. Spawn also writes `mcp-approvals.json`
+ * for the same servers (`ensureCursorMcpApprovals`) so a TUI that ignores
+ * the flag still has nothing to confirm.
  */
 export const CURSOR_APPROVE_MCPS_FLAG = '--approve-mcps'
 

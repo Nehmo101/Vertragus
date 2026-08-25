@@ -143,7 +143,7 @@ sync through the reservation.
 
 | Layer | Status |
 | --- | --- |
-| Runtime | PTYs, visible terminals, measured seed handshake |
+| Runtime | PTYs, visible terminals, boot overlay until MCP session, measured seed handshake |
 | Isolation | mandatory worktrees, no shared checkout, no autodelete |
 | Communication | `await_events`, `ask_orchestrator` with ticket |
 | Delegation | slots = blueprint, not a pre-started team |
