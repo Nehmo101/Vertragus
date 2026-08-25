@@ -809,12 +809,12 @@ Vertrag. npm markiert den Namen `mariozechner` derzeit als veraltet
 zugunsten von `@earendil-works/pi-coding-agent`; das Lockfile bleibt beim
 deklarierten Namen, damit Dependabot das bumpt, was wir wirklich starten.
 CLI, Photon-WASM, der MCP-Adapter und die nativen Keyring-Bäume werden
-ausgepackt (`asarUnpack` in `electron-builder.yml`). Universal-macOS
-trägt dieselben Scoped-Bäume zusätzlich in `mac.x64ArchFiles`: die
-architektur-spezifischen optionalen `.node`-Dateien sind in beiden
-Temp-Apps bytegleich, und `@electron/universal` verweigert das
+ausgepackt (`asarUnpack` in `electron-builder.yml`). Universal-macOS setzt
+`mac.x64ArchFiles` auf `**/node_modules/**`: die architektur-spezifischen
+optionalen `.node`-Dateien (Clipboard, koffi, Keyring, node-pty) sind in
+beiden Temp-Apps bytegleich, und `@electron/universal` verweigert das
 Überspringen von lipo, solange das Pattern das nicht als erwartet
-ausweist.
+ausweist. Eine Scope-Klammerliste verfehlt unscoped Addons wie koffi.
 
 ## Phase A3 — Automatisierung: Übernahme ohne Klick und der Pull Request des Laufs
 

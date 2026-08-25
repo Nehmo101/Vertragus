@@ -78,12 +78,14 @@ mac:
   # plain hardened runtime; these entitlements are the documented Electron set.
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  # Prebuilt per-arch optional packages (node-pty, Pi clipboard, keyring,
-  # photon) land in both universal temp apps as identical Mach-O files.
-  # @electron/universal refuses to skip lipo unless those scopes are listed
-  # here. Keep in lockstep with asarUnpack above — scripts/piHarnessPin.test.ts
-  # fails if a scoped unpack tree is missing from this pattern.
-  x64ArchFiles: '**/{@lydell,@koromix,@mariozechner,@napi-rs,@silvia-odwyer}/**'
+  # Prebuilt native addons land in both universal temp apps as identical
+  # Mach-O files: per-arch optional packages (@lydell/node-pty, Pi clipboard,
+  # @napi-rs/keyring) and unscoped trees that ship every arch in one folder
+  # (koffi via pi-tui). @electron/universal refuses to skip lipo unless the
+  # path matches this pattern. A scoped brace list is not enough — koffi has
+  # no @scope. `**/node_modules/**` covers every addon and still excludes
+  # Electron's own helpers. scripts/piHarnessPin.test.ts pins the glob.
+  x64ArchFiles: '**/node_modules/**'
   target:
     - target: dmg
       arch:

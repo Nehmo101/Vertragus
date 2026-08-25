@@ -800,10 +800,11 @@ contract. npm currently deprecates the `mariozechner` name in favor of
 `@earendil-works/pi-coding-agent`; the lockfile stays on the declared
 name so Dependabot bumps what we actually spawn. The CLI, photon WASM,
 the MCP adapter, and native keyring trees are unpacked (`asarUnpack` in
-`electron-builder.yml`). Universal macOS also lists those scoped trees
-in `mac.x64ArchFiles`: the per-arch optional `.node` files are
-byte-identical across the two temp apps, and `@electron/universal`
-refuses to skip lipo unless the pattern says that is expected.
+`electron-builder.yml`). Universal macOS sets `mac.x64ArchFiles` to
+`**/node_modules/**`: per-arch optional `.node` files (clipboard, koffi,
+keyring, node-pty) are byte-identical across the two temp apps, and
+`@electron/universal` refuses to skip lipo unless the pattern says that
+is expected. A scoped brace list misses unscoped addons such as koffi.
 
 ## Phase A3 — automation: adoption without a click, and the run's pull request
 
