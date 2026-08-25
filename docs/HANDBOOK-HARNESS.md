@@ -362,7 +362,10 @@ questions: resolving the `ask_user` waiter. One text field, two backends.
 `yoloMaster`, one truth), three-way picker in the settings window,
 `ask-user` takes the yolo flags away from the subagents,
 `ask-orchestrator` hangs an approval rule into the task contract (both
-dialects); an honest threat model in the README.
+dialects); an honest threat model in the README. Cursor yolo subagents
+are launched in **Run Everything** (`--force --sandbox disabled` plus a
+project `.cursor/cli.json`) so Auto-review / sandbox does not still
+prompt; orchestrators never get those flags.
 
 Today a bool; remote × default yolo = RCE on the PC (BigBoy states this
 correctly; opt-in + Tailscale bind + kill switch is the v1 answer).

@@ -23,6 +23,9 @@ No release has been tagged yet; everything lives under Unreleased.
   approvals can be clicked. Cursor launches still use `--approve-mcps` and
   also write `~/.cursor/projects/<slug>/mcp-approvals.json` so the TUI
   does not stop on every server. Extra MCP servers stay subagent-only.
+  Cursor yolo subagents launch in **Run Everything** (`--force --sandbox
+  disabled` plus `.cursor/cli.json`) so Auto-review does not still prompt;
+  orchestrators still never get those flags.
 - **Phase H — nested workers, live steering, first-party Chromium
   extension.** MCP workers may spawn one helper level (cap 3; helpers
   cannot nest; lead-starts-lead stays forbidden). Helper events stay in

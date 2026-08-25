@@ -1918,7 +1918,15 @@ describe('Cursor MCP attach leaves the idle-hint regime', () => {
         cwd,
         yolo: true
       })
-      expect(argv).toEqual(['--trust', '--model', 'gpt-5.6', '--yolo', '--approve-mcps'])
+      expect(argv).toEqual([
+        '--trust',
+        '--model',
+        'gpt-5.6',
+        '--force',
+        '--sandbox',
+        'disabled',
+        '--approve-mcps'
+      ])
     } finally {
       rmSync(cwd, { recursive: true, force: true })
     }

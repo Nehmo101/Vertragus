@@ -368,6 +368,10 @@ Backends.
 eine Wahrheit), Dreifach-Picker im Settings-Fenster, `ask-user` nimmt den
 Subagents die Yolo-Flags, `ask-orchestrator` hängt eine Approval-Regel in
 den Task-Contract (beide Dialekte); ehrliches Threat-Model im README.
+Cursor-Yolo-Subagents starten in **Run Everything** (`--force
+--sandbox disabled` plus projektweites `.cursor/cli.json`), damit
+Auto-review / Sandbox nicht weiter nachfragt; Orchestratoren bekommen
+diese Flags nie.
 
 Heute ein Bool; Remote × Default-Yolo = RCE auf dem PC (BigBoy sagt das
 richtig; opt-in + Tailscale-Bind + Kill-Switch ist die v1-Antwort).

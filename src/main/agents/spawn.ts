@@ -35,6 +35,9 @@
  * - `<cwd>/.cursor/mcp.json` — Cursor's MCP attachment (merged, not overwritten).
  *   Same working-directory rule as Kimi; the `vertragus` entry is left behind
  *   on purpose so a live CLI cannot lose its server mid-session.
+ * - `<cwd>/.cursor/cli.json` — Cursor yolo subagents only. Sets
+ *   `approvalMode: unrestricted` and `sandbox.mode: disabled` (Run Everything)
+ *   so a persisted Auto-review default cannot override `--force`.
  * - `<cwd>/.grok/config.toml` — Grok Build's MCP attachment (merged). Same
  *   working-directory rule; only the `[mcp_servers.vertragus]` table is ours.
  *   Orchestrator writes `[permission]` deny/allow as well; subagent is URL-only.
@@ -101,6 +104,11 @@ import {
 } from '@shared/schema/provider'
 import { ensureClaudeWorkspaceTrust } from './claudeTrust'
 import { ensureCursorMcpApprovals } from './cursorMcpApprovals'
+import {
+  applyCursorRunEverything,
+  cursorUsesProjectDialect,
+  ensureCursorRunEverythingConfig
+} from './cursorRunMode'
 import { ensureKimiWorkspaceTrust } from './kimiTrust'
 import { PtyAgent, type PtyAgentLike, type PtySpawnOptions } from './PtyAgent'
 import { resolveLaunch, type ResolveLaunchOptions } from './resolveCommand'
@@ -407,7 +415,14 @@ export function buildAgentArgv(input: AgentLaunchInput): AgentArgv {
   const argv = [...provider.args]
   argv.push(...buildModelArgs(provider, input.model))
   argv.push(...buildEffortArgs(provider, input.effort))
-  if (input.kind === 'subagent' && input.yolo) argv.push(...provider.yoloArgs)
+  if (input.kind === 'subagent' && input.yolo) {
+    argv.push(...provider.yoloArgs)
+    // Cursor 3.6+ defaults to Auto-review. `--yolo` is only an alias of
+    // `--force`; Run Everything also needs the sandbox off. Applied here so a
+    // stored provider whose yoloArgs are still just `--yolo` still lands in
+    // that mode. Orchestrators never enter this branch.
+    if (cursorUsesProjectDialect(provider)) applyCursorRunEverything(argv)
+  }
   argv.push(...buildMcpArgs(input))
   const prompt = buildSystemPromptArgs(input)
   argv.push(...prompt.argv)
@@ -476,6 +491,12 @@ export interface SpawnAgentDeps extends LaunchDeps {
    * on every server. Tests pass a spy so they never touch the real home.
    */
   ensureCursorApprovals?: (workspaceDir: string) => void
+  /**
+   * Injectable Cursor Run Everything project file. Production writes
+   * `<cwd>/.cursor/cli.json` for yolo subagents. Tests pass a spy so they
+   * can assert the call without depending on disk.
+   */
+  ensureCursorRunMode?: (workspaceDir: string) => void
 }
 
 /**
@@ -552,6 +573,14 @@ export async function spawnAgent(
       approve(launch.cwd)
     } catch (error) {
       console.warn('[spawn] Cursor MCP pre-approval failed — the CLI may ask:', error)
+    }
+    if (input.kind === 'subagent' && input.yolo) {
+      const runMode = deps.ensureCursorRunMode ?? ensureCursorRunEverythingConfig
+      try {
+        runMode(launch.cwd)
+      } catch (error) {
+        console.warn('[spawn] Cursor Run Everything config failed — the CLI may ask:', error)
+      }
     }
   }
   const pty = deps.createPty ? deps.createPty() : new PtyAgent()

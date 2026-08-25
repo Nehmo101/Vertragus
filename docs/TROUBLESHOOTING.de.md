@@ -129,6 +129,11 @@ Vertragus startet Cursor mit `--approve-mcps` und schreibt zusätzlich
 `~/.cursor/projects/<slug>/mcp-approvals.json` für jeden Server in der
 `.cursor/mcp.json` dieses Worktrees (derselbe State-File-Trick wie
 Claude/Kimi-Trust). Orchestratoren bekommen nie `--force` / `--yolo`.
+Wenn die Subagent-Policy yolo ist, starten Cursor-Worker zusätzlich in
+**Run Everything** (`--force --sandbox disabled` und eine projektweite
+`.cursor/cli.json` mit `approvalMode: unrestricted`), damit Auto-review
+und die Sandbox nicht weiter an Tool-Calls stoppen. `ask-user`- und
+Orchestrator-Starts bekommen diesen Modus nie.
 
 Stoppt die TUI trotzdem an einer Bestätigung, wird das Windhund-Overlay
 klickdurchlässig (`waiting`), damit du im Fenster auf Approve klicken
