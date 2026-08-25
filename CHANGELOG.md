@@ -222,6 +222,14 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Changed
 
+- **Research notes on Obsidian + agents (not a product track).**
+  [`docs/RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md`](docs/RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md)
+  maps Eero Alvar's two videos (second brain as state management; Pi
+  garage inside a markdown vault) onto the harness as it is today.
+  [`docs/RESEARCH-OBSIDIAN-AGENTIC.md`](docs/RESEARCH-OBSIDIAN-AGENTIC.md)
+  is the wider landscape: folder-as-cwd vs embedded CLIs vs vault MCP,
+  kepano skills, Local REST API, the worktree-in-vault melt, and two
+  recipes that use existing extra MCP / worktrees without new tools.
 - **The app version is `1.0.0`** — the first tagged release. The committed
   version is a patch BASE (`X.Y.0`): main-channel prereleases add the run
   number to it, so main is opened at `X.(Y+1).0` right after a tag. Those

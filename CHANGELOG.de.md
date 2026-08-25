@@ -246,6 +246,14 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Changed
 
+- **Recherche-Notizen zu Obsidian + Agenten (kein Produkt-Track).**
+  [`docs/RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md`](docs/RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md)
+  bildet Eero Alvars zwei Videos (Second Brain als State Management; Pi-Garage
+  in einem Markdown-Vault) auf den Harness ab, wie er heute steht.
+  [`docs/RESEARCH-OBSIDIAN-AGENTIC.md`](docs/RESEARCH-OBSIDIAN-AGENTIC.md)
+  ist die weitere Landschaft: Ordner-als-cwd vs. eingebettete CLIs vs.
+  Vault-MCP, kepano-Skills, Local REST API, der Worktree-im-Vault-Melt und
+  zwei Rezepte, die vorhandenes Extra-MCP / Worktrees nutzen, ohne neue Tools.
 - **Die App-Version ist `1.0.0`** — das erste getaggte Release. Die
   eingecheckte Version ist eine Patch-BASIS (`X.Y.0`): Prereleases des
   `main`-Kanals addieren die Run-Nummer darauf, main wird deshalb direkt nach

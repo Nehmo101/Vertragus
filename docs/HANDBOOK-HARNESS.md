@@ -895,6 +895,14 @@ such as koffi. `mac.mergeASARs` stays false: the unpacked Pi trees make
 `@electron/universal`'s brace-glob of unpack paths overflow minimatch
 (`pattern is too long`), and the JS inside asar is already arch-identical.
 
+Related research, not a product track: Eero Alvar's Obsidian + Pi vault
+pattern is mapped in
+[`RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md`](./RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md);
+the wider Obsidian + agentic-development landscape (cwd vs MCP vs embed,
+worktree melt, vault as extra MCP) is
+[`RESEARCH-OBSIDIAN-AGENTIC.md`](./RESEARCH-OBSIDIAN-AGENTIC.md). Neither
+adds tools, RAG, or a PKM product.
+
 ## Phase A3 — automation: adoption without a click, and the run's pull request
 
 Off by default, per profile (`automation` in `shared/schema/profile.ts`),
@@ -954,3 +962,4 @@ host already merged.
 | Live `user_message` targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium `/browser` bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
 | Pi harness wrap (not a seventh provider) | `agents/piHarness.ts`, `spawn.ts` overlay, `.pi/mcp.json`, settings `piHarnessEnabled`, lockfile pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |
+| Related research: Obsidian + Pi vault, agentic landscape | [`RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md`](./RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md), [`RESEARCH-OBSIDIAN-AGENTIC.md`](./RESEARCH-OBSIDIAN-AGENTIC.md) | not a product track |

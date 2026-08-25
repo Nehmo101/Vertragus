@@ -911,6 +911,14 @@ ausgepackten Pi-Bäume lassen das Brace-Glob der Unpack-Pfade in
 `@electron/universal` über minimatch laufen (`pattern is too long`), und
 das JS in asar ist bereits architekturidentisch.
 
+Verwandte Recherche, kein Produkt-Track: Eero Alvars Obsidian-+-Pi-Vault-Muster
+steht in
+[`RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md`](./RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md);
+die weitere Landschaft Obsidian + agentische Entwicklung (cwd vs. MCP vs.
+Embed, Worktree-Melt, Vault als Extra-MCP) steht in
+[`RESEARCH-OBSIDIAN-AGENTIC.md`](./RESEARCH-OBSIDIAN-AGENTIC.md). Keines von
+beiden fügt Tools, RAG oder ein PKM-Produkt hinzu.
+
 ## Phase A3 — Automatisierung: Übernahme ohne Klick und der Pull Request des Laufs
 
 Standardmäßig aus, pro Profil (`automation` in
@@ -974,3 +982,4 @@ gemergt hat.
 | Live-`user_message`-Targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium-`/browser`-Bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
 | Pi-Harness-Wrap (kein siebter Provider) | `agents/piHarness.ts`, `spawn.ts`-Overlay, `.pi/mcp.json`, Setting `piHarnessEnabled`, Lockfile-Pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |
+| Verwandte Recherche: Obsidian + Pi-Vault, agentische Landschaft | [`RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md`](./RESEARCH-OBSIDIAN-AI-SECOND-BRAIN.md), [`RESEARCH-OBSIDIAN-AGENTIC.md`](./RESEARCH-OBSIDIAN-AGENTIC.md) | kein Produkt-Track |
