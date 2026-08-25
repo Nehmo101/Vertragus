@@ -48,7 +48,11 @@ wirklich braucht, begrenzt durch die Slot-Caps und das profilweite
 über denselben Tastatur-Handshake in den Orchestrator getippt wie jede
 Assignment, sodass das, was die Karte zeigt, das ist, was der Orchestrator
 wirklich bekommen hat. **Playbooks** sind Ein-Klick-Zielvorlagen auf diesem
-Fold-out, nie eine vorkonfigurierte Crew.
+Fold-out, nie eine vorkonfigurierte Crew. Das CLI-Fenster öffnet sofort
+mit einem Windhund-Overlay, während der Host den Worktree anlegt, MCP
+anbindet und auf die Session wartet; der erste Turn geht erst raus, wenn
+MCP steht, damit ein Start ohne verbundene Session keine Tokens auf
+`await_events` verbrennt.
 
 Im Profil-Editor lässt sich außerdem ein optionaler **System-Prompt pro
 Identität** hinterlegen (Orchestrator, Lead, Worker, Tester, …). Ein neues

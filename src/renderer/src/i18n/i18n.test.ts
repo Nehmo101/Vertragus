@@ -84,7 +84,9 @@ const DYNAMIC_KEY_PREFIXES = [
   // profileEditor/model.ts — indexed by ModelDiscoveryResult['source']
   'profileEditor.modelsFrom.',
   // settings/SettingsApp.tsx — indexed by AppearanceSlider
-  'settings.glassSlider.'
+  'settings.glassSlider.',
+  // terminal/TerminalApp.tsx — indexed by TerminalBootPhase
+  'terminal.boot.'
 ]
 
 /** `panel.agentCount_one` / `_other` are one key to a caller: `panel.agentCount`. */

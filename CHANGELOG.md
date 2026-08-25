@@ -19,6 +19,20 @@ No release has been tagged yet; everything lives under Unreleased.
   reporting contract. A new profile starts with short English starter texts
   (audience, language of the goal, distilled handoff — not a second copy of
   the shipped role) the user can edit, clear, or restore.
+- **Faster MCP handover, no wasted first turn, greyhound boot overlay.**
+  The CLI window opens as soon as the host has a PTY — before worktree and
+  spawn — so MCP initialize overlaps CLI boot instead of waiting behind it.
+  The first Enter is held until the Vertragus MCP session exists, so an
+  orchestrator that has not attached yet does not burn tokens on
+  `await_events`. A greyhound overlay on the open terminal reports the
+  phase (`preparing` → `worktree` → `mcp` → `cli` → `handshake`); if MCP
+  is still missing it goes click-through (`waiting`) so leftover Cursor
+  approvals can be clicked. Cursor launches still use `--approve-mcps` and
+  also write `~/.cursor/projects/<slug>/mcp-approvals.json` so the TUI
+  does not stop on every server. Extra MCP servers stay subagent-only.
+  Cursor yolo subagents launch in **Run Everything** (`--force --sandbox
+  disabled` plus `.cursor/cli.json`) so Auto-review does not still prompt;
+  orchestrators still never get those flags.
 - **Phase H — nested workers, live steering, first-party Chromium
   extension.** MCP workers may spawn one helper level (cap 3; helpers
   cannot nest; lead-starts-lead stays forbidden). Helper events stay in
