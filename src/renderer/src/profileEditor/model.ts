@@ -17,6 +17,8 @@ import {
   type Profile,
   type RoleTemplate
 } from '@shared/schema/profile'
+import { LEAD_ROLE_ID, ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
+import { initialRolePromptDraft } from '@shared/prompts/rolePrompt'
 import type { EffortLevel } from '@shared/schema/provider'
 import { collapseModelVariants } from '@shared/models'
 import type { ModelDiscoveryResult } from '../../../preload'
@@ -58,6 +60,11 @@ export interface ProfileDraft {
   }
   /** Carried through untouched — the zone editor owns it (M4). */
   zones?: Profile['zones']
+  /**
+   * Extra system prompt per identity (`orchestrator`, `lead`, role ids).
+   * Empty string in the form means "use the shipped prompt only".
+   */
+  rolePrompts: Record<string, string>
 }
 
 /** Field-keyed errors: `name`, `repoPath`, `slots.0.model`, `form`. */
@@ -72,7 +79,8 @@ export function emptyDraft(defaultProviderId: string, id = createLocalId('profil
     slots: [],
     maxSubagents: '',
     autoSubmitTasks: true,
-    automation: emptyAutomationDraft()
+    automation: emptyAutomationDraft(),
+    rolePrompts: initialRolePromptDraft()
   }
 }
 
@@ -119,7 +127,10 @@ export function draftFromProfile(profile: Profile): ProfileDraft {
       prBaseBranch: profile.automation.prBaseBranch ?? '',
       prDraft: profile.automation.prDraft
     },
-    zones: profile.zones
+    zones: profile.zones,
+    rolePrompts: Object.fromEntries(
+      (profile.rolePrompts ?? []).map((entry) => [entry.roleId, entry.prompt])
+    )
   }
 }
 
@@ -148,6 +159,7 @@ function optionalText(value: string): string | undefined {
 
 /** The shape the store gets — optionals omitted, not emptied. */
 export function toProfileInput(draft: ProfileDraft): unknown {
+  const rolePrompts = toRolePromptEntries(draft.rolePrompts)
   return {
     id: draft.id,
     name: draft.name.trim(),
@@ -185,8 +197,19 @@ export function toProfileInput(draft: ProfileDraft): unknown {
         : {}),
       prDraft: draft.automation.prDraft
     },
-    ...(draft.zones ? { zones: draft.zones } : {})
+    ...(draft.zones ? { zones: draft.zones } : {}),
+    ...(rolePrompts ? { rolePrompts } : {})
   }
+}
+
+/** Present entries only — empty textareas must not persist as blank rows. */
+function toRolePromptEntries(
+  drafts: Record<string, string>
+): Array<{ roleId: string; prompt: string }> | undefined {
+  const entries = Object.entries(drafts)
+    .map(([roleId, prompt]) => ({ roleId, prompt: prompt.trim() }))
+    .filter((entry) => entry.prompt.length > 0)
+  return entries.length > 0 ? entries : undefined
 }
 
 /** Zod paths → the form's field keys (`slots.0.maxCount`). */
@@ -212,6 +235,7 @@ export function messageForPath(t: Translate, path: string): string {
   if (path.endsWith('maxCount')) return t('profileEditor.errors.maxCount')
   if (path === 'automation.prRemote') return t('profileEditor.errors.prRemote')
   if (path === 'automation.prBaseBranch') return t('profileEditor.errors.prBaseBranch')
+  if (path.startsWith('rolePrompts')) return t('profileEditor.errors.rolePrompt')
   return t('profileEditor.errors.generic')
 }
 
@@ -340,6 +364,32 @@ export function roleOptions(
     name: template.name,
     color: colorOf(template.id, index)
   }))
+}
+
+/**
+ * Identities that can carry an extra system prompt: Orchestrator, Lead, then
+ * every role template. Names stay English (WP-1). Orchestrator/Lead are not
+ * role templates, so they are prepended rather than looked up.
+ */
+export function promptIdentities(
+  templates: readonly RoleTemplate[],
+  colorOf: (roleId: string, index: number) => string
+): RoleOption[] {
+  const identities: RoleOption[] = [
+    { id: ORCHESTRATOR_ROLE_ID, name: 'Orchestrator', color: colorOf(ORCHESTRATOR_ROLE_ID, 0) },
+    { id: LEAD_ROLE_ID, name: 'Lead', color: colorOf(LEAD_ROLE_ID, 0) }
+  ]
+  const seen = new Set(identities.map((identity) => identity.id))
+  for (const [index, template] of templates.entries()) {
+    if (seen.has(template.id)) continue
+    seen.add(template.id)
+    identities.push({
+      id: template.id,
+      name: template.name,
+      color: colorOf(template.id, index)
+    })
+  }
+  return identities
 }
 
 /** A custom role template, ready for `roles:save`. */

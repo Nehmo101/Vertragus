@@ -162,6 +162,11 @@
     "customRoleSave": "Rolle übernehmen",
     "autoSubmitTasks": "Aufträge automatisch absenden",
     "autoSubmitTasksHint": "Vertragus drückt für den Agenten Enter. Aus: Der Auftrag bleibt im Eingabefeld der CLI stehen und muss von Hand abgeschickt werden.",
+    "rolePrompts": "System-Prompts",
+    "rolePromptsHint": "Starttext für ein neues Profil — pro Identität ändern oder leeren. Ein Kommunikations-Overlay auf dem eingebauten Prompt (Sprache, wer den Bericht liest, Art der Übergabe). Ersetzt weder den Reporting-Contract noch die Orchestrator-Schleife.",
+    "rolePromptPlaceholder": "z. B. Antworte auf Deutsch. Berichte in drei Stichpunkten.",
+    "rolePromptSet": "gesetzt",
+    "rolePromptRestore": "Starttext wiederherstellen",
     "automation": "Automatisierung",
     "automationHint": "Was Vertragus tut, wenn Arbeit fertig ist — ohne Klick. Alles hier ist standardmäßig aus.",
     "autoIntegrate": "Fertige Branches in den Orchestrator mergen",
@@ -212,6 +217,7 @@
       "prBaseBranch": "Bitte einen Branch-Namen eingeben (oder leer lassen).",
       "customRoleName": "Bitte einen Rollennamen vergeben.",
       "customRolePrompt": "Bitte den Prompt der Rolle schreiben.",
+      "rolePrompt": "Bitte den Prompt unter 8000 Zeichen halten (oder leer lassen).",
       "generic": "Ungültiger Wert."
     }
   },

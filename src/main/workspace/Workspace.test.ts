@@ -228,6 +228,31 @@ describe('startAgent', () => {
     expect(spawns[0]!.input.systemPrompt).toContain('You are a Reviewer')
   })
 
+  it('appends a profile extra prompt after the shipped role text', async () => {
+    const { workspace, spawns } = harness({
+      profile: testProfile({
+        rolePrompts: [{ roleId: 'reviewer', prompt: 'Answer in German. Three bullets.' }]
+      })
+    })
+    await workspace.startAgent({ role: 'reviewer', task: 'Review it.' })
+    const prompt = spawns[0]!.input.systemPrompt!
+    expect(prompt).toContain('You are a Reviewer')
+    expect(prompt).toContain('Answer in German. Three bullets.')
+    expect(prompt.indexOf('You are a Reviewer')).toBeLessThan(prompt.indexOf('Answer in German'))
+    expect(prompt).toMatch(/never override the reporting contract/i)
+  })
+
+  it('does not leak another role’s extra prompt onto this agent', async () => {
+    const { workspace, spawns } = harness({
+      profile: testProfile({
+        rolePrompts: [{ roleId: 'tester', prompt: 'Only testers see this.' }]
+      })
+    })
+    await workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(spawns[0]!.input.systemPrompt).not.toContain('Only testers see this.')
+    expect(spawns[0]!.input.systemPrompt).toContain('You are a Worker')
+  })
+
   it('prepends the role prompt to the seed when the provider has no prompt flag', async () => {
     const { workspace, prompts } = harness({ ptySystemPrompt: true })
     await workspace.startAgent({ role: 'worker', task: 'Task text' })
@@ -819,6 +844,19 @@ describe('startOrchestrator', () => {
       placement: { roleId: ORCHESTRATOR_ROLE_ID, workspaceId: workspace.workspaceId }
     })
     expect(workspace.orchestrator).toMatchObject({ name: orchestrator.name })
+  })
+
+  it('appends the orchestrator extra prompt after the loop rules', async () => {
+    const { workspace, spawns } = harness({
+      profile: testProfile({
+        rolePrompts: [{ roleId: 'orchestrator', prompt: 'Speak German to the user.' }]
+      })
+    })
+    await workspace.startOrchestrator()
+    const prompt = spawns[0]!.input.systemPrompt!
+    expect(prompt).toContain('You are the orchestrator of the Vertragus workspace')
+    expect(prompt).toContain('Speak German to the user.')
+    expect(prompt).toMatch(/never override the reporting contract/i)
   })
 
   it('opens the CLI window before spawn so the overlay covers MCP attach', async () => {
@@ -2594,6 +2632,19 @@ describe('beginLead — F', () => {
     const row = workspace.listAgents().find((agent) => agent.agentId === lead.agentId)
     expect(row?.kind).toBe('lead')
     expect(row?.status).toBe('working')
+  })
+
+  it('appends the lead extra prompt after the lead loop rules', async () => {
+    const { workspace, spawns } = harness({
+      profile: testProfile({
+        rolePrompts: [{ roleId: 'lead', prompt: 'Stay inside payments. Be terse.' }]
+      })
+    })
+    await workspace.startLead({ area: 'payments', task: 'Own it.', maxSubagents: 2 })
+    const prompt = spawns[0]!.input.systemPrompt!
+    expect(prompt).toContain('LEAD orchestrator')
+    expect(prompt).toContain('Stay inside payments. Be terse.')
+    expect(prompt).toMatch(/never override the reporting contract/i)
   })
 
   it('model override wins over the profile orchestrator model', async () => {
