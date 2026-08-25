@@ -110,6 +110,14 @@ describe('queueForAgent / adoptSubtree — worker nests', () => {
       adoptedAgentIds: ['helper-1']
     })
   })
+
+  it('closes an empty nest without a subtree_adopted event', () => {
+    const runtime = fakeRuntime()
+    ensureNest(runtime, 'worker-1')
+    adoptSubtree(runtime, 'worker-1')
+    expect(runtime.nests.has('worker-1')).toBe(false)
+    expect(runtime.events.all()).toEqual([])
+  })
 })
 
 describe('attachSubtreeAdoptionTap', () => {

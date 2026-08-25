@@ -49,6 +49,8 @@ export function parseBrowserPairing(raw: string): { port?: number; token: string
     const url = new URL(trimmed)
     const token = url.searchParams.get('token')?.trim()
     if (token && url.pathname.replace(/\/$/, '') === BROWSER_PATH) {
+      const host = url.hostname.replace(/^\[|\]$/g, '')
+      if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') return undefined
       const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80))
       return Number.isFinite(port) && port > 0 ? { port, token } : { token }
     }

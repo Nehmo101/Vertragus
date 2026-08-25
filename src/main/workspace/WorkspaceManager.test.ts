@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { buildAgentArgv } from '@main/agents/spawn'
 import type { McpServerHandle, RegisteredWorkspace } from '@main/mcp/server'
+import type { BrowserBridge } from '@main/mcp/browserBridge'
 import type { WorkspaceMcpContext } from '@main/mcp/types'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
 import { memoryTaskBoard } from '@main/mcp/testing'
@@ -24,6 +25,12 @@ import {
 /** Records the calls the manager makes, in the order it makes them. */
 class FakeMcp implements McpServerHandle {
   port = 4711
+  browser = {
+    port: 0,
+    status: () => ({ token: '', pairingUrl: '', connected: false, clients: 0, port: 0 }),
+    regenerateToken: () => '',
+    close: () => undefined
+  } as unknown as BrowserBridge
   readonly contexts: WorkspaceMcpContext[] = []
   readonly unregistered: string[] = []
   private readonly runtimes = new Map<string, RegisteredWorkspace['runtime']>()
@@ -42,6 +49,7 @@ class FakeMcp implements McpServerHandle {
       questions: new PendingQuestions(),
       agentTasks: new Map<string, string>(),
       leads: new Map(),
+      nests: new Map(),
       parentOf: new Map(),
       resultSchemas: new Map(),
       // Mirrors the real registration: the runtime's board IS the host's, so

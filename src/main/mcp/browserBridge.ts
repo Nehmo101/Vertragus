@@ -82,7 +82,12 @@ export class BrowserBridge {
    * Handle an HTTP upgrade. Returns true when this path consumed the socket
    * (accepted or destroyed); false when the caller should try another handler.
    */
-  handleUpgrade(req: IncomingMessage, socket: import('node:net').Socket, head: Buffer, bindHost: string): boolean {
+  handleUpgrade(
+    req: IncomingMessage,
+    socket: import('node:stream').Duplex,
+    head: Buffer,
+    bindHost: string
+  ): boolean {
     let url: URL
     try {
       url = new URL(req.url ?? '/', `http://${bindHost}`)

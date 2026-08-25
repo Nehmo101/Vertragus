@@ -25,9 +25,7 @@ describe('parseBrowserPairing', () => {
     })
     expect(parseBrowserPairing('aabbccddeeff0011')).toEqual({ token: 'aabbccddeeff0011' })
     expect(parseBrowserPairing('')).toBeUndefined()
-    expect(parseBrowserPairing('http://evil.example/browser?token=aabbccddeeff0011')).toEqual({
-      token: 'aabbccddeeff0011'
-    })
+    expect(parseBrowserPairing('http://evil.example/browser?token=aabbccddeeff0011')).toBeUndefined()
   })
 })
 

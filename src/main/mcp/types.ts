@@ -650,9 +650,10 @@ export function attachSubtreeAdoptionTap(runtime: WorkspaceRuntime, subtree: Lea
 /**
  * F: a lead (or nested worker) died or was stopped — reparent its still-tracked
  * children one level up (to the grandparent, or the root when there is none)
- * and close the subtree queue (releasing any parked reader). The surviving
- * parent gets ONE `subtree_adopted` event; past subtree events are not
- * replayed (the retro tap already saw them).
+ * and close the subtree queue (releasing any parked reader). When there were
+ * children, the surviving parent gets ONE `subtree_adopted` event; past
+ * subtree events are not replayed (the retro tap already saw them). An empty
+ * nest (worker never started a helper) is closed quietly.
  */
 export function adoptSubtree(runtime: WorkspaceRuntime, parentAgentId: string): void {
   const lead = runtime.leads.get(parentAgentId)
@@ -670,6 +671,10 @@ export function adoptSubtree(runtime: WorkspaceRuntime, parentAgentId: string): 
     adopted.push(child)
   }
   subtree.events.close()
+  // A nest is minted as soon as a spawn-capable worker connects, even if it
+  // never starts a helper. Pushing subtree_adopted for that empty death would
+  // land on the root queue as a fifth event the orchestrator did not ask for.
+  if (adopted.length === 0) return
   const dest = grandparent
     ? (runtime.nests.get(grandparent)?.events ??
         runtime.leads.get(grandparent)?.events ??

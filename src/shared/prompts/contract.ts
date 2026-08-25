@@ -47,6 +47,7 @@ export interface TaskContractInput {
    * gains a paragraph teaching the agent to pass a matching `result` to
    * report_done. Unset keeps the contract byte-identical to before S3.
    */
+  resultSchema?: ResultSchema
   /**
    * Optional: this agent MAY start helpers with start_agent. Unset keeps the
    * historical wording byte-identical (the D4/S3 pattern). Root and lead
