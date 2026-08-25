@@ -78,10 +78,12 @@ mac:
   # plain hardened runtime; these entitlements are the documented Electron set.
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  # @lydell/node-pty ships prebuilt per-arch packages whose darwin binaries are
-  # byte-identical across x64 and arm64; @electron/universal rejects that unless
-  # the pattern is declared here. The package picks its sub-binary at runtime.
-  x64ArchFiles: '**/{@lydell,@koromix}/**'
+  # Prebuilt per-arch optional packages (node-pty, Pi clipboard, keyring,
+  # photon) land in both universal temp apps as identical Mach-O files.
+  # @electron/universal refuses to skip lipo unless those scopes are listed
+  # here. Keep in lockstep with asarUnpack above — scripts/piHarnessPin.test.ts
+  # fails if a scoped unpack tree is missing from this pattern.
+  x64ArchFiles: '**/{@lydell,@koromix,@mariozechner,@napi-rs,@silvia-odwyer}/**'
   target:
     - target: dmg
       arch:

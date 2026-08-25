@@ -11,7 +11,8 @@
  *   1. package.json pins exactly those two production deps by name.
  *   2. .github/dependabot.yml allow-lists only those names, grouped, with
  *      no automerge.
- *   3. electron-builder.yml unpacks the trees native/WASM load from.
+ *   3. electron-builder.yml unpacks the trees native/WASM load from, and
+ *      lists every scoped unpack tree in mac.x64ArchFiles (universal merge).
  *
  * Self-checks at the bottom keep the scanners honest: a regex that silently
  * stops matching must fail the suite, not green it.
@@ -90,6 +91,20 @@ describe('electron-builder asarUnpack', () => {
     expect(source).toContain('pi-mcp-adapter/**')
     expect(source).toContain('@napi-rs/**')
   })
+
+  it('lists every scoped unpack tree in x64ArchFiles so universal macOS can merge identical .node files', () => {
+    const rule = source.match(/x64ArchFiles:\s*'([^']+)'/)?.[1]
+    expect(rule, 'x64ArchFiles vanished').toBeTruthy()
+    const unpackScopes = [
+      ...source.matchAll(/node_modules\/(@[^/\n*]+)/g)
+    ].map((match) => match[1]!)
+    expect(new Set(unpackScopes).size, 'asarUnpack scoped-package regex went silent').toBeGreaterThanOrEqual(
+      4
+    )
+    for (const scope of new Set(unpackScopes)) {
+      expect(rule, `${scope} is asarUnpack'd but missing from x64ArchFiles`).toContain(scope)
+    }
+  })
 })
 
 describe('the scanners themselves', () => {
@@ -104,6 +119,12 @@ describe('the scanners themselves', () => {
   it('still sees asarUnpack patterns in electron-builder.yml', () => {
     expect(builder.indexOf('asarUnpack:'), 'asarUnpack key vanished').toBeGreaterThanOrEqual(0)
     expect(builder).toMatch(/node_modules\/@mariozechner/)
+  })
+
+  it('still matches the x64ArchFiles line it polices', () => {
+    expect(builder.match(/x64ArchFiles:\s*'([^']+)'/)?.[1], 'x64ArchFiles regex went silent').toContain(
+      '@mariozechner'
+    )
   })
 
   it('pins constants that match the files', () => {
