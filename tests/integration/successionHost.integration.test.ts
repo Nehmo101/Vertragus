@@ -162,12 +162,11 @@ async function makeHarness(): Promise<Harness> {
     }
   )
   const registered = handle.registerWorkspace(workspace.mcpContext())
-  workspace.attachMcp({
-    ...registered,
-    // Fake spawn never handshakes; without this the host would wait 20s then
-    // hold Enter for a session that will never arrive.
-    waitForSession: async () => true
-  })
+  // Fake spawn never handshakes; without this the host waits 20s per agent
+  // then holds Enter. Keep the same object so token rotation still writes
+  // `registered.orchestratorUrl` (the URL the test client uses).
+  registered.waitForSession = async () => true
+  workspace.attachMcp(registered)
   workspace.attachQuestions(registered.runtime.questions)
 
   const clients: Client[] = []

@@ -113,11 +113,9 @@ async function makeHarness(): Promise<Harness> {
   // Mirror the WorkspaceManager wiring: register first, then attach the URLs
   // and the shared question registry.
   const registered = handle.registerWorkspace(workspace.mcpContext())
-  workspace.attachMcp({
-    ...registered,
-    // Fake spawn never handshakes; tests drive MCP from SDK clients instead.
-    waitForSession: async () => true
-  })
+  // Fake spawn never handshakes; tests drive MCP from SDK clients instead.
+  registered.waitForSession = async () => true
+  workspace.attachMcp(registered)
   workspace.attachQuestions(registered.runtime.questions)
 
   const orchestrator = new Client({ name: 'fake-orchestrator', version: '1.0.0' })

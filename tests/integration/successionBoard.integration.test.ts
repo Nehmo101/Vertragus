@@ -164,12 +164,11 @@ async function makeHarness(): Promise<Harness> {
   // shared question registry, then install ONE real board in both places —
   // the runtime (tool calls) and the workspace (succession package).
   const registered = handle.registerWorkspace(workspace.mcpContext())
-  workspace.attachMcp({
-    ...registered,
-    // Fake spawn never handshakes; without this the host would wait 20s then
-    // hold Enter for a session that will never arrive.
-    waitForSession: async () => true
-  })
+  // Fake spawn never handshakes; without this the host waits 20s per agent
+  // then holds Enter. Keep the same object so token rotation still writes
+  // `registered.orchestratorUrl` (the URL the test client uses).
+  registered.waitForSession = async () => true
+  workspace.attachMcp(registered)
   workspace.attachQuestions(registered.runtime.questions)
   const board = createTaskBoard(repo, workspace.workspaceId)
   registered.runtime.taskBoard = board

@@ -473,6 +473,10 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
         }
         await server.connect(transport)
         record = { transport, server, identity }
+        // Don't wait for `onsessioninitialized`: the SDK can return from
+        // `connect()` before that callback, and the host's first-turn gate
+        // would otherwise sit on the full timeout while the session is live.
+        notifySession(identity)
       }
 
       if (!record) {

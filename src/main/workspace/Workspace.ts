@@ -1156,6 +1156,14 @@ export class Workspace implements AgentHost {
 
   async inspectAgent(agentId: string, options: InspectAgentOptions): Promise<InspectAgentResult> {
     const record = this.requireAgent(agentId)
+    // Tracked as soon as the window opens, which is before the worktree
+    // exists — git facts would lie or ENOENT. Same contract as sendToAgent:
+    // wait for agent_started.
+    if (!record.seeded) {
+      throw new Error(
+        `${record.name} is still starting — wait for its agent_started event.`
+      )
+    }
     const result = await inspectWorktree(
       {
         worktreePath: record.worktreePath,
