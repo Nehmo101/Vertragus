@@ -18,6 +18,7 @@ import { zoneLayoutSchema } from './zones'
 export const MAX_SLOTS = 16
 export const MAX_SLOT_COUNT = 16
 export const MAX_SUBAGENTS = 32
+export const ROLE_PROMPT_MAX_CHARS = 8000
 
 const idSchema = z.string().trim().min(1).max(64)
 
@@ -27,7 +28,7 @@ export const roleTemplateSchema = z
     id: idSchema,
     name: z.string().trim().min(1).max(40),
     /** The role's system prompt. The task contract is appended separately. */
-    prompt: z.string().trim().min(1).max(8000),
+    prompt: z.string().trim().min(1).max(ROLE_PROMPT_MAX_CHARS),
     /** True for the five shipped templates; those are not user-deletable. */
     builtin: z.boolean().default(false)
   })
@@ -36,6 +37,39 @@ export type RoleTemplate = z.infer<typeof roleTemplateSchema>
 
 /** E6: at most this many extra MCP servers per slot — a bug net, not a quota. */
 export const MAX_EXTRA_MCP = 4
+
+/**
+ * Per-identity extra system prompts in a profile (orchestrator, lead, and
+ * every role). High enough for the seven built-ins plus custom roles and the
+ * two reserved identities; low enough to be a bug net.
+ */
+export const MAX_ROLE_PROMPTS = 32
+
+export const rolePromptEntrySchema = z
+  .object({
+    roleId: idSchema,
+    prompt: z.string().trim().min(1).max(ROLE_PROMPT_MAX_CHARS)
+  })
+  .strict()
+export type RolePromptEntry = z.infer<typeof rolePromptEntrySchema>
+
+function uniqueRolePromptIds(
+  entries: readonly { roleId: string }[],
+  ctx: z.RefinementCtx
+): void {
+  const seen = new Set<string>()
+  for (let index = 0; index < entries.length; index += 1) {
+    const id = entries[index]!.roleId
+    if (seen.has(id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'duplicate roleId',
+        path: [index, 'roleId']
+      })
+    }
+    seen.add(id)
+  }
+}
 
 /**
  * E6: one extra MCP server a slot's agents attach IN ADDITION to Vertragus.
@@ -190,7 +224,20 @@ export const profileSchema = z
      * off, so an old profile keeps needing the human click it always needed.
      */
     automation: automationSchema.default(() => automationSchema.parse({})),
-    zones: zoneLayoutSchema.optional()
+    zones: zoneLayoutSchema.optional(),
+    /**
+     * Per-identity extra system prompt, written in the profile editor.
+     * Keyed by role id (`worker`, `tester`, …) plus the reserved keys
+     * `orchestrator` and `lead`. Appended after the host-generated / shipped
+     * role prompt so a user cannot erase the loop or the reporting contract.
+     * Absent in every profile written before this field — empty means the
+     * shipped prompt only.
+     */
+    rolePrompts: z
+      .array(rolePromptEntrySchema)
+      .max(MAX_ROLE_PROMPTS)
+      .superRefine(uniqueRolePromptIds)
+      .optional()
   })
   .strict()
 export type Profile = z.infer<typeof profileSchema>
@@ -320,4 +367,16 @@ export function slotLimitFor(
 /** Role ids a profile can actually staff, in slot order, deduplicated. */
 export function profileRoleIds(profile: Pick<Profile, 'slots'>): string[] {
   return [...new Set(profile.slots.map((slot) => slot.roleId))]
+}
+
+/**
+ * The extra system prompt the user stored for one identity, or `undefined`
+ * when the profile has none. Empty/whitespace values are treated as absent.
+ */
+export function rolePromptFor(
+  profile: Pick<Profile, 'rolePrompts'> | undefined,
+  roleId: string
+): string | undefined {
+  const text = profile?.rolePrompts?.find((entry) => entry.roleId === roleId)?.prompt.trim()
+  return text ? text : undefined
 }

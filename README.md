@@ -44,7 +44,11 @@ slot caps and the profile-wide `maxSubagents`. The Play button folds out a
 **goal field** — the goal is typed into the orchestrator over the same
 keyboard handshake as any assignment, so what the card shows is what the
 orchestrator really received. **Playbooks** are one-click goal templates on
-that fold-out, never a pre-configured crew.
+that fold-out, never a pre-configured crew. The profile editor also takes an
+optional **system prompt per identity** (Orchestrator, Lead, Worker, Tester,
+…). It is appended to the host-generated or shipped role prompt, so you can
+steer language, tone and how the agent reports back without replacing the
+loop or the reporting contract.
 
 Everything the orchestrator can do goes through its MCP tools — there is no
 second path:

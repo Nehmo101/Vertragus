@@ -34,9 +34,9 @@
  *   answers; MCP `report_done` attaches the same facts in the tool layer.
  *
  * What the host *does* own is identity and delivery: the Commedia name, the
- * role prompt (via the provider's `systemPromptDelivery`), the worktree, the
- * window with its role colour, and typing the assignment in through the seed
- * handshake.
+ * role prompt (via the provider's `systemPromptDelivery`, plus any
+ * per-identity extra the profile stored), the worktree, the window with its
+ * role colour, and typing the assignment in through the seed handshake.
  */
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
@@ -106,6 +106,7 @@ import {
   type RoleWithLimit
 } from '@shared/prompts/orchestrator'
 import { buildSuccessorOrchestratorSystemPrompt } from '@shared/prompts/orchestratorHandoff'
+import { appendUserRolePrompt } from '@shared/prompts/rolePrompt'
 import {
   buildHandoffPackage,
   capText,
@@ -128,6 +129,7 @@ import {
 import {
   AUTOMATION_OFF,
   profileRoleIds,
+  rolePromptFor,
   slotLimitFor,
   type Profile,
   type ProfileAutomation,
@@ -937,15 +939,18 @@ export class Workspace implements AgentHost {
       const worktree = await this.createWorktreeFor(pending.agentId, pending.name, input.baseBranch)
       this.assertOpenDuringStart(pending)
 
-      const systemPrompt = buildLeadSystemPrompt({
-        workspaceName: this.name,
-        repoPath: this.repoPath,
-        rolesWithLimits: this.rolesWithLimits(),
-        maxSubagents: this.profile.maxSubagents,
-        area: input.area,
-        parentName: this.orchestratorRecord?.name,
-        subtreeBudget: input.maxSubagents
-      })
+      const systemPrompt = this.systemPromptFor(
+        LEAD_ROLE_ID,
+        buildLeadSystemPrompt({
+          workspaceName: this.name,
+          repoPath: this.repoPath,
+          rolesWithLimits: this.rolesWithLimits(),
+          maxSubagents: this.profile.maxSubagents,
+          area: input.area,
+          parentName: this.orchestratorRecord?.name,
+          subtreeBudget: input.maxSubagents
+        })
+      )
       spawned = await (this.deps.spawn ?? spawnAgent)({
         kind: 'lead',
         provider,
@@ -1035,7 +1040,7 @@ export class Workspace implements AgentHost {
         mcpUrl: urls.subagentUrl(pending.agentId),
         fileTag: `sub-${pending.agentId}`,
         configDir: this.deps.configDir,
-        systemPrompt: template.prompt,
+        systemPrompt: this.systemPromptFor(pending.roleId, template.prompt),
         extraMcpServers: this.extraMcpServersForLaunch(),
         ...this.piLaunch()
       }
@@ -1740,17 +1745,28 @@ export class Workspace implements AgentHost {
     // so it replaces it — in recovery mode, which is what keeps the seed
     // honest about the parts of it that died with the processes.
     const recovered = this.deps.resumeSuccession
-    if (!recovered) return buildOrchestratorSystemPrompt(input)
+    if (!recovered) return this.systemPromptFor(ORCHESTRATOR_ROLE_ID, buildOrchestratorSystemPrompt(input))
     // S4 × C6: the package's tasks are a snapshot frozen at handoff, the board
     // is `tasks.json` read back separately — and it can be missing or stale
     // (asynchronous writer, silent after its first disk failure). Ask the board
     // that is actually attached, here, at seed time: this is the last moment
     // where "the plan survived" can still be checked instead of asserted.
     const board = this.taskBoard?.list() ?? []
-    return buildSuccessorOrchestratorSystemPrompt(input, recovered, {
-      recovered: true,
-      boardRestored: board.some((task) => task.status !== 'deleted')
-    })
+    return this.systemPromptFor(
+      ORCHESTRATOR_ROLE_ID,
+      buildSuccessorOrchestratorSystemPrompt(input, recovered, {
+        recovered: true,
+        boardRestored: board.some((task) => task.status !== 'deleted')
+      })
+    )
+  }
+
+  /**
+   * Host prompt plus the profile's extra instructions for this identity.
+   * Empty extras are a no-op — callers do not have to branch.
+   */
+  private systemPromptFor(roleId: string, base: string): string {
+    return appendUserRolePrompt(base, rolePromptFor(this.profile, roleId))
   }
 
   private startedOf(record: AgentRecord): StartedAgent {
@@ -1840,15 +1856,18 @@ export class Workspace implements AgentHost {
       const record = await this.spawnOrchestratorRecord({
         agentId: pending.successorAgentId,
         name: pending.successorName,
-        systemPrompt: buildSuccessorOrchestratorSystemPrompt(
-          {
-            workspaceName: this.name,
-            repoPath: this.repoPath,
-            rolesWithLimits: this.rolesWithLimits(),
-            maxSubagents: this.profile.maxSubagents,
-            knowledge: this.deps.retro?.knowledge(this.profile) ?? []
-          },
-          pending.pkg
+        systemPrompt: this.systemPromptFor(
+          ORCHESTRATOR_ROLE_ID,
+          buildSuccessorOrchestratorSystemPrompt(
+            {
+              workspaceName: this.name,
+              repoPath: this.repoPath,
+              rolesWithLimits: this.rolesWithLimits(),
+              maxSubagents: this.profile.maxSubagents,
+              knowledge: this.deps.retro?.knowledge(this.profile) ?? []
+            },
+            pending.pkg
+          )
         ),
         mcpUrl: this.requireMcp().orchestratorUrl
       })

@@ -12,6 +12,11 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **Per-identity system prompts in the profile editor.** Orchestrator, Lead,
+  Worker, Tester and every other role can carry an optional extra prompt
+  (tone, language, how they report back). It is appended to the host-generated
+  or shipped role text — it never replaces the loop, isolation rules or the
+  reporting contract.
 - **Phase H — nested workers, live steering, first-party Chromium
   extension.** MCP workers may spawn one helper level (cap 3; helpers
   cannot nest; lead-starts-lead stays forbidden). Helper events stay in

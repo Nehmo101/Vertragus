@@ -1,20 +1,22 @@
 import { useTranslation } from 'react-i18next'
 import { DEFAULT_PR_REMOTE } from '@shared/schema/profile'
-import { WORKER_ROLE_ID } from '@shared/prompts/roles'
+import { WORKER_ROLE_ID, roleColor } from '@shared/prompts/roles'
 import { FolderIcon } from '../panel/icons'
 import { EffortSelect, Field, ModelCombo, ProviderSelect, SwitchField } from './fields'
-import { newSlotDraft, type ProfileDraft, type SlotDraft } from './model'
+import { newSlotDraft, promptIdentities, type ProfileDraft, type SlotDraft } from './model'
 import { SlotRow } from './SlotRow'
+import { RolePromptsSection } from './RolePromptsSection'
 import { useProfileEditor } from './useProfileEditor'
 import './profileEditor.css'
 
 /**
  * The profile editor window.
  *
- * One sheet, four bands: identity (name + repo), the orchestrator, the slot
- * blueprints, and the profile-wide limit. Saving validates against the same
- * schema the store enforces and shows every rejection on its field — a save
- * that silently does nothing is the one outcome this form must never have.
+ * One sheet: identity (name + repo), the orchestrator, the slot blueprints,
+ * per-identity system prompts, automation, and the profile-wide limit.
+ * Saving validates against the same schema the store enforces and shows every
+ * rejection on its field — a save that silently does nothing is the one
+ * outcome this form must never have.
  */
 export function ProfileEditorApp({
   profileId,
@@ -196,6 +198,18 @@ export function ProfileEditorApp({
             }
           />
         </section>
+
+        <RolePromptsSection
+          identities={promptIdentities(editor.roles, roleColor)}
+          values={draft.rolePrompts}
+          errors={editor.errors}
+          onChange={(roleId, prompt) =>
+            editor.update((current) => ({
+              ...current,
+              rolePrompts: { ...current.rolePrompts, [roleId]: prompt }
+            }))
+          }
+        />
 
         <section className="pe-automation">
           <h2 className="pe-section-label">{t('profileEditor.automation')}</h2>

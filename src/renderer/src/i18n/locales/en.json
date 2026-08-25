@@ -162,6 +162,10 @@
     "customRoleSave": "Add role",
     "autoSubmitTasks": "Submit tasks automatically",
     "autoSubmitTasksHint": "Vertragus presses Enter for the agent. Off: the task stays in the CLI’s input field and has to be submitted by hand.",
+    "rolePrompts": "System prompts",
+    "rolePromptsHint": "Optional. How each identity speaks and reports back — language, tone, extra rules. Added on top of the built-in prompt; it never replaces the reporting contract or the orchestrator loop.",
+    "rolePromptPlaceholder": "e.g. Answer in German. Keep reports to three bullets.",
+    "rolePromptSet": "set",
     "automation": "Automation",
     "automationHint": "What Vertragus does when work is finished — without a click. Everything here is off by default.",
     "autoIntegrate": "Merge finished branches into the orchestrator",
@@ -212,6 +216,7 @@
       "prBaseBranch": "Please enter a branch name (or leave it empty).",
       "customRoleName": "Please enter a role name.",
       "customRolePrompt": "Please write the role’s prompt.",
+      "rolePrompt": "Please keep the prompt under 8000 characters (or leave it empty).",
       "generic": "Invalid value."
     }
   },

@@ -50,6 +50,12 @@ Assignment, sodass das, was die Karte zeigt, das ist, was der Orchestrator
 wirklich bekommen hat. **Playbooks** sind Ein-Klick-Zielvorlagen auf diesem
 Fold-out, nie eine vorkonfigurierte Crew.
 
+Im Profil-Editor lässt sich außerdem ein optionaler **System-Prompt pro
+Identität** hinterlegen (Orchestrator, Lead, Worker, Tester, …). Er wird an
+den Host-generierten bzw. mitgelieferten Rollen-Prompt angehängt, sodass du
+Sprache, Ton und die Art der Rückmeldung steuern kannst, ohne die Schleife
+oder den Reporting-Contract zu ersetzen.
+
 Alles, was der Orchestrator kann, läuft über seine MCP-Tools — es gibt
 keinen zweiten Pfad:
 

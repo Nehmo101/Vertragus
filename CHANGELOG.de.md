@@ -13,6 +13,11 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **System-Prompts pro Identität im Profil-Editor.** Orchestrator, Lead,
+  Worker, Tester und jede andere Rolle können einen optionalen Extra-Prompt
+  tragen (Ton, Sprache, Art der Rückmeldung). Er wird an den
+  Host-generierten bzw. mitgelieferten Rollentext angehängt — er ersetzt
+  weder die Schleife noch die Isolationsregeln oder den Reporting-Contract.
 - **Phase H — Nested Worker, Live-Steering, First-Party Chromium-
   Erweiterung.** MCP-Worker dürfen eine Helper-Ebene spawnen (Cap 3;
   Helper nesten nicht; Lead-startet-Lead bleibt verboten). Helper-Events
