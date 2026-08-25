@@ -1448,6 +1448,7 @@ function WorkspaceCard({
               <Composer
                 api={api}
                 workspaceId={workspace.workspaceId}
+                agents={workspace.agents}
                 copy={copy}
                 drafts={drafts}
                 setDraft={setDraft}
@@ -1698,18 +1699,21 @@ function AnswerForm({
 function Composer({
   api,
   workspaceId,
+  agents,
   copy,
   drafts,
   setDraft
 }: {
   api: RemoteApi
   workspaceId: string
+  agents: RemoteWorkspaceSummary['agents']
   copy: Copy
   drafts: Drafts
   setDraft: SetDraft
 }): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [sent, setSent] = useState(false)
+  const [target, setTarget] = useState('')
   const sentTimer = useRef<number | undefined>(undefined)
   const draftKey = composerDraftKey(workspaceId)
   const text = drafts[draftKey] ?? ''
@@ -1720,7 +1724,13 @@ function Composer({
     const trimmed = text.trim()
     if (!trimmed) return
     setError(null)
-    api.runCommand('user_message', undefined, { workspaceId, text: trimmed }).then(
+    api
+      .runCommand('user_message', undefined, {
+        workspaceId,
+        text: trimmed,
+        ...(target ? { targetAgentId: target } : {})
+      })
+      .then(
       () => {
         setDraft(draftKey, '')
         haptic('confirm')
@@ -1735,8 +1745,26 @@ function Composer({
     )
   }
 
+  const targets = agents.filter((agent) => agent.roleId !== 'orchestrator')
+
+
   return (
     <div className="composer">
+      {targets.length > 0 ? (
+        <select
+          className="composer-target"
+          value={target}
+          aria-label={copy.composerTargetOrchestrator}
+          onChange={(event) => setTarget(event.target.value)}
+        >
+          <option value="">{copy.composerTargetOrchestrator}</option>
+          {targets.map((agent) => (
+            <option key={agent.agentId} value={agent.agentId}>
+              {agent.name}
+            </option>
+          ))}
+        </select>
+      ) : null}
       <LimitedTextarea
         rows={2}
         placeholder={copy.composerPlaceholder}

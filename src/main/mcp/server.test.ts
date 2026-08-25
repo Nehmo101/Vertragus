@@ -16,7 +16,8 @@ import {
   type McpServerHandle
 } from './server'
 import { EventQueue } from './eventQueue'
-import { LEAD_TOOL_NAMES, ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
+import { BROWSER_TOOL_NAMES } from './toolsBrowser'
+import { LEAD_TOOL_NAMES, ORCHESTRATOR_TOOL_NAMES, WORKER_DOWN_TOOL_NAMES } from './toolsOrchestrator'
 import { SUBAGENT_TOOL_NAMES } from './toolsSubagent'
 import { fakeRuntime, memoryTaskBoard, type FakeAgentHost } from './testing'
 import type { WorkspaceMcpContext } from './types'
@@ -165,11 +166,33 @@ describe('startMcpServer', () => {
     await client.close()
   })
 
-  it('serves only the three subagent tools on a subagent URL', async () => {
+  it('serves reporting + helper + browser tools on a spawn-capable subagent URL', async () => {
     const registered = handle.registerWorkspace(context({ workspaceId: 'w2' }))
     const client = await connect(registered.subagentUrl('agent-1'))
     const tools = (await client.listTools()).tools.map((tool) => tool.name).sort()
-    expect(tools).toEqual([...SUBAGENT_TOOL_NAMES].sort())
+    expect(tools).toEqual(
+      [...SUBAGENT_TOOL_NAMES, ...WORKER_DOWN_TOOL_NAMES, ...BROWSER_TOOL_NAMES].sort()
+    )
+    expect(tools).toContain('start_agent')
+    expect(tools).toContain('browser_status')
+    expect(tools).not.toContain('start_orchestrator')
+    expect(tools).not.toContain('task_create')
+    await client.close()
+  })
+
+  it('does not give start_agent to a helper whose parent is already a nest', async () => {
+    const registered = handle.registerWorkspace(context({ workspaceId: 'w-helper' }))
+    registered.runtime.parentOf.set('helper-1', 'worker-1')
+    registered.runtime.nests.set('worker-1', {
+      agentId: 'worker-1',
+      area: 'helpers',
+      events: new EventQueue(),
+      maxSubagents: 3
+    })
+    const client = await connect(registered.subagentUrl('helper-1'))
+    const tools = (await client.listTools()).tools.map((tool) => tool.name).sort()
+    expect(tools).toEqual([...SUBAGENT_TOOL_NAMES, ...BROWSER_TOOL_NAMES].sort())
+    expect(tools).not.toContain('start_agent')
     await client.close()
   })
 
@@ -372,9 +395,35 @@ describe('startMcpServer', () => {
     expect(response.status).toBe(403)
   })
 
-  it('404s any path that is not /mcp', async () => {
+  it('404s any path that is not /mcp or /browser', async () => {
     const response = await fetch(`http://127.0.0.1:${handle.port}/nope`)
     expect(response.status).toBe(404)
+  })
+
+  it('serves GET /browser with the pairing token and 401s without it', async () => {
+    const token = handle.browser.status().token
+    const ok = await fetch(`http://127.0.0.1:${handle.port}/browser?token=${token}`)
+    expect(ok.status).toBe(200)
+    const body = (await ok.json()) as { ok: boolean; connected: boolean }
+    expect(body.ok).toBe(true)
+    expect(body.connected).toBe(false)
+    expect((await fetch(`http://127.0.0.1:${handle.port}/browser`)).status).toBe(401)
+  })
+
+  it('403s a chrome-extension Origin on /mcp and accepts it on /browser', async () => {
+    const registered = handle.registerWorkspace(context({ workspaceId: 'w-ext' }))
+    const mcp = await fetch(registered.orchestratorUrl, {
+      method: 'POST',
+      headers: { Origin: 'chrome-extension://abcdefghijklmnop', 'Content-Type': 'application/json' },
+      body: '{}'
+    })
+    expect(mcp.status).toBe(403)
+
+    const token = handle.browser.status().token
+    const browser = await fetch(`http://127.0.0.1:${handle.port}/browser?token=${token}`, {
+      headers: { Origin: 'chrome-extension://abcdefghijklmnop' }
+    })
+    expect(browser.status).toBe(200)
   })
 
   it('401s before it even looks at the method', async () => {

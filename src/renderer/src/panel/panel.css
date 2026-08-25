@@ -850,8 +850,8 @@
 }
 
 /* F: a lead's team indents under its lead row — flat list, no tree widget. */
-.panel-agent-line.is-child {
-  margin-left: 14px;
+.panel-agent-line.is-grandchild {
+  margin-left: 28px;
 }
 
 .panel-agent {
@@ -1214,8 +1214,20 @@
 /* D2: the card's composer. */
 .panel-composer {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin: 6px 5px 2px;
+}
+
+.panel-composer-target {
+  flex: 0 0 auto;
+  max-width: 42%;
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--text-2);
+  font: 400 11.5px var(--font-body);
 }
 
 .panel-composer .panel-answer-input {

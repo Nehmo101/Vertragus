@@ -12,6 +12,21 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **Phase H — nested workers, live steering, first-party Chromium
+  extension.** MCP workers may spawn one helper level (cap 3; helpers
+  cannot nest; lead-starts-lead stays forbidden). Helper events stay in
+  the worker's nest queue — the root's `await_events` still sees only
+  direct children. The workspace-card composer (panel and phone) can
+  address a worker, lead or helper; delivery remains `user_message` on
+  the root queue, with `relayViaAgentId` when the orchestrator cannot
+  `send_to_agent` the addressee. An unpacked Manifest V3 extension pairs
+  on loopback `/browser` so a worker can drive the user's real Chromium
+  tabs (`browser_*` tools; disconnected is a tool error). MCP
+  tool-contract version is now `1.1.0`. How-to:
+  [`docs/CHROMIUM-EXTENSION.md`](docs/CHROMIUM-EXTENSION.md). Settings →
+  Browser extension has an **Install Chromium extension** button that
+  opens `chrome://extensions` and the unpacked folder (Chromium will not
+  silent-load an unpacked MV3 from Electron).
 - **Automation band in the profile (all switches off by default):**
   - Adopt a finished agent branch without the panel click — into the
     orchestrator's worktree (`autoIntegrate`) and/or into the repository's

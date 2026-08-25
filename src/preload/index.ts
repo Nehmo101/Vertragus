@@ -6,6 +6,7 @@ import type { Zone, ZoneLayout } from '@shared/schema/zones'
 import type { ExtraMcpServer } from '@shared/schema/mcpServer'
 import type { Appearance } from '@shared/appearance'
 import type { BindOption, RemoteClientInfo, RemoteStatus } from '@shared/remote/types'
+import type { BrowserExtensionInstallResult, BrowserExtensionStatus } from '@shared/browserExtension'
 
 /** Mirrors main/appIpc.PanelMcpServer — secrets never appear here. */
 export interface PanelMcpServer {
@@ -217,7 +218,12 @@ const APP = {
   remoteClients: 'remote:clients',
   remoteRevokeClient: 'remote:revokeClient',
   remoteInterfaces: 'remote:interfaces',
-  eventRemote: 'ev:remote'
+  eventRemote: 'ev:remote',
+  browserExtensionGet: 'settings:browserExtension',
+  browserExtensionRegenerate: 'settings:browserExtensionRegenerate',
+  browserExtensionReveal: 'settings:browserExtensionReveal',
+  browserExtensionInstall: 'settings:browserExtensionInstall',
+  eventBrowserExtension: 'ev:browserExtension'
 } as const
 
 /**
@@ -581,8 +587,16 @@ const app = {
    * D2: steer a running workspace — the text shows up in the orchestrator's
    * terminal and wakes its parked await_events as a user_message event.
    */
-  sendUserMessage: (workspaceId: string, text: string): Promise<void> =>
-    ipcRenderer.invoke(APP.workspacesUserMessage, { workspaceId, text }),
+  sendUserMessage: (
+    workspaceId: string,
+    text: string,
+    targetAgentId?: string
+  ): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesUserMessage, {
+      workspaceId,
+      text,
+      ...(targetAgentId ? { targetAgentId } : {})
+    }),
   /**
    * E1 Promote — the user's explicit click: merge this agent's branch into
    * the repository's own checkout. Rejects readably on a dirty checkout or a
@@ -756,7 +770,17 @@ const app = {
   listRemoteInterfaces: (): Promise<BindOption[]> => ipcRenderer.invoke(APP.remoteInterfaces),
   /** Remote status changed — a client connected, the server started/stopped. */
   onRemote: (listener: (status: RemoteStatus) => void): (() => void) =>
-    subscribe(APP.eventRemote, listener)
+    subscribe(APP.eventRemote, listener),
+
+  getBrowserExtension: (): Promise<BrowserExtensionStatus> =>
+    ipcRenderer.invoke(APP.browserExtensionGet),
+  regenerateBrowserExtensionToken: (): Promise<BrowserExtensionStatus> =>
+    ipcRenderer.invoke(APP.browserExtensionRegenerate),
+  revealBrowserExtension: (): Promise<boolean> => ipcRenderer.invoke(APP.browserExtensionReveal),
+  installBrowserExtension: (): Promise<BrowserExtensionInstallResult> =>
+    ipcRenderer.invoke(APP.browserExtensionInstall),
+  onBrowserExtension: (listener: (status: BrowserExtensionStatus) => void): (() => void) =>
+    subscribe(APP.eventBrowserExtension, listener)
 }
 
 /**

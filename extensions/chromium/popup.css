@@ -1,0 +1,28 @@
+body {
+  font: 13px/1.4 system-ui, sans-serif;
+  margin: 12px;
+  width: 280px;
+  color: #1a1a1a;
+}
+h1 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+label,
+p {
+  display: block;
+  margin: 0 0 6px;
+}
+input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 6px;
+}
+button {
+  width: 100%;
+  padding: 6px;
+}
+.ok {
+  color: #0a7a32;
+}

@@ -112,8 +112,11 @@ Cursors an; der Ring behält die letzten 1000, das On-Disk-Journal alles.
 
 - **Steuern:** Ein Composer auf jeder Workspace-Karte (Panel und Handy)
   sendet eine `user_message`, die das `await_events` des Orchestrators sofort
-  weckt. Der Text erscheint display-only in seinem Terminal — die Zustellung
-  ist das Event, es gibt also kein zweites Hirn, das in die TUI tippt.
+  weckt. Optional adressierst du einen Worker, Lead oder Helper; der Host
+  liefert weiter auf der Root-Queue und bittet den Orchestrator um Relay,
+  wenn der Adressat kein Direktkind ist. Der Text erscheint display-only in
+  seinem Terminal — die Zustellung ist das Event, es gibt also kein zweites
+  Hirn, das in die TUI tippt.
 - **Das Ziel darf nachkommen.** Ein ohne Ziel gestarteter Lauf hat einen
   Orchestrator, der an seinem Prompt wartet — deshalb ist die Zeile „kein
   Ziel“ auf der Karte ein Feld (Panel und Handy): Der Text darin wird über
@@ -140,6 +143,11 @@ Cursors an; der Ring behält die letzten 1000, das On-Disk-Journal alles.
   für ihn unsichtbar, Leads sprechen nie miteinander, und die Agenten eines
   sterbenden Leads werden an den Root reparented (`subtree_adopted`). Der
   Host nestet nie automatisch.
+- **Worker-Helper (eine Extra-Ebene):** Ein MCP-Worker darf bis zu drei
+  Helper per `start_agent` für eine isolierte Scheibe starten. Helper-Events
+  bleiben in der Nest-Queue dieses Workers — der Orchestrator inspectet den
+  Worker, nicht die Helper. Helper dürfen nicht spawnen. Lead-startet-Lead
+  bleibt verboten.
 - **Succession:** Wenn der Kontext des Roots vollläuft, übergibt
   `request_succession` denselben Workspace — Team, Queue, offene Fragen — an
   einen Nachfolger mit frischem Kontext; der alte Orchestrator-Token wird
@@ -186,10 +194,22 @@ Dependabot erlaubt nur diese zwei Pakete (kein Automerge); PATH-`pi` ist
 der Fallback, wenn das Paket fehlt.
 
 Ein Slot kann **zusätzliche MCP-Server** deklarieren
-(`extraMcp: [{name, url}]`, z. B. ein Browser-Tool), die seine Agenten
-zusätzlich zu Vertragus anbinden — nur Subagenten, nie der Orchestrator oder
-ein Lead, und der Name `vertragus` ist reserviert, damit nichts den
-Reporting-Kanal überschatten kann.
+(`extraMcp: [{name, url}]`), die seine Agenten zusätzlich zu Vertragus
+anbinden — nur Subagenten, nie der Orchestrator oder ein Lead, und der
+Name `vertragus` ist reserviert, damit nichts den Reporting-Kanal
+überschatten kann. Extra-MCP bleibt der Pfad für einen
+Drittanbieter-Tool-Server. Das echte Chromium des Nutzers zu fahren ist
+First-Party (siehe unten).
+
+## Chromium-Erweiterung
+
+Eine ungepackte Manifest-V3-Erweiterung paired mit dem Panel, damit ein
+Worker eine laufende Web-App in den Tabs testen kann, die du schon offen
+hast. Derselbe MCP-Listener, Pfad `/browser`, Loopback-Token — kein
+zweiter MCP-Server. Worker rufen `browser_*`-Tools; eine getrennte
+Erweiterung ist ein Tool-Fehler, nie ein stilles Überspringen. Laden
+unter **Einstellungen → Browser-Erweiterung**. How-to:
+[`docs/CHROMIUM-EXTENSION.md`](docs/CHROMIUM-EXTENSION.md).
 
 ## Desktop-Feinheiten
 

@@ -8,6 +8,7 @@ import {
 } from '@shared/appearance'
 import type { PanelMcpServer, PanelSettings } from '../../../preload'
 import { RemoteSection } from './RemoteSection'
+import { BrowserExtensionSection } from './BrowserExtensionSection'
 import { normalizeMcpServerId } from '@shared/schema/mcpServer'
 import {
   draftFromServer,
@@ -420,6 +421,7 @@ export function SettingsApp(): React.JSX.Element {
 
       <div className="st-body">
         <RemoteSection />
+        <BrowserExtensionSection />
 
         <section className="st-field">
           <span className="st-label">{t('settings.agentPolicy')}</span>

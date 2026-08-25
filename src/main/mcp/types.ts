@@ -19,7 +19,7 @@
  * answers). A host must NOT duplicate MCP-tool events for an MCP-attached
  * agent, and the MCP tools must not invent PTY-sentinel events.
  */
-import type { EventQueue } from './eventQueue'
+import { EventQueue } from './eventQueue'
 import type { PendingQuestions } from './pendingQuestions'
 import type { AgentPolicy } from '@shared/agentPolicy'
 import type { ReportingMode } from '@shared/prompts/contract'
@@ -430,6 +430,20 @@ export interface BudgetFlags {
 /** F: host-enforced cap on concurrent leads (the profile may be tighter). */
 export const MAX_LEADS = 4
 
+/**
+ * How many helpers one worker may run at a time. Host-enforced so a worker
+ * that treats start_agent as a loop cannot explode the team; the global
+ * `maxSubagents` still counts every helper.
+ */
+export const MAX_HELPERS_PER_WORKER = 3
+
+/**
+ * `subtree_adopted.area` for a worker-owned nest. Leads keep the area the
+ * root passed to `start_orchestrator`; workers have no area label, and the
+ * event schema requires one.
+ */
+export const WORKER_NEST_AREA = 'helpers'
+
 /** F: one running sub-orchestrator and the state the MCP layer keeps for it. */
 export interface LeadRuntime {
   agentId: string
@@ -465,8 +479,15 @@ export interface WorkspaceRuntime {
   /** F: running leads by agentId. Empty in a flat (default) run. */
   leads: Map<string, LeadRuntime>
   /**
-   * F: which lead a subagent belongs to. No entry = direct child of the root.
-   * Leads themselves have no entry (they ARE direct children).
+   * Worker-owned subtree queues. Same shape as {@link leads} so fan-in,
+   * adoption and the journal tap stay one code path; not counted toward
+   * {@link MAX_LEADS}. Empty until a worker that may spawn first connects.
+   */
+  nests: Map<string, LeadRuntime>
+  /**
+   * F: which parent a subagent belongs to. No entry = direct child of the root.
+   * Leads themselves have no entry (they ARE direct children). A helper's
+   * parent is the worker that started it, not the lead or root.
    */
   parentOf: Map<string, string>
   /**
@@ -563,41 +584,107 @@ export function recordAssignment(runtime: WorkspaceRuntime, agentId: string, tas
 
 /**
  * F: the queue an event ABOUT this agent belongs in — its parent's. A lead's
- * child routes to the lead queue, everything else (root children and the
- * leads themselves) to the root queue. A closed lead queue (adopted subtree)
- * falls back to the root, so a late event of a dying subtree is never lost.
+ * child routes to the lead queue, a worker's helper to that worker's nest
+ * queue, everything else (root children and the leads themselves) to the
+ * root queue. A closed parent queue (adopted subtree) falls back to the
+ * root, so a late event of a dying subtree is never lost.
  */
 export function queueForAgent(runtime: WorkspaceRuntime, agentId: string): EventQueue {
   const parent = runtime.parentOf.get(agentId)
   if (parent) {
-    const lead = runtime.leads.get(parent)
-    if (lead && !lead.events.isClosed) return lead.events
+    const subtree = runtime.nests.get(parent) ?? runtime.leads.get(parent)
+    if (subtree && !subtree.events.isClosed) return subtree.events
   }
   return runtime.ctx.events
 }
 
 /**
- * F: a lead died or was stopped — reparent its still-tracked children to the
- * root and close the lead queue (releasing any parked reader). The root gets
- * ONE `subtree_adopted` event; past subtree events are not replayed (the
- * retro tap already saw them), the root inspects the adopted agents instead.
+ * True when this agent may start helpers. Direct children of the root and
+ * workers of a lead may; helpers (parent is already a worker nest) may not.
+ * Depth stays bounded without a second lead identity: lead-starts-lead is
+ * still refused by tool absence.
  */
-export function adoptSubtree(runtime: WorkspaceRuntime, leadAgentId: string): void {
-  const lead = runtime.leads.get(leadAgentId)
-  if (!lead) return
-  runtime.leads.delete(leadAgentId)
+export function canSpawnHelpers(runtime: WorkspaceRuntime, agentId: string): boolean {
+  const parent = runtime.parentOf.get(agentId)
+  if (!parent) return true
+  return runtime.leads.has(parent)
+}
+
+/**
+ * Mint (or reuse) the subtree queue a worker's `await_events` reads and its
+ * helpers' events land in. Idempotent — reconnecting must not double-tap
+ * {@link WorkspaceRuntime.onLeadCreated} (that hook also feeds the journal).
+ */
+export function ensureNest(runtime: WorkspaceRuntime, agentId: string): LeadRuntime {
+  const existing = runtime.nests.get(agentId)
+  if (existing && !existing.events.isClosed) return existing
+  const nest: LeadRuntime = {
+    agentId,
+    area: WORKER_NEST_AREA,
+    events: new EventQueue(),
+    maxSubagents: MAX_HELPERS_PER_WORKER
+  }
+  runtime.nests.set(agentId, nest)
+  attachSubtreeAdoptionTap(runtime, nest)
+  runtime.onLeadCreated?.(nest)
+  return nest
+}
+
+/**
+ * Terminal events of a subtree parent (lead or nested worker) land on THAT
+ * parent's queue only when they are about a child. The parent's own death
+ * lands on its parent's queue (root for a lead, lead/root for a worker).
+ * This tap therefore adopts when a nested *worker* dies; the root-queue tap
+ * in `server.ts` still adopts when a lead dies.
+ */
+export function attachSubtreeAdoptionTap(runtime: WorkspaceRuntime, subtree: LeadRuntime): void {
+  subtree.events.onPush((event) => {
+    if (event.type !== 'agent_exited' && event.type !== 'agent_stopped') return
+    runtime.resultSchemas.delete(event.agentId)
+    if (runtime.leads.has(event.agentId) || runtime.nests.has(event.agentId)) {
+      adoptSubtree(runtime, event.agentId)
+    }
+  })
+}
+
+/**
+ * F: a lead (or nested worker) died or was stopped — reparent its still-tracked
+ * children one level up (to the grandparent, or the root when there is none)
+ * and close the subtree queue (releasing any parked reader). When there were
+ * children, the surviving parent gets ONE `subtree_adopted` event; past
+ * subtree events are not replayed (the retro tap already saw them). An empty
+ * nest (worker never started a helper) is closed quietly.
+ */
+export function adoptSubtree(runtime: WorkspaceRuntime, parentAgentId: string): void {
+  const lead = runtime.leads.get(parentAgentId)
+  const nest = runtime.nests.get(parentAgentId)
+  const subtree = lead ?? nest
+  if (!subtree) return
+  runtime.leads.delete(parentAgentId)
+  runtime.nests.delete(parentAgentId)
+  const grandparent = runtime.parentOf.get(parentAgentId)
   const adopted: string[] = []
   for (const [child, parent] of [...runtime.parentOf]) {
-    if (parent !== leadAgentId) continue
-    runtime.parentOf.delete(child)
+    if (parent !== parentAgentId) continue
+    if (grandparent) runtime.parentOf.set(child, grandparent)
+    else runtime.parentOf.delete(child)
     adopted.push(child)
   }
-  lead.events.close()
-  if (!runtime.ctx.events.isClosed) {
-    runtime.ctx.events.push({
+  subtree.events.close()
+  // A nest is minted as soon as a spawn-capable worker connects, even if it
+  // never starts a helper. Pushing subtree_adopted for that empty death would
+  // land on the root queue as a fifth event the orchestrator did not ask for.
+  if (adopted.length === 0) return
+  const dest = grandparent
+    ? (runtime.nests.get(grandparent)?.events ??
+        runtime.leads.get(grandparent)?.events ??
+        runtime.ctx.events)
+    : runtime.ctx.events
+  if (!dest.isClosed) {
+    dest.push({
       type: 'subtree_adopted',
-      leadAgentId,
-      area: lead.area,
+      leadAgentId: parentAgentId,
+      area: subtree.area,
       adoptedAgentIds: adopted
     })
   }
@@ -649,12 +736,12 @@ export function summarizeAgents(
     .filter((agent) => inScope(runtime, agent.agentId, leadId))
     .map((agent) => {
       const open = runtime.questions.openForAgent(agent.agentId)
-      const childCount = runtime.leads.has(agent.agentId)
-        ? [...runtime.parentOf.values()].filter((parent) => parent === agent.agentId).length
-        : undefined
+      const childCount = [...runtime.parentOf.values()].filter(
+        (parent) => parent === agent.agentId
+      ).length
       return {
         ...agent,
-        ...(childCount !== undefined ? { childCount } : {}),
+        ...(runtime.leads.has(agent.agentId) || childCount > 0 ? { childCount } : {}),
         ...(open ? { pendingQuestion: open.question, pendingQuestionId: open.questionId } : {})
       }
     })

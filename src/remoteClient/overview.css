@@ -653,11 +653,15 @@
 }
 
 
-.composer {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 14px;
+.composer-target {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--hairline, rgba(255, 255, 255, 0.12));
+  background: var(--surface, transparent);
+  color: inherit;
+  font: inherit;
 }
 
 

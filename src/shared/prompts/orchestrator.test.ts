@@ -170,6 +170,15 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/vertragus start_agent/i)
   })
 
+  it('teaches live steering of running agents and one helper level under workers', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/Handle it immediately/)
+    expect(prompt).toMatch(/relayViaAgentId/)
+    expect(prompt).toMatch(/Never type the user’s words into your own prompt/)
+    expect(prompt).toMatch(/Workers you start over MCP may start helpers/)
+    expect(prompt).toMatch(/Lead-starts-lead remains forbidden/)
+  })
+
 
   it('is plain English with no German left in it', () => {
     const prompt = buildOrchestratorSystemPrompt(base)

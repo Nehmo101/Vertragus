@@ -130,11 +130,25 @@ describe('agent event schema', () => {
     ).toThrow()
   })
 
-  it('D2/D3: user_message and user_question carry no agent identity', () => {
+  it('D2/D3: user_message and user_question carry no agent identity as the sender', () => {
     expect(
       agentEventPayloadSchema.parse({ type: 'user_message', text: 'Focus on the parser.' })
     ).toMatchObject({ type: 'user_message' })
     expect(() => agentEventPayloadSchema.parse({ type: 'user_message', text: '' })).toThrow()
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'user_message',
+        text: 'Tell Colombina to run the login flow.',
+        targetAgentId: 'a1',
+        targetName: 'Colombina',
+        relayViaAgentId: 'lead-1',
+        relayViaName: 'Caronte'
+      })
+    ).toMatchObject({
+      type: 'user_message',
+      targetAgentId: 'a1',
+      relayViaAgentId: 'lead-1'
+    })
     expect(
       agentEventPayloadSchema.parse({ type: 'user_question', questionId: 'q1', question: 'Ship?' })
     ).toMatchObject({ questionId: 'q1' })

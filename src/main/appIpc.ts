@@ -411,8 +411,14 @@ export interface WorkspaceDirectory {
   /**
    * D2: steer the run — the text appears in the orchestrator's terminal and
    * lands as a `user_message` event that wakes its parked `await_events`.
+   * `targetAgentId` is an optional addressee among the team; the host still
+   * delivers on the root queue (no peer-to-peer).
    */
-  postUserMessage(workspaceId: string, text: string): void | Promise<unknown>
+  postUserMessage(
+    workspaceId: string,
+    text: string,
+    targetAgentId?: string
+  ): void | Promise<unknown>
   /**
    * E1 Promote — the user's explicit click: merge this agent's branch into
    * the repository's own checkout. Must reject with a readable message on a
@@ -1511,10 +1517,15 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   })
 
   handle(APP_CHANNELS.workspacesUserMessage, requirePanel, async (_event, payload) => {
-    const body = (payload ?? {}) as { workspaceId?: string; text?: string }
+    const body = (payload ?? {}) as { workspaceId?: string; text?: string; targetAgentId?: string }
     if (!body.workspaceId) throw new Error('workspaces:userMessage rejected — missing workspace id')
     if (!body.text?.trim()) throw new Error('workspaces:userMessage rejected — missing text')
-    await host.directory.postUserMessage(body.workspaceId, body.text.trim())
+    const target = typeof body.targetAgentId === 'string' ? body.targetAgentId.trim() : ''
+    await host.directory.postUserMessage(
+      body.workspaceId,
+      body.text.trim(),
+      target.length > 0 ? target : undefined
+    )
   })
 
   handle(APP_CHANNELS.workspacesPromoteAgent, requirePanel, async (_event, payload) => {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CONTRACT_MARKER, HANDOFF_MARKER } from '@shared/prompts/contract'
-import { ORCHESTRATOR_TOOL_NAMES, registerOrchestratorTools } from './toolsOrchestrator'
+import { EventQueue } from './eventQueue'
+import { ORCHESTRATOR_TOOL_NAMES, WORKER_DOWN_TOOL_NAMES, registerOrchestratorTools } from './toolsOrchestrator'
 import { adoptSubtree, queueForAgent } from './types'
 import { callTool, captureTools, FakeAgentHost, fakeRuntime } from './testing'
 
@@ -146,6 +147,20 @@ describe('start_agent', () => {
     plain.runtime.ctx.agentPolicy = 'ask-user'
     await callTool(plain.tools, 'start_agent', { role: 'worker', task: 't' })
     expect(plain.runtime.host.seeded[0]!.task).not.toContain('approval')
+  })
+
+  it('teaches MCP workers they MAY start helpers; a worker nest does not', async () => {
+    const { runtime, tools } = setup()
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(runtime.host.seeded[0]!.task).toMatch(/MAY start_agent a helper/)
+
+    const nestTools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId: 'worker-1', nest: 'worker' })
+    )
+    await callTool(nestTools, 'start_agent', { role: 'worker', task: 'slice' })
+    const helperSeed = runtime.host.seeded.at(-1)!.task
+    expect(helperSeed).toContain('Do the work yourself. Read the repository')
+    expect(helperSeed).not.toMatch(/MAY start_agent a helper/)
   })
 
   it('passes the model through and reports the agent’s own worktree and branch back', async () => {
@@ -1313,6 +1328,91 @@ describe('multi-orchestration — F', () => {
     // Adopting twice is a no-op.
     adoptSubtree(runtime, leadId)
     expect(runtime.events.all().filter((event) => event.type === 'subtree_adopted')).toHaveLength(1)
+  })
+
+  it('a worker nest registers the downward subset, no board, no start_orchestrator', () => {
+    const runtime = fakeRuntime()
+    const tools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId: 'worker-1', nest: 'worker' })
+    )
+    expect([...tools.keys()].sort()).toEqual([...WORKER_DOWN_TOOL_NAMES].sort())
+    expect(tools.has('start_orchestrator')).toBe(false)
+    expect(tools.has('task_create')).toBe(false)
+    expect(tools.has('ask_user')).toBe(false)
+    expect(runtime.nests.has('worker-1')).toBe(true)
+  })
+
+  it('does not touch the orchestrator idle watchdog', async () => {
+    const runtime = fakeRuntime()
+    let touches = 0
+    runtime.onOrchestratorToolCall = () => {
+      touches += 1
+    }
+    const tools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId: 'worker-1', nest: 'worker' })
+    )
+    await callTool(tools, 'list_agents')
+    expect(touches).toBe(0)
+  })
+
+  it('caps helpers per worker and fans their events into the nest queue', async () => {
+    const runtime = fakeRuntime()
+    const tools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId: 'worker-1', nest: 'worker' })
+    )
+    const first = await callTool(tools, 'start_agent', { role: 'worker', task: 'a' })
+    const second = await callTool(tools, 'start_agent', { role: 'worker', task: 'b' })
+    const third = await callTool(tools, 'start_agent', { role: 'worker', task: 'c' })
+    expect(first.isError).toBe(false)
+    expect(second.isError).toBe(false)
+    expect(third.isError).toBe(false)
+    const over = await callTool(tools, 'start_agent', { role: 'worker', task: 'd' })
+    expect(over.isError).toBe(true)
+    expect(over.json).toMatchObject({ error: 'limit_exceeded', scope: 'helpers', max: 3 })
+
+    const helperId = String(first.json.agentId)
+    expect(runtime.parentOf.get(helperId)).toBe('worker-1')
+    const nest = runtime.nests.get('worker-1')!
+    expect(queueForAgent(runtime, helperId)).toBe(nest.events)
+    await vi.waitFor(() => {
+      expect(nest.events.all().some((event) => event.type === 'agent_started' && event.agentId === helperId)).toBe(
+        true
+      )
+    })
+    expect(runtime.events.all().some((event) => event.type === 'agent_started' && event.agentId === helperId)).toBe(
+      false
+    )
+  })
+
+  it('refuses start_agent when the caller cannot spawn helpers', async () => {
+    const runtime = fakeRuntime()
+    runtime.parentOf.set('helper-1', 'worker-1')
+    runtime.nests.set('worker-1', {
+      agentId: 'worker-1',
+      area: 'helpers',
+      events: new EventQueue(),
+      maxSubagents: 3
+    })
+    const tools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId: 'helper-1', nest: 'worker' })
+    )
+    const refused = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(refused.isError).toBe(true)
+    expect(refused.json.error).toBe('nest_depth')
+  })
+
+  it('refuses taskId on a worker nest', async () => {
+    const runtime = fakeRuntime()
+    const tools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId: 'worker-1', nest: 'worker' })
+    )
+    const refused = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      taskId: 'task-1'
+    })
+    expect(refused.isError).toBe(true)
+    expect(refused.json.error).toBe('helpers_have_no_board')
   })
 })
 

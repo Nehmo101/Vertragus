@@ -55,6 +55,7 @@ Remote-Server.
 | D Mensch im Loop | **D1–D4 umgesetzt** (Track 3 + Follow-up) — Goal-UI, `user_message` weckt `await_events`, `ask_user` mit Ticket; D4 Stufen `yolo`/`ask-user`/`ask-orchestrator` (Store-Spiegel zu `yoloMaster`, Contract-Approval-Regel, Threat-Model im README) |
 | E integrate / briefing / eval | **Kern umgesetzt** (Track 6) — `integrate_branch` + Gate-Warnung + Promote-Klick, Briefing + `repoNotes`, Journal + Resume (E3, Briefing statt Re-Spawn), Budget-Wanduhr, Janitor/Explorer, Playbooks, Extra-MCP an Worker (E6), Loop-Eval (E5, `tests/integration/loopEval`) — Phase E vollständig |
 | F Multi-Orch (Lead, Tiefe 1) | **umgesetzt** (Track 5) — dritte Identität `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder, Reparent (`subtree_adopted`), Caps host-seitig |
+| H Nested Worker / Live-Steer / Browser | **umgesetzt** — Worker dürfen eine Helper-Ebene spawnen; Composer-Targeting auf `user_message`; First-Party `/browser`-Loopback (kein zweiter MCP) |
 
 ---
 
@@ -442,7 +443,9 @@ Zones), konfiguriert wird per Profil-JSON.
 
 Playbook = Goal-Template, kein vorstartetes Team. Extra-MCP nur an
 Worker (`mcp/attach.ts` kennt die Dialekte). Templates Janitor/Explorer,
-keine neuen Mechaniken. Browser erst mit Extra-MCP.
+keine neuen Mechaniken. Ein Drittanbieter-Browser-MCP hängt weiter über
+Extra-MCP; die First-Party Chromium-Erweiterung ist Phase H (`browser_*`
+auf der Worker-Identität, derselbe Listener).
 
 Cockpit-Trace (Goal, porcelain-Dot, letzte Events) fällt zum großen Teil
 als Ableitung aus C2 + A3.1-Feed ab — Panel und Remote-Client können
@@ -656,8 +659,12 @@ gerade Lifecycle und Tokens anfasst.
   per Tool, Default flach
 - Automatische Succession aus geratenen Token-Zählern (C6 ist Self-Declare
   + optional User-Button, kein Host-Ratespiel)
-- Tiefe > 1 (Lead startet Lead)
-- Enkel-Events in der Root-`await_events`-Queue
+- Tiefe > 1 (Lead startet Lead). Worker dürfen **eine** Helper-Ebene
+  spawnen; Helper dürfen nicht spawnen. Das ist keine zweite Lead-Identität.
+- Enkel-Events in der Root-`await_events`-Queue (Helper-Events landen in
+  der Nest-Queue des Workers, nie im Root-Feed)
+- Ein zweiter MCP-Server zum Steuern des Browsers (die Erweiterung paired
+  auf `/browser` des bestehenden Loopback-Listeners)
 - `read_output` als Verifikation
 - **Remote als zweiten MCP-Server oder Spiegel aller APP_CHANNELS**
   (BigBoy-Allow-List ist die richtige Grenze)
@@ -759,6 +766,75 @@ institutionelle Gedächtnis zum Nachschlagen — ergänzt Retro-Learnings
 Offen aus dem Plan: Loop-Eval-Szenarien für G3/G4 (Schema-Tester,
 Zwei-Task-Board mit Succession) — Unit-/Integrationstests decken die
 Pfade, das End-to-End-Szenario ist Folgearbeit.
+
+## Phase H — Nested Worker, Live-Steering, First-Party-Browser: umgesetzt
+
+Drei Produktkanten im bestehenden Harness: Worker dürfen eine Scheibe
+auslagern, der Mensch kann nach der Delegation weiter mit dem
+Orchestrator sprechen, und ein Worker kann das echte Chromium des
+Nutzers fahren. Keines davon ist ein zweites Produkt. Lead-startet-Lead
+bleibt verboten. Fan-in ist unverändert: `await_events` des Roots sieht
+weiter **nur Direktkinder**.
+
+### H.1 Nested Worker (eine Helper-Ebene)
+
+Ein Worker, der **nesten darf**, ist ein Direktkind des Roots oder ein
+Worker, dessen Parent ein Lead ist. Ein Helper (Parent besitzt bereits
+ein Worker-Nest) darf nicht spawnen. Host-Gate: `canSpawnHelpers` in
+`mcp/types.ts`.
+
+Das Nest verwendet die Lead-Runtime-Form (`EventQueue`, Teilbudget)
+unter `runtime.nests`, nicht `runtime.leads` — es zählt **nicht** gegen
+`MAX_LEADS`. Cap: `MAX_HELPERS_PER_WORKER = 3`; das Profil-
+`maxSubagents` zählt jeden Helper weiter.
+
+Beim Connect bekommt ein nest-fähiger Worker die Reporting-Tools plus
+die Downward-Teilmenge (`WORKER_DOWN_TOOL_NAMES`: start/send/await/list/
+stop/read/inspect/integrate) und `browser_*`. Er bekommt **kein**
+`task_*`, `ask_user`, `start_orchestrator` und keinen Idle-Watchdog.
+`start_agent` auf einem Nest lehnt `taskId` ab (`helpers_have_no_board`).
+MCP-Worker, die Root oder Lead starten, bekommen `helpers: true` im
+Contract; Sentinel-Worker nicht (keine MCP-Tools zum Nesten).
+
+Helper-Events gehen über `queueForAgent` in die Nest-Queue des Workers.
+Root und Lead sehen weiter nur ihre eigenen Direktkinder. Tod des
+Nest-Owners reparented eine Stufe nach oben (`adoptSubtree`, wie ein
+Lead).
+
+### H.2 Live-Steering (Composer-Targeting)
+
+Der Composer existierte schon (D2). Das Upgrade ist ein optionaler
+**Adressat**. Zustellung bleibt ein Host-Pfad: `user_message` auf der
+**Root**-Queue, das weckt ein geparktes `await_events`. Der Host
+schreibt vom Composer nie in eine Nest- oder Lead-Queue — das wäre
+Skip-Level / ein zweites Hirn.
+
+`resolveUserMessageTarget`: leer / Orchestrator-Id = untargeted (der
+Orchestrator behandelt es). Ein Root-Level-Kind ist nur
+`targetAgentId`. Ein Helper (oder ein Lead-Worker, der kein Root-Kind
+ist) setzt zusätzlich `relayViaAgentId` auf den **Root-Level**-Ahn,
+damit der Orchestrator ein Kind `send_to_agent` kann, das er wirklich
+adressiert, und es bittet, den Text weiterzugeben. Panel und Handy
+zeigen beide das Select. Display-only-Prefix in der Orchestrator-TUI:
+`User (via Vertragus) → Name: text`. Nicht in die Orchestrator-PTY
+tippen, während `await_events` geparkt ist.
+
+### H.3 First-Party Chromium-Erweiterung
+
+Kein Extra-MCP. Derselbe HTTP-Listener wie `/mcp`, Pfad `/browser`,
+Loopback-Token. Origins `chrome-extension:` / `moz-extension:` werden
+**nur** auf diesem Pfad akzeptiert. Worker (und Helper) bekommen
+`browser_status`, `browser_tabs`, `navigate`, `snapshot`, `click`,
+`fill`, `press`, `screenshot`. Eine getrennte Erweiterung ist
+`browser_disconnected`, nie ein stilles No-Op. Orchestratoren und Leads
+bekommen die Tools nicht — sie delegieren.
+
+Unpacked MV3 in `extensions/chromium/`; packaged als extraResources
+`chromium-extension`. Settings hat einen Button **Chromium-Erweiterung
+installieren**, der `chrome://extensions` und den entpackten Ordner
+öffnet und die Pairing-URL kopiert. How-to:
+[`CHROMIUM-EXTENSION.md`](./CHROMIUM-EXTENSION.md). MCP-Tool-Contract-
+Version auf `1.1.0` angehoben.
 
 ## Phase H — Pi-Harness-Wrap: umgesetzt
 
@@ -888,4 +964,7 @@ gemergt hat.
 | Worker „nie committen” + Host-Snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, Handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` „Cursor hat kein agent_done“ | veraltet (`none` = Ollama) | ignorieren |
 | Automatisierung: Übernahme ohne Klick, Pull Request des Laufs | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest`, `agents/pullRequest.ts` | **A3** |
+| Worker-Helper (eine Extra-Ebene) | `types.ts` `canSpawnHelpers` / `ensureNest` / `MAX_HELPERS_PER_WORKER` | **Phase H** |
+| Live-`user_message`-Targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
+| Chromium-`/browser`-Bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
 | Pi-Harness-Wrap (kein siebter Provider) | `agents/piHarness.ts`, `spawn.ts`-Overlay, `.pi/mcp.json`, Setting `piHarnessEnabled`, Lockfile-Pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |

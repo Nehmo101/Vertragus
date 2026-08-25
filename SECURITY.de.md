@@ -79,6 +79,17 @@ separater Token-Domäne — Fernzugriff weitet ihn nie aus. Token-tragende
 MCP-Config-Dateien bleiben aus deiner Git-Historie heraus
 (`.git/info/exclude`; Codex nutzt prozesslokale Overrides).
 
+### Chromium-Erweiterung
+
+Die First-Party-Erweiterung fährt **dein** echtes Chromium im Auftrag
+eines Workers. Derselbe Loopback-Listener wie MCP, anderer Pfad
+(`/browser`) und ein eigener Pairing-Token. `chrome-extension:`-Origins
+werden nur auf diesem Pfad akzeptiert. Ein Yolo-Worker kann klicken,
+tippen und jeden Tab screenshotten, den die Erweiterung sieht — nur
+pairen, während du den Lauf beobachtest, und den Token in Settings
+rotieren, wenn du fertig bist. Das ist kein Extra-MCP und kein zweiter
+MCP-Server. How-to: [`docs/CHROMIUM-EXTENSION.md`](docs/CHROMIUM-EXTENSION.md).
+
 ### Git-Wirkradius
 
 Agenten arbeiten in Per-Agent-Worktrees auf `vertragus/*`-Branches; nichts

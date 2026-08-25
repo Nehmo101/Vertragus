@@ -5,7 +5,17 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   {
-    ignores: ['node_modules/**', 'out/**', 'release/**', 'dist/**', '**/dist/**', 'coverage/**']
+    ignores: [
+      'node_modules/**',
+      'out/**',
+      'release/**',
+      'dist/**',
+      '**/dist/**',
+      'coverage/**',
+      // MV3 extension: plain JS with the `chrome` global, guarded by
+      // scripts/chromiumExtension.test.ts rather than this TypeScript config.
+      'extensions/**'
+    ]
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

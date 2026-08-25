@@ -199,7 +199,12 @@ export const appSettingsSchema = z
      * Preprocess drops a bad row so one hand-edited entry cannot reset the
      * rest of settings; {@link setSetting} still validates strictly on write.
      */
-    mcpServers: z.preprocess(parseExtraMcpServers, z.array(extraMcpServerSchema))
+    mcpServers: z.preprocess(parseExtraMcpServers, z.array(extraMcpServerSchema)),
+    /**
+     * Pairing token for the first-party Chromium extension (`/browser`).
+     * Not user-writable through `settings:set` — rotation is its own IPC.
+     */
+    browserExtensionToken: z.string().min(16).max(128).optional()
   })
   .strict()
 export type AppSettings = z.infer<typeof appSettingsSchema>
@@ -218,7 +223,8 @@ export const SETTINGS_KEYS = [
   'updateChannel',
   'modelMemory',
   'voice',
-  'mcpServers'
+  'mcpServers',
+  'browserExtensionToken'
 ] as const
 
 /**

@@ -25,7 +25,11 @@ import {
   errorMessage,
   inScope,
   INSPECT_VIEWS,
+  MAX_HELPERS_PER_WORKER,
   MAX_LEADS,
+  attachSubtreeAdoptionTap,
+  canSpawnHelpers,
+  ensureNest,
   queueForAgent,
   recordAssignment,
   runningAgents,
@@ -90,6 +94,24 @@ export const LEAD_TOOL_NAMES = [
 ] as const
 
 export type LeadToolName = (typeof LEAD_TOOL_NAMES)[number]
+
+/**
+ * Downward tools a worker that may spawn helpers gets — the lead subset minus
+ * the shared task board (the board stays root/lead territory). Upward tools
+ * stay on {@link SUBAGENT_TOOL_NAMES}; browser tools are registered separately.
+ */
+export const WORKER_DOWN_TOOL_NAMES = [
+  'start_agent',
+  'send_to_agent',
+  'await_events',
+  'list_agents',
+  'stop_agent',
+  'read_output',
+  'inspect_agent',
+  'integrate_branch'
+] as const
+
+export type WorkerDownToolName = (typeof WORKER_DOWN_TOOL_NAMES)[number]
 
 /** Long-poll defaults for `await_events`, kept under the 60 s MCP timeout. */
 export const AWAIT_TIMEOUT_DEFAULT_SEC = 50
@@ -184,18 +206,22 @@ function withOrchestratorTouch(
 /**
  * Register the orchestration tools. Without `scope` this is the ROOT: all eleven
  * tools, reading the root queue, its direct children (leads included) in
- * view. With `scope` it is a LEAD (F): the downward subset only, its own
- * queue, and every agent-addressing tool fenced to its own subtree — a lead
- * can neither reach a sibling's workers nor the root's.
+ * view. With `scope` it is a LEAD (F) or a nested WORKER: the downward subset
+ * only, its own queue, and every agent-addressing tool fenced to its own
+ * subtree. A worker scope additionally drops the task board and the idle
+ * watchdog (those belong to the root loop).
  */
 export function registerOrchestratorTools(
   rawServer: McpServer,
   runtime: WorkspaceRuntime,
-  scope?: { leadId: string }
+  scope?: { leadId: string; nest?: 'worker' }
 ): void {
   const { ctx } = runtime
-  const server = withOrchestratorTouch(rawServer, runtime)
+  const server =
+    scope?.nest === 'worker' ? rawServer : withOrchestratorTouch(rawServer, runtime)
   const leadId = scope?.leadId
+  const workerNest = scope?.nest === 'worker'
+  if (workerNest && leadId) ensureNest(runtime, leadId)
 
   // The long-poll window is resolved ONCE, at registration: the schema's `max`
   // and its description are baked into the tool definition the model sees, so
@@ -214,9 +240,12 @@ export function registerOrchestratorTools(
   const successionGate = (): ToolText | undefined =>
     leadId ? undefined : successionBlock(runtime)
 
-  /** The caller's own event queue: the lead's, or the workspace root queue. */
-  const ownQueue = (): EventQueue =>
-    (leadId ? runtime.leads.get(leadId)?.events : undefined) ?? ctx.events
+  /** The caller's own event queue: the lead's, a worker nest, or the workspace root queue. */
+  const ownQueue = (): EventQueue => {
+    if (!leadId) return ctx.events
+    if (workerNest) return ensureNest(runtime, leadId).events
+    return runtime.leads.get(leadId)?.events ?? ctx.events
+  }
 
   /**
    * E4: the wall-clock budget. Threshold events fire exactly once (80% and
@@ -466,6 +495,12 @@ export function registerOrchestratorTools(
       }
       const overBudget = budgetGate()
       if (overBudget) return overBudget
+      if (workerNest && taskId) {
+        return toolError({
+          error: 'helpers_have_no_board',
+          note: 'Helpers are not assigned from the shared task board. Put the assignment in task.'
+        })
+      }
 
       // Race-free without locks: `listAgents()` already counts reservations
       // (status `starting`), and nothing between this check and `beginAgent`
@@ -496,16 +531,26 @@ export function registerOrchestratorTools(
       }
       // F: a lead also stays inside the subtree budget the root handed down.
       if (leadId) {
-        const budget = runtime.leads.get(leadId)?.maxSubagents
+        const budget = workerNest
+          ? MAX_HELPERS_PER_WORKER
+          : runtime.leads.get(leadId)?.maxSubagents
         const mine = running.filter((agent) => inScope(runtime, agent.agentId, leadId)).length
         if (budget !== undefined && mine >= budget) {
           return toolError({
             error: 'limit_exceeded',
-            scope: 'subtree',
+            scope: workerNest ? 'helpers' : 'subtree',
             role,
             running: mine,
             max: budget,
-            note: 'Your subtree is at the budget your orchestrator gave you. Stop one of your agents first, or report the constraint upward.'
+            note: workerNest
+              ? 'You are at the helper cap. Stop one of your helpers first, or finish the slice yourself.'
+              : 'Your subtree is at the budget your orchestrator gave you. Stop one of your agents first, or report the constraint upward.'
+          })
+        }
+        if (workerNest && !canSpawnHelpers(runtime, leadId)) {
+          return toolError({
+            error: 'nest_depth',
+            note: 'Helpers cannot start further helpers. Do the work yourself or ask your parent.'
           })
         }
       }
@@ -551,7 +596,10 @@ export function registerOrchestratorTools(
           note: 'Drop resultSchema for this role and call start_agent again — nothing was started.'
         })
       }
-      const handoff = baseBranch ? handoffFor(ctx.events, baseBranch) : undefined
+      const handoff = baseBranch
+        ? (handoffFor(ownQueue(), baseBranch) ??
+          (ownQueue() === ctx.events ? undefined : handoffFor(ctx.events, baseBranch)))
+        : undefined
       // D4: under `ask-orchestrator` the contract carries the approval rule —
       // the CLI still runs yolo (nobody watches a subagent terminal), so the
       // contract is where the gate lives.
@@ -559,7 +607,11 @@ export function registerOrchestratorTools(
         role,
         reporting,
         ...(ctx.agentPolicy === 'ask-orchestrator' ? { approvals: 'ask-orchestrator' as const } : {}),
-        ...(vettedSchema ? { resultSchema: vettedSchema } : {})
+        ...(vettedSchema ? { resultSchema: vettedSchema } : {}),
+        // Root and leads start workers that MAY spawn helpers; a worker's
+        // own start_agent starts a helper that cannot nest further. Unset
+        // keeps the historical contract byte-identical for tests that omit it.
+        ...(reporting === 'mcp' && !workerNest ? { helpers: true } : {})
       })
       // S4: the claimed task rides into the seed as host truth — subject and
       // description straight from the board, before the contract.
@@ -1135,6 +1187,7 @@ export function registerOrchestratorTools(
         ...(maxSubagents !== undefined ? { maxSubagents } : {})
       }
       runtime.leads.set(started.agentId, lead)
+      attachSubtreeAdoptionTap(runtime, lead)
       runtime.onLeadCreated?.(lead)
       recordAssignment(runtime, started.agentId, task)
       started.ready.then(
@@ -1446,7 +1499,9 @@ export function registerOrchestratorTools(
   // S4: the task board — the shared plan of root and leads, host state that
   // survives succession and resume. Three tools, no task_get (task_list is
   // small enough). delete/reassign are root-only; owners are fenced like
-  // agents (a lead assigns only into its own subtree).
+  // agents (a lead assigns only into its own subtree). Workers that nest
+  // coordinate helpers through start_agent / await_events, not the board.
+  if (!workerNest) {
   server.registerTool(
     'task_create',
     {
@@ -1573,6 +1628,7 @@ export function registerOrchestratorTools(
       return toolJson({ tasks: tasks.map((task) => taskRow(board, task)) })
     }
   )
+  }
 
   // C6 root-only: a lead never replaces the root orchestrator, and depth
   // stays 1 — succession is serial replacement of the ROOT, nothing else.

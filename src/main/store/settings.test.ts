@@ -490,6 +490,7 @@ describe('app settings', () => {
     }
     expect(Object.keys(appSettingsSchema.shape).sort()).toEqual([...SETTINGS_KEYS].sort())
     expect(SETTINGS_KEYS).toContain('mcpServers')
+    expect(SETTINGS_KEYS).toContain('browserExtensionToken')
   })
 
   it('round-trips extra MCP servers', () => {

@@ -112,3 +112,10 @@ linux:
   category: Development
   maintainer: Nehmo101
   artifactName: ${productName}-${version}.${ext}
+
+# Unpacked Chromium extension: Settings → Browser extension → Load unpacked.
+# Packaged as extraResources so a installed build can reveal the folder.
+extraResources:
+  - from: extensions/chromium
+    to: chromium-extension
+

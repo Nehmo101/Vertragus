@@ -478,8 +478,14 @@
   transition: filter 0.18s ease;
 }
 
-.st-primary:hover {
+.st-primary:hover:not(:disabled) {
   filter: brightness(1.08);
+}
+
+.st-primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+  filter: none;
 }
 
 /* --- footer -------------------------------------------------------------- */
