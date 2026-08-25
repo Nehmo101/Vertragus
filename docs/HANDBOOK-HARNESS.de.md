@@ -884,17 +884,23 @@ dokumentiert, nicht übertüncht.
 Produktionsabhängigkeiten (derselbe Paketname, den der Adapter importiert
 — auf dem veralteten `@mariozechner/pi-coding-agent` 0.73.1 scheiterte
 `-e` beim Laden und Pi machte `process.exit(1)` vor `session_start`).
-Spawn startet Electron als Node auf dem Paket-`bin.pi` (`dist/cli.js`),
-mit `ELECTRON_RUN_AS_NODE=1` und einem Node-`-r`-Preload, das
-`stdin`/`stdout`/`stderr`.isTTY setzt, damit Pi unter Electron-as-node
-nicht in den Print-Modus geht. `-e` lädt das installierte
+Spawn startet Electron als Node auf einem CJS-Entrypoint, der TTY
+polyfillt und dann das Paket-`bin.pi` (`dist/cli.js`) importiert, mit
+`ELECTRON_RUN_AS_NODE=1`. Pi 0.84 behandelt `-r` als `--resume`, deshalb
+ist der Entrypoint das *Skript* (argv[1]) und kein Node-`-r` vor der CLI
+— wenn Electron `-r` nicht konsumiert, bleibt der Print-Modus an, und ein
+nachgestelltes Play-Ziel plus fehlender Pi-API-Key ist `process.exit(1)`.
+Der Polyfill setzt `stdin`/`stdout`/`stderr`.isTTY (und ein
+`setRawMode`-Stub, wenn der Stream keines hat). `-e` lädt das installierte
 Adapter-Verzeichnis (versioniertes `npm:pi-mcp-adapter@x.y.z`, wenn das
 Paket fehlt). PATH-`pi` bleibt der Fallback, wenn die CLI nicht auf der
-Platte liegt (kein Preload, kein `RUN_AS_NODE`).
+Platte liegt (kein Entrypoint, kein `RUN_AS_NODE`).
 `.github/dependabot.yml` erlaubt nur diese zwei Namen, gruppiert als
 `pi-harness`, wöchentlich, kein Automerge — Overlay-Flags sind ein
-Vertrag. CLI, Photon-WASM, der MCP-Adapter und die nativen Keyring-Bäume
-werden ausgepackt (`asarUnpack` in `electron-builder.yml`). Universal-macOS
+Vertrag. CLI, Photon-WASM, der MCP-Adapter, die nativen Keyring-Bäume
+und die unscoped `typebox`/`jiti` der CLI (der Extension-Loader
+`require.resolve`t sie aus dem ausgepackten `loader.js`) werden
+ausgepackt (`asarUnpack` in `electron-builder.yml`). Universal-macOS
 setzt `mac.x64ArchFiles` auf `**/node_modules/**`: die
 architektur-spezifischen optionalen `.node`-Dateien (Clipboard, koffi,
 Keyring, node-pty) sind in beiden Temp-Apps bytegleich, und

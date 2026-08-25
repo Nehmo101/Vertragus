@@ -11,9 +11,11 @@
  *   1. package.json pins exactly those two production deps by name.
  *   2. .github/dependabot.yml allow-lists only those names, grouped, with
  *      no automerge.
- *   3. electron-builder.yml unpacks the trees native/WASM load from, covers
- *      all of node_modules in mac.x64ArchFiles (unscoped addons like koffi),
- *      and keeps mergeASARs off (Pi unpack trees overflow the asar glob).
+ *   3. electron-builder.yml unpacks the trees native/WASM load from, plus
+ *      unscoped `typebox` / `jiti` the extension loader require.resolve()s,
+ *      covers all of node_modules in mac.x64ArchFiles (unscoped addons like
+ *      koffi), and keeps mergeASARs off (Pi unpack trees overflow the asar
+ *      glob).
  *   4. The installed adapter imports the same CLI package we spawn (a
  *      name mismatch is process.exit(1) at extension load).
  *
@@ -105,13 +107,15 @@ describe('Dependabot allow-list', () => {
 describe('electron-builder asarUnpack', () => {
   const source = readFileSync(ELECTRON_BUILDER, 'utf8')
 
-  it('unpacks the Pi CLI, photon, the adapter, and native keyring', () => {
+  it('unpacks the Pi CLI, photon, the adapter, native keyring, and the unscoped jiti/typebox trees', () => {
     expect(source).toMatch(/asarUnpack:/)
     expect(source).toContain('@earendil-works/**')
     expect(source).toContain('@mariozechner/**')
     expect(source).toContain('@silvia-odwyer/photon-node')
     expect(source).toContain('pi-mcp-adapter/**')
     expect(source).toContain('@napi-rs/**')
+    expect(source).toContain('typebox/**')
+    expect(source).toContain('jiti/**')
   })
 
   it('covers all of node_modules in x64ArchFiles, including unscoped addons like koffi', () => {
@@ -151,6 +155,8 @@ describe('the scanners themselves', () => {
     expect(builder.indexOf('asarUnpack:'), 'asarUnpack key vanished').toBeGreaterThanOrEqual(0)
     expect(builder).toMatch(/node_modules\/@earendil-works/)
     expect(builder).toMatch(/node_modules\/@mariozechner/)
+    expect(builder).toMatch(/node_modules\/typebox/)
+    expect(builder).toMatch(/node_modules\/jiti/)
   })
 
   it('still matches the adapter import it polices', () => {

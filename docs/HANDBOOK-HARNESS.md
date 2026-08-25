@@ -872,15 +872,20 @@ documented, not papered over.
 dependencies (the same package name the adapter imports — staying on the
 deprecated `@mariozechner/pi-coding-agent` 0.73.1 made `-e` fail at
 extension load and Pi `process.exit(1)` before `session_start`). Spawn
-runs Electron as Node on the package `bin.pi` (`dist/cli.js`), with
-`ELECTRON_RUN_AS_NODE=1` and a Node `-r` preload that sets
-`stdin`/`stdout`/`stderr`.isTTY so Pi does not pick print mode under
-Electron-as-node. `-e` loads the installed adapter directory (versioned
-`npm:pi-mcp-adapter@x.y.z` if the package is missing). PATH `pi` remains
-the fallback when the CLI is not on disk (no preload, no `RUN_AS_NODE`).
-`.github/dependabot.yml` allow-lists only those two names, grouped as
-`pi-harness`, weekly, no automerge — overlay flags are a contract. The CLI,
-photon WASM, the MCP adapter, and native keyring trees are unpacked
+runs Electron as Node on a CJS entry that polyfills TTY then imports
+the package `bin.pi` (`dist/cli.js`), with `ELECTRON_RUN_AS_NODE=1`.
+Pi 0.84 treats `-r` as `--resume`, so the entry is the *script* (argv[1]),
+not a Node `-r` in front of the CLI — if Electron does not consume `-r`,
+print mode stays on and a trailing Play goal plus no Pi API key is
+`process.exit(1)`. The polyfill sets `stdin`/`stdout`/`stderr`.isTTY
+(and a `setRawMode` stub when the stream has none). `-e` loads the installed
+adapter directory (versioned `npm:pi-mcp-adapter@x.y.z` if the package is
+missing). PATH `pi` remains the fallback when the CLI is not on disk (no
+entry, no `RUN_AS_NODE`). `.github/dependabot.yml` allow-lists only those
+two names, grouped as `pi-harness`, weekly, no automerge — overlay flags
+are a contract. The CLI, photon WASM, the MCP adapter, native keyring
+trees, and the CLI's unscoped `typebox` / `jiti` (the extension loader
+`require.resolve`s them from unpacked `loader.js`) are unpacked
 (`asarUnpack` in `electron-builder.yml`). Universal macOS sets
 `mac.x64ArchFiles` to `**/node_modules/**`: per-arch optional `.node` files
 (clipboard, koffi, keyring, node-pty) are byte-identical across the two

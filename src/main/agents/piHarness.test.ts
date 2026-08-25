@@ -1,9 +1,13 @@
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { PtyAgent } from './PtyAgent'
 import { PROVIDER_PRESET_IDS } from '@shared/schema/provider'
 import {
+  PI_CLI_ENTRY_FILE,
   PI_CODING_AGENT_PACKAGE,
   PI_HARNESS_COMMAND,
   PI_MCP_ADAPTER_EXTENSION,
@@ -12,14 +16,85 @@ import {
   PI_TTY_PRELOAD_FILE,
   PI_TTY_PRELOAD_SOURCE,
   buildPiHarnessArgv,
+  piCliEntrySource,
   piHarnessEnv,
   piMcpAdapterExtension,
   piProviderFor,
   piThinkingFor,
   preferAsarUnpacked,
   resolvePiHarnessCli,
+  writePiCliEntry,
   writePiTtyPreload
 } from './piHarness'
+
+const requireFromHere = createRequire(import.meta.url)
+
+/** Real Electron binary — not `process.execPath` (Node in vitest) and not the `electron` npm export under `ELECTRON_OVERRIDE_DIST_PATH`. */
+function resolveElectronBinary(): string {
+  const pkg = dirname(requireFromHere.resolve('electron/package.json'))
+  const binary = join(pkg, 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron')
+  if (!existsSync(binary)) {
+    throw new Error(`Electron binary missing at ${binary}`)
+  }
+  return binary
+}
+
+function wrapCwdWithPiMcp(): string {
+  const cwd = mkdtempSync(join(tmpdir(), 'vertragus-pi-cwd-'))
+  mkdirSync(join(cwd, '.pi'), { recursive: true })
+  writeFileSync(
+    join(cwd, '.pi', 'mcp.json'),
+    JSON.stringify({
+      mcpServers: { vertragus: { url: 'http://127.0.0.1:9/mcp', lifecycle: 'eager' } }
+    })
+  )
+  return cwd
+}
+
+const PI_WRAP_ARGV = [
+  '--no-session',
+  '--approve',
+  '--no-extensions',
+  '-e',
+  PI_MCP_ADAPTER_EXTENSION,
+  '--provider',
+  'anthropic',
+  '--model',
+  'opus',
+  'Fix login'
+] as const
+
+function waitForPiTui(child: {
+  stdout?: NodeJS.ReadableStream | null
+  stderr?: NodeJS.ReadableStream | null
+  kill: () => void
+  on: (event: 'exit', cb: (code: number | null) => void) => void
+}): Promise<{ out: string }> {
+  return new Promise((resolve) => {
+    let out = ''
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const finish = () => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      try {
+        child.kill()
+      } catch {
+        // Already exited.
+      }
+      resolve({ out })
+    }
+    const onChunk = (chunk: Buffer | string) => {
+      out += chunk.toString()
+      if (out.includes('?2004h')) finish()
+    }
+    child.stdout?.on('data', onChunk)
+    child.stderr?.on('data', onChunk)
+    timer = setTimeout(finish, 8_000)
+    child.on('exit', finish)
+  })
+}
 
 describe('piProviderFor', () => {
   it('maps each shipped preset onto a published Pi backend, and omits Ollama', () => {
@@ -83,7 +158,7 @@ describe('lockfile Pi CLI and adapter', () => {
     expect(piHarnessEnv('/tmp/pi/dist/cli.js')).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
   })
 
-  it('writes a CJS TTY preload that forces stdin/stdout/stderr.isTTY', () => {
+  it('writes a CJS TTY polyfill that forces isTTY and a setRawMode stub', () => {
     const root = mkdtempSync(join(tmpdir(), 'vertragus-pi-preload-'))
     const path = writePiTtyPreload(root)
     expect(path).toBe(join(root, 'vertragus-mcp', PI_TTY_PRELOAD_FILE))
@@ -94,7 +169,137 @@ describe('lockfile Pi CLI and adapter', () => {
     expect(source).toContain('process.stdin')
     expect(source).toContain('process.stdout')
     expect(source).toContain('process.stderr')
+    expect(source).toContain('setRawMode')
+    expect(source).toContain('columns')
   })
+
+  it('writes an entry script that polyfills TTY then imports the CLI — not Node -r', () => {
+    const root = mkdtempSync(join(tmpdir(), 'vertragus-pi-entry-'))
+    const cli = join(root, 'cli.js')
+    const path = writePiCliEntry(root, cli)
+    expect(path).toBe(join(root, 'vertragus-mcp', PI_CLI_ENTRY_FILE))
+    const source = readFileSync(path, 'utf8')
+    expect(source).toBe(piCliEntrySource(cli))
+    expect(source.startsWith(PI_TTY_PRELOAD_SOURCE)).toBe(true)
+    expect(source).toContain('pathToFileURL')
+    expect(source).toContain(JSON.stringify(cli))
+    expect(source).not.toContain(' -r ')
+  })
+
+  it('forces stdin/stdout.isTTY before the imported module runs, even on a pipe', () => {
+    const root = mkdtempSync(join(tmpdir(), 'vertragus-pi-tty-'))
+    const stub = join(root, 'stub.mjs')
+    writeFileSync(
+      stub,
+      `process.stdout.write(JSON.stringify({
+  stdin: process.stdin.isTTY === true,
+  stdout: process.stdout.isTTY === true,
+  setRawMode: typeof process.stdin.setRawMode
+}))
+`
+    )
+    const entry = writePiCliEntry(root, stub)
+    const result = spawnSync(process.execPath, [entry], {
+      encoding: 'utf8',
+      timeout: 8_000,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(0)
+    expect(JSON.parse(result.stdout)).toEqual({
+      stdin: true,
+      stdout: true,
+      setRawMode: 'function'
+    })
+  })
+
+  it('does not process.exit(1) when stdio is a pipe and a first goal is present', async () => {
+    const cli = resolvePiHarnessCli()
+    expect(cli).toBeDefined()
+    const root = mkdtempSync(join(tmpdir(), 'vertragus-pi-goal-'))
+    const cwd = wrapCwdWithPiMcp()
+    const entry = writePiCliEntry(root, cli!)
+    const child = spawn(process.execPath, [entry, ...PI_WRAP_ARGV], {
+      cwd,
+      env: { ...process.env, HOME: cwd, PI_SKIP_VERSION_CHECK: '1' },
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    const result = await waitForPiTui(child)
+    // Print mode plus a goal plus no Pi API key is process.exit(1) with a
+    // plain "No API key found" line. Interactive mode enables bracketed paste
+    // (DECSET 2004) and then stays up or exits 0 on stdin EOF.
+    expect(result.out).toContain('?2004h')
+    expect(result.out).not.toMatch(/No API key found/i)
+  }, 12_000)
+
+  it('Electron-as-node on a pipe without the CJS entry still exits 1 (print mode + goal + no Pi key)', () => {
+    const cli = resolvePiHarnessCli()
+    expect(cli).toBeDefined()
+    const cwd = wrapCwdWithPiMcp()
+    const result = spawnSync(resolveElectronBinary(), [cli!, ...PI_WRAP_ARGV], {
+      cwd,
+      env: { ...process.env, HOME: cwd, ELECTRON_RUN_AS_NODE: '1', PI_SKIP_VERSION_CHECK: '1' },
+      encoding: 'utf8',
+      timeout: 8_000,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(1)
+    expect(`${result.stdout}${result.stderr}`).toMatch(/No API key found/i)
+  }, 12_000)
+
+  it('Electron-as-node on a pipe with the CJS entry does not process.exit(1)', async () => {
+    const cli = resolvePiHarnessCli()
+    expect(cli).toBeDefined()
+    const root = mkdtempSync(join(tmpdir(), 'vertragus-pi-electron-pipe-'))
+    const cwd = wrapCwdWithPiMcp()
+    const entry = writePiCliEntry(root, cli!)
+    const child = spawn(resolveElectronBinary(), [entry, ...PI_WRAP_ARGV], {
+      cwd,
+      env: { ...process.env, HOME: cwd, ELECTRON_RUN_AS_NODE: '1', PI_SKIP_VERSION_CHECK: '1' },
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    const result = await waitForPiTui(child)
+    expect(result.out).toContain('?2004h')
+    expect(result.out).not.toMatch(/No API key found/i)
+  }, 12_000)
+
+  it('Electron-as-node on a PTY with the CJS entry stays up (production spawn shape)', async () => {
+    const cli = resolvePiHarnessCli()
+    expect(cli).toBeDefined()
+    const root = mkdtempSync(join(tmpdir(), 'vertragus-pi-electron-pty-'))
+    const cwd = wrapCwdWithPiMcp()
+    const entry = writePiCliEntry(root, cli!)
+    const pty = new PtyAgent()
+    const result = await new Promise<{ out: string }>((resolve) => {
+      let out = ''
+      let settled = false
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const finish = () => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        stopData()
+        stopExit()
+        pty.kill()
+        resolve({ out })
+      }
+      const stopData = pty.onData((chunk) => {
+        out += chunk
+        if (out.includes('?2004h')) finish()
+      })
+      const stopExit = pty.onExit(finish)
+      pty.spawn({
+        file: resolveElectronBinary(),
+        args: [entry, ...PI_WRAP_ARGV],
+        cwd,
+        env: { HOME: cwd, ELECTRON_RUN_AS_NODE: '1', PI_SKIP_VERSION_CHECK: '1' }
+      })
+      timer = setTimeout(finish, 8_000)
+    })
+    expect(result.out).toContain('?2004h')
+    expect(result.out).not.toMatch(/No API key found/i)
+  }, 12_000)
 
   it('rewrites app.asar to app.asar.unpacked when that copy exists', () => {
     const root = mkdtempSync(join(tmpdir(), 'vertragus-asar-'))

@@ -31,12 +31,16 @@ asarUnpack:
   # Pi harness wrap: the CLI (@earendil-works), optional clipboard native
   # (@mariozechner), photon WASM/native, the MCP adapter, and the adapter's
   # keyring binding must load from real files. JS-only trees would run from
-  # asar; native/WASM next to them would not.
+  # asar; native/WASM next to them would not. typebox and jiti are unscoped
+  # deps of the CLI: the extension loader require.resolve()s them from
+  # unpacked loader.js, and if they stay in asar `-e` fails → process.exit(1).
   - '**/node_modules/@earendil-works/**'
   - '**/node_modules/@mariozechner/**'
   - '**/node_modules/@silvia-odwyer/photon-node/**'
   - '**/node_modules/pi-mcp-adapter/**'
   - '**/node_modules/@napi-rs/**'
+  - '**/node_modules/typebox/**'
+  - '**/node_modules/jiti/**'
 
 win:
   icon: build/icon.ico

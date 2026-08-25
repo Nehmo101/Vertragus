@@ -49,9 +49,11 @@
  *   token; `--append-system-prompt` gets the absolute path so argv stays
  *   one-line. Removed when the launch has no prompt, so a stale file cannot
  *   be auto-discovered after `--approve`.
- * - `<configDir>/vertragus-mcp/pi-tty-preload.cjs` — Electron-as-node only.
- *   Node `-r` preload that sets stdin/stdout/stderr `.isTTY` before Pi's
- *   CLI runs; without it Pi picks print mode and exits after one turn.
+ * - `<configDir>/vertragus-mcp/pi-cli-entry.cjs` — Electron-as-node only.
+ *   The *script* argv (not a Node `-r` in front of `dist/cli.js`: Pi's
+ *   `-r` is `--resume`). Polyfills stdin/stdout/stderr `.isTTY` then
+ *   imports the lockfile CLI; without it Pi picks print mode and
+ *   `process.exit(1)` on the first goal when it has no provider key.
  *
  *   These project-file dialects are the only artefacts a Vertragus launch writes
  *   into user territory. Since every agent owns its worktree they can no longer
@@ -86,7 +88,7 @@ import {
   PI_HARNESS_COMMAND,
   piHarnessEnv,
   resolvePiHarnessCli,
-  writePiTtyPreload
+  writePiCliEntry
 } from './piHarness'
 import type { ExtraMcpServer } from '@shared/schema/mcpServer'
 import type { ExtraMcpServer as SlotExtraMcpServer } from '@shared/schema/profile'
@@ -319,8 +321,8 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
  * how a Grok worker works.
  *
  * Pi wrap: when the lockfile CLI is used, `ELECTRON_RUN_AS_NODE=1` so Electron's
- * binary runs `dist/cli.js` as Node, plus a `-r` TTY preload (see
- * {@link writePiTtyPreload}). PATH fallback (no bundled CLI) adds nothing —
+ * binary runs a CJS entry that polyfills TTY then imports `dist/cli.js` (see
+ * {@link writePiCliEntry}). PATH fallback (no bundled CLI) adds nothing —
  * wrap-on Grok must not inherit the native cage env.
  */
 export function buildAgentEnv(
@@ -441,9 +443,7 @@ export async function buildAgentLaunch(
   const command = input.harness === 'pi' ? PI_HARNESS_COMMAND : input.provider.command
   const piCli = input.harness === 'pi' ? (deps.resolvePiCli ?? resolvePiHarnessCli)() : undefined
   const resolveCommand = piCli ? process.execPath : command
-  const resolveArgs = piCli
-    ? ['-r', writePiTtyPreload(input.configDir), piCli, ...argv]
-    : argv
+  const resolveArgs = piCli ? [writePiCliEntry(input.configDir, piCli), ...argv] : argv
   const resolved = await resolve(resolveCommand, resolveArgs, {
     requireFaithfulArgs: needsFaithfulArgs(argv),
     ...(input.platform ? { platform: input.platform } : {})
