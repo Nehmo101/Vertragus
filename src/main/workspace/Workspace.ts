@@ -72,6 +72,7 @@ import {
 } from '@main/mcp/types'
 import { NameAllocator } from '@main/agents/names'
 import type { PtyExitInfo, Unsubscribe } from '@main/agents/PtyAgent'
+import { PtyAgent } from '@main/agents/PtyAgent'
 import { spawnAgent, type AgentLaunchInput, type AgentPty, type SpawnedAgent } from '@main/agents/spawn'
 import { inspectWorktree, snapshotWorktree } from '@main/agents/inspectWorktree'
 import {
@@ -95,6 +96,7 @@ import {
 import {
   seedWithReadyHandshake,
   seedOptionsFromProvider,
+  SUBMIT_KEY,
   type SeedWithReadyOptions
 } from '@main/agents/interactiveReady'
 import { formatSeedFailure, type SeedFailurePurpose } from '@main/agents/cliBootFailure'
@@ -147,6 +149,7 @@ import { SentinelParser, type SentinelReport } from './sentinel'
 import { createSpillStore, type SpillStore } from './spill'
 import type { TaskBoard } from './taskBoard'
 import { terminalTailText } from './terminalText'
+import type { TerminalBootPhase } from '@shared/terminalBoot'
 
 /** Agent statuses this host reports. See `mcp/types` TERMINAL_AGENT_STATUSES. */
 export const AGENT_STATUS = {
@@ -177,6 +180,16 @@ export const PTY_ONLY_IDLE_HINT_MS = 120_000
  * when it returns, and that must never count as idle.
  */
 export const ORCHESTRATOR_IDLE_MS = 120_000
+
+/**
+ * How long the host waits after spawn for the agent's Vertragus MCP
+ * initialize before submitting the first turn. Started in parallel with the
+ * CLI boot; a Cursor TUI that is still loading servers must not spend a
+ * turn on `await_events` against missing tools.
+ */
+export const MCP_SESSION_WAIT_MS = 20_000
+/** After the overlay goes click-through, keep waiting this long to submit a parked first turn. */
+export const MCP_SESSION_LATE_WAIT_MS = 120_000
 
 /** How many characters of scrollback one output line is assumed to cost. */
 const CHARS_PER_LINE = 600
@@ -231,6 +244,15 @@ export interface WorkspaceMcpUrls {
     orchestratorUrl: string
   }
   applyOrchestratorToken?: (orchToken: string) => { orchestratorUrl: string }
+  /**
+   * Wait until this identity's MCP initialize has completed. Absent in unit
+   * tests that do not run the HTTP server — those treat the session as ready
+   * so existing seed assertions stay byte-identical.
+   */
+  waitForSession?(
+    identity: { kind: 'orchestrator' } | { kind: 'subagent' | 'lead'; agentId: string },
+    timeoutMs: number
+  ): Promise<boolean>
 }
 
 export interface WorkspaceDeps {
@@ -264,6 +286,8 @@ export interface WorkspaceDeps {
    */
   extraMcpServers?: readonly ExtraMcpServer[] | (() => readonly ExtraMcpServer[])
   spawn?: typeof spawnAgent
+  /** Injectable PTY construction — tests hand out FakePty, production uses PtyAgent. */
+  createPty?: () => AgentPty
   createWorktree?: typeof createWorktree
   seed?: typeof seedWithReadyHandshake
   now?: () => number
@@ -366,6 +390,11 @@ interface AgentRecord {
   lead: boolean
   /** True once the CLI accepted its assignment through the seed handshake. */
   seeded: boolean
+  /**
+   * First-turn Enter is parked: MCP was not up when the prompt was pasted.
+   * A late session still submits once, so await_events does not start blind.
+   */
+  bootSubmitPending: boolean
   /** Set before we kill it, so its exit does not look like an unasked death. */
   stopping: boolean
   stopped: boolean
@@ -932,10 +961,28 @@ export class Workspace implements AgentHost {
     input: StartLeadInput,
     urls: WorkspaceMcpUrls
   ): Promise<void> {
+    const pty = this.newPty()
+    const record = this.track({
+      agentId: pending.agentId,
+      name: pending.name,
+      roleId: LEAD_ROLE_ID,
+      providerId: provider.id,
+      model: pending.model,
+      worktreePath: pending.worktreePath,
+      branch: pending.branch,
+      pty,
+      lead: true
+    })
+    this.pendingStarts.delete(pending.agentId)
+    this.setBoot(record, 'preparing')
+    this.openWindow(record, LEAD_COLOR)
     let spawned: SpawnedAgent | undefined
     try {
+      this.setBoot(record, 'worktree')
       const worktree = await this.createWorktreeFor(pending.agentId, pending.name, input.baseBranch)
       this.assertOpenDuringStart(pending)
+      record.worktreePath = worktree.path
+      record.branch = worktree.branch
 
       const systemPrompt = buildLeadSystemPrompt({
         workspaceName: this.name,
@@ -946,59 +993,45 @@ export class Workspace implements AgentHost {
         parentName: this.orchestratorRecord?.name,
         subtreeBudget: input.maxSubagents
       })
-      spawned = await (this.deps.spawn ?? spawnAgent)({
-        kind: 'lead',
-        provider,
-        model: pending.model,
-        effort: this.profile.orchestrator.effort,
-        // Like the root: a lead has no yolo surface at all.
-        yolo: false,
-        cwd: worktree.path,
-        mcpUrl: urls.leadUrl(pending.agentId),
-        fileTag: `lead-${pending.agentId}`,
-        configDir: this.deps.configDir,
-        systemPrompt,
-        ...this.piLaunch()
-      })
+      this.setBoot(record, 'mcp')
+      spawned = await (this.deps.spawn ?? spawnAgent)(
+        {
+          kind: 'lead',
+          provider,
+          model: pending.model,
+          effort: this.profile.orchestrator.effort,
+          yolo: false,
+          cwd: worktree.path,
+          mcpUrl: urls.leadUrl(pending.agentId),
+          fileTag: `lead-${pending.agentId}`,
+          configDir: this.deps.configDir,
+          systemPrompt,
+          ...this.piLaunch()
+        },
+        { createPty: () => record.pty }
+      )
       this.assertOpenDuringStart(pending)
-
-      const record = this.track({
-        agentId: pending.agentId,
-        name: pending.name,
-        roleId: LEAD_ROLE_ID,
-        providerId: provider.id,
-        model: pending.model,
-        worktreePath: worktree.path,
-        branch: worktree.branch,
-        pty: spawned.pty,
-        lead: true
-      })
-      this.pendingStarts.delete(pending.agentId)
-
-      this.openWindow(record, LEAD_COLOR)
 
       const seedText = spawned.launch.ptySystemPrompt
         ? `${spawned.launch.ptySystemPrompt}\n\n${input.task}`
         : input.task
-      const accepted = await this.seed(record, seedText, this.autoSubmitTasks)
-      if (!accepted) {
-        throw this.seedNotAccepted(pending.name, provider, 'area', spawned.pty)
-      }
-      record.seeded = true
+      this.setBoot(record, 'cli')
+      await this.seedWhenMcpReady(record, seedText, this.autoSubmitTasks, provider, 'area', spawned.pty)
       record.assignmentCursor = this.queueFor(record.agentId).cursor
     } catch (error) {
       this.pendingStarts.delete(pending.agentId)
-      this.discard(pending.agentId, pending.name, spawned?.pty)
+      this.discard(pending.agentId, pending.name, spawned?.pty ?? pty)
       throw error
     }
   }
 
   /**
-   * The heavy half of {@link beginAgent}: worktree, spawn, window, seed. Runs
-   * behind the returned `ready` promise so `start_agent` never sits on it —
-   * the pipeline (keyboard wait, settle, gated Enters) can outlast the 60 s
-   * MCP request timeout. Every failure releases the reservation and discards
-   * the half-started agent; a workspace that closed mid-start does the same.
+   * The heavy half of {@link beginAgent}: window (boot overlay), worktree,
+   * spawn, MCP wait, seed. Runs behind the returned `ready` promise so
+   * `start_agent` never sits on it — the pipeline (keyboard wait, settle,
+   * gated Enters) can outlast the 60 s MCP request timeout. Every failure
+   * releases the reservation and discards the half-started agent; a workspace
+   * that closed mid-start does the same.
    */
   private async finishStart(
     pending: PendingStart,
@@ -1008,28 +1041,37 @@ export class Workspace implements AgentHost {
     input: StartAgentInput,
     urls: WorkspaceMcpUrls
   ): Promise<void> {
+    const pty = this.newPty()
+    const record = this.track({
+      agentId: pending.agentId,
+      name: pending.name,
+      roleId: pending.roleId,
+      slotId: pending.slotId,
+      providerId: provider.id,
+      model: pending.model,
+      worktreePath: pending.worktreePath,
+      branch: pending.branch,
+      pty
+    })
+    // Tracked and un-reserved in the same synchronous step — the agent is
+    // never counted twice and never invisible.
+    this.pendingStarts.delete(pending.agentId)
+    this.setBoot(record, 'preparing')
+    this.openWindow(record, this.colorFor(pending.roleId))
     let spawned: SpawnedAgent | undefined
     try {
-      // Always isolated: every agent gets its own worktree and branch, so
-      // parallel agents — and parallel workspaces on the same repository —
-      // never trample each other's checkout. Merging stays an ordinary
-      // git merge of vertragus/* branches, and `baseBranch` lets an agent
-      // start on top of another agent's result instead of the repo HEAD.
+      this.setBoot(record, 'worktree')
       const worktree = await this.createWorktreeFor(pending.agentId, pending.name, input.baseBranch)
       this.assertOpenDuringStart(pending)
+      record.worktreePath = worktree.path
+      record.branch = worktree.branch
 
       const launchInput: AgentLaunchInput = {
         kind: 'subagent',
         provider,
         model: pending.model,
         effort: slot.effort,
-        // Subagents default to yolo — a worker that cannot act is the old
-        // repo's "permission-starved" failure. The orchestrator never gets it.
-        // D4: only the `ask-user` tier drops the flags (the CLI's own prompt
-        // asks in the terminal); `ask-orchestrator` keeps them and gates via
-        // the contract instead — nobody sits at a subagent terminal.
         yolo: this.agentPolicy() !== 'ask-user',
-        // E6: the slot's extra MCP servers — spawn honors them for subagents only.
         ...(slot.extraMcp ? { extraMcp: slot.extraMcp } : {}),
         cwd: worktree.path,
         mcpUrl: urls.subagentUrl(pending.agentId),
@@ -1039,43 +1081,19 @@ export class Workspace implements AgentHost {
         extraMcpServers: this.extraMcpServersForLaunch(),
         ...this.piLaunch()
       }
-      spawned = await (this.deps.spawn ?? spawnAgent)(launchInput)
+      this.setBoot(record, 'mcp')
+      spawned = await (this.deps.spawn ?? spawnAgent)(launchInput, { createPty: () => record.pty })
       this.assertOpenDuringStart(pending)
 
-      const record = this.track({
-        agentId: pending.agentId,
-        name: pending.name,
-        roleId: pending.roleId,
-        slotId: pending.slotId,
-        providerId: provider.id,
-        model: pending.model,
-        worktreePath: worktree.path,
-        branch: worktree.branch,
-        pty: spawned.pty
-      })
-      // Tracked and un-reserved in the same synchronous step — the agent is
-      // never counted twice and never invisible.
-      this.pendingStarts.delete(pending.agentId)
-
-      this.openWindow(record, this.colorFor(pending.roleId))
-
-      // `input.task` already carries the reporting contract — appended by the
-      // MCP layer, see the class comment. A provider without a system-prompt
-      // flag gets its role prompt typed in front of the task instead.
       const seedText = spawned.launch.ptySystemPrompt
         ? `${spawned.launch.ptySystemPrompt}\n\n${input.task}`
         : input.task
-      const accepted = await this.seed(record, seedText, this.autoSubmitTasks)
-      if (!accepted) {
-        throw this.seedNotAccepted(pending.name, provider, 'task', spawned.pty)
-      }
-      record.seeded = true
+      this.setBoot(record, 'cli')
+      await this.seedWhenMcpReady(record, seedText, this.autoSubmitTasks, provider, 'task', spawned.pty)
       record.assignmentCursor = this.queueFor(record.agentId).cursor
     } catch (error) {
-      // A half-started agent must not hold a name, a window, a process — or
-      // its reservation.
       this.pendingStarts.delete(pending.agentId)
-      this.discard(pending.agentId, pending.name, spawned?.pty)
+      this.discard(pending.agentId, pending.name, spawned?.pty ?? pty)
       throw error
     }
   }
@@ -1138,6 +1156,14 @@ export class Workspace implements AgentHost {
 
   async inspectAgent(agentId: string, options: InspectAgentOptions): Promise<InspectAgentResult> {
     const record = this.requireAgent(agentId)
+    // Tracked as soon as the window opens, which is before the worktree
+    // exists — git facts would lie or ENOENT. Same contract as sendToAgent:
+    // wait for agent_started.
+    if (!record.seeded) {
+      throw new Error(
+        `${record.name} is still starting — wait for its agent_started event.`
+      )
+    }
     const result = await inspectWorktree(
       {
         worktreePath: record.worktreePath,
@@ -1627,7 +1653,6 @@ export class Workspace implements AgentHost {
     const record = await this.spawnOrchestratorRecord({
       agentId,
       name,
-      systemPrompt: await this.orchestratorPrompt(),
       mcpUrl: this.requireMcp().orchestratorUrl,
       ...(initialPrompt ? { initialPrompt } : {})
     })
@@ -1766,63 +1791,75 @@ export class Workspace implements AgentHost {
   }
 
   /**
-   * Shared spawn for cold start and succession: worktree, PTY, window, seed.
-   * Does NOT bind {@link orchestratorRecord} — the caller decides when the
-   * seat changes, so a failing successor never steals the predecessor's seat.
+   * Shared spawn for cold start and succession: window first (boot overlay),
+   * then briefing, worktree, PTY, MCP wait, seed. Does NOT bind
+   * {@link orchestratorRecord} — the caller decides when the seat changes, so
+   * a failing successor never steals the predecessor's seat.
    */
   private async spawnOrchestratorRecord(input: {
     agentId: string
     name: string
-    systemPrompt: string
     mcpUrl: string
     initialPrompt?: string
+    /** Pre-built prompt (succession). Cold start collects it after the window opens. */
+    systemPrompt?: string
   }): Promise<AgentRecord> {
     const provider = this.requireProvider(this.profile.orchestrator.providerId)
+    const pty = this.newPty()
+    const record = this.track({
+      agentId: input.agentId,
+      name: input.name,
+      roleId: ORCHESTRATOR_ROLE_ID,
+      providerId: provider.id,
+      model: this.profile.orchestrator.model,
+      worktreePath: worktreePathFor(this.repoPath, input.agentId),
+      branch: worktreeBranchName(this.name, input.name),
+      pty,
+      orchestrator: true
+    })
+    this.setBoot(record, 'preparing')
+    this.openWindow(record, ORCHESTRATOR_COLOR)
     let spawned: SpawnedAgent | undefined
     try {
+      const systemPrompt = input.systemPrompt ?? (await this.orchestratorPrompt())
+      this.setBoot(record, 'worktree')
       const worktree = await this.createWorktreeFor(input.agentId, input.name)
+      record.worktreePath = worktree.path
+      record.branch = worktree.branch
+      this.setBoot(record, 'mcp')
       const argvInitialPrompt = this.deps.piHarness
         ? input.initialPrompt?.trim() || undefined
         : buildInitialPromptArgs(provider, input.initialPrompt)[0]
-      spawned = await (this.deps.spawn ?? spawnAgent)({
-        kind: 'orchestrator',
+      spawned = await (this.deps.spawn ?? spawnAgent)(
+        {
+          kind: 'orchestrator',
+          provider,
+          model: this.profile.orchestrator.model,
+          effort: this.profile.orchestrator.effort,
+          yolo: false,
+          cwd: worktree.path,
+          mcpUrl: input.mcpUrl,
+          fileTag: `orch-${input.agentId}`,
+          configDir: this.deps.configDir,
+          systemPrompt,
+          ...(argvInitialPrompt ? { initialPrompt: argvInitialPrompt } : {}),
+          ...this.piLaunch()
+        },
+        { createPty: () => record.pty }
+      )
+      this.setBoot(record, 'cli')
+      await this.seedWhenMcpReady(
+        record,
+        spawned.launch.ptySystemPrompt,
+        true,
         provider,
-        model: this.profile.orchestrator.model,
-        effort: this.profile.orchestrator.effort,
-        yolo: false,
-        cwd: worktree.path,
-        mcpUrl: input.mcpUrl,
-        fileTag: `orch-${input.agentId}`,
-        configDir: this.deps.configDir,
-        systemPrompt: input.systemPrompt,
-        ...(argvInitialPrompt ? { initialPrompt: argvInitialPrompt } : {}),
-        ...this.piLaunch()
-      })
-
-      const record = this.track({
-        agentId: input.agentId,
-        name: input.name,
-        roleId: ORCHESTRATOR_ROLE_ID,
-        providerId: provider.id,
-        model: this.profile.orchestrator.model,
-        worktreePath: worktree.path,
-        branch: worktree.branch,
-        pty: spawned.pty,
-        orchestrator: true
-      })
-      this.openWindow(record, ORCHESTRATOR_COLOR)
-
-      if (spawned.launch.ptySystemPrompt) {
-        const accepted = await this.seed(record, spawned.launch.ptySystemPrompt, true)
-        if (!accepted) {
-          throw this.seedNotAccepted(input.name, provider, 'orchestrator-prompt', spawned.pty)
-        }
-      }
-      record.seeded = true
+        'orchestrator-prompt',
+        spawned.pty
+      )
       record.assignmentCursor = this.events.cursor
       return record
     } catch (error) {
-      this.discard(input.agentId, input.name, spawned?.pty)
+      this.discard(input.agentId, input.name, spawned?.pty ?? pty)
       throw error
     }
   }
@@ -2421,6 +2458,80 @@ export class Workspace implements AgentHost {
     return enabledExtraMcpServers(list)
   }
 
+  private newPty(): AgentPty {
+    return this.deps.createPty ? this.deps.createPty() : new PtyAgent()
+  }
+
+  private setBoot(record: AgentRecord, phase: TerminalBootPhase | null): void {
+    this.deps.registry.setAgentBoot(record.agentId, phase)
+  }
+
+  private mcpWaitKey(
+    record: AgentRecord
+  ): { kind: 'orchestrator' } | { kind: 'subagent' | 'lead'; agentId: string } {
+    if (record.orchestrator) return { kind: 'orchestrator' }
+    if (record.lead) return { kind: 'lead', agentId: record.agentId }
+    return { kind: 'subagent', agentId: record.agentId }
+  }
+
+  /**
+   * True when the agent's Vertragus MCP session exists, or when this launch
+   * has no MCP (sentinel / tests without a waiter).
+   */
+  private waitForMcpSession(record: AgentRecord, timeoutMs: number): Promise<boolean> {
+    if (this.isPtyOnly(record.providerId)) return Promise.resolve(true)
+    const wait = this.requireMcp().waitForSession
+    if (!wait) return Promise.resolve(true)
+    return wait(this.mcpWaitKey(record), timeoutMs)
+  }
+
+  private watchLateMcp(record: AgentRecord, submit: boolean): void {
+    void this.waitForMcpSession(record, MCP_SESSION_LATE_WAIT_MS).then((ok) => {
+      if (!record.pty.isAlive) return
+      if (submit && ok && record.bootSubmitPending) {
+        record.bootSubmitPending = false
+        record.pty.write(SUBMIT_KEY)
+      }
+      this.setBoot(record, null)
+    })
+  }
+
+  /**
+   * After spawn: wait for MCP (started here, overlaps CLI boot), then seed.
+   * The first Enter is held until the session is up so `await_events` is not
+   * a blind first turn.
+   */
+  private async seedWhenMcpReady(
+    record: AgentRecord,
+    seedText: string | undefined,
+    autoSubmit: boolean,
+    provider: ProviderConfig,
+    purpose: SeedFailurePurpose,
+    pty: AgentPty
+  ): Promise<void> {
+    this.setBoot(record, 'handshake')
+    const mcpOk = await this.waitForMcpSession(record, MCP_SESSION_WAIT_MS)
+    if (seedText) {
+      const accepted = await this.seed(record, seedText, autoSubmit && mcpOk)
+      if (!accepted) {
+        throw this.seedNotAccepted(record.name, provider, purpose, pty)
+      }
+      if (autoSubmit && !mcpOk) {
+        record.bootSubmitPending = true
+        this.setBoot(record, 'waiting')
+        this.watchLateMcp(record, true)
+      } else {
+        this.setBoot(record, null)
+      }
+    } else if (mcpOk) {
+      this.setBoot(record, null)
+    } else {
+      this.setBoot(record, 'waiting')
+      this.watchLateMcp(record, false)
+    }
+    record.seeded = true
+  }
+
   private requireRoleTemplate(roleId: string): RoleTemplate {
     const template = allRoleTemplates(this.deps.roleTemplates ?? []).find(
       (candidate) => candidate.id === roleId
@@ -2479,6 +2590,7 @@ export class Workspace implements AgentHost {
       orchestrator: input.orchestrator === true,
       lead: input.lead === true,
       seeded: false,
+      bootSubmitPending: false,
       stopping: false,
       stopped: false,
       lastOutputAt: this.now(),

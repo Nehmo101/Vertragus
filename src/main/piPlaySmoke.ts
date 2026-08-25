@@ -6,8 +6,10 @@
  * (`?2004h`) is the signal that ConPTY actually attached — the Windows
  * blank-window bug is empty output and a child that exits 0.
  *
- * `No API key found` is Pi's own store, not this smoke. Isolated HOME is
- * empty on purpose so developer `~/.pi` is never read.
+ * `No API key found` is Pi's own store, not this smoke. Pi is pointed at a
+ * throwaway `PI_CODING_AGENT_DIR` so developer `~/.pi` is never read. The
+ * Electron process keeps the runner HOME — an empty HOME hangs macOS CI
+ * (Keychain / first-run Chromium) before this hook can even arm.
  */
 import { writeFile } from 'node:fs/promises'
 import { app } from 'electron'
@@ -60,8 +62,12 @@ export interface PiPlaySmokeLoop {
   snapshot: () => string
   /** False once the child is gone — empty output then is the blank-window bug. */
   alive?: () => boolean
-  /** Workspace/dev-run never produced an orchestrator. */
-  failedToStart?: boolean
+  /**
+   * Workspace/dev-run never produced an orchestrator. A function is re-checked
+   * each poll so the hook can arm *before* `startWorkspace` returns — a hang
+   * there used to skip the hook entirely (macOS CI: 90 s, empty log).
+   */
+  failedToStart?: boolean | (() => boolean)
   timeoutMs?: number
   pollMs?: number
   now?: () => number
@@ -72,6 +78,11 @@ export interface PiPlaySmokeLoop {
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+function startFailed(input: PiPlaySmokeLoop): boolean {
+  const value = input.failedToStart
+  return typeof value === 'function' ? value() : Boolean(value)
+}
 
 function formatLog(judgement: PiPlaySmokeJudgement, snapshot: string): string {
   return [
@@ -108,7 +119,7 @@ export async function runPiPlaySmoke(input: PiPlaySmokeLoop): Promise<void> {
     exit(judgement.status === 'pass' ? 0 : 1)
   }
 
-  if (input.failedToStart) {
+  if (startFailed(input)) {
     await finish(
       { status: 'fail', reason: 'dev-run did not start an orchestrator' },
       ''
@@ -117,6 +128,13 @@ export async function runPiPlaySmoke(input: PiPlaySmokeLoop): Promise<void> {
   }
 
   for (;;) {
+    if (startFailed(input)) {
+      await finish(
+        { status: 'fail', reason: 'dev-run did not start an orchestrator' },
+        input.snapshot()
+      )
+      return
+    }
     const snapshot = input.snapshot()
     const judgement = judgePiPlayScrollback(snapshot)
     if (judgement.status !== 'wait') {

@@ -7,8 +7,11 @@
  * no bytes. A PNG of the CLI window would still look like glass. The hook in
  * `src/main/piPlaySmoke.ts` reads raw PTY bytes.
  *
- * Isolated HOME so developer `~/.pi` is never read. Provider API keys are
- * stripped from the child env — this smoke does not spend tokens.
+ * Pi is pointed at a throwaway `PI_CODING_AGENT_DIR` so developer `~/.pi` is
+ * never read. The Electron process keeps the runner HOME — an empty HOME
+ * hung macOS CI (Keychain / first-run Chromium) before the in-app hook armed.
+ * Provider API keys are stripped from the child env — this smoke does not
+ * spend tokens.
  *
  * Usage: `node scripts/pi-play-smoke.mjs [--keep]`
  */
@@ -30,14 +33,16 @@ export const STORE_FILE = 'vertragus-v2.json'
 export const PROVIDER_KEY_ENVS = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'XAI_API_KEY']
 
 /**
- * Child env for the Electron boot: isolated HOME/userData, Pi wrap on, no
- * provider keys. Exported so the strip is unit-testable.
+ * Child env for the Electron boot: isolated userData, throwaway Pi dir, no
+ * provider keys. Does not rewrite HOME — macOS Electron hangs on an empty
+ * home directory. Exported so the strip is unit-testable.
  */
 export function childEnv(base, extras) {
   const env = { ...base, ...extras }
   for (const key of PROVIDER_KEY_ENVS) delete env[key]
   delete env.ELECTRON_RUN_AS_NODE
-  delete env.PI_CODING_AGENT_DIR
+  // Developer ~/.pi must not leak unless extras replace it with a throwaway dir.
+  if (extras?.PI_CODING_AGENT_DIR === undefined) delete env.PI_CODING_AGENT_DIR
   delete env.VERTRAGUS_PANEL_SCREENSHOT
   delete env.VERTRAGUS_CLI_SCREENSHOT
   delete env.VERTRAGUS_DEV_RUN_SCREENSHOT
@@ -101,6 +106,8 @@ async function main() {
   const logPath = join(work, 'pi-play.log')
   mkdirSync(userData, { recursive: true })
   mkdirSync(home, { recursive: true })
+  const piDir = join(home, '.pi')
+  mkdirSync(piDir, { recursive: true })
   makeRepo(repo)
   writeFileSync(join(userData, STORE_FILE), `${JSON.stringify({ piHarnessEnabled: true }, null, 2)}\n`)
 
@@ -110,15 +117,6 @@ async function main() {
   }
 
   console.log(`[pi-play-smoke] starte Electron → ${logPath}`)
-  const isolatedHome = {
-    HOME: home,
-    USERPROFILE: home,
-    PI_SKIP_VERSION_CHECK: '1'
-  }
-  if (process.platform === 'win32') {
-    isolatedHome.HOMEDRIVE = home.slice(0, 2)
-    isolatedHome.HOMEPATH = home.slice(2) || '\\'
-  }
   const child = spawn(electronPath, args, {
     cwd: root,
     stdio: 'inherit',
@@ -126,7 +124,8 @@ async function main() {
       VERTRAGUS_USER_DATA: userData,
       VERTRAGUS_DEV_RUN: repo,
       VERTRAGUS_PI_PLAY_SMOKE: logPath,
-      ...isolatedHome
+      PI_CODING_AGENT_DIR: piDir,
+      PI_SKIP_VERSION_CHECK: '1'
     })
   })
 

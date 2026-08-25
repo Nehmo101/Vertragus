@@ -29,13 +29,21 @@ describe('Pi Play smoke wiring', () => {
     expect(ci).toMatch(/Panel smoke/)
   })
 
-  it('index applies isolated userData before whenReady and arms the PTY hook', () => {
+  it('index applies isolated userData before whenReady and arms the PTY hook before start', () => {
     const source = readFileSync(indexPath, 'utf8')
     expect(source).toContain('applyIsolatedUserData()')
     expect(source.indexOf('applyIsolatedUserData()')).toBeLessThan(source.indexOf('app.whenReady'))
     expect(source).toContain('armPiPlaySmoke')
     expect(source).toContain('VERTRAGUS_PI_PLAY_SMOKE')
     expect(source).toContain('pty.snapshot()')
+    const armCall = source.lastIndexOf('armPiPlaySmoke({')
+    const startCall = source.indexOf('await maybeStartDevWorkspace')
+    expect(armCall).toBeGreaterThan(0)
+    expect(startCall).toBeGreaterThan(0)
+    // A hang in startWorkspace used to skip the hook (macOS CI: empty log).
+    expect(armCall).toBeLessThan(startCall)
+    // Self-check: lastIndexOf of a missing call is -1, which is still < start.
+    expect(source).toMatch(/armPiPlaySmoke\(\{/)
   })
 
   it('writes the same store file name the settings module uses', () => {
@@ -51,10 +59,11 @@ describe('Pi Play smoke wiring', () => {
 })
 
 describe('childEnv', () => {
-  it('strips billed provider keys so isolated HOME cannot spend tokens', () => {
+  it('strips billed provider keys and keeps a throwaway Pi dir, not HOME', () => {
     const env = childEnv(
       {
         PATH: '/bin',
+        HOME: '/Users/dev',
         ANTHROPIC_API_KEY: 'sk-secret',
         OPENAI_API_KEY: 'sk-openai',
         XAI_API_KEY: 'xai',
@@ -63,17 +72,22 @@ describe('childEnv', () => {
         VERTRAGUS_DEV_GOAL: 'spend tokens',
         VERTRAGUS_PANEL_SCREENSHOT: 'C:\\tmp\\panel.png'
       },
-      { HOME: '/tmp/home' }
+      { PI_CODING_AGENT_DIR: '/tmp/pi-smoke' }
     )
-    expect(env.HOME).toBe('/tmp/home')
+    expect(env.HOME).toBe('/Users/dev')
     expect(env.PATH).toBe('/bin')
+    expect(env.PI_CODING_AGENT_DIR).toBe('/tmp/pi-smoke')
     expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined()
-    expect(env.PI_CODING_AGENT_DIR).toBeUndefined()
     expect(env.VERTRAGUS_DEV_GOAL).toBeUndefined()
     expect(env.VERTRAGUS_PANEL_SCREENSHOT).toBeUndefined()
     for (const key of PROVIDER_KEY_ENVS) {
       expect(env[key]).toBeUndefined()
     }
+  })
+
+  it('drops a developer PI_CODING_AGENT_DIR when extras do not replace it', () => {
+    const env = childEnv({ PI_CODING_AGENT_DIR: '/Users/dev/.pi' }, { PATH: '/bin' })
+    expect(env.PI_CODING_AGENT_DIR).toBeUndefined()
   })
 })
 

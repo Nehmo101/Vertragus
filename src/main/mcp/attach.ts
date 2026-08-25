@@ -39,9 +39,13 @@
  * - Project file shape: `{ "mcpServers": { "<id>": { "url": "http://…" } } }`.
  * - Server approval is per-project-dir AND per-URL (hash covers the URL in
  *   `~/.cursor/projects/<slug>/mcp-approvals.json`), so a stored approval can
- *   never be reused across Vertragus agents — `--approve-mcps` is the only
- *   mechanism that scales. It also writes the approval entry itself.
- * - Tool-call approval is covered by `--force` / `--yolo` (preset yoloArgs).
+ *   never be reused across Vertragus agents. `--approve-mcps` is the CLI's
+ *   own path; spawn also writes the approvals file (see
+ *   `agents/cursorMcpApprovals.ts`) because the interactive TUI still stops
+ *   on a per-server click for many builds even with the flag.
+ * - Tool-call approval for yolo subagents is Cursor **Run Everything**:
+ *   `--force` (alias `--yolo`) and `--sandbox disabled` (preset yoloArgs,
+ *   plus a project `.cursor/cli.json`). Orchestrators never get those flags.
  * - Workspace trust: a fresh directory blocks on a TUI modal before anything
  *   runs; the verified `--trust` flag suppresses it (preset `args`, not here).
  * - `cursor-agent mcp enable` works but crashes on teardown (libuv assert,
@@ -702,10 +706,13 @@ export const CURSOR_MCP_FILE = 'mcp.json'
  *
  * KNOWN LIMIT: there is no verified per-server approval flag. `--approve-mcps`
  * also approves the user's own project servers for that run. For yolo
- * subagents (already on `--force`/`--yolo`) that stays inside the same trust
- * envelope; documented rather than papered over. Approval is per-URL hashed,
- * so a stored entry never covers the next Vertragus agent's personal token —
- * the flag is required on every spawn.
+ * subagents (already on Run Everything / `--force --sandbox disabled`)
+ * that stays inside the same trust envelope; documented rather than
+ * papered over. Approval is per-URL hashed, so a stored entry never
+ * covers the next Vertragus agent's personal token — the flag is required
+ * on every spawn. Spawn also writes `mcp-approvals.json` for the same
+ * servers (`ensureCursorMcpApprovals`) so a TUI that ignores the flag
+ * still has nothing to confirm.
  */
 export const CURSOR_APPROVE_MCPS_FLAG = '--approve-mcps'
 

@@ -147,7 +147,15 @@ describe('buildAgentArgv — per preset', () => {
       })
     )
 
-    expect(argv).toEqual(['--trust', '--model', 'gpt-5.6', '--yolo', '--approve-mcps'])
+    expect(argv).toEqual([
+      '--trust',
+      '--model',
+      'gpt-5.6',
+      '--force',
+      '--sandbox',
+      'disabled',
+      '--approve-mcps'
+    ])
     expect(ptySystemPrompt).toBe('You are a Reviewer.')
     const written = JSON.parse(readFileSync(join(cwd, '.cursor', 'mcp.json'), 'utf8')) as {
       mcpServers: Record<string, { url: string }>
@@ -168,8 +176,44 @@ describe('buildAgentArgv — per preset', () => {
 
     expect(argv).toEqual(['--trust', '--approve-mcps'])
     expect(argv).not.toContain('--yolo')
+    expect(argv).not.toContain('--force')
+    expect(argv).not.toContain('--sandbox')
     // Prompt delivery stays PTY even though MCP is attached — orthogonal.
     expect(ptySystemPrompt).toBe('You orchestrate.')
+  })
+
+  it('puts a Cursor subagent in Run Everything even when stored yoloArgs are still --yolo', () => {
+    const provider: ProviderConfig = { ...preset('cursor'), yoloArgs: ['--yolo'] }
+    const { argv } = buildAgentArgv(
+      launchInput({ provider, model: 'gpt-5.6', yolo: true, cwd })
+    )
+    expect(argv).toEqual([
+      '--trust',
+      '--model',
+      'gpt-5.6',
+      '--yolo',
+      '--sandbox',
+      'disabled',
+      '--approve-mcps'
+    ])
+  })
+
+  it('does not Run Everything a Cursor lead even when yolo is requested', () => {
+    const { argv } = buildAgentArgv(
+      launchInput({ provider: preset('cursor'), kind: 'lead', yolo: true, cwd })
+    )
+    expect(argv).not.toContain('--force')
+    expect(argv).not.toContain('--yolo')
+    expect(argv).not.toContain('--sandbox')
+  })
+
+  it('does not put a Cursor subagent in Run Everything when yolo is off', () => {
+    const { argv } = buildAgentArgv(
+      launchInput({ provider: preset('cursor'), model: 'gpt-5.6', yolo: false, cwd })
+    )
+    expect(argv).toEqual(['--trust', '--model', 'gpt-5.6', '--approve-mcps'])
+    expect(argv).not.toContain('--force')
+    expect(argv).not.toContain('--sandbox')
   })
 
   it('gives Ollama its model positionally, right behind the base args', () => {
@@ -830,6 +874,104 @@ describe('spawnAgent', () => {
     })
   })
 
+  it('pre-approves Cursor MCP servers at spawn so the TUI does not stop on each one', async () => {
+    const ensureCursorApprovals = vi.fn()
+    await spawnAgent(launchInput({ provider: preset('cursor'), cwd }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureCursorApprovals
+    })
+    expect(ensureCursorApprovals).toHaveBeenCalledExactlyOnceWith(cwd)
+  })
+
+  it('does not write Cursor approvals for a Pi wrap or a non-Cursor CLI', async () => {
+    const ensureCursorApprovals = vi.fn()
+    await spawnAgent(launchInput({ provider: preset('claude'), cwd }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureCursorApprovals
+    })
+    await spawnAgent(launchInput({ provider: preset('cursor'), cwd, harness: 'pi' }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureCursorApprovals
+    })
+    expect(ensureCursorApprovals).not.toHaveBeenCalled()
+  })
+
+  it('writes Cursor Run Everything cli.json only for yolo subagents', async () => {
+    const ensureCursorRunMode = vi.fn()
+    await spawnAgent(launchInput({ provider: preset('cursor'), cwd, yolo: true }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureCursorApprovals: () => undefined,
+      ensureCursorRunMode
+    })
+    expect(ensureCursorRunMode).toHaveBeenCalledExactlyOnceWith(cwd)
+
+    ensureCursorRunMode.mockClear()
+    await spawnAgent(launchInput({ provider: preset('cursor'), cwd, yolo: false }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureCursorApprovals: () => undefined,
+      ensureCursorRunMode
+    })
+    await spawnAgent(
+      launchInput({ provider: preset('cursor'), cwd, kind: 'orchestrator', yolo: true }),
+      {
+        resolve,
+        createPty: () => new FakePty(),
+        ensureCursorApprovals: () => undefined,
+        ensureCursorRunMode
+      }
+    )
+    await spawnAgent(
+      launchInput({ provider: preset('cursor'), cwd, harness: 'pi', yolo: true }),
+      {
+        resolve,
+        createPty: () => new FakePty(),
+        ensureCursorApprovals: () => undefined,
+        ensureCursorRunMode
+      }
+    )
+    expect(ensureCursorRunMode).not.toHaveBeenCalled()
+  })
+
+  it('writes .cursor/cli.json on a yolo Cursor spawn', async () => {
+    await spawnAgent(launchInput({ provider: preset('cursor'), cwd, yolo: true }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureCursorApprovals: () => undefined
+    })
+    const config = JSON.parse(readFileSync(join(cwd, '.cursor', 'cli.json'), 'utf8')) as {
+      approvalMode: string
+      sandbox: { mode: string }
+    }
+    expect(config.approvalMode).toBe('unrestricted')
+    expect(config.sandbox.mode).toBe('disabled')
+  })
+
+  it('still spawns if Cursor Run Everything config throws', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const { launch } = await spawnAgent(
+        launchInput({ provider: preset('cursor'), cwd, yolo: true }),
+        {
+          resolve,
+          createPty: () => new FakePty(),
+          ensureCursorApprovals: () => undefined,
+          ensureCursorRunMode: () => {
+            throw new Error('disk full')
+          }
+        }
+      )
+      expect(launch.cwd).toBe(cwd)
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('hands the raised MCP timeout to the process, and nothing when unclaimed', async () => {
     const claiming = new FakePty()
     await spawnAgent(launchInput({ kind: 'orchestrator' }), {
@@ -891,7 +1033,9 @@ describe('spawnAgent', () => {
       await spawnAgent(launchInput({ provider: preset(id), cwd }), {
         resolve,
         createPty: () => new FakePty(),
-        ensureTrust
+        ensureTrust,
+        // Cursor would otherwise write ~/.cursor/projects/<slug>/mcp-approvals.json.
+        ensureCursorApprovals: () => undefined
       })
     }
     expect(ensureTrust).not.toHaveBeenCalled()
@@ -1136,6 +1280,8 @@ describe('Pi harness wrap', () => {
     expect(argv).not.toContain('--trust')
     expect(argv).not.toContain('--approve-mcps')
     expect(argv).not.toContain('--yolo')
+    expect(argv).not.toContain('--force')
+    expect(argv).not.toContain('--sandbox')
     expect(existsSync(join(cwd, '.cursor', 'mcp.json'))).toBe(false)
     expect(existsSync(join(cwd, '.pi', 'mcp.json'))).toBe(true)
   })

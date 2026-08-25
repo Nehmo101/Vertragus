@@ -223,7 +223,7 @@ describe('cursor preset', () => {
   it('attaches via project mcp.json and keeps the prompt on the PTY', () => {
     expect(cursor.command).toBe('cursor-agent')
     expect(cursor.args).toEqual(['--trust'])
-    expect(cursor.yoloArgs).toEqual(['--yolo'])
+    expect(cursor.yoloArgs).toEqual(['--force', '--sandbox', 'disabled'])
     expect(cursor.systemPromptDelivery).toEqual({ kind: 'pty' })
     expect(cursor.mcp).toEqual({ kind: 'cursor-project' })
     // Multi-KB PTY paste: cursor-agent freezes while digesting, swallows an

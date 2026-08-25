@@ -19,6 +19,21 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   Orchestrator-PTY eine TUI zeigt und Vertragus-MCP hängt — die
   Windows-Regression mit leerem Fenster. Keine Provider-Keys; nicht Teil
   von `pnpm run ci`.
+- **Schnellere MCP-Übergabe, kein verbrannter erster Turn, Windhund-Boot-Overlay.**
+  Das CLI-Fenster öffnet, sobald der Host ein PTY hat — vor Worktree und
+  Spawn —, sodass MCP-Initialize mit dem CLI-Boot überlappt statt dahinter
+  zu warten. Das erste Enter wird gehalten, bis die Vertragus-MCP-Session
+  steht, damit ein Orchestrator, der noch nicht attached hat, keine Tokens
+  auf `await_events` verbrennt. Ein Windhund-Overlay auf dem offenen
+  Terminal meldet die Phase (`preparing` → `worktree` → `mcp` → `cli` →
+  `handshake`); fehlt MCP weiterhin, wird es klickdurchlässig (`waiting`),
+  damit übrig gebliebene Cursor-Freigaben geklickt werden können. Cursor-
+  Starts nutzen weiter `--approve-mcps` und schreiben zusätzlich
+  `~/.cursor/projects/<slug>/mcp-approvals.json`, damit die TUI nicht an
+  jedem Server stoppt. Extra-MCP-Server bleiben subagent-only.
+  Cursor-Yolo-Subagents starten in **Run Everything** (`--force --sandbox
+  disabled` plus `.cursor/cli.json`), damit Auto-review nicht weiter
+  nachfragt; Orchestratoren bekommen diese Flags weiterhin nie.
 - **Phase H — Nested Worker, Live-Steering, First-Party Chromium-
   Erweiterung.** MCP-Worker dürfen eine Helper-Ebene spawnen (Cap 3;
   Helper nesten nicht; Lead-startet-Lead bleibt verboten). Helper-Events

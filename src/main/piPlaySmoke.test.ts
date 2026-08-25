@@ -88,6 +88,27 @@ describe('runPiPlaySmoke', () => {
     expect(exit).toHaveBeenCalledWith(1)
   })
 
+  it('re-checks a failedToStart getter so the hook can arm before start returns', async () => {
+    const exit = vi.fn()
+    let failed = false
+    let t = 0
+    await runPiPlaySmoke({
+      logPath: '/tmp/pi-play.log',
+      snapshot: () => '',
+      failedToStart: () => failed,
+      timeoutMs: 50,
+      pollMs: 1,
+      now: () => t,
+      wait: async () => {
+        failed = true
+        t = 5
+      },
+      writeLog: async () => undefined,
+      exit
+    })
+    expect(exit).toHaveBeenCalledWith(1)
+  })
+
   it('fails when the adapter cannot reach Vertragus', async () => {
     const exit = vi.fn()
     await runPiPlaySmoke({

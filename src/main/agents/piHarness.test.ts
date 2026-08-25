@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -51,21 +51,10 @@ function wrapCwdWithPiMcp(): string {
   writeFileSync(
     join(cwd, '.pi', 'mcp.json'),
     JSON.stringify({
-      mcpServers: { vertragus: { url: 'http://127.0.0.1:9/mcp', lifecycle: 'eager' } }
+      mcpServers: { vertragus: { url: 'http://127.0.0.1:9/mcp', lifecycle: 'lazy' } }
     })
   )
   return cwd
-}
-
-/** Isolate Pi's `os.homedir()` (USERPROFILE on Windows, HOME elsewhere). */
-function piLiveEnv(cwd: string, extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    HOME: cwd,
-    USERPROFILE: cwd,
-    PI_SKIP_VERSION_CHECK: '1',
-    ...extra
-  }
 }
 
 const PI_WRAP_ARGV = [
@@ -81,18 +70,29 @@ const PI_WRAP_ARGV = [
   'Fix login'
 ] as const
 
-/** Cold start compiles the TypeScript MCP adapter through jiti (~13s on Windows). */
-const PI_LIVE_WAIT_MS = 25_000
-const PI_LIVE_TEST_MS = 35_000
+/**
+ * Quality CI is `windows-latest`. A cold Pi CLI boot under Defender + a full
+ * parallel vitest run can sit silent for well over the old 8 s wait, then
+ * fail with `expected '' to contain '?2004h'`. Settle on DECSET 2004, else
+ * drain a short moment after exit so a fast crash still has its stderr.
+ */
+const PI_TUI_WAIT_MS = 20_000
+const PI_TUI_TEST_MS = 25_000
 
-function waitForPiTui(child: {
-  stdout?: NodeJS.ReadableStream | null
-  stderr?: NodeJS.ReadableStream | null
-  kill: () => void
-  on: (event: 'exit', cb: (code: number | null) => void) => void
-}): Promise<{ out: string }> {
+function piIsolatedEnv(cwd: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    HOME: cwd,
+    USERPROFILE: cwd,
+    PI_SKIP_VERSION_CHECK: '1',
+    ...extra
+  }
+}
+
+function waitForPiTui(child: ChildProcess): Promise<{ out: string; code: number | null }> {
   return new Promise((resolve) => {
     let out = ''
+    let code: number | null = null
     let settled = false
     const finish = () => {
       if (settled) return
@@ -102,7 +102,7 @@ function waitForPiTui(child: {
       } catch {
         // Already exited.
       }
-      resolve({ out })
+      resolve({ out, code })
     }
     const onChunk = (chunk: Buffer | string) => {
       out += chunk.toString()
@@ -110,10 +110,33 @@ function waitForPiTui(child: {
     }
     child.stdout?.on('data', onChunk)
     child.stderr?.on('data', onChunk)
-    setTimeout(finish, PI_LIVE_WAIT_MS)
-    child.on('exit', finish)
+    child.on('error', (error) => {
+      out += `\n${error.message}`
+      finish()
+    })
+    // An early MCP connect failure used to resolve here with only
+    // "fetch failed" and fail the TUI assertion. Stay until DECSET 2004
+    // or the timeout so a slow TUI after a connect log still counts.
+    child.on('exit', (exitCode) => {
+      code = exitCode
+      if (out.includes('?2004h')) finish()
+    })
+    setTimeout(finish, PI_TUI_WAIT_MS)
   })
 }
+
+describe('wrapCwdWithPiMcp', () => {
+  it('does not eager-connect the dummy MCP black hole (Windows Pi would exit)', () => {
+    const cwd = wrapCwdWithPiMcp()
+    const written = JSON.parse(readFileSync(join(cwd, '.pi', 'mcp.json'), 'utf8')) as {
+      mcpServers: { vertragus: { url: string; lifecycle: string } }
+    }
+    expect(written.mcpServers.vertragus).toEqual({
+      url: 'http://127.0.0.1:9/mcp',
+      lifecycle: 'lazy'
+    })
+  })
+})
 
 describe('piProviderFor', () => {
   it('maps each shipped preset onto a published Pi backend, and omits Ollama', () => {
@@ -250,17 +273,16 @@ describe('lockfile Pi CLI and adapter', () => {
     const entry = writePiCliEntry(root, cli!)
     const child = spawn(process.execPath, [entry, ...PI_WRAP_ARGV], {
       cwd,
-      env: piLiveEnv(cwd),
+      env: piIsolatedEnv(cwd),
       stdio: ['ignore', 'pipe', 'pipe']
     })
     const result = await waitForPiTui(child)
     // Print mode plus a goal plus no Pi API key is process.exit(1) with a
     // plain "No API key found" line. Interactive mode enables bracketed paste
-    // (DECSET 2004) and then stays up or exits 0 on stdin EOF. The TUI may
-    // still *display* "No API key found" in the transcript — that is not
-    // the print-mode crash this test is pinning.
-    expect(result.out).toContain('?2004h')
-  }, PI_LIVE_TEST_MS)
+    // (DECSET 2004) and then stays up or exits 0 on stdin EOF.
+    expect(result.out, `exit=${result.code}`).toContain('?2004h')
+    expect(result.out).not.toMatch(/No API key found/i)
+  }, PI_TUI_TEST_MS)
 
   it('Node on a pipe without the CJS entry still exits 1 (print mode + goal + no Pi key)', () => {
     const cli = resolvePiHarnessCli()
@@ -268,15 +290,15 @@ describe('lockfile Pi CLI and adapter', () => {
     const cwd = wrapCwdWithPiMcp()
     const result = spawnSync(process.execPath, [cli!, ...PI_WRAP_ARGV], {
       cwd,
-      env: piLiveEnv(cwd),
+      env: piIsolatedEnv(cwd),
       encoding: 'utf8',
-      timeout: PI_LIVE_WAIT_MS,
+      timeout: 8_000,
       stdio: ['ignore', 'pipe', 'pipe']
     })
     expect(result.error).toBeUndefined()
     expect(result.status).toBe(1)
     expect(`${result.stdout}${result.stderr}`).toMatch(/No API key found/i)
-  }, PI_LIVE_TEST_MS)
+  }, 12_000)
 
   it.skipIf(!electronBinary)(
     'Electron-as-node on a pipe without the CJS entry still exits 1 (print mode + goal + no Pi key)',
@@ -286,16 +308,16 @@ describe('lockfile Pi CLI and adapter', () => {
       const cwd = wrapCwdWithPiMcp()
       const result = spawnSync(electronBinary!, [cli!, ...PI_WRAP_ARGV], {
         cwd,
-        env: piLiveEnv(cwd, { ELECTRON_RUN_AS_NODE: '1' }),
+        env: piIsolatedEnv(cwd, { ELECTRON_RUN_AS_NODE: '1' }),
         encoding: 'utf8',
-        timeout: PI_LIVE_WAIT_MS,
+        timeout: 8_000,
         stdio: ['ignore', 'pipe', 'pipe']
       })
       expect(result.error).toBeUndefined()
       expect(result.status).toBe(1)
       expect(`${result.stdout}${result.stderr}`).toMatch(/No API key found/i)
     },
-    PI_LIVE_TEST_MS
+    12_000
   )
 
   it.skipIf(!electronBinary)(
@@ -308,13 +330,14 @@ describe('lockfile Pi CLI and adapter', () => {
       const entry = writePiCliEntry(root, cli!)
       const child = spawn(electronBinary!, [entry, ...PI_WRAP_ARGV], {
         cwd,
-        env: piLiveEnv(cwd, { ELECTRON_RUN_AS_NODE: '1' }),
+        env: piIsolatedEnv(cwd, { ELECTRON_RUN_AS_NODE: '1' }),
         stdio: ['ignore', 'pipe', 'pipe']
       })
       const result = await waitForPiTui(child)
-      expect(result.out).toContain('?2004h')
+      expect(result.out, `exit=${result.code}`).toContain('?2004h')
+      expect(result.out).not.toMatch(/No API key found/i)
     },
-    PI_LIVE_TEST_MS
+    PI_TUI_TEST_MS
   )
 
   it.skipIf(process.platform !== 'win32' && !electronBinary)(
@@ -347,18 +370,17 @@ describe('lockfile Pi CLI and adapter', () => {
           file,
           args: [entry, ...PI_WRAP_ARGV],
           cwd,
-          env: {
-            HOME: cwd,
-            USERPROFILE: cwd,
-            PI_SKIP_VERSION_CHECK: '1',
-            ...(process.platform === 'win32' ? {} : { ELECTRON_RUN_AS_NODE: '1' })
-          }
+          env: piIsolatedEnv(
+            cwd,
+            process.platform === 'win32' ? {} : { ELECTRON_RUN_AS_NODE: '1' }
+          )
         })
-        setTimeout(finish, PI_LIVE_WAIT_MS)
+        setTimeout(finish, PI_TUI_WAIT_MS)
       })
       expect(result.out).toContain('?2004h')
+      expect(result.out).not.toMatch(/No API key found/i)
     },
-    PI_LIVE_TEST_MS
+    PI_TUI_TEST_MS
   )
 
   it('rewrites app.asar to app.asar.unpacked when that copy exists', () => {

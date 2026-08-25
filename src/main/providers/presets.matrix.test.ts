@@ -372,7 +372,9 @@ describe('preset argv matrix', () => {
           "--trust",
           "--model",
           "auto",
-          "--yolo",
+          "--force",
+          "--sandbox",
+          "disabled",
           "--approve-mcps",
         ],
       }

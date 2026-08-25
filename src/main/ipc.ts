@@ -17,6 +17,7 @@
  * duplicate-free without sequence numbers: attach is the sync point.
  */
 import { ipcMain } from 'electron'
+import type { TerminalBootPhase } from '@shared/terminalBoot'
 import type { PtyAgentLike, PtyExitInfo } from './agents/PtyAgent'
 import { getSettings } from './store/settings'
 import {
@@ -35,6 +36,7 @@ export const TERMINAL_CHANNELS = {
   data: 'terminal:data',
   exit: 'terminal:exit',
   task: 'terminal:task',
+  boot: 'terminal:boot',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -83,12 +85,23 @@ export interface TerminalAttachResult {
    * card. Later changes arrive over {@link TERMINAL_CHANNELS.task}.
    */
   task?: string
+  /**
+   * Boot overlay phase at attach time. Absent once the overlay is gone.
+   * Later changes arrive over {@link TERMINAL_CHANNELS.boot}.
+   */
+  boot?: TerminalBootPhase
 }
 
 /** Push payload of {@link TERMINAL_CHANNELS.task} — a new current-task note. */
 export interface TerminalTaskEvent {
   agentId: string
   task?: string
+}
+
+/** Push payload of {@link TERMINAL_CHANNELS.boot} — overlay phase, or null to hide. */
+export interface TerminalBootEvent {
+  agentId: string
+  boot: TerminalBootPhase | null
 }
 
 export interface TerminalDataEvent {
@@ -117,6 +130,12 @@ export interface AgentRegistry {
    * pushed the change, a detached one picks it up with its next attach.
    */
   setAgentTask(agentId: string, task: string | undefined): void
+  /**
+   * Drive the greyhound boot overlay on the agent's CLI window. `null` hides
+   * it. Unknown agents are no-ops; a detached window picks the phase up on
+   * its next attach.
+   */
+  setAgentBoot(agentId: string, phase: TerminalBootPhase | null): void
   /** Window gone — stop pushing until it attaches again. */
   markDetached(agentId: string): void
   /**
@@ -204,6 +223,8 @@ interface AgentRecord {
   exit: PtyExitInfo | null
   /** Current task note; rides on attach and is pushed on change. */
   task: string | undefined
+  /** Boot overlay phase; rides on attach and is pushed on change. */
+  boot: TerminalBootPhase | null
   unsubscribe: (() => void)[]
 }
 
@@ -294,6 +315,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       exit: record.exit,
       maximized: host.isWindowMaximized(agentId),
       ...(record.task !== undefined ? { task: record.task } : {}),
+      ...(record.boot ? { boot: record.boot } : {}),
       ...(host.locale ? { locale: host.locale() } : {}),
       ...(host.theme ? { theme: host.theme() } : {})
     }
@@ -387,6 +409,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
         // A re-registration under the same id keeps the note — same PTY-swap
         // semantics as the rest of the record.
         task: previous?.task,
+        boot: previous?.boot ?? null,
         unsubscribe: []
       }
       agents.set(agentId, record)
@@ -429,6 +452,18 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       }
       const payload: TerminalTaskEvent = { agentId, ...(task !== undefined ? { task } : {}) }
       host.send(agentId, TERMINAL_CHANNELS.task, payload)
+    },
+    setAgentBoot(agentId: string, phase: TerminalBootPhase | null): void {
+      const record = agents.get(agentId)
+      if (!record || record.boot === phase) return
+      record.boot = phase
+      if (!record.attached) return
+      if (host.hasWindow && !host.hasWindow(agentId)) {
+        record.attached = false
+        return
+      }
+      const payload: TerminalBootEvent = { agentId, boot: phase }
+      host.send(agentId, TERMINAL_CHANNELS.boot, payload)
     },
     markDetached(agentId: string): void {
       const record = agents.get(agentId)
