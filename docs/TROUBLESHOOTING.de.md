@@ -123,6 +123,28 @@ ist unter Wayland ebenfalls unzuverlässig, weil Wayland Anwendungen gar keine
 absolute Fensterpositionierung gibt — das ist eine Plattform-Grenze, keine
 Einstellung.
 
+## Cursor Agent verlangt, jeden MCP-Server zu bestätigen
+
+Vertragus startet Cursor mit `--approve-mcps` und schreibt zusätzlich
+`~/.cursor/projects/<slug>/mcp-approvals.json` für jeden Server in der
+`.cursor/mcp.json` dieses Worktrees (derselbe State-File-Trick wie
+Claude/Kimi-Trust). Orchestratoren bekommen nie `--force` / `--yolo`.
+Wenn die Subagent-Policy yolo ist, starten Cursor-Worker zusätzlich in
+**Run Everything** (`--force --sandbox disabled` und eine projektweite
+`.cursor/cli.json` mit `approvalMode: unrestricted`), damit Auto-review
+und die Sandbox nicht weiter an Tool-Calls stoppen. `ask-user`- und
+Orchestrator-Starts bekommen diesen Modus nie.
+
+Stoppt die TUI trotzdem an einer Bestätigung, wird das Windhund-Overlay
+klickdurchlässig (`waiting`), damit du im Fenster auf Approve klicken
+kannst. Der erste Turn bleibt gehalten, bis die Vertragus-MCP-Session
+steht — absichtlich, damit `await_events` keine Tokens gegen fehlende
+Tools verbrennt.
+
+Kommen die Freigaben nach einem Update immer wieder, hat sich Cursors
+Hash-Format vielleicht geändert — öffne ein Issue mit der Cursor-CLI-
+Version.
+
 ## Cursor Agent stürzt unter Windows sofort ab
 
 Das Orchestrator-Fenster druckt `Error: node-loader:` / `An Application

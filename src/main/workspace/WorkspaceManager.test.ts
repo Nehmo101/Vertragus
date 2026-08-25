@@ -12,6 +12,7 @@ import { buildHandoffPackage } from '@shared/schema/handoff'
 import { createWorkspaceManager, type WorkspaceManagerDeps } from './WorkspaceManager'
 import type { WorkspaceDeps, WorkspaceWindows } from './Workspace'
 import {
+  FakePty,
   FakeRegistry,
   fakeSeed,
   fakeSpawn,
@@ -72,7 +73,8 @@ class FakeMcp implements McpServerHandle {
       leadUrl: (agentId: string) =>
         `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&lead=${agentId}&token=lead`,
       rotateOrchestratorToken: () => this.rotateOrchestratorToken(ctx.workspaceId),
-      applyOrchestratorToken: (token) => this.applyOrchestratorToken(ctx.workspaceId, token)
+      applyOrchestratorToken: (token) => this.applyOrchestratorToken(ctx.workspaceId, token),
+      waitForSession: async () => true
     }
   }
 
@@ -168,10 +170,11 @@ function harness(overrides: Partial<WorkspaceManagerDeps> = {}): Harness {
     windows,
     configDir: '/config',
     providers: () => testProviders(),
-    spawn: (async (input) => {
+    spawn: (async (input, spawnDeps) => {
       log.push(`spawn:${input.kind}`)
-      return spawner.spawn(input)
+      return spawner.spawn(input, spawnDeps)
     }) as unknown as WorkspaceDeps['spawn'],
+    createPty: () => new FakePty(),
     createWorktree: fakeWorktrees().createWorktree as unknown as WorkspaceDeps['createWorktree'],
     seed: seeder.seed as unknown as WorkspaceDeps['seed'],
     newId: sequentialIds('id'),
@@ -300,6 +303,9 @@ describe('startWorkspace', () => {
     // The launch args carry the MCP URL — there is no window in which an agent
     // exists without an attachment.
     expect(log.indexOf('register:Paradiso')).toBeLessThan(log.indexOf('spawn:orchestrator'))
+    const opened = log.findIndex((entry) => entry.startsWith('open:'))
+    expect(opened).toBeGreaterThanOrEqual(0)
+    expect(opened).toBeLessThan(log.indexOf('spawn:orchestrator'))
   })
 
   it('hands the minted URLs to the workspace', async () => {

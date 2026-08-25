@@ -5,7 +5,14 @@
  */
 import type { AgentRegistry, RegisteredAgent } from '@main/ipc'
 import type { PtyExitInfo, PtySpawnOptions } from '@main/agents/PtyAgent'
-import type { AgentLaunchInput, AgentPty, ResolvedLaunch, SpawnedAgent } from '@main/agents/spawn'
+import type {
+  AgentLaunchInput,
+  AgentPty,
+  ResolvedLaunch,
+  SpawnAgentDeps,
+  SpawnedAgent
+} from '@main/agents/spawn'
+import type { TerminalBootPhase } from '@shared/terminalBoot'
 import type { SeedWithReadyOptions } from '@main/agents/interactiveReady'
 import { worktreePathFor } from '@main/agents/worktree'
 import { profileSchema, type Profile, type ProfileInput } from '@shared/schema/profile'
@@ -105,6 +112,8 @@ export class FakeRegistry implements AgentRegistry {
   readonly removed: string[] = []
   readonly detached: string[] = []
   readonly tasks = new Map<string, string | undefined>()
+  /** Every `setAgentBoot` call, in order — overlay phase sequence for tests. */
+  readonly boots: Array<{ agentId: string; phase: TerminalBootPhase | null }> = []
   private readonly agents = new Map<string, RegisteredAgent>()
 
   registerAgent(entry: RegisteredAgent): void {
@@ -126,6 +135,9 @@ export class FakeRegistry implements AgentRegistry {
   }
   setAgentTask(agentId: string, task: string | undefined): void {
     this.tasks.set(agentId, task)
+  }
+  setAgentBoot(agentId: string, phase: TerminalBootPhase | null): void {
+    this.boots.push({ agentId, phase })
   }
   terminals(): import('@main/ipc').TerminalDirectory {
     const agents = this.agents
@@ -227,15 +239,21 @@ export function fakeSpawn(
     banner?: string
   } = {}
 ): {
-  spawn: (input: AgentLaunchInput) => Promise<SpawnedAgent>
+  spawn: (input: AgentLaunchInput, spawnDeps?: SpawnAgentDeps) => Promise<SpawnedAgent>
   calls: RecordedSpawn[]
 } {
   const calls: RecordedSpawn[] = []
   return {
     calls,
-    spawn: async (input: AgentLaunchInput): Promise<SpawnedAgent> => {
+    spawn: async (input: AgentLaunchInput, spawnDeps?: SpawnAgentDeps): Promise<SpawnedAgent> => {
       if (options.error) throw options.error
-      const pty = options.banner === undefined ? new FakePty() : new FakePty(options.banner)
+      const reused = spawnDeps?.createPty?.()
+      const pty =
+        reused instanceof FakePty
+          ? reused
+          : options.banner === undefined
+            ? new FakePty()
+            : new FakePty(options.banner)
       const launch: ResolvedLaunch = {
         file: `/resolved/${input.provider.command}`,
         args: ['--fake'],

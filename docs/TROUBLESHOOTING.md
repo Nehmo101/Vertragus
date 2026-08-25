@@ -114,6 +114,26 @@ than rendering as an unpainted rectangle. Zone tiling is also unreliable
 under Wayland, which gives applications no absolute window positioning at
 all — that is a platform limit, not a setting.
 
+## Cursor Agent asks to approve every MCP server
+
+Vertragus launches Cursor with `--approve-mcps` and also writes
+`~/.cursor/projects/<slug>/mcp-approvals.json` for every server in that
+worktree's `.cursor/mcp.json` (the same state-file trick as Claude/Kimi
+trust). Orchestrators never get `--force` / `--yolo`. When the subagent
+policy is yolo, Cursor workers additionally launch in **Run Everything**
+(`--force --sandbox disabled` and a project `.cursor/cli.json` with
+`approvalMode: unrestricted`) so Auto-review and the sandbox do not still
+stop on tool calls. `ask-user` and orchestrator launches never get that
+mode.
+
+If the TUI still stops on a confirmation, the greyhound overlay lifts to
+click-through (`waiting`) so you can click Approve in the window. The first
+turn stays on hold until the Vertragus MCP session exists — that is
+deliberate, so `await_events` does not burn tokens against missing tools.
+
+If approvals keep returning after an update, the hash format Cursor uses
+may have changed — open an issue with the Cursor CLI version.
+
 ## Cursor Agent crashes immediately on Windows
 
 The orchestrator window prints `Error: node-loader:` / `An Application

@@ -114,6 +114,8 @@ describe('the search planAttach makes', () => {
     // `String.prototype.lastIndexOf`. The threshold is a cost CLASS, an order
     // of magnitude clear of both sides, because the two assertions above would
     // not notice a regression to the naive scan on the real `string` path.
+    // Windows quality CI has landed ~570 ms under a loaded vitest run — still
+    // far from the naive scan — so the ceiling sits at 2 s, not 500 ms.
     // Self-check for the clock this reads: a faked one reports that everything
     // took zero, which would make the assertion below pass whatever
     // `planAttach` did. Nothing in this file fakes timers today, and this is
@@ -124,7 +126,7 @@ describe('the search planAttach makes', () => {
     const plan = planAttach({ snapshot: 'A'.repeat(2_000_000), written: nearMiss })
     const elapsed = performance.now() - started
     expect(plan.kind).toBe('replay')
-    expect(elapsed).toBeLessThan(500)
+    expect(elapsed).toBeLessThan(2_000)
   })
 })
 

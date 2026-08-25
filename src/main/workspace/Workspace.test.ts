@@ -19,9 +19,11 @@ import {
   PTY_ONLY_IDLE_HINT_MS,
   snapshotCommitMessage,
   Workspace,
-  type WorkspaceDeps
+  type WorkspaceDeps,
+  type WorkspaceMcpUrls
 } from './Workspace'
 import {
+  FakePty,
   FakeRegistry,
   FakeWindows,
   fakeSeed,
@@ -52,6 +54,7 @@ function harness(
     profile?: ReturnType<typeof testProfile>
     ptySystemPrompt?: boolean
     banner?: string
+    waitForSession?: NonNullable<WorkspaceMcpUrls['waitForSession']>
   } = {}
 ): Harness {
   const registry = new FakeRegistry()
@@ -77,13 +80,16 @@ function harness(
       seed: seeder.seed as unknown as WorkspaceDeps['seed'],
       now: () => now.value,
       newId: sequentialIds('a'),
+      createPty: () =>
+        overrides.banner === undefined ? new FakePty() : new FakePty(overrides.banner),
       ...overrides.deps
     }
   )
   workspace.attachMcp({
     orchestratorUrl: 'http://127.0.0.1:1/mcp?ws=w&token=orch',
     subagentUrl: (agentId) => `http://127.0.0.1:1/mcp?ws=w&agent=${agentId}&token=sub`,
-    leadUrl: (agentId) => `http://127.0.0.1:1/mcp?ws=w&lead=${agentId}&token=lead`
+    leadUrl: (agentId) => `http://127.0.0.1:1/mcp?ws=w&lead=${agentId}&token=lead`,
+    ...(overrides.waitForSession ? { waitForSession: overrides.waitForSession } : {})
   })
   workspace.attachQuestions(questions)
 
@@ -411,20 +417,24 @@ describe('worktrees', () => {
     const createWorktree = vi.fn(async () => {
       throw new Error('git worktree add failed')
     })
-    const { workspace } = harness({ deps: { createWorktree } })
+    const { workspace, windows } = harness({ deps: { createWorktree } })
     await expect(workspace.startAgent({ role: 'worker', task: 'x' })).rejects.toThrow(
       /git worktree add failed/
     )
     expect(workspace.listAgents()).toHaveLength(0)
+    expect(windows.opened).toHaveLength(1)
+    expect(windows.closed).toHaveLength(1)
   })
 
   it('does not leave a half-started orchestrator behind when git fails', async () => {
     const createWorktree = vi.fn(async () => {
       throw new Error('git worktree add failed')
     })
-    const { workspace } = harness({ deps: { createWorktree } })
+    const { workspace, windows } = harness({ deps: { createWorktree } })
     await expect(workspace.startOrchestrator()).rejects.toThrow(/git worktree add failed/)
     expect(workspace.orchestrator).toBeUndefined()
+    expect(windows.opened).toHaveLength(1)
+    expect(windows.closed).toHaveLength(1)
   })
 })
 
@@ -811,6 +821,51 @@ describe('startOrchestrator', () => {
     expect(workspace.orchestrator).toMatchObject({ name: orchestrator.name })
   })
 
+  it('opens the CLI window before spawn so the overlay covers MCP attach', async () => {
+    let openedAtSpawn = 0
+    const inner = fakeSpawn()
+    const { workspace, windows, registry } = harness({
+      deps: {
+        spawn: (async (input, spawnDeps) => {
+          openedAtSpawn = windows.opened.length
+          return inner.spawn(input, spawnDeps)
+        }) as WorkspaceDeps['spawn']
+      }
+    })
+    const orchestrator = await workspace.startOrchestrator()
+    expect(openedAtSpawn).toBe(1)
+    expect(windows.opened[0]!.agentId).toBe(orchestrator.agentId)
+    expect(inner.calls[0]!.pty).toBe(registry.registered[0]!.pty)
+    expect(registry.boots.map((entry) => entry.phase)).toEqual([
+      'preparing',
+      'worktree',
+      'mcp',
+      'cli',
+      'handshake',
+      null
+    ])
+  })
+
+  it('holds the first Enter and leaves the overlay click-through when MCP never comes up', async () => {
+    const { workspace, seedOptions, registry } = harness({
+      ptySystemPrompt: true,
+      waitForSession: async (_identity, timeoutMs) => {
+        if (timeoutMs < 30_000) return false
+        return new Promise(() => undefined)
+      }
+    })
+    await workspace.startOrchestrator()
+    expect(seedOptions.at(-1)?.autoSubmit).toBe(false)
+    expect(registry.boots.map((entry) => entry.phase)).toEqual([
+      'preparing',
+      'worktree',
+      'mcp',
+      'cli',
+      'handshake',
+      'waiting'
+    ])
+  })
+
   it('types the prompt in when the provider has no system-prompt flag', async () => {
     const { workspace, prompts } = harness({ ptySystemPrompt: true })
     await workspace.startOrchestrator()
@@ -1101,11 +1156,11 @@ describe('requestSuccession', () => {
     const inner = fakeSpawn()
     const { workspace } = harness({
       deps: {
-        spawn: (async (input) => {
+        spawn: (async (input, spawnDeps) => {
           if (input.kind === 'orchestrator' && inner.calls.length >= 1) {
             throw new Error('successor boom')
           }
-          return inner.spawn(input)
+          return inner.spawn(input, spawnDeps)
         }) as WorkspaceDeps['spawn']
       }
     })
@@ -1163,11 +1218,11 @@ describe('requestSuccession', () => {
         ptySystemPrompt: true,
         profile: testProfile({ repoPath: repo }),
         deps: {
-          spawn: (async (input) => {
+          spawn: (async (input, spawnDeps) => {
             if (input.kind === 'orchestrator' && inner.calls.length >= 1) {
               throw new Error('successor boom')
             }
-            return inner.spawn(input)
+            return inner.spawn(input, spawnDeps)
           }) as WorkspaceDeps['spawn']
         }
       })
@@ -1523,6 +1578,17 @@ describe('autoSubmitTasks', () => {
     expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
   })
 
+  it('holds Enter when the MCP session never arrives', async () => {
+    const { workspace, seedOptions } = harness({
+      waitForSession: async (_identity, timeoutMs) => {
+        if (timeoutMs < 30_000) return false
+        return new Promise(() => undefined)
+      }
+    })
+    await workspace.startAgent({ role: 'worker', task: 'Do the thing.' })
+    expect(seedOptions.at(-1)?.autoSubmit).toBe(false)
+  })
+
   it('forwards the provider seed tuning into the handshake options', async () => {
     const { workspace, seedOptions } = harness({
       profile: testProfile({
@@ -1852,7 +1918,15 @@ describe('Cursor MCP attach leaves the idle-hint regime', () => {
         cwd,
         yolo: true
       })
-      expect(argv).toEqual(['--trust', '--model', 'gpt-5.6', '--yolo', '--approve-mcps'])
+      expect(argv).toEqual([
+        '--trust',
+        '--model',
+        'gpt-5.6',
+        '--force',
+        '--sandbox',
+        'disabled',
+        '--approve-mcps'
+      ])
     } finally {
       rmSync(cwd, { recursive: true, force: true })
     }

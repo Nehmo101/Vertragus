@@ -25,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
 import { Workspace, type WorkspaceDeps } from '@main/workspace/Workspace'
 import {
+  FakePty,
   FakeRegistry,
   FakeWindows,
   fakeSeed,
@@ -92,6 +93,7 @@ function buildWorkspace(): Workspace {
       // Fake processes, REAL worktrees: createWorktree/worktreeDeps stay unset.
       spawn: fakeSpawn().spawn as unknown as WorkspaceDeps['spawn'],
       seed: fakeSeed().seed as unknown as WorkspaceDeps['seed'],
+      createPty: () => new FakePty(),
       newId: sequentialIds('agent')
     }
   )

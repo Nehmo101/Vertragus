@@ -7,6 +7,7 @@ import type { ExtraMcpServer } from '@shared/schema/mcpServer'
 import type { Appearance } from '@shared/appearance'
 import type { BindOption, RemoteClientInfo, RemoteStatus } from '@shared/remote/types'
 import type { BrowserExtensionInstallResult, BrowserExtensionStatus } from '@shared/browserExtension'
+import type { TerminalBootPhase } from '@shared/terminalBoot'
 
 /** Mirrors main/appIpc.PanelMcpServer — secrets never appear here. */
 export interface PanelMcpServer {
@@ -40,6 +41,7 @@ const CHANNELS = {
   data: 'terminal:data',
   exit: 'terminal:exit',
   task: 'terminal:task',
+  boot: 'terminal:boot',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -68,6 +70,8 @@ export interface TerminalAttachResult {
   maximized: boolean
   /** Current task note at attach time; later changes arrive via onTask. */
   task?: string
+  /** Boot overlay phase at attach time; later changes arrive via onBoot. */
+  boot?: TerminalBootPhase
 }
 
 export interface TerminalDataEvent {
@@ -79,6 +83,12 @@ export interface TerminalDataEvent {
 export interface TerminalTaskEvent {
   agentId: string
   task?: string
+}
+
+/** Boot overlay phase for this window's agent — `null` hides the overlay. */
+export interface TerminalBootEvent {
+  agentId: string
+  boot: TerminalBootPhase | null
 }
 
 export interface TerminalExitEvent {
@@ -117,6 +127,14 @@ const terminal = {
     ipcRenderer.on(CHANNELS.task, handler)
     return () => {
       ipcRenderer.removeListener(CHANNELS.task, handler)
+    }
+  },
+  /** Greyhound overlay while worktree / MCP / first turn are still in flight. */
+  onBoot: (listener: (event: TerminalBootEvent) => void): (() => void) => {
+    const handler = (_event: unknown, payload: TerminalBootEvent): void => listener(payload)
+    ipcRenderer.on(CHANNELS.boot, handler)
+    return () => {
+      ipcRenderer.removeListener(CHANNELS.boot, handler)
     }
   },
   /** Close this window only — the agent keeps running. */
