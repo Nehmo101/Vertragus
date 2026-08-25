@@ -129,6 +129,11 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   `dist/cli.js` ein Preload, das die TTY-Flags setzt, schreibt den
   Rollenprompt nach `.pi/APPEND_SYSTEM.md` und hängt den
   Vertragus-MCP-Server eager an.
+- **Speichern im Zonen-Overlay rutschte auf kleinen Bildschirmen aus dem
+  sichtbaren Bereich.** Die untere Leiste war eine einzige nowrap-Zeile,
+  die mit jedem Rollen-Chip wuchs, sodass Abbrechen und Speichern über die
+  Arbeitsfläche hinaus gemalt wurden. Die Leiste bricht jetzt innerhalb
+  des Overlays um; Speichern bleibt sichtbar.
 - **Das Handy-Terminal baute sich bei fast jedem Render neu auf.** `useRemote()`
   liefert ein frisches Objektliteral, `api` wechselte also bei jedem Render
   von `App` die Identität — und der Effekt, der das Terminal erzeugt und
