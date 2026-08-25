@@ -17,6 +17,13 @@ No release has been tagged yet; everything lives under Unreleased.
   It passes only when the orchestrator PTY shows a TUI and Vertragus MCP
   attached — the Windows blank-window regression. No provider keys; not
   part of `pnpm run ci`.
+- **Per-identity system prompts in the profile editor.** Orchestrator, Lead,
+  Worker, Tester and every other role can carry an optional extra prompt
+  (tone, language, how they report back). It is appended to the host-generated
+  or shipped role text — it never replaces the loop, isolation rules or the
+  reporting contract. A new profile starts with short English starter texts
+  (audience, language of the goal, distilled handoff — not a second copy of
+  the shipped role) the user can edit, clear, or restore.
 - **Faster MCP handover, no wasted first turn, greyhound boot overlay.**
   The CLI window opens as soon as the host has a PTY — before worktree and
   spawn — so MCP initialize overlaps CLI boot instead of waiting behind it.

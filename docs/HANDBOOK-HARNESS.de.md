@@ -961,6 +961,24 @@ eingeschalteten Schalter einen Automatisierungsblock — damit er dem Nutzer
 nicht länger sagt, er solle einen Branch mergen, den der Host längst
 gemergt hat.
 
+## Extra-System-Prompts pro Identität
+
+Optional, pro Profil (`rolePrompts` in `shared/schema/profile.ts`). Der
+Profil-Editor listet Orchestrator, Lead und jedes Rollen-Template. Ein
+**neues** Profil kommt mit kurzen Starttexten (`INITIAL_ROLE_PROMPTS` in
+`prompts/rolePrompt.ts`), die du ändern, leeren oder wiederherstellen
+kannst; ein bestehendes Profil ohne Extras bleibt leer. Leer heißt: nur
+der mitgelieferte bzw. Host-generierte Prompt. Die Starttexte sind ein
+**Kommunikations-Overlay** (wer den Bericht liest, Sprache des Ziels,
+destillierte Übergabe) — keine zweite Kopie der mitgelieferten
+Rollenpflichten oder der Orchestrator-Schleife. Ein ausgefülltes
+Feld wird beim Spawn **angehängt** (`appendUserRolePrompt`) — nach dem
+Worker-/Tester-Rollentext, dem Orchestrator-Loop-Prompt, dem Lead-Prompt
+und dem Successor-Seed. Es ersetzt nichts davon, sodass niemand
+„never commit“ oder die `await_events`-Schleife auslöschen kann. Eigene
+Rollen behalten ihren Template-Prompt (was die Rolle *tut*); das
+Profil-Feld ist, wie diese Rolle in diesem Projekt *spricht*.
+
 ## Anhang: Code-Anker
 
 | Thema | Wo | Stand |
@@ -985,3 +1003,4 @@ gemergt hat.
 | Live-`user_message`-Targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium-`/browser`-Bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
 | Pi-Harness-Wrap (kein siebter Provider) | `agents/piHarness.ts`, `spawn.ts`-Overlay, `.pi/mcp.json`, Setting `piHarnessEnabled`, Lockfile-Pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |
+| Extra-System-Prompt pro Identität | `schema/profile.ts` `rolePrompts`, `prompts/rolePrompt.ts`, Profil-Editor | **this** |

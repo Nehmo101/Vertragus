@@ -939,6 +939,24 @@ link. The orchestrator prompt renders an automation block for exactly the
 switches that are on, so it stops telling the user to merge a branch the
 host already merged.
 
+## Per-identity extra system prompts
+
+Optional, per profile (`rolePrompts` in `shared/schema/profile.ts`). The
+profile editor lists Orchestrator, Lead and every role template. A **new**
+profile ships with short starter texts (`INITIAL_ROLE_PROMPTS` in
+`prompts/rolePrompt.ts`) the user can edit, clear, or restore; an existing
+profile that never stored extras stays empty. Empty means the shipped /
+host-generated prompt only. Starters are a **communication overlay**
+(who reads the report, the language of the goal, a distilled handoff) —
+not a second copy of the shipped role duties or the orchestrator loop.
+A filled field is
+**appended** at spawn (`appendUserRolePrompt`) after the Worker/Tester
+role text, the orchestrator loop prompt, the lead prompt, and the
+successor seed alike. It never replaces those, so a user cannot erase
+"never commit" or the `await_events` loop. Custom roles still have their
+own template prompt (what the role *does*); the profile field is how
+that role *speaks* in this project.
+
 ## Appendix: code anchors
 
 | Topic | Where | Status |
@@ -963,3 +981,4 @@ host already merged.
 | Live `user_message` targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium `/browser` bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
 | Pi harness wrap (not a seventh provider) | `agents/piHarness.ts`, `spawn.ts` overlay, `.pi/mcp.json`, settings `piHarnessEnabled`, lockfile pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |
+| Per-identity extra system prompt | `schema/profile.ts` `rolePrompts`, `prompts/rolePrompt.ts`, profile editor | **this** |

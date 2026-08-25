@@ -54,6 +54,15 @@ anbindet und auf die Session wartet; der erste Turn geht erst raus, wenn
 MCP steht, damit ein Start ohne verbundene Session keine Tokens auf
 `await_events` verbrennt.
 
+Im Profil-Editor lässt sich außerdem ein optionaler **System-Prompt pro
+Identität** hinterlegen (Orchestrator, Lead, Worker, Tester, …). Ein neues
+Profil startet mit kurzen englischen Starttexten (wer den Bericht liest,
+gleiche Sprache wie das Ziel, destillierte Übergabe); du kannst sie
+ändern, leeren oder wiederherstellen. Jeder Extra-Prompt wird an den
+Host-generierten bzw. mitgelieferten Rollen-Prompt angehängt, sodass du
+Sprache, Ton und die Art der Rückmeldung steuern kannst, ohne die
+Schleife oder den Reporting-Contract zu ersetzen.
+
 Alles, was der Orchestrator kann, läuft über seine MCP-Tools — es gibt
 keinen zweiten Pfad:
 

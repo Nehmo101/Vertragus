@@ -48,6 +48,13 @@ that fold-out, never a pre-configured crew. The CLI window opens at once
 with a greyhound overlay while the host creates the worktree, attaches MCP
 and waits for the session; the first turn is submitted only once MCP is up,
 so a start without a connected server does not burn tokens on `await_events`.
+The profile editor also takes an optional **system prompt per identity**
+(Orchestrator, Lead, Worker, Tester, …). A new profile starts with short
+English starter texts (who reads the report, same language as the goal,
+distilled handoff); you can edit, clear or restore them. Each extra is
+appended to the host-generated or shipped role prompt, so you can steer
+language, tone and how the agent reports back without replacing the loop
+or the reporting contract.
 
 Everything the orchestrator can do goes through its MCP tools — there is no
 second path:

@@ -3,10 +3,13 @@ import {
   createEmptyProfile,
   DEFAULT_PR_REMOTE,
   duplicateProfile,
+  MAX_ROLE_PROMPTS,
   MAX_SLOTS,
   parseProfiles,
   profileRoleIds,
   profileSchema,
+  ROLE_PROMPT_MAX_CHARS,
+  rolePromptFor,
   roleTemplateSchema,
   slotLimitFor,
   slotSchema,
@@ -210,6 +213,64 @@ describe('profileSchema', () => {
     ).toBe(false)
   })
 
+  it('accepts per-identity extra system prompts and looks them up by role id', () => {
+    const profile = baseProfile({
+      rolePrompts: [
+        { roleId: 'orchestrator', prompt: '  Speak German.  ' },
+        { roleId: 'worker', prompt: 'Three bullets.' }
+      ]
+    })
+    expect(profile.rolePrompts).toEqual([
+      { roleId: 'orchestrator', prompt: 'Speak German.' },
+      { roleId: 'worker', prompt: 'Three bullets.' }
+    ])
+    expect(rolePromptFor(profile, 'orchestrator')).toBe('Speak German.')
+    expect(rolePromptFor(profile, 'tester')).toBeUndefined()
+    expect(rolePromptFor(undefined, 'worker')).toBeUndefined()
+  })
+
+  it('rejects a duplicate roleId, an empty prompt, and a prompt past the bound', () => {
+    const raw = {
+      id: 'p1',
+      name: 'Vertragus',
+      orchestrator: { providerId: 'claude' }
+    }
+    expect(
+      profileSchema.safeParse({
+        ...raw,
+        rolePrompts: [
+          { roleId: 'worker', prompt: 'A' },
+          { roleId: 'worker', prompt: 'B' }
+        ]
+      }).success
+    ).toBe(false)
+    expect(
+      profileSchema.safeParse({ ...raw, rolePrompts: [{ roleId: 'worker', prompt: '   ' }] }).success
+    ).toBe(false)
+    expect(
+      profileSchema.safeParse({
+        ...raw,
+        rolePrompts: [{ roleId: 'worker', prompt: 'p'.repeat(ROLE_PROMPT_MAX_CHARS + 1) }]
+      }).success
+    ).toBe(false)
+    expect(
+      profileSchema.safeParse({
+        ...raw,
+        rolePrompts: Array.from({ length: MAX_ROLE_PROMPTS + 1 }, (_, index) => ({
+          roleId: `r${index}`,
+          prompt: 'x'
+        }))
+      }).success
+    ).toBe(false)
+  })
+
+  it('carries extra prompts into a duplicate', () => {
+    const copy = duplicateProfile(
+      baseProfile({ rolePrompts: [{ roleId: 'tester', prompt: 'Be terse.' }] })
+    )
+    expect(copy.rolePrompts).toEqual([{ roleId: 'tester', prompt: 'Be terse.' }])
+  })
+
   it('accepts an optional zone layout', () => {
     const parsed = baseProfile({
       zones: { zones: [{ roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 0.5 } }] }
@@ -245,6 +306,19 @@ describe('createEmptyProfile', () => {
       slots: []
     })
     expect(profile.id).toMatch(/^profile-/)
+    expect(profile.rolePrompts?.map((entry) => entry.roleId).sort()).toEqual(
+      [
+        'architect',
+        'docs',
+        'explorer',
+        'janitor',
+        'lead',
+        'orchestrator',
+        'reviewer',
+        'tester',
+        'worker'
+      ]
+    )
   })
 
   it('gives two profiles created in a row different ids', () => {

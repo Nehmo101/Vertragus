@@ -48,6 +48,10 @@ const electronBinary = resolveElectronBinary()
 function wrapCwdWithPiMcp(): string {
   const cwd = mkdtempSync(join(tmpdir(), 'vertragus-pi-cwd-'))
   mkdirSync(join(cwd, '.pi'), { recursive: true })
+  // Lazy on purpose: the URL is a black hole (port 9). Production Pi configs
+  // use eager, but these tests measure TTY-preload / print-mode, not MCP
+  // connect. Windows Pi treats a refused eager fetch as fatal and exits
+  // before DECSET 2004 — which is not the invariant under test.
   writeFileSync(
     join(cwd, '.pi', 'mcp.json'),
     JSON.stringify({

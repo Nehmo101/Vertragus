@@ -19,6 +19,14 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   Orchestrator-PTY eine TUI zeigt und Vertragus-MCP hängt — die
   Windows-Regression mit leerem Fenster. Keine Provider-Keys; nicht Teil
   von `pnpm run ci`.
+- **System-Prompts pro Identität im Profil-Editor.** Orchestrator, Lead,
+  Worker, Tester und jede andere Rolle können einen optionalen Extra-Prompt
+  tragen (Ton, Sprache, Art der Rückmeldung). Er wird an den
+  Host-generierten bzw. mitgelieferten Rollentext angehängt — er ersetzt
+  weder die Schleife noch die Isolationsregeln oder den Reporting-Contract.
+  Ein neues Profil startet mit kurzen englischen Starttexten (Adressat,
+  Sprache des Ziels, destillierte Übergabe — keine zweite Kopie der
+  mitgelieferten Rolle), die du ändern, leeren oder wiederherstellen kannst.
 - **Schnellere MCP-Übergabe, kein verbrannter erster Turn, Windhund-Boot-Overlay.**
   Das CLI-Fenster öffnet, sobald der Host ein PTY hat — vor Worktree und
   Spawn —, sodass MCP-Initialize mit dem CLI-Boot überlappt statt dahinter
