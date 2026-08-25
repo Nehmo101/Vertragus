@@ -10,13 +10,15 @@ In-App-MCP-Server orchestriert. Lies `README.md` für das Produkt;
 
 - `src/main/` — Electron-Main-Process: `workspace/` (Workspace,
   WorkspaceManager — PTYs, Worktrees, Events), `mcp/` (Server, Tools,
-  Event-Queue, Fragen, Attach-Dialekte), `providers/`, `remote/`
+  Event-Queue, Fragen, Attach-Dialekte, `/browser`-Bridge),
+  `browserExtension/` (Pairing-IPC), `providers/`, `remote/`
   (Tailscale-Gateway), `windows/`, `store/`, `appIpc.ts`.
 - `src/shared/` — Schemas (zod, `schema/`), Prompts (`prompts/`),
   `mainMessages.ts` (Main-Process-i18n), Lore/Namen.
 - `src/renderer/` — React-Panel + Fenster; i18next unter
   `src/renderer/src/i18n/`.
 - `src/remoteClient/` — der Handy-Web-Client (eigenes kleines i18n-Bundle).
+- `extensions/chromium/` — ungepacktes MV3, das mit `/browser` paired.
 - `tests/integration/`, `tests/live/` — voller MCP-Loop über echtes HTTP,
   Orchestrierung über echtes Git; Live-Tests hinter `VERTRAGUS_LIVE=1`.
 - `scripts/` — Icons, Panel-Smoke und Guard-Tests; `docs/` — Handbuch und

@@ -429,6 +429,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): WorkspaceRuntime 
     questions: new PendingQuestions(),
     agentTasks: new Map(),
     leads: new Map(),
+    nests: new Map(),
     parentOf: new Map(),
     resultSchemas: new Map(),
     ...(taskBoard ? { taskBoard } : {}),

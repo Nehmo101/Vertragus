@@ -60,6 +60,14 @@ describe('buildTaskContract', () => {
     expect(buildTaskContract({ role: 'worker' })).toBe(MCP_CONTRACT_SNAPSHOT)
     expect(buildTaskContract({ role: 'worker', reporting: 'mcp' })).toBe(MCP_CONTRACT_SNAPSHOT)
   })
+
+  it('adds the helper-nesting rule only when helpers is set', () => {
+    const withHelpers = buildTaskContract({ role: 'worker', helpers: true })
+    expect(withHelpers).toMatch(/MAY start_agent a helper/)
+    expect(withHelpers).toMatch(/Helpers cannot spawn further/)
+    expect(withHelpers).not.toBe(MCP_CONTRACT_SNAPSHOT)
+    expect(buildTaskContract({ role: 'worker' })).toBe(MCP_CONTRACT_SNAPSHOT)
+  })
 })
 
 describe('buildTaskContract — sentinel dialect', () => {

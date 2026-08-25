@@ -2076,15 +2076,33 @@ export class Workspace implements AgentHost {
    * lands as a `user_message` event in the queue, which is what wakes a
    * parked `await_events` immediately.
    */
-  postUserMessage(text: string): void {
+  postUserMessage(
+    text: string,
+    target?: {
+      targetAgentId?: string
+      targetName?: string
+      relayViaAgentId?: string
+      relayViaName?: string
+    }
+  ): void {
     this.assertOpen()
     const record = this.orchestratorRecord
     if (!record || !this.orchestratorAlive) {
       throw new Error(`Workspace ${this.name} has no running orchestrator to steer.`)
     }
     if (this.events.isClosed) throw new Error(`Workspace ${this.name} is closed.`)
-    record.pty.push(`\r\n\x1b[36mUser (via Vertragus): ${text}\x1b[0m\r\n`)
-    this.events.push({ type: 'user_message', text })
+    const label = target?.targetName
+      ? `User (via Vertragus) → ${target.targetName}: ${text}`
+      : `User (via Vertragus): ${text}`
+    record.pty.push(`\r\n\x1b[36m${label}\x1b[0m\r\n`)
+    this.events.push({
+      type: 'user_message',
+      text,
+      ...(target?.targetAgentId ? { targetAgentId: target.targetAgentId } : {}),
+      ...(target?.targetName ? { targetName: target.targetName } : {}),
+      ...(target?.relayViaAgentId ? { relayViaAgentId: target.relayViaAgentId } : {}),
+      ...(target?.relayViaName ? { relayViaName: target.relayViaName } : {})
+    })
   }
 
   /**

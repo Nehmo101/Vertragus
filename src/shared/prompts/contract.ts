@@ -47,7 +47,13 @@ export interface TaskContractInput {
    * gains a paragraph teaching the agent to pass a matching `result` to
    * report_done. Unset keeps the contract byte-identical to before S3.
    */
-  resultSchema?: ResultSchema
+  /**
+   * Optional: this agent MAY start helpers with start_agent. Unset keeps the
+   * historical wording byte-identical (the D4/S3 pattern). Root and lead
+   * `start_agent` pass it for MCP workers; a worker's own start_agent does
+   * not — helpers cannot spawn further.
+   */
+  helpers?: true
 }
 
 export const CONTRACT_MARKER = '--- Contract'
@@ -154,9 +160,17 @@ function resultParagraph(schema: ResultSchema): string {
 }
 
 /** MCP wording — keep byte-stable; tests and live agents depend on the text. */
-function buildMcpContract({ agentName, role, approvals, resultSchema }: TaskContractInput): string {
+function buildMcpContract({
+  agentName,
+  role,
+  approvals,
+  resultSchema,
+  helpers
+}: TaskContractInput): string {
   const rules = [
-    'Do the work yourself. Read the repository, change the files, run the checks.',
+    helpers
+      ? 'Do the work yourself when it fits in one pass. For an isolated slice you would otherwise block on (a parallel area, a review, a browser check) you MAY start_agent a helper, loop await_events until it reports, verify with inspect_agent, integrate_branch onto YOUR branch, and you still report_done for the whole assignment. Helpers cannot spawn further. Do not nest for small single-file tasks.'
+      : 'Do the work yourself. Read the repository, change the files, run the checks.',
     'When the task is finished, call report_done with a short factual summary of what you changed and how you verified it. Use status "success" only when you verified it, "blocked" when something outside your control stops you, "failed" when you tried and it does not work.',
     'If you need a decision, a permission, an interface, or information you cannot obtain yourself, call ask_orchestrator and wait for the answer. Do not guess, do not pick a random option, and do not idle.',
     ...(approvals === 'ask-orchestrator'

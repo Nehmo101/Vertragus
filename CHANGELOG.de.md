@@ -13,6 +13,19 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Phase H — Nested Worker, Live-Steering, First-Party Chromium-
+  Erweiterung.** MCP-Worker dürfen eine Helper-Ebene spawnen (Cap 3;
+  Helper nesten nicht; Lead-startet-Lead bleibt verboten). Helper-Events
+  bleiben in der Nest-Queue des Workers — `await_events` des Roots sieht
+  weiter nur Direktkinder. Der Composer auf der Workspace-Karte (Panel
+  und Handy) kann einen Worker, Lead oder Helper adressieren; Zustellung
+  bleibt `user_message` auf der Root-Queue, mit `relayViaAgentId` wenn
+  der Orchestrator den Adressaten nicht `send_to_agent` kann. Eine
+  ungepackte Manifest-V3-Erweiterung paired auf Loopback `/browser`,
+  damit ein Worker die echten Chromium-Tabs des Nutzers fahren kann
+  (`browser_*`-Tools; getrennt ist ein Tool-Fehler). MCP-Tool-Contract-
+  Version ist jetzt `1.1.0`. How-to:
+  [`docs/CHROMIUM-EXTENSION.md`](docs/CHROMIUM-EXTENSION.md).
 - **Automatisierungs-Band im Profil (alle Schalter standardmäßig aus):**
   - Fertige Agenten-Branches ohne den Panel-Klick übernehmen — in den
     Worktree des Orchestrators (`autoIntegrate`) und/oder in das eigene

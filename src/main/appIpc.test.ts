@@ -101,6 +101,7 @@ import {
 } from './appIpc'
 import type { HideAllHotkeyStatus } from './windows/hideAll'
 import { REMOTE_CHANNELS } from './remote/ipc'
+import { BROWSER_EXTENSION_CHANNELS } from './browserExtension/ipc'
 import type { MinimalIpcMain } from './ipc'
 import type { WorkspaceSummary as PreloadWorkspaceSummary } from '../preload'
 import { profileSchema, type Profile, type RoleTemplate } from '@shared/schema/profile'
@@ -334,7 +335,7 @@ interface Harness {
     focusedWorkspaces: string[]
     closedAgents: string[]
     answered: Array<{ workspaceId: string; agentId: string; questionId: string; text: string }>
-    userMessages: Array<{ workspaceId: string; text: string }>
+    userMessages: Array<{ workspaceId: string; text: string; targetAgentId?: string }>
     promoted: Array<{ workspaceId: string; agentId: string }>
     runFolders: string[]
     removedWorktrees: Array<{ profileId: string; path: string }>
@@ -465,7 +466,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     focusedWorkspaces: [] as string[],
     closedAgents: [] as string[],
     answered: [] as Array<{ workspaceId: string; agentId: string; questionId: string; text: string }>,
-    userMessages: [] as Array<{ workspaceId: string; text: string }>,
+    userMessages: [] as Array<{ workspaceId: string; text: string; targetAgentId?: string }>,
     promoted: [] as Array<{ workspaceId: string; agentId: string }>,
     runFolders: [] as string[],
     removedWorktrees: [] as Array<{ profileId: string; path: string }>,
@@ -494,8 +495,8 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     async answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string) {
       this.answered.push({ workspaceId, agentId, questionId, text })
     },
-    postUserMessage(workspaceId: string, text: string) {
-      this.userMessages.push({ workspaceId, text })
+    postUserMessage(workspaceId: string, text: string, targetAgentId?: string) {
+      this.userMessages.push({ workspaceId, text, ...(targetAgentId ? { targetAgentId } : {}) })
     },
     async promoteAgentBranch(workspaceId: string, agentId: string) {
       this.promoted.push({ workspaceId, agentId })
@@ -1051,6 +1052,17 @@ describe('workspaces', () => {
       text: '  Focus on the parser.  '
     })
     expect(h.directory.userMessages).toEqual([{ workspaceId: 'w1', text: 'Focus on the parser.' }])
+
+    await h.ipc.invoke(APP_CHANNELS.workspacesUserMessage, PANEL_ID, {
+      workspaceId: 'w1',
+      text: 'Run the login flow.',
+      targetAgentId: '  a1  '
+    })
+    expect(h.directory.userMessages.at(-1)).toEqual({
+      workspaceId: 'w1',
+      text: 'Run the login flow.',
+      targetAgentId: 'a1'
+    })
 
     await expect(
       Promise.resolve(
@@ -2673,7 +2685,11 @@ describe('preload parity', () => {
     const source = readFileSync(join(__dirname, '../preload/index.ts'), 'utf8')
     // The remote-access channels are registered separately (main/remote/ipc.ts)
     // but still cross this bridge, so they count toward parity too.
-    const expected = new Set([...Object.values(APP_CHANNELS), ...Object.values(REMOTE_CHANNELS)])
+    const expected = new Set([
+      ...Object.values(APP_CHANNELS),
+      ...Object.values(REMOTE_CHANNELS),
+      ...Object.values(BROWSER_EXTENSION_CHANNELS)
+    ])
     for (const channel of expected) {
       expect(source).toContain(`'${channel}'`)
     }

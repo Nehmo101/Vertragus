@@ -101,6 +101,7 @@ export interface RemoteCopy {
   composerPlaceholder: string
   composerSend: string
   composerSent: string
+  composerTargetOrchestrator: string
   // --- task board --------------------------------------------------------
   tasksTitle: string
   showTasks: (count: number) => string
@@ -226,9 +227,10 @@ const de: RemoteCopy = {
   answerSend: 'Antworten',
   answerSending: 'sende …',
   dismissAnswer: 'Antwortfeld schließen',
-  composerPlaceholder: 'Nachricht an den Orchestrator …',
+  composerPlaceholder: 'Follow-up für das Team …',
   composerSend: 'Senden',
   composerSent: 'gesendet',
+  composerTargetOrchestrator: 'Orchestrator (leitet weiter)',
   tasksTitle: 'Aufgaben',
   showTasks: (count) => `Aufgaben anzeigen (${count})`,
   hideTasks: 'Aufgaben ausblenden',
@@ -351,9 +353,10 @@ const en: RemoteCopy = {
   answerSend: 'Answer',
   answerSending: 'sending …',
   dismissAnswer: 'Close the answer field',
-  composerPlaceholder: 'Message to the orchestrator …',
+  composerPlaceholder: 'Follow-up for the team …',
   composerSend: 'Send',
   composerSent: 'sent',
+  composerTargetOrchestrator: 'Orchestrator (relays)',
   tasksTitle: 'Tasks',
   showTasks: (count) => `Show tasks (${count})`,
   hideTasks: 'Hide tasks',

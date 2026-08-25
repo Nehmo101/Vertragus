@@ -25,7 +25,18 @@ import { answerAgentQuestion, type AnswerQuestionOutcome } from './answerQuestio
 import { PendingQuestions } from './pendingQuestions'
 import { registerOrchestratorTools } from './toolsOrchestrator'
 import { registerSubagentTools } from './toolsSubagent'
-import { adoptSubtree, type WorkspaceMcpContext, type WorkspaceRuntime } from './types'
+import { BROWSER_PATH, isBrowserBridgeOrigin } from '@shared/browserExtension'
+import { BrowserBridge } from './browserBridge'
+import { isAllowedHostHeader, isAllowedOrigin } from './httpAllow'
+import { registerBrowserTools } from './toolsBrowser'
+import {
+  adoptSubtree,
+  canSpawnHelpers,
+  type WorkspaceMcpContext,
+  type WorkspaceRuntime
+} from './types'
+
+export { isAllowedHostHeader, isAllowedOrigin } from './httpAllow'
 
 /** MCP namespace of our tools: `mcp__vertragus__<tool>`. */
 export const MCP_SERVER_NAME = 'vertragus'
@@ -44,7 +55,7 @@ export const MCP_SERVER_NAME = 'vertragus'
  * every release that did not make one. `docs/RELEASE-CHECKLIST.md` carries the
  * reminder to bump it when the surface actually moved.
  */
-export const MCP_SERVER_VERSION = '1.0.0'
+export const MCP_SERVER_VERSION = '1.1.0'
 export const MCP_PATH = '/mcp'
 export const MCP_BIND_HOST = '127.0.0.1'
 
@@ -61,7 +72,19 @@ const ORCHESTRATOR_INSTRUCTIONS = [
 const SUBAGENT_INSTRUCTIONS = [
   'These are your Vertragus reporting tools.',
   'Call report_done when your task is finished, ask_orchestrator (and wait) when you are blocked,',
-  'and report_progress for real milestones. Never end your turn without one of the first two.'
+  'and report_progress for real milestones. Never end your turn without one of the first two.',
+  'To test a live web app the user has open, check browser_status then use browser_* tools.',
+  'Disconnected means you cannot drive the browser.'
+].join(' ')
+
+const NEST_WORKER_INSTRUCTIONS = [
+  'These are your Vertragus reporting tools plus a downward helper subset.',
+  'Do the work yourself when it fits. For an isolated slice you MAY start_agent a helper (cap 3),',
+  'then loop await_events until it reports; helper events never reach the orchestrator.',
+  'Verify with inspect_agent, integrate_branch onto YOUR branch, and you still report_done',
+  'for the whole assignment. Helpers cannot start further helpers.',
+  'Call report_done when the whole assignment is finished, ask_orchestrator when you are blocked.',
+  'To test a live web app, check browser_status then use browser_* tools.'
 ].join(' ')
 
 export type McpIdentity =
@@ -144,9 +167,15 @@ export interface McpServerHandle {
   agentTask(workspaceId: string, agentId: string): string | undefined
   /**
    * F: the lead an agent belongs to, or undefined for a direct child of the
-   * root. The panel indents child rows under their lead with this.
+   * root. The panel indents child rows under their lead with this. A helper's
+   * parent is the worker that started it.
    */
   agentParent(workspaceId: string, agentId: string): string | undefined
+  /**
+   * Loopback Chromium-extension bridge. Workers call `browser_*` tools against
+   * it; Settings copies the pairing URL. One host path, one token.
+   */
+  browser: BrowserBridge
   close(): Promise<void>
 }
 
@@ -257,46 +286,6 @@ export function resolveIdentity(
   return secretEquals(token, ctx.orchToken) ? { kind: 'orchestrator', workspaceId } : undefined
 }
 
-/**
- * DNS-rebinding defence: a browser that resolved an attacker's hostname to
- * 127.0.0.1 still sends that hostname in `Host` (and its page's `Origin`).
- * Loopback names and the configured bind host are the complete allowlist —
- * agent CLIs connect to the literal URL we hand them and never send `Origin`.
- */
-export function isAllowedHostHeader(hostHeader: string | undefined, bindHost: string): boolean {
-  if (!hostHeader) return false
-  let hostname: string
-  try {
-    hostname = new URL(`http://${hostHeader}`).hostname
-  } catch {
-    return false
-  }
-  return (
-    hostname === '127.0.0.1' ||
-    hostname === 'localhost' ||
-    hostname === '[::1]' ||
-    hostname === '::1' ||
-    hostname === bindHost
-  )
-}
-
-export function isAllowedOrigin(origin: string | undefined, bindHost: string): boolean {
-  // No Origin header = not a browser context; the Host check already ran.
-  if (origin === undefined) return true
-  let hostname: string
-  try {
-    hostname = new URL(origin).hostname
-  } catch {
-    return false
-  }
-  return (
-    hostname === '127.0.0.1' ||
-    hostname === 'localhost' ||
-    hostname === '::1' ||
-    hostname === bindHost
-  )
-}
-
 function sameIdentity(a: McpIdentity, b: McpIdentity): boolean {
   if (a.kind !== b.kind || a.workspaceId !== b.workspaceId) return false
   if (a.kind === 'orchestrator') return true
@@ -320,13 +309,25 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   }
 }
 
-function buildServerFor(identity: McpIdentity, runtime: WorkspaceRuntime): McpServer {
+function instructionsFor(identity: McpIdentity, runtime: WorkspaceRuntime): string {
+  if (identity.kind === 'orchestrator') return ORCHESTRATOR_INSTRUCTIONS
+  if (
+    identity.kind === 'subagent' &&
+    canSpawnHelpers(runtime, identity.agentId)
+  ) {
+    return NEST_WORKER_INSTRUCTIONS
+  }
+  return SUBAGENT_INSTRUCTIONS
+}
+
+function buildServerFor(
+  identity: McpIdentity,
+  runtime: WorkspaceRuntime,
+  browser: BrowserBridge
+): McpServer {
   const server = new McpServer(
     { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-    {
-      instructions:
-        identity.kind === 'orchestrator' ? ORCHESTRATOR_INSTRUCTIONS : SUBAGENT_INSTRUCTIONS
-    }
+    { instructions: instructionsFor(identity, runtime) }
   )
   if (identity.kind === 'orchestrator') {
     registerOrchestratorTools(server, runtime)
@@ -336,6 +337,10 @@ function buildServerFor(identity: McpIdentity, runtime: WorkspaceRuntime): McpSe
     registerSubagentTools(server, runtime, identity.agentId)
   } else {
     registerSubagentTools(server, runtime, identity.agentId)
+    if (canSpawnHelpers(runtime, identity.agentId)) {
+      registerOrchestratorTools(server, runtime, { leadId: identity.agentId, nest: 'worker' })
+    }
+    registerBrowserTools(server, browser)
   }
   return server
 }
@@ -351,6 +356,12 @@ export interface StartMcpServerOptions {
   host?: string
   /** Fixed port; 0 (default) lets the OS choose a free one. */
   port?: number
+  /** Restored pairing token for the Chromium extension; minted when absent. */
+  browserToken?: string
+  /** Persist a minted or rotated pairing token. */
+  onBrowserToken?: (token: string) => void
+  /** Settings / panel: a client connected, disconnected, or the token rotated. */
+  onBrowserChange?: () => void
 }
 
 /**
@@ -361,6 +372,11 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
   const host = options.host ?? MCP_BIND_HOST
   const workspaces = new Map<string, WorkspaceRuntime>()
   const sessions = new Map<string, SessionRecord>()
+  const browser = new BrowserBridge({
+    token: options.browserToken,
+    onToken: options.onBrowserToken,
+    onChange: options.onBrowserChange
+  })
 
   const httpServer: Server = createServer((req, res) => {
     void handleRequest(req, res).catch((error) => {
@@ -370,14 +386,32 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     })
   })
 
+  httpServer.on('upgrade', (req, socket, head) => {
+    if (browser.handleUpgrade(req, socket, head, host)) return
+    socket.destroy()
+  })
+
   async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    // Refused before anything else — identity resolution must not even run
-    // for a request that reached us through a rebound hostname.
-    if (!isAllowedHostHeader(req.headers.host, host) || !isAllowedOrigin(req.headers.origin, host)) {
+    // Host is refused before anything else — identity resolution must not even
+    // run for a request that reached us through a rebound hostname.
+    if (!isAllowedHostHeader(req.headers.host, host)) {
       res.writeHead(403).end()
       return
     }
     const url = new URL(req.url ?? '/', `http://${host}`)
+    if (url.pathname === BROWSER_PATH) {
+      // chrome-extension origins are accepted HERE only, never on /mcp.
+      if (!isBrowserBridgeOrigin(req.headers.origin)) {
+        res.writeHead(403).end()
+        return
+      }
+      browser.handleHttp(req, res, url)
+      return
+    }
+    if (!isAllowedOrigin(req.headers.origin, host)) {
+      res.writeHead(403).end()
+      return
+    }
     if (url.pathname !== MCP_PATH) {
       res.writeHead(404).end()
       return
@@ -408,7 +442,7 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
       let record = existing
 
       if (!record && isInitializeRequest(body)) {
-        const server = buildServerFor(identity, runtime)
+        const server = buildServerFor(identity, runtime, browser)
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (sid) => {
@@ -456,6 +490,7 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
       resolve(typeof address === 'object' && address ? address.port : 0)
     })
   })
+  browser.port = port
 
   function requireWorkspace(workspaceId: string): WorkspaceRuntime {
     const runtime = workspaces.get(workspaceId)
@@ -514,6 +549,7 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
       questions: new PendingQuestions(),
       agentTasks: new Map(),
       leads: new Map(),
+      nests: new Map(),
       parentOf: new Map(),
       resultSchemas: new Map(),
       get taskBoard(): TaskBoard | undefined {
@@ -534,7 +570,9 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     ctx.events.onPush((event) => {
       if (event.type === 'agent_exited' || event.type === 'agent_stopped') {
         runtime.resultSchemas.delete(event.agentId)
-        if (runtime.leads.has(event.agentId)) adoptSubtree(runtime, event.agentId)
+        if (runtime.leads.has(event.agentId) || runtime.nests.has(event.agentId)) {
+          adoptSubtree(runtime, event.agentId)
+        }
       }
     })
     workspaces.set(ctx.workspaceId, runtime)
@@ -557,12 +595,15 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     runtime.questions.clear()
     for (const lead of runtime.leads.values()) lead.events.close()
     runtime.leads.clear()
+    for (const nest of runtime.nests.values()) nest.events.close()
+    runtime.nests.clear()
     runtime.parentOf.clear()
     runtime.ctx.events.close()
   }
 
   return {
     port,
+    browser,
     registerWorkspace,
     unregisterWorkspace,
     rotateOrchestratorToken,
@@ -614,6 +655,7 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
         await record.transport.close().catch(() => undefined)
       }
       sessions.clear()
+      browser.close()
       await new Promise<void>((resolve) => httpServer.close(() => resolve()))
     }
   }

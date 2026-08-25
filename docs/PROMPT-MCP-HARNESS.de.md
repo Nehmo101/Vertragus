@@ -60,8 +60,9 @@ Code-Anker:
 - Hardcodierte Modellkataloge, RAG
 - Zweite Orchestrierung als Produkt (Kanban, DAG, Cloud-Runner, Workspace-pro-Area)
 - Automatisches Nesting / Nesting-Profil-Toggle — Root entscheidet per Tool, Default flach
-- Tiefe > 1 (Lead startet Lead)
-- Enkel-Events in der Root-`await_events`-Queue
+- Tiefe > 1 (Lead startet Lead). Worker dürfen eine Helper-Ebene spawnen; Helper dürfen nicht
+- Enkel-Events in der Root-`await_events`-Queue (Helper-Events landen in der Worker-Nest-Queue)
+- Ein zweiter MCP-Server zum Steuern des Browsers (die Erweiterung paired auf `/browser` des bestehenden Listeners)
 - `read_output` als Verifikation (nur Debug / unconfirmed exit)
 - Remote als zweiten MCP-Server oder Spiegel aller APP_CHANNELS
 - Tunnel/TLS/Account/Internet-Exposure als Teil dieses Tracks
@@ -80,9 +81,10 @@ Track 3  D           Goal-UI, user_message, ask_user  (braucht 0)
 Track 4  Slot/Provider-Wahl an start_agent           (klein, jederzeit nach 0)
 Track 5  F           Multi-Orch Lead (braucht 1; braucht Remote nicht)
 Track 6  E           integrate/gate, Briefing, Resume, Budget, Eval, Extra-MCP
+Track 7  H           Nested Worker, Live-user_message-Targeting, First-Party /browser
 ```
 
-Unten: **ein Prompt-Block pro Track**. Bei Auftrag „alles“: Track 0→6
+Unten: **ein Prompt-Block pro Track**. Bei Auftrag „alles“: Track 0→7
 sequentiell, je eigener PR. Bei Auftrag „nur MCP-Tools“: Tracks 1–5
 plus D3/D2-Teile die Event/Tool betreffen; H1/H2 trotzdem zuerst wenn
 Remote/Panel betroffen.
@@ -397,7 +399,7 @@ Voraussetzung: Track 1 (C). D/F optional parallel wo unabhängig.
 
 - Playbook = Goal-Template, **kein** vorstartetes Team
 - Extra-MCP nur an Worker (`attach.ts` Dialekte)
-- Templates Janitor/Explorer; Browser erst mit Extra-MCP
+- Templates Janitor/Explorer; Drittanbieter-Browser-MCP weiter über Extra-MCP (First-Party-Erweiterung ist Track 7)
 
 ### Prompt (kurz)
 
@@ -405,6 +407,59 @@ Voraussetzung: Track 1 (C). D/F optional parallel wo unabhängig.
 > Journal/Resume, Budget-Wanduhr, Loop-Eval, Playbooks + Extra-MCP an
 > Worker. Kein RAG, kein Autodelete, Orchestrator merged nicht selbst
 > außer Host-Tool `integrate_branch`.
+
+---
+
+## TRACK 7 — Phase H Nested Worker, Live-Steering, Chromium-Erweiterung
+
+**Status: umgesetzt.** Nicht neu bauen. Handbuch Phase H;
+[`CHROMIUM-EXTENSION.md`](./CHROMIUM-EXTENSION.md).
+
+### Ziel
+
+Worker dürfen eine Scheibe auslagern, der Mensch kann nach der
+Delegation weiter mit dem Orchestrator sprechen, und ein Worker kann
+eine laufende Web-App im echten Chromium des Nutzers testen — ohne
+zweites Produkt, ohne Lead-startet-Lead, ohne Enkel-Events in der
+Root-Queue.
+
+### Nested Worker (Helpers)
+
+- `canSpawnHelpers`: kein Parent oder Parent ist Lead → ja; Parent ist
+  schon ein Worker-Nest → nein
+- `runtime.nests` (gleiche Form wie Leads, `area: helpers`); zählt nicht
+  gegen `MAX_LEADS`; `MAX_HELPERS_PER_WORKER = 3`
+- Worker-Down-Tools: `WORKER_DOWN_TOOL_NAMES` (kein `task_*`, kein
+  `start_orchestrator`); `helpers: true` am MCP-Contract
+- Fan-in via `queueForAgent`; `adoptSubtree` eine Stufe nach oben
+
+### Live-Steering
+
+- Composer `targetAgentId`; weiter `user_message` auf der **Root**-Queue
+- `resolveUserMessageTarget` setzt `relayVia*` für Nicht-Direktkinder
+- Nicht in die Orchestrator-TUI tippen
+
+### First-Party Chromium-Erweiterung
+
+- Derselbe HTTP-Listener, `/browser`, Loopback-Token
+- `chrome-extension:`-Origin nur auf diesem Pfad
+- Worker-Tools `browser_*`; getrennt → `browser_disconnected`
+- Unpacked MV3 `extensions/chromium/`
+
+### Done wenn
+
+- Helper-Events erreichen nie das Root-`await_events`
+- Ein Follow-up vom Composer kann an einen Helper relaised werden
+- Ein Worker kann einen echten Tab snapshoten/klicken, wenn die
+  Erweiterung gepaired ist
+- `pnpm run ci` grün; MCP-Version `1.1.0`
+
+### Prompt (kurz)
+
+> Phase H laut Handbuch: eine Helper-Ebene unter einem Worker,
+> Composer-Targeting mit Relay, First-Party `/browser`-Erweiterung. Kein
+> zweiter MCP, kein Lead-startet-Lead, keine Enkel-Events in der
+> Root-Queue.
 
 ---
 
@@ -512,14 +567,26 @@ integrate_branch/gate/promote, Briefing/repoNotes, Journal/Resume,
 Budget, Loop-Eval, Playbooks + Extra-MCP nur Worker. Non-Goals beachten.
 ```
 
+### Nur Track 7
+
+```
+Implementiere Phase H (Track 7) aus docs/PROMPT-MCP-HARNESS.md und
+HANDBOOK-HARNESS.md: eine Helper-Ebene unter einem Worker,
+Composer-Targeting mit Relay, First-Party /browser Chromium-Erweiterung.
+Kein zweiter MCP, kein Lead-startet-Lead, keine Enkel-Events in der
+Root-Queue.
+```
+
 ---
 
-## Akzeptanz gesamt (Ende Track 6)
+## Akzeptanz gesamt (Ende Track 7)
 
-- Mensch kann vom Panel/Remote Goals setzen, steuern (`user_message`),
+- Mensch kann vom Panel/Remote Goals setzen, steuern (`user_message`, optional gezielt),
   Agent- und User-Fragen beantworten
 - Host kennt Git (inspect, Done-Fakten, Snapshot-Commit, Handoff)
 - Idle und Exit sind unterscheidbar
 - Root kann optional Leads nesten ohne Event-Sturm
+- Worker dürfen eine Helper-Ebene spawnen; Helper-Events bleiben aus der Root-Queue
+- Eine gepairte Chromium-Erweiterung lässt einen Worker eine Live-Web-App testen
 - Integrate/Gate/Promote und Resume existieren ohne Autodelete/RAG
 - `pnpm run ci` grün; Handbuch-Status aktualisiert

@@ -2274,6 +2274,27 @@ describe('postUserMessage — D2', () => {
     })
   })
 
+  it('addresses a named agent in the terminal prefix and on the event', async () => {
+    const { workspace, spawns } = harness()
+    await workspace.startOrchestrator()
+    workspace.postUserMessage('Run the login flow.', {
+      targetAgentId: 'a1',
+      targetName: 'Colombina',
+      relayViaAgentId: 'lead-1',
+      relayViaName: 'Caronte'
+    })
+    expect(spawns[0]!.pty.snapshot()).toContain('User (via Vertragus) → Colombina:')
+    expect(spawns[0]!.pty.written).toEqual([])
+    expect(workspace.events.all().at(-1)).toMatchObject({
+      type: 'user_message',
+      text: 'Run the login flow.',
+      targetAgentId: 'a1',
+      targetName: 'Colombina',
+      relayViaAgentId: 'lead-1',
+      relayViaName: 'Caronte'
+    })
+  })
+
   it('wakes a parked await_events-style waiter immediately', async () => {
     const { workspace } = harness()
     await workspace.startOrchestrator()

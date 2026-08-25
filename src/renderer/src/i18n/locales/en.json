@@ -83,8 +83,9 @@
     "replaceOrchestratorAction": "Replace orchestrator",
     "replaceOrchestratorTitle": "Start a fresh orchestrator for this run. Agents, worktrees and the task board stay; the old orchestrator loses its access.",
     "userQuestion": "Question for you: {{question}}",
-    "composerPlaceholder": "Message to the orchestrator …",
+    "composerPlaceholder": "Follow-up for the team …",
     "composerSend": "Send",
+    "composerTargetOrchestrator": "Orchestrator (relays)",
     "promoteBranch": "Merge {{agent}}’s branch into the main checkout (no push)",
     "pullRequestOpen": "Pull request opened",
     "pullRequestNone": "No pull request",
@@ -474,7 +475,21 @@
     "remoteClients": "Connected devices",
     "remoteClientsEmpty": "No devices connected.",
     "remoteRevoke": "Disconnect",
-    "remoteWarnExec": "Connected devices can start agents in YOLO mode — that is code execution on this PC. Only trust devices you would trust with the machine itself."
+    "remoteWarnExec": "Connected devices can start agents in YOLO mode — that is code execution on this PC. Only trust devices you would trust with the machine itself.",
+    "browserExtension": {
+      "title": "Browser extension",
+      "body": "Pair the unpacked Chromium extension so a worker can drive the tabs you already have open — logged-in apps included. This is not a second MCP server: workers call browser_* tools on their existing Vertragus identity. A disconnected extension is a tool error, never a silent skip.",
+      "connected": "Extension connected ({{count}})",
+      "disconnected": "Extension not connected",
+      "pairingUrl": "Pairing URL",
+      "copy": "Copy URL",
+      "copied": "Copied",
+      "loadUnpacked": "In Chromium: chrome://extensions → Developer mode → Load unpacked, then paste the pairing URL in the extension popup.",
+      "reveal": "Reveal extension folder",
+      "regenerate": "Rotate pairing token",
+      "regenerateHint": "Disconnects the extension and changes the URL. Use this if the URL leaked.",
+      "warnYolo": "A yolo-mode worker can click, type and screenshot any tab the extension can see. Pair only while you are watching the run."
+    }
   },
   "zones": {
     "title": "Zones for “{{profile}}”",

@@ -170,14 +170,27 @@ const orchestratorIdlePayload = z.object({
 })
 
 /**
- * D2: the human steered the run from the panel or the remote client. No agent
- * identity — the sender is the user, who is not an agent. Pushing it is what
- * wakes a parked `await_events`, so the orchestrator reads the steering
- * immediately instead of after its next poll window.
+ * D2: the human steered the run from the panel or the remote client. No
+ * sender identity — the sender is the user, who is not an agent. Optional
+ * target/relay fields name a team member to pass the instruction to; they
+ * do not make the user an agent. Pushing it is what wakes a parked
+ * `await_events`.
  */
 const userMessagePayload = z.object({
   type: z.literal('user_message'),
-  text: z.string().min(1).max(20_000)
+  text: z.string().min(1).max(20_000),
+  /**
+   * Optional addressee among the team. Absent = steer the orchestrator in
+   * general. The SENDER is still the human — this is not agent identity.
+   */
+  targetAgentId: z.string().min(1).max(200).optional(),
+  targetName: z.string().min(1).max(200).optional(),
+  /**
+   * When the addressee is not a direct child of the root, the orchestrator
+   * cannot send_to_agent it (fan-in). Relay through this root-level parent.
+   */
+  relayViaAgentId: z.string().min(1).max(200).optional(),
+  relayViaName: z.string().min(1).max(200).optional()
 })
 
 /**

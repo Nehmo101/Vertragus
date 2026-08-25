@@ -55,6 +55,7 @@ server.
 | D human in the loop | **D1–D4 implemented** (Track 3 + follow-up) — goal UI, `user_message` wakes `await_events`, `ask_user` with ticket; D4 tiers `yolo`/`ask-user`/`ask-orchestrator` (store mirror to `yoloMaster`, contract approval rule, threat model in the README) |
 | E integrate / briefing / eval | **core implemented** (Track 6) — `integrate_branch` + gate warning + promote click, briefing + `repoNotes`, journal + resume (E3, briefing instead of re-spawn), budget wall clock, Janitor/Explorer, playbooks, extra MCP for workers (E6), loop eval (E5, `tests/integration/loopEval`) — Phase E complete |
 | F multi-orch (Lead, depth 1) | **implemented** (Track 5) — third identity `lead=`, own queues, `start_orchestrator`, fan-in of direct children only, reparent (`subtree_adopted`), caps host-side |
+| H nested workers / live steer / browser | **implemented** — workers may spawn one helper level; composer targeting on `user_message`; first-party `/browser` loopback (not a second MCP) |
 
 ---
 
@@ -438,7 +439,9 @@ configuration happens via profile JSON.
 
 Playbook = goal template, not a pre-started team. Extra MCP only to
 workers (`mcp/attach.ts` knows the dialects). Templates Janitor/Explorer,
-no new mechanics. Browser only with extra MCP.
+no new mechanics. A third-party browser MCP still attaches via extra MCP;
+the first-party Chromium extension is Phase H (`browser_*` on the worker
+identity, same listener).
 
 A cockpit trace (goal, porcelain dot, last events) falls out largely as a
 derivation of C2 + the A3.1 feed — panel and remote client can draw the
@@ -650,8 +653,12 @@ lifecycle and tokens right there.
   tool, default flat
 - Automatic succession from guessed token counters (C6 is self-declare +
   optional user button, no host guessing game)
-- Depth > 1 (lead starts lead)
-- Grandchild events in the root's `await_events` queue
+- Depth > 1 (lead starts lead). Workers may spawn **one** helper level;
+  helpers cannot spawn. That is not a second lead identity.
+- Grandchild events in the root's `await_events` queue (helper events
+  land in the worker's nest queue, never in the root feed)
+- A second MCP server for driving the browser (the extension pairs on
+  `/browser` of the existing loopback listener)
 - `read_output` as verification
 - **Remote as a second MCP server or a mirror of all APP_CHANNELS**
   (the BigBoy allow-list is the right boundary)
@@ -753,6 +760,70 @@ Open from the plan: loop-eval scenarios for G3/G4 (schema tester, two-task
 board with succession) — unit/integration tests cover the paths, the
 end-to-end scenario is follow-up work.
 
+## Phase H — nested workers, live steering, first-party browser: implemented
+
+Three product edges that stay inside the existing harness: workers may
+offload a slice, the human can keep talking to the orchestrator after
+delegation, and a worker can drive the user's real Chromium. None of
+these is a second product. Lead-starts-lead stays forbidden. Fan-in is
+unchanged: the root's `await_events` still sees **only direct children**.
+
+### H.1 Nested workers (one helper level)
+
+A worker that **may nest** is a direct child of the root, or a worker
+whose parent is a lead. A helper (parent already owns a worker nest)
+cannot spawn. Host gate: `canSpawnHelpers` in `mcp/types.ts`.
+
+The nest reuses the lead runtime shape (`EventQueue`, subtree budget)
+under `runtime.nests`, not `runtime.leads` — it is **not** counted
+toward `MAX_LEADS`. Cap: `MAX_HELPERS_PER_WORKER = 3`; the profile
+`maxSubagents` still counts every helper.
+
+On connect, a nest-capable worker gets the reporting tools plus the
+downward subset (`WORKER_DOWN_TOOL_NAMES`: start/send/await/list/stop/
+read/inspect/integrate) and `browser_*`. It does **not** get `task_*`,
+`ask_user`, `start_orchestrator`, or the idle watchdog. `start_agent`
+on a nest refuses `taskId` (`helpers_have_no_board`). MCP workers
+started by the root or a lead get `helpers: true` in the contract;
+sentinel workers do not (no MCP tools to nest with).
+
+Helper events go to the worker's nest queue via `queueForAgent`. The
+root and the lead still only see their own direct children. Death of
+the nest owner reparents one level up (`adoptSubtree`, same as a lead).
+
+### H.2 Live steering (composer targeting)
+
+The composer already existed (D2). The upgrade is an optional
+**addressee**. Delivery stays one host path: `user_message` on the
+**root** queue, which is what wakes a parked `await_events`. The host
+never writes into a nest or lead queue from the composer — that would
+be skip-level / a second brain.
+
+`resolveUserMessageTarget`: empty / orchestrator id = untargeted (the
+orchestrator handles it). A root-level child is `targetAgentId` only.
+A helper (or a lead's worker that is not a root child) also sets
+`relayViaAgentId` to the **root-level** ancestor, so the orchestrator
+`send_to_agent`s a child it can actually address and asks that child
+to pass the text down. Panel and phone both expose the select.
+Display-only prefix in the orchestrator TUI:
+`User (via Vertragus) → Name: text`. Do not type into the orchestrator
+PTY while `await_events` is parked.
+
+### H.3 First-party Chromium extension
+
+Not extra MCP. Same HTTP listener as `/mcp`, path `/browser`, loopback
+token. `chrome-extension:` / `moz-extension:` origins are accepted
+**only** on that path. Workers (and helpers) get `browser_status`,
+`browser_tabs`, `navigate`, `snapshot`, `click`, `fill`, `press`,
+`screenshot`. A disconnected extension is `browser_disconnected`, never
+a silent no-op. Orchestrators and leads do not get the tools — they
+delegate.
+
+Unpacked MV3 in `extensions/chromium/`; packaged as extraResources
+`chromium-extension`. Settings copies the pairing URL. How-to:
+[`CHROMIUM-EXTENSION.md`](./CHROMIUM-EXTENSION.md). MCP tool-contract
+version bumped to `1.1.0`.
+
 ## Phase A3 — automation: adoption without a click, and the run's pull request
 
 Off by default, per profile (`automation` in `shared/schema/profile.ts`),
@@ -808,3 +879,6 @@ host already merged.
 | Worker "never commit" + host snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` "cursor has no agent_done" | outdated (`none` = Ollama) | ignore |
 | Automation: adoption without a click, run pull request | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest`, `agents/pullRequest.ts` | **A3** |
+| Worker helpers (one extra level) | `types.ts` `canSpawnHelpers` / `ensureNest` / `MAX_HELPERS_PER_WORKER` | **Phase H** |
+| Live `user_message` targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
+| Chromium `/browser` bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |

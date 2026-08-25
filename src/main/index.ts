@@ -58,6 +58,10 @@ import { createRemoteController, type RemoteController } from './remote/controll
 import { registerRemoteIpc } from './remote/ipc'
 import { bindOptions } from './remote/interfaces'
 import { createPairingTokenFile } from './remote/tokenFile'
+import { registerBrowserExtensionIpc } from './browserExtension/ipc'
+import { resolveChromiumExtensionDir } from './browserExtension/path'
+import { orderByParent } from './workspace/orderByParent'
+import { resolveUserMessageTarget } from './workspace/userMessageTarget'
 import { armWindowCapture } from './windows/smokeCapture'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
@@ -84,36 +88,6 @@ import { createWorktreeCleanup } from './workspace/worktreeCleanup'
  */
 function armScreenshotHook(win: Electron.BrowserWindow, envVar: string, delayMs = 1_500): void {
   armWindowCapture(win, envVar, envVar, delayMs)
-}
-
-/**
- * F: order a flat agent list so every agent follows its parent — root
- * children in start order, each lead's children directly after the lead.
- */
-function orderByParent<T extends { agentId: string }>(
-  agents: readonly T[],
-  parentOf: (agent: T) => string | undefined
-): T[] {
-  const byParent = new Map<string | undefined, T[]>()
-  for (const agent of agents) {
-    const key = parentOf(agent)
-    const bucket = byParent.get(key) ?? []
-    bucket.push(agent)
-    byParent.set(key, bucket)
-  }
-  const ordered: T[] = []
-  const seen = new Set<string>()
-  for (const root of byParent.get(undefined) ?? []) {
-    ordered.push(root)
-    seen.add(root.agentId)
-    for (const child of byParent.get(root.agentId) ?? []) {
-      ordered.push(child)
-      seen.add(child.agentId)
-    }
-  }
-  // Orphans (parent no longer listed) still render instead of vanishing.
-  for (const agent of agents) if (!seen.has(agent.agentId)) ordered.push(agent)
-  return ordered
 }
 
 /** Adapter: WorkspaceManager → the view the panel draws. */
@@ -347,10 +321,20 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         throw error
       }
     },
-    postUserMessage(workspaceId, text) {
+    postUserMessage(workspaceId, text, targetAgentId) {
       const workspace = manager.get(workspaceId)
       if (!workspace) throw new Error(`user message rejected — unknown workspace ${workspaceId}`)
-      workspace.postUserMessage(text)
+      const target = resolveUserMessageTarget(
+        targetAgentId,
+        (id) => {
+          if (workspace.orchestrator?.agentId === id) return { name: workspace.orchestrator.name }
+          const agent = workspace.listAgents().find((row) => row.agentId === id)
+          return agent ? { name: agent.name } : undefined
+        },
+        (id) => mcp.agentParent(workspaceId, id),
+        workspace.orchestrator?.agentId
+      )
+      workspace.postUserMessage(text, target)
     },
     async promoteAgentBranch(workspaceId, agentId) {
       const workspace = manager.get(workspaceId)
@@ -592,7 +576,8 @@ function buildRemoteController(
         stopWorkspace: (workspaceId) => directory.stop(workspaceId),
         answerQuestion: ({ workspaceId, agentId, questionId, text }) =>
           directory.answerQuestion(workspaceId, agentId, questionId, text),
-        userMessage: ({ workspaceId, text }) => directory.postUserMessage(workspaceId, text),
+        userMessage: ({ workspaceId, text, targetAgentId }) =>
+          directory.postUserMessage(workspaceId, text, targetAgentId),
         assignGoal: ({ workspaceId, goal }) => directory.assignGoal(workspaceId, goal)
       },
       terminals: () => getAgentRegistry().terminals(),
@@ -621,7 +606,18 @@ app.whenReady().then(async () => {
   // anywhere else would silently decide that the panel talks to the refusing
   // stub instead of the real manager.
   try {
-    appMcp = await startMcpServer()
+    let emitBrowserExtension = (): void => undefined
+    appMcp = await startMcpServer({
+      browserToken: getSettings().browserExtensionToken,
+      onBrowserToken: (token) => {
+        try {
+          setSetting('browserExtensionToken', token)
+        } catch {
+          /* fail-soft: a store hiccup must not take down the MCP listener */
+        }
+      },
+      onBrowserChange: () => emitBrowserExtension()
+    })
     appManager = createAppWorkspaceManager(appMcp)
     const directory = panelDirectory(appManager, appMcp)
     registerAppIpc(directory, undefined, attachVoice(directory).port)
@@ -633,6 +629,11 @@ app.whenReady().then(async () => {
     setTerminalInputSink((agentId, data) => {
       manager.noteOrchestratorGoal(agentId, data)
     })
+    const broadcastSettings = (channel: string, payload: unknown): void => {
+      for (const { window } of listSettingsWindows()) {
+        if (!window.isDestroyed()) window.webContents.send(channel, payload)
+      }
+    }
     // Remote access — off by default. The controller does nothing until the
     // user enables it in settings; wiring it here gives the settings channels
     // a live controller to drive.
@@ -642,12 +643,25 @@ app.whenReady().then(async () => {
       controller: remote,
       bindOptions: () => bindOptions(networkInterfaces() as Parameters<typeof bindOptions>[0]),
       isSettingsSender: (id) => isSettingsWindowSender(id),
-      broadcast: (channel, payload) => {
-        for (const { window } of listSettingsWindows()) {
-          if (!window.isDestroyed()) window.webContents.send(channel, payload)
-        }
-      }
+      broadcast: broadcastSettings
     })
+    const browserIpc = registerBrowserExtensionIpc({
+      ipcMain: ipcMain as unknown as Parameters<typeof registerBrowserExtensionIpc>[0]['ipcMain'],
+      bridge: () => appMcp?.browser,
+      extensionPath: () =>
+        resolveChromiumExtensionDir({
+          resourcesPath: process.resourcesPath,
+          candidates: [
+            join(app.getAppPath(), 'extensions/chromium'),
+            join(app.getAppPath(), '../../extensions/chromium'),
+            join(process.cwd(), 'extensions/chromium')
+          ]
+        }),
+      reveal: (path) => shell.openPath(path),
+      isSettingsSender: (id) => isSettingsWindowSender(id),
+      broadcast: broadcastSettings
+    })
+    emitBrowserExtension = () => browserIpc.emit()
     // Resume a server the user had enabled before the last quit.
     if (getSettings().remote.enabled) {
       await remote.apply({ enabled: true })

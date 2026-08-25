@@ -70,6 +70,16 @@ checking. It is a separate listener with a separate token domain — remote
 access never widens it. Token-carrying MCP config files are kept out of
 your git history (`.git/info/exclude`; Codex uses process-local overrides).
 
+### Chromium extension
+
+The first-party extension drives **your** real Chromium on behalf of a
+worker. Same loopback listener as MCP, different path (`/browser`) and a
+separate pairing token. `chrome-extension:` origins are accepted only on
+that path. A yolo-mode worker can click, type and screenshot any tab the
+extension can see — pair only while you are watching the run, and rotate
+the token from Settings when you are done. This is not extra MCP and not a
+second MCP server. How-to: [`docs/CHROMIUM-EXTENSION.md`](docs/CHROMIUM-EXTENSION.md).
+
 ### Git blast radius
 
 Agents work in per-agent worktrees on `vertragus/*` branches; nothing is

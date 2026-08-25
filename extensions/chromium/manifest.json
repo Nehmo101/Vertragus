@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Vertragus Browser",
+  "version": "1.1.0",
+  "description": "Pair with the Vertragus panel so a worker can test web apps in your real Chromium tabs.",
+  "permissions": ["tabs", "scripting", "storage", "activeTab"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*", "http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Vertragus Browser",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

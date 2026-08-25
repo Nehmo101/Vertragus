@@ -60,8 +60,9 @@ Code anchors:
 - Hardcoded model catalogues, RAG
 - A second orchestration as a product (kanban, DAG, cloud runner, workspace-per-area)
 - Automatic nesting / a nesting profile toggle — the root decides via tool, default flat
-- Depth > 1 (lead starts lead)
-- Grandchild events in the root's `await_events` queue
+- Depth > 1 (lead starts lead). Workers may spawn one helper level; helpers cannot spawn
+- Grandchild events in the root's `await_events` queue (helper events land in the worker nest queue)
+- A second MCP server for driving the browser (the extension pairs on `/browser` of the existing listener)
 - `read_output` as verification (debug / unconfirmed exit only)
 - Remote as a second MCP server or a mirror of all APP_CHANNELS
 - Tunnels/TLS/accounts/internet exposure as part of these tracks
@@ -80,10 +81,11 @@ Track 3  D           goal UI, user_message, ask_user  (needs 0)
 Track 4  slot/provider choice on start_agent          (small, any time after 0)
 Track 5  F           multi-orch lead (needs 1; does not need Remote)
 Track 6  E           integrate/gate, briefing, resume, budget, eval, extra MCP
+Track 7  H           nested workers, live user_message targeting, first-party /browser
 ```
 
 Below: **one prompt block per track**. For an "everything" assignment:
-Track 0→6 sequentially, one PR each. For an "MCP tools only" assignment:
+Track 0→7 sequentially, one PR each. For an "MCP tools only" assignment:
 Tracks 1–5 plus the D3/D2 parts that touch events/tools; H1/H2 still first
 when remote/panel is affected.
 
@@ -398,7 +400,7 @@ Prerequisite: Track 1 (C). D/F optionally parallel where independent.
 
 - Playbook = goal template, **not** a pre-started team
 - Extra MCP only for workers (`attach.ts` dialects)
-- Templates Janitor/Explorer; browser only with extra MCP
+- Templates Janitor/Explorer; a third-party browser MCP still via extra MCP (first-party extension is Track 7)
 
 ### Prompt (short)
 
@@ -406,6 +408,56 @@ Prerequisite: Track 1 (C). D/F optionally parallel where independent.
 > journal/resume, budget wall clock, loop eval, playbooks + extra MCP for
 > workers. No RAG, no autodelete, the orchestrator does not merge itself
 > except through the host tool `integrate_branch`.
+
+---
+
+## TRACK 7 — Phase H nested workers, live steering, Chromium extension
+
+**Status: implemented.** Do not rebuild. Handbook Phase H;
+[`CHROMIUM-EXTENSION.md`](./CHROMIUM-EXTENSION.md).
+
+### Goal
+
+Workers may offload a slice, the human can keep talking to the
+orchestrator after delegation, and a worker can test a live web app in
+the user's real Chromium — without a second product, without
+lead-starts-lead, without grandchild events in the root queue.
+
+### Nested workers (helpers)
+
+- `canSpawnHelpers`: no parent or parent is a lead → yes; parent already
+  a worker nest → no
+- `runtime.nests` (same shape as leads, `area: helpers`); not counted
+  toward `MAX_LEADS`; `MAX_HELPERS_PER_WORKER = 3`
+- Worker down-tools: `WORKER_DOWN_TOOL_NAMES` (no `task_*`, no
+  `start_orchestrator`); `helpers: true` on the MCP contract
+- Fan-in via `queueForAgent`; `adoptSubtree` one level up
+
+### Live steering
+
+- Composer `targetAgentId`; still `user_message` on the **root** queue
+- `resolveUserMessageTarget` sets `relayVia*` for non-direct children
+- Do not type into the orchestrator TUI
+
+### First-party Chromium extension
+
+- Same HTTP listener, `/browser`, loopback token
+- `chrome-extension:` origin only on that path
+- Worker tools `browser_*`; disconnected → `browser_disconnected`
+- Unpacked MV3 `extensions/chromium/`
+
+### Done when
+
+- Helper events never reach the root `await_events`
+- A follow-up from the composer can be relayed to a helper
+- A worker can snapshot/click a real tab when the extension is paired
+- `pnpm run ci` green; MCP version `1.1.0`
+
+### Prompt (short)
+
+> Implement Phase H per the handbook: one helper level under a worker,
+> composer targeting with relay, first-party `/browser` extension. No
+> second MCP, no lead-starts-lead, no grandchild events in the root queue.
 
 ---
 
@@ -514,14 +566,25 @@ budget, loop eval, playbooks + extra MCP workers-only. Respect the
 non-goals.
 ```
 
+### Track 7 only
+
+```
+Implement Phase H (Track 7) from docs/PROMPT-MCP-HARNESS.md and
+HANDBOOK-HARNESS.md: one helper level under a worker, composer targeting
+with relay, first-party /browser Chromium extension. No second MCP, no
+lead-starts-lead, no grandchild events in the root queue.
+```
+
 ---
 
-## Overall acceptance (end of Track 6)
+## Overall acceptance (end of Track 7)
 
-- A human can set goals from panel/remote, steer (`user_message`), and
+- A human can set goals from panel/remote, steer (`user_message`, optionally targeted), and
   answer agent and user questions
 - The host knows git (inspect, done facts, snapshot commit, handoff)
 - Idle and exit are distinguishable
 - The root can optionally nest leads without an event storm
+- Workers may spawn one helper level; helper events stay out of the root queue
+- A paired Chromium extension lets a worker test a live web app
 - Integrate/gate/promote and resume exist without autodelete/RAG
 - `pnpm run ci` green; handbook status updated

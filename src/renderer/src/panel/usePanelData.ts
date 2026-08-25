@@ -52,7 +52,7 @@ export interface PanelData {
   /** Answer an agent's open question from its `?` badge (H1). */
   answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): void
   /** D2: steer a running workspace — wakes the orchestrator's await_events. */
-  sendUserMessage(workspaceId: string, text: string): void
+  sendUserMessage(workspaceId: string, text: string, targetAgentId?: string): void
   /** E1 Promote: merge this agent's branch into the repo's own checkout. */
   promoteAgent(workspaceId: string, agentId: string): void
   /** Reveal this run's artefacts (spill/, tasks.json, events.jsonl) on disk. */
@@ -189,8 +189,8 @@ export function usePanelData(): PanelData {
         await api.answerQuestion(workspaceId, agentId, questionId, text)
         setWorkspaces(await api.listWorkspaces())
       }),
-    sendUserMessage: (workspaceId, text) =>
-      run((api) => api.sendUserMessage(workspaceId, text)),
+    sendUserMessage: (workspaceId, text, targetAgentId) =>
+      run((api) => api.sendUserMessage(workspaceId, text, targetAgentId)),
     promoteAgent: (workspaceId, agentId) =>
       run((api) => api.promoteAgentBranch(workspaceId, agentId)),
     openRunFolder: (workspaceId) => run((api) => api.openRunFolder(workspaceId)),

@@ -37,7 +37,11 @@ export interface RemoteGatewayHost {
    * `user_message` event that wakes a parked `await_events`. Must throw on an
    * unknown workspace or a dead orchestrator.
    */
-  userMessage(input: { workspaceId: string; text: string }): void | Promise<unknown>
+  userMessage(input: {
+    workspaceId: string
+    text: string
+    targetAgentId?: string
+  }): void | Promise<unknown>
   /**
    * H2 refill: the goal of a run that was started bare — the same host path
    * the start goal takes (`Workspace.assignGoal`). Must throw on an unknown
@@ -108,10 +112,15 @@ export async function runRemoteCommand(
       case 'user_message': {
         const workspaceId = args?.workspaceId?.trim()
         const text = args?.text?.trim()
+        const targetAgentId = args?.targetAgentId?.trim()
         if (!workspaceId || !text) {
           return { ok: false, error: 'user_message needs args {workspaceId, text}' }
         }
-        await host.userMessage({ workspaceId, text })
+        await host.userMessage({
+          workspaceId,
+          text,
+          ...(targetAgentId ? { targetAgentId } : {})
+        })
         return { ok: true, result: { delivered: workspaceId } }
       }
       default: {

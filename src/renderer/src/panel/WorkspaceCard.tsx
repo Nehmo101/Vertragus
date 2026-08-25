@@ -25,6 +25,7 @@ import {
 
 interface AgentProps {
   agent: WorkspaceAgentSummary
+  nested?: boolean
   onFocus(agentId: string): void
   onCloseWindow(agentId: string): void
   /** Answer this agent's open question (H1) — absent while it has none. */
@@ -40,7 +41,7 @@ interface AgentProps {
  * answer field out below the row, which sends over the SAME host path the
  * orchestrator's `send_to_agent{questionId}` uses (H1).
  */
-function AgentRow({ agent, onFocus, onCloseWindow, onAnswer, onPromote }: AgentProps): React.JSX.Element {
+function AgentRow({ agent, nested, onFocus, onCloseWindow, onAnswer, onPromote }: AgentProps): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const canClose = agentCanCloseWindow(agent)
   const [answering, setAnswering] = useState(false)
@@ -57,7 +58,15 @@ function AgentRow({ agent, onFocus, onCloseWindow, onAnswer, onPromote }: AgentP
 
   return (
     // F: children of a lead indent under it — flat list, no tree widget.
-    <li className={agent.parentId ? 'panel-agent-line is-child' : 'panel-agent-line'}>
+    <li
+      className={
+        agent.parentId
+          ? nested
+            ? 'panel-agent-line is-child is-grandchild'
+            : 'panel-agent-line is-child'
+          : 'panel-agent-line'
+      }
+    >
       <button
         type="button"
         className={agentRowClass(agent)}
@@ -153,7 +162,7 @@ interface Props {
   /** H1: answer one agent's open question over the shared host path. */
   onAnswerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): void
   /** D2: steer the run — wakes the orchestrator's await_events. */
-  onUserMessage(workspaceId: string, text: string): void
+  onUserMessage(workspaceId: string, text: string, targetAgentId?: string): void
   /** E1 Promote — the user's click, merged by the host into the main checkout. */
   onPromoteAgent(workspaceId: string, agentId: string): void
   /** Reveal this run's artefact folder in the OS file manager (desktop only). */
@@ -324,23 +333,42 @@ function GoalRefill({
   )
 }
 
-/** D2: the card's composer — one line to steer the whole run. */
+/** D2: the card's composer — one line to steer the run, optionally addressed. */
 function Composer({
   workspaceId,
+  agents,
   onSend
 }: {
   workspaceId: string
-  onSend(workspaceId: string, text: string): void
+  agents: WorkspaceAgentSummary[]
+  onSend(workspaceId: string, text: string, targetAgentId?: string): void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [text, setText] = useState('')
+  const [target, setTarget] = useState('')
   const submit = (): void => {
     if (!text.trim()) return
-    onSend(workspaceId, text.trim())
+    onSend(workspaceId, text.trim(), target || undefined)
     setText('')
   }
+  const targets = agents.filter((agent) => agent.roleId !== 'orchestrator')
   return (
     <div className="panel-composer">
+      {targets.length > 0 ? (
+        <select
+          className="panel-composer-target"
+          value={target}
+          aria-label={t('panel.composerTargetOrchestrator')}
+          onChange={(event) => setTarget(event.target.value)}
+        >
+          <option value="">{t('panel.composerTargetOrchestrator')}</option>
+          {targets.map((agent) => (
+            <option key={agent.agentId} value={agent.agentId}>
+              {agent.name}
+            </option>
+          ))}
+        </select>
+      ) : null}
       <input
         className="panel-answer-input"
         type="text"
@@ -525,6 +553,9 @@ export function WorkspaceCard({
                 <AgentRow
                   key={agent.agentId}
                   agent={agent}
+                  nested={Boolean(
+                    workspace.agents.find((row) => row.agentId === agent.parentId)?.parentId
+                  )}
                   onFocus={onFocusAgent}
                   onCloseWindow={onCloseAgentWindow}
                   onAnswer={(agentId, questionId, text) =>
@@ -540,7 +571,11 @@ export function WorkspaceCard({
           ) : null}
           {workspace.pullRequest ? <PullRequestLine pullRequest={workspace.pullRequest} /> : null}
           {workspace.active ? (
-            <Composer workspaceId={workspace.workspaceId} onSend={onUserMessage} />
+            <Composer
+              workspaceId={workspace.workspaceId}
+              agents={workspace.agents}
+              onSend={onUserMessage}
+            />
           ) : null}
         </>
       ) : null}

@@ -132,13 +132,25 @@ describe('runRemoteCommand', () => {
     expect(result).toEqual({ ok: true, result: { delivered: 'w1' } })
     expect(steer).toHaveBeenCalledWith({ workspaceId: 'w1', text: 'Focus on the parser first.' })
 
+    const targeted = await runRemoteCommand(h, 'user_message', undefined, {
+      workspaceId: 'w1',
+      text: 'Run the login flow.',
+      targetAgentId: '  a1  '
+    })
+    expect(targeted).toEqual({ ok: true, result: { delivered: 'w1' } })
+    expect(steer).toHaveBeenCalledWith({
+      workspaceId: 'w1',
+      text: 'Run the login flow.',
+      targetAgentId: 'a1'
+    })
+
     expect(await runRemoteCommand(h, 'user_message', undefined, { text: 'x' })).toMatchObject({
       ok: false
     })
     expect(
       await runRemoteCommand(h, 'user_message', undefined, { workspaceId: 'w1', text: '  ' })
     ).toMatchObject({ ok: false })
-    expect(steer).toHaveBeenCalledTimes(1)
+    expect(steer).toHaveBeenCalledTimes(2)
   })
 
   it('assigns a late goal through the host (H2 refill) and refuses incomplete args', async () => {

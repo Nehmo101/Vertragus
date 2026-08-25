@@ -105,8 +105,10 @@ keeps the last 1000 and the on-disk journal keeps everything.
 
 - **Steering:** a composer on every workspace card (panel and phone) sends a
   `user_message` that wakes the orchestrator's `await_events` immediately.
-  The text shows in its terminal display-only — delivery is the event, so
-  there is no second brain typing into the TUI.
+  Optionally address a worker, lead or helper; the host still delivers on
+  the root queue and, when the addressee is not a direct child, asks the
+  orchestrator to relay. The text shows in its terminal display-only —
+  delivery is the event, so there is no second brain typing into the TUI.
 - **A goal can arrive late.** A run started without a goal has an
   orchestrator waiting at its prompt, so the card's "no goal" line is a field
   (panel and phone): the text typed there becomes the orchestrator's first
@@ -130,6 +132,10 @@ keeps the last 1000 and the on-disk journal keeps everything.
   subtree's events never flood the root, grandchildren are invisible to it,
   leads never talk to each other, and a dying lead's agents are reparented to
   the root (`subtree_adopted`). The host never auto-nests.
+- **Worker helpers (one extra level):** an MCP worker may `start_agent` up
+  to three helpers for an isolated slice. Helper events stay in that
+  worker's nest queue — the orchestrator inspects the worker, not the
+  helpers. Helpers cannot spawn. Lead-starts-lead stays forbidden.
 - **Succession:** when the root's context fills, `request_succession` hands
   the same workspace — team, queue, open questions — to a fresh-context
   successor; the old orchestrator token is rotated so the predecessor is
@@ -163,10 +169,21 @@ verified dialect: a strict transient config file (Claude), process-local
 history). Orchestrators and leads run on a strict tool allow-list; workers
 run unrestricted — their discipline is the contract, not a tool cage.
 
-A slot can declare **extra MCP servers** (`extraMcp: [{name, url}]`, e.g. a
-browser tool) that its agents attach in addition to Vertragus — subagents
-only, never the orchestrator or a lead, and the name `vertragus` is reserved
-so nothing can shadow the reporting channel.
+A slot can declare **extra MCP servers** (`extraMcp: [{name, url}]`) that
+its agents attach in addition to Vertragus — subagents only, never the
+orchestrator or a lead, and the name `vertragus` is reserved so nothing can
+shadow the reporting channel. Extra MCP is still the path for a
+third-party tool server. Driving the user's real Chromium is first-party
+(see below).
+
+## Chromium extension
+
+An unpacked Manifest V3 extension pairs with the panel so a worker can
+test a live web app in the tabs you already have open. Same MCP listener,
+path `/browser`, loopback token — not a second MCP server. Workers call
+`browser_*` tools; a disconnected extension is a tool error, never a silent
+skip. Load it from **Settings → Browser extension**. How-to:
+[`docs/CHROMIUM-EXTENSION.md`](docs/CHROMIUM-EXTENSION.md).
 
 ## Desktop niceties
 
