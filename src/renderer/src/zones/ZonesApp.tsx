@@ -9,8 +9,10 @@ import './zones.css'
  *
  * Everything on this surface is drawn ON the desktop it configures: the
  * rectangles are the actual screen regions, at actual size. Chrome is kept to
- * two floating slabs (a hint pill at the top, the palette and the two buttons
- * at the bottom) so the rectangles stay the loudest thing on screen.
+ * two floating slabs (a hint pill at the top, a wrapping palette and a
+ * Save/Cancel cluster at the bottom) so the rectangles stay the loudest
+ * thing on screen. The bottom slab wraps inside the overlay: a nowrap row
+ * of role chips would push Save off a small work area.
  *
  * Dragging uses pointer capture rather than window listeners: the gesture keeps
  * following the mouse even when it leaves the rectangle, and it ends cleanly
@@ -199,50 +201,53 @@ export function ZonesApp({
       ) : null}
 
       <div className="zones-bar">
-        <span className="zones-bar-label">{t('zones.palette')}</span>
-        <div className="zones-palette">
-          {editor.roles.map((role) => (
-            <button
-              key={role.roleId}
-              type="button"
-              className="zones-role"
-              style={{ borderColor: withAlpha(role.color, 0.55), color: role.color }}
-              onClick={() => editor.addZone(role.roleId)}
-            >
-              {t('zones.addZone', { role: role.label })}
-            </button>
-          ))}
+        <div className="zones-bar-tools">
+          <span className="zones-bar-label">{t('zones.palette')}</span>
+          <div className="zones-palette">
+            {editor.roles.map((role) => (
+              <button
+                key={role.roleId}
+                type="button"
+                className="zones-role"
+                style={{ borderColor: withAlpha(role.color, 0.55), color: role.color }}
+                onClick={() => editor.addZone(role.roleId)}
+              >
+                {t('zones.addZone', { role: role.label })}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="zones-ghost"
+            onClick={editor.autoLayout}
+            disabled={!editor.ready || editor.roles.length === 0}
+          >
+            {t('zones.autoLayout')}
+          </button>
+          <label className="zones-switch" title={t('zones.reflowNeighborsHint')}>
+            <input
+              type="checkbox"
+              checked={editor.reflowNeighbors}
+              disabled={!editor.ready}
+              onChange={(event) => editor.setReflowNeighbors(event.target.checked)}
+            />
+            <span>{t('zones.reflowNeighbors')}</span>
+          </label>
         </div>
-        <button
-          type="button"
-          className="zones-ghost"
-          onClick={editor.autoLayout}
-          disabled={!editor.ready || editor.roles.length === 0}
-        >
-          {t('zones.autoLayout')}
-        </button>
-        <label className="zones-switch" title={t('zones.reflowNeighborsHint')}>
-          <input
-            type="checkbox"
-            checked={editor.reflowNeighbors}
-            disabled={!editor.ready}
-            onChange={(event) => editor.setReflowNeighbors(event.target.checked)}
-          />
-          <span>{t('zones.reflowNeighbors')}</span>
-        </label>
-        <span className="zones-bar-spacer" />
-        {editor.error ? <span className="zones-error">{editor.error}</span> : null}
-        <button type="button" className="zones-ghost" onClick={editor.cancel}>
-          {t('zones.cancel')}
-        </button>
-        <button
-          type="button"
-          className="zones-primary"
-          onClick={editor.save}
-          disabled={editor.saving || !editor.ready}
-        >
-          {editor.saving ? t('common.saving') : t('common.save')}
-        </button>
+        <div className="zones-bar-actions">
+          {editor.error ? <span className="zones-error">{editor.error}</span> : null}
+          <button type="button" className="zones-ghost" onClick={editor.cancel}>
+            {t('zones.cancel')}
+          </button>
+          <button
+            type="button"
+            className="zones-primary"
+            onClick={editor.save}
+            disabled={editor.saving || !editor.ready}
+          >
+            {editor.saving ? t('common.saving') : t('common.save')}
+          </button>
+        </div>
       </div>
     </div>
   )
