@@ -34,6 +34,27 @@ const OPTIONS: SeedWithReadyOptions = {
   acceptancePollMs: 10
 }
 
+function submittedLines(snapshot: string): string[] {
+  return snapshot
+    .split('\n')
+    .filter((line) => line.startsWith('SUBMIT '))
+    .map((line) => JSON.parse(line.slice('SUBMIT '.length).trim()) as string)
+}
+
+/**
+ * The TUI writes `SUBMIT` on stdout; ConPTY can deliver that echo after the
+ * handshake already returned. A single 300 ms nap was enough locally and
+ * missed a loaded Windows quality runner (empty array, handshake still true).
+ */
+async function waitForSubmits(pty: PtyAgent, timeoutMs = 3_000): Promise<string[]> {
+  const started = Date.now()
+  for (;;) {
+    const lines = submittedLines(pty.snapshot())
+    if (lines.length > 0 || Date.now() - started >= timeoutMs) return lines
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+}
+
 /** Seed the probe TUI and return everything it reported as submitted. */
 async function submitsAfterSeeding(options: SeedWithReadyOptions): Promise<string[]> {
   const pty = new PtyAgent()
@@ -45,13 +66,7 @@ async function submitsAfterSeeding(options: SeedWithReadyOptions): Promise<strin
       ASSIGNMENT,
       { ...OPTIONS, ...options }
     )).toBe(true)
-    // The TUI answers a submit within a tick; this is slack, not a race.
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    return pty
-      .snapshot()
-      .split('\n')
-      .filter((line) => line.startsWith('SUBMIT '))
-      .map((line) => JSON.parse(line.slice('SUBMIT '.length).trim()) as string)
+    return await waitForSubmits(pty)
   } finally {
     pty.kill()
   }
