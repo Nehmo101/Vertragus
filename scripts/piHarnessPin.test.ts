@@ -11,9 +11,9 @@
  *   1. package.json pins exactly those two production deps by name.
  *   2. .github/dependabot.yml allow-lists only those names, grouped, with
  *      no automerge.
- *   3. electron-builder.yml unpacks the trees native/WASM load from, and
- *      covers all of node_modules in mac.x64ArchFiles (universal merge —
- *      unscoped addons like koffi, not only @scoped unpack trees).
+ *   3. electron-builder.yml unpacks the trees native/WASM load from, covers
+ *      all of node_modules in mac.x64ArchFiles (unscoped addons like koffi),
+ *      and keeps mergeASARs off (Pi unpack trees overflow the asar glob).
  *
  * Self-checks at the bottom keep the scanners honest: a regex that silently
  * stops matching must fail the suite, not green it.
@@ -97,6 +97,10 @@ describe('electron-builder asarUnpack', () => {
     const rule = source.match(/x64ArchFiles:\s*'([^']+)'/)?.[1]
     expect(rule, 'x64ArchFiles vanished').toBe('**/node_modules/**')
   })
+
+  it('does not merge ASARs: Pi unpack trees overflow minimatch brace globs', () => {
+    expect(source).toMatch(/mergeASARs:\s*false/)
+  })
 })
 
 describe('the scanners themselves', () => {
@@ -117,6 +121,10 @@ describe('the scanners themselves', () => {
     expect(builder.match(/x64ArchFiles:\s*'([^']+)'/)?.[1], 'x64ArchFiles regex went silent').toBe(
       '**/node_modules/**'
     )
+  })
+
+  it('still sees mergeASARs: false', () => {
+    expect(builder).toMatch(/mergeASARs:\s*false/)
   })
 
   it('pins constants that match the files', () => {

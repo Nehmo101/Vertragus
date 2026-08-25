@@ -86,6 +86,13 @@ mac:
   # no @scope. `**/node_modules/**` covers every addon and still excludes
   # Electron's own helpers. scripts/piHarnessPin.test.ts pins the glob.
   x64ArchFiles: '**/node_modules/**'
+  # The Pi CLI/adapter trees must be unpacked (spawned as Node via
+  # ELECTRON_RUN_AS_NODE, so asar is opaque). @electron/universal then
+  # rebuilds the unpack list as one brace glob of absolute paths; that
+  # string exceeds minimatch 3's 64 KiB limit (`pattern is too long`).
+  # Merging ASARs is unnecessary here: JS inside asar is arch-identical,
+  # natives live in asar.unpacked and are handled by x64ArchFiles above.
+  mergeASARs: false
   target:
     - target: dmg
       arch:

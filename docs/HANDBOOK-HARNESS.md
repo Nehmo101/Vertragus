@@ -805,6 +805,9 @@ the MCP adapter, and native keyring trees are unpacked (`asarUnpack` in
 keyring, node-pty) are byte-identical across the two temp apps, and
 `@electron/universal` refuses to skip lipo unless the pattern says that
 is expected. A scoped brace list misses unscoped addons such as koffi.
+`mac.mergeASARs` stays false: the unpacked Pi trees make
+`@electron/universal`'s brace-glob of unpack paths overflow minimatch
+(`pattern is too long`), and the JS inside asar is already arch-identical.
 
 ## Phase A3 — automation: adoption without a click, and the run's pull request
 

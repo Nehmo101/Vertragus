@@ -815,6 +815,10 @@ optionalen `.node`-Dateien (Clipboard, koffi, Keyring, node-pty) sind in
 beiden Temp-Apps bytegleich, und `@electron/universal` verweigert das
 Überspringen von lipo, solange das Pattern das nicht als erwartet
 ausweist. Eine Scope-Klammerliste verfehlt unscoped Addons wie koffi.
+`mac.mergeASARs` bleibt false: die ausgepackten Pi-Bäume lassen das
+Brace-Glob der Unpack-Pfade in `@electron/universal` über minimatch
+laufen (`pattern is too long`), und das JS in asar ist bereits
+architekturidentisch.
 
 ## Phase A3 — Automatisierung: Übernahme ohne Klick und der Pull Request des Laufs
 
