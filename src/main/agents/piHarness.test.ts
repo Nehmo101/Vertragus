@@ -16,8 +16,10 @@ import {
   PI_TTY_PRELOAD_FILE,
   PI_TTY_PRELOAD_SOURCE,
   buildPiHarnessArgv,
+  isWindowsElectronBinary,
   piCliEntrySource,
   piHarnessEnv,
+  piInterpreterCommand,
   piMcpAdapterExtension,
   piProviderFor,
   piThinkingFor,
@@ -55,6 +57,17 @@ function wrapCwdWithPiMcp(): string {
   return cwd
 }
 
+/** Isolate Pi's `os.homedir()` (USERPROFILE on Windows, HOME elsewhere). */
+function piLiveEnv(cwd: string, extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    HOME: cwd,
+    USERPROFILE: cwd,
+    PI_SKIP_VERSION_CHECK: '1',
+    ...extra
+  }
+}
+
 const PI_WRAP_ARGV = [
   '--no-session',
   '--approve',
@@ -67,6 +80,10 @@ const PI_WRAP_ARGV = [
   'opus',
   'Fix login'
 ] as const
+
+/** Cold start compiles the TypeScript MCP adapter through jiti (~13s on Windows). */
+const PI_LIVE_WAIT_MS = 25_000
+const PI_LIVE_TEST_MS = 35_000
 
 function waitForPiTui(child: {
   stdout?: NodeJS.ReadableStream | null
@@ -93,7 +110,7 @@ function waitForPiTui(child: {
     }
     child.stdout?.on('data', onChunk)
     child.stderr?.on('data', onChunk)
-    setTimeout(finish, 8_000)
+    setTimeout(finish, PI_LIVE_WAIT_MS)
     child.on('exit', finish)
   })
 }
@@ -155,9 +172,19 @@ describe('lockfile Pi CLI and adapter', () => {
     expect(PI_MCP_ADAPTER_EXTENSION).not.toMatch(/^npm:/)
   })
 
-  it('only sets ELECTRON_RUN_AS_NODE when a bundled CLI path exists', () => {
+  it('only sets ELECTRON_RUN_AS_NODE on POSIX when a bundled CLI path exists', () => {
     expect(piHarnessEnv(undefined)).toBeUndefined()
-    expect(piHarnessEnv('/tmp/pi/dist/cli.js')).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
+    expect(piHarnessEnv('/tmp/pi/dist/cli.js', 'linux')).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
+    expect(piHarnessEnv('/tmp/pi/dist/cli.js', 'darwin')).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
+    expect(piHarnessEnv('/tmp/pi/dist/cli.js', 'win32')).toBeUndefined()
+  })
+
+  it('picks PATH node on Windows and Electron-as-node elsewhere', () => {
+    expect(piInterpreterCommand('win32')).toBe('node')
+    expect(piInterpreterCommand('linux')).toBe(process.execPath)
+    expect(isWindowsElectronBinary('C:\\App\\electron.exe')).toBe(true)
+    expect(isWindowsElectronBinary('/usr/bin/electron')).toBe(true)
+    expect(isWindowsElectronBinary('C:\\Program Files\\nodejs\\node.exe')).toBe(false)
   })
 
   it('writes a CJS TTY polyfill that forces isTTY and a setRawMode stub', () => {
@@ -223,16 +250,17 @@ describe('lockfile Pi CLI and adapter', () => {
     const entry = writePiCliEntry(root, cli!)
     const child = spawn(process.execPath, [entry, ...PI_WRAP_ARGV], {
       cwd,
-      env: { ...process.env, HOME: cwd, PI_SKIP_VERSION_CHECK: '1' },
+      env: piLiveEnv(cwd),
       stdio: ['ignore', 'pipe', 'pipe']
     })
     const result = await waitForPiTui(child)
     // Print mode plus a goal plus no Pi API key is process.exit(1) with a
     // plain "No API key found" line. Interactive mode enables bracketed paste
-    // (DECSET 2004) and then stays up or exits 0 on stdin EOF.
+    // (DECSET 2004) and then stays up or exits 0 on stdin EOF. The TUI may
+    // still *display* "No API key found" in the transcript — that is not
+    // the print-mode crash this test is pinning.
     expect(result.out).toContain('?2004h')
-    expect(result.out).not.toMatch(/No API key found/i)
-  }, 12_000)
+  }, PI_LIVE_TEST_MS)
 
   it('Node on a pipe without the CJS entry still exits 1 (print mode + goal + no Pi key)', () => {
     const cli = resolvePiHarnessCli()
@@ -240,15 +268,15 @@ describe('lockfile Pi CLI and adapter', () => {
     const cwd = wrapCwdWithPiMcp()
     const result = spawnSync(process.execPath, [cli!, ...PI_WRAP_ARGV], {
       cwd,
-      env: { ...process.env, HOME: cwd, PI_SKIP_VERSION_CHECK: '1' },
+      env: piLiveEnv(cwd),
       encoding: 'utf8',
-      timeout: 8_000,
+      timeout: PI_LIVE_WAIT_MS,
       stdio: ['ignore', 'pipe', 'pipe']
     })
     expect(result.error).toBeUndefined()
     expect(result.status).toBe(1)
     expect(`${result.stdout}${result.stderr}`).toMatch(/No API key found/i)
-  }, 12_000)
+  }, PI_LIVE_TEST_MS)
 
   it.skipIf(!electronBinary)(
     'Electron-as-node on a pipe without the CJS entry still exits 1 (print mode + goal + no Pi key)',
@@ -258,21 +286,16 @@ describe('lockfile Pi CLI and adapter', () => {
       const cwd = wrapCwdWithPiMcp()
       const result = spawnSync(electronBinary!, [cli!, ...PI_WRAP_ARGV], {
         cwd,
-        env: {
-          ...process.env,
-          HOME: cwd,
-          ELECTRON_RUN_AS_NODE: '1',
-          PI_SKIP_VERSION_CHECK: '1'
-        },
+        env: piLiveEnv(cwd, { ELECTRON_RUN_AS_NODE: '1' }),
         encoding: 'utf8',
-        timeout: 8_000,
+        timeout: PI_LIVE_WAIT_MS,
         stdio: ['ignore', 'pipe', 'pipe']
       })
       expect(result.error).toBeUndefined()
       expect(result.status).toBe(1)
       expect(`${result.stdout}${result.stderr}`).toMatch(/No API key found/i)
     },
-    12_000
+    PI_LIVE_TEST_MS
   )
 
   it.skipIf(!electronBinary)(
@@ -285,29 +308,24 @@ describe('lockfile Pi CLI and adapter', () => {
       const entry = writePiCliEntry(root, cli!)
       const child = spawn(electronBinary!, [entry, ...PI_WRAP_ARGV], {
         cwd,
-        env: {
-          ...process.env,
-          HOME: cwd,
-          ELECTRON_RUN_AS_NODE: '1',
-          PI_SKIP_VERSION_CHECK: '1'
-        },
+        env: piLiveEnv(cwd, { ELECTRON_RUN_AS_NODE: '1' }),
         stdio: ['ignore', 'pipe', 'pipe']
       })
       const result = await waitForPiTui(child)
       expect(result.out).toContain('?2004h')
-      expect(result.out).not.toMatch(/No API key found/i)
     },
-    12_000
+    PI_LIVE_TEST_MS
   )
 
-  it.skipIf(!electronBinary)(
-    'Electron-as-node on a PTY with the CJS entry stays up (production spawn shape)',
+  it.skipIf(process.platform !== 'win32' && !electronBinary)(
+    'PTY with the CJS entry stays up (production spawn shape)',
     async () => {
       const cli = resolvePiHarnessCli()
       expect(cli).toBeDefined()
       const root = mkdtempSync(join(tmpdir(), 'vertragus-pi-electron-pty-'))
       const cwd = wrapCwdWithPiMcp()
       const entry = writePiCliEntry(root, cli!)
+      const file = process.platform === 'win32' ? process.execPath : electronBinary!
       const pty = new PtyAgent()
       const result = await new Promise<{ out: string }>((resolve) => {
         let out = ''
@@ -326,17 +344,21 @@ describe('lockfile Pi CLI and adapter', () => {
         })
         const stopExit = pty.onExit(finish)
         pty.spawn({
-          file: electronBinary!,
+          file,
           args: [entry, ...PI_WRAP_ARGV],
           cwd,
-          env: { HOME: cwd, ELECTRON_RUN_AS_NODE: '1', PI_SKIP_VERSION_CHECK: '1' }
+          env: {
+            HOME: cwd,
+            USERPROFILE: cwd,
+            PI_SKIP_VERSION_CHECK: '1',
+            ...(process.platform === 'win32' ? {} : { ELECTRON_RUN_AS_NODE: '1' })
+          }
         })
-        setTimeout(finish, 8_000)
+        setTimeout(finish, PI_LIVE_WAIT_MS)
       })
       expect(result.out).toContain('?2004h')
-      expect(result.out).not.toMatch(/No API key found/i)
     },
-    12_000
+    PI_LIVE_TEST_MS
   )
 
   it('rewrites app.asar to app.asar.unpacked when that copy exists', () => {

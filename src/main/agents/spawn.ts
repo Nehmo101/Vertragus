@@ -44,16 +44,20 @@
  * - `<cwd>/.pi/mcp.json` — Pi harness wrap MCP attachment (merged). Written
  *   INSTEAD of the native dialect files when the wrap is on. The slot's
  *   provider (Claude / Cursor / …) stays; only the process is the lockfile
- *   `pi` CLI (Electron as Node, or PATH `pi` if the package is missing).
+ *   `pi` CLI (Electron as Node on POSIX, PATH `node` on Windows, or PATH
+ *   `pi` if the package is missing).
  * - `<cwd>/.pi/APPEND_SYSTEM.md` — Pi wrap role / orchestrator prompt. No
  *   token; `--append-system-prompt` gets the absolute path so argv stays
  *   one-line. Removed when the launch has no prompt, so a stale file cannot
  *   be auto-discovered after `--approve`.
- * - `<configDir>/vertragus-mcp/pi-cli-entry.cjs` — Electron-as-node only.
+ * - `<configDir>/vertragus-mcp/pi-cli-entry.cjs` — bundled-CLI only.
  *   The *script* argv (not a Node `-r` in front of `dist/cli.js`: Pi's
  *   `-r` is `--resume`). Polyfills stdin/stdout/stderr `.isTTY` then
  *   imports the lockfile CLI; without it Pi picks print mode and
  *   `process.exit(1)` on the first goal when it has no provider key.
+ *   POSIX runs this under Electron-as-node. Windows runs PATH `node`
+ *   instead: ConPTY cannot attach stdio to `electron.exe` (WINDOWS
+ *   subsystem) and the agent window stays blank.
  *
  *   These project-file dialects are the only artefacts a Vertragus launch writes
  *   into user territory. Since every agent owns its worktree they can no longer
@@ -86,10 +90,13 @@ import {
 import {
   buildPiHarnessArgv,
   PI_HARNESS_COMMAND,
+  isWindowsElectronBinary,
   piHarnessEnv,
+  piInterpreterCommand,
   resolvePiHarnessCli,
   writePiCliEntry
 } from './piHarness'
+import { mainMessages } from '@shared/mainMessages'
 import type { ExtraMcpServer } from '@shared/schema/mcpServer'
 import type { ExtraMcpServer as SlotExtraMcpServer } from '@shared/schema/profile'
 import {
@@ -103,6 +110,20 @@ import { ensureClaudeWorkspaceTrust } from './claudeTrust'
 import { ensureKimiWorkspaceTrust } from './kimiTrust'
 import { PtyAgent, type PtyAgentLike, type PtySpawnOptions } from './PtyAgent'
 import { resolveLaunch, type ResolveLaunchOptions } from './resolveCommand'
+
+/**
+ * UI locale for the Windows-node error. Lazy like resolveCommand's
+ * `storedLocale`: the settings store pulls Electron, and spawn tests must
+ * stay importable without an Electron runtime.
+ */
+async function spawnLocale(): Promise<string | undefined> {
+  try {
+    const { getSettings } = await import('@main/store/settings')
+    return getSettings().ui.locale
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * Orchestrator and subagent differ in exactly two places: yolo and allowlist.
@@ -160,10 +181,11 @@ export interface AgentLaunchInput {
   extraMcpServers?: readonly ExtraMcpServer[]
   /**
    * Overlay, not a provider. `'pi'` starts the lockfile Pi CLI (Electron as
-   * Node, or PATH `pi` if the package is missing) with the slot's preset
-   * mapped onto `--provider` and the slot's model onto `--model`.
-   * Native CLI args, yolo flags and native MCP attach are skipped. Absent =
-   * current behavior (spawn `claude` / `cursor-agent` / …).
+   * Node on POSIX, PATH `node` on Windows, or PATH `pi` if the package is
+   * missing) with the slot's preset mapped onto `--provider` and the slot's
+   * model onto `--model`. Native CLI args, yolo flags and native MCP attach
+   * are skipped. Absent = current behavior (spawn `claude` / `cursor-agent`
+   * / …).
    */
   harness?: 'pi'
   /** Platform override for testing the Windows resolution off-Windows. */
@@ -320,10 +342,11 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
  * agent name. Subagent and lead launches must not get this — native spawn is
  * how a Grok worker works.
  *
- * Pi wrap: when the lockfile CLI is used, `ELECTRON_RUN_AS_NODE=1` so Electron's
- * binary runs a CJS entry that polyfills TTY then imports `dist/cli.js` (see
- * {@link writePiCliEntry}). PATH fallback (no bundled CLI) adds nothing —
- * wrap-on Grok must not inherit the native cage env.
+ * Pi wrap: POSIX sets `ELECTRON_RUN_AS_NODE=1` so Electron's binary runs a
+ * CJS entry that polyfills TTY then imports `dist/cli.js` (see
+ * {@link writePiCliEntry}). Windows omits that env and runs PATH `node`
+ * (ConPTY + `electron.exe` is a blank window). PATH fallback (no bundled
+ * CLI) adds nothing — wrap-on Grok must not inherit the native cage env.
  */
 export function buildAgentEnv(
   input: AgentLaunchInput,
@@ -331,7 +354,7 @@ export function buildAgentEnv(
 ): Record<string, string> | undefined {
   if (input.harness === 'pi') {
     const cli = (deps.resolvePiCli ?? resolvePiHarnessCli)()
-    return piHarnessEnv(cli)
+    return piHarnessEnv(cli, input.platform ?? process.platform)
   }
   if (input.kind === 'orchestrator' && input.provider.mcp.kind === 'grok-project') {
     return grokOrchestratorEnv()
@@ -442,12 +465,16 @@ export async function buildAgentLaunch(
   const resolve = deps.resolve ?? resolveLaunch
   const command = input.harness === 'pi' ? PI_HARNESS_COMMAND : input.provider.command
   const piCli = input.harness === 'pi' ? (deps.resolvePiCli ?? resolvePiHarnessCli)() : undefined
-  const resolveCommand = piCli ? process.execPath : command
+  const platform = input.platform ?? process.platform
+  const resolveCommand = piCli ? piInterpreterCommand(platform) : command
   const resolveArgs = piCli ? [writePiCliEntry(input.configDir, piCli), ...argv] : argv
   const resolved = await resolve(resolveCommand, resolveArgs, {
     requireFaithfulArgs: needsFaithfulArgs(argv),
     ...(input.platform ? { platform: input.platform } : {})
   })
+  if (piCli && platform === 'win32' && isWindowsElectronBinary(resolved.file)) {
+    throw new Error(mainMessages(await spawnLocale()).piNeedsNodeOnWindows)
+  }
   const env = buildAgentEnv(input, deps)
   return {
     file: resolved.file,

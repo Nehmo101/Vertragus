@@ -884,9 +884,12 @@ dokumentiert, nicht übertüncht.
 Produktionsabhängigkeiten (derselbe Paketname, den der Adapter importiert
 — auf dem veralteten `@mariozechner/pi-coding-agent` 0.73.1 scheiterte
 `-e` beim Laden und Pi machte `process.exit(1)` vor `session_start`).
-Spawn startet Electron als Node auf einem CJS-Entrypoint, der TTY
+POSIX-Spawn startet Electron als Node auf einem CJS-Entrypoint, der TTY
 polyfillt und dann das Paket-`bin.pi` (`dist/cli.js`) importiert, mit
-`ELECTRON_RUN_AS_NODE=1`. Pi 0.84 behandelt `-r` als `--resume`, deshalb
+`ELECTRON_RUN_AS_NODE=1`. Windows-Spawn nutzt PATH-`node` für denselben
+Entrypoint und lässt die Env weg: ConPTY kann `electron.exe`
+(WINDOWS-Subsystem) nicht anbinden, das Agentenfenster bleibt leer.
+Node.js muss auf dem PATH liegen. Pi 0.84 behandelt `-r` als `--resume`, deshalb
 ist der Entrypoint das *Skript* (argv[1]) und kein Node-`-r` vor der CLI
 — wenn Electron `-r` nicht konsumiert, bleibt der Print-Modus an, und ein
 nachgestelltes Play-Ziel plus fehlender Pi-API-Key ist `process.exit(1)`.

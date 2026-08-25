@@ -146,6 +146,10 @@ No release has been tagged yet; everything lives under Unreleased.
   eager-attaches the Vertragus MCP server. Packaged builds unpack
   `typebox` and `jiti` so the adapter can load from asar-unpacked
   `loader.js`.
+- **Pi wrap on Windows opened a blank agent window.** ConPTY cannot attach
+  stdio to `electron.exe` (WINDOWS subsystem); the child exited 0 with no
+  output. The wrap now runs PATH `node` on Windows and keeps Electron-as-node
+  on POSIX. Node.js must be on PATH.
 - **Zone overlay Save slid off small screens.** The bottom chrome was a
   single nowrap row that grew with every role chip, so Cancel and Save
   painted past the work area. The bar now wraps inside the overlay; Save
