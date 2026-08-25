@@ -111,6 +111,16 @@ export interface RegisteredWorkspace {
   rotateOrchestratorToken(): { previousToken: string; orchToken: string; orchestratorUrl: string }
   /** Restore a previous orchestrator secret (succession spawn failure). */
   applyOrchestratorToken(orchToken: string): { orchestratorUrl: string }
+  /**
+   * Resolve when this identity has an MCP session (initialize completed), or
+   * `false` when `timeoutMs` elapses first. The host waits here before
+   * submitting the first turn so `await_events` is not a token burn against
+   * a CLI that has not attached yet.
+   */
+  waitForSession(
+    identity: { kind: 'orchestrator' } | { kind: 'subagent' | 'lead'; agentId: string },
+    timeoutMs: number
+  ): Promise<boolean>
 }
 
 export interface McpServerHandle {
@@ -372,6 +382,14 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
   const host = options.host ?? MCP_BIND_HOST
   const workspaces = new Map<string, WorkspaceRuntime>()
   const sessions = new Map<string, SessionRecord>()
+  const sessionWaiters = new Set<{
+    identity: McpIdentity
+    resolve: (ok: boolean) => void
+    timer: ReturnType<typeof setTimeout>
+  }>()
+  /** Identities that have started (or finished) initialize — not only those
+   *  already in `sessions`, because `onsessioninitialized` can lag connect(). */
+  const liveIdentities = new Set<string>()
   const browser = new BrowserBridge({
     token: options.browserToken,
     onToken: options.onBrowserToken,
@@ -447,6 +465,7 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (sid) => {
             sessions.set(sid, { transport, server, identity })
+            notifySession(identity)
           }
         })
         transport.onclose = (): void => {
@@ -454,6 +473,10 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
         }
         await server.connect(transport)
         record = { transport, server, identity }
+        // Don't wait for `onsessioninitialized`: the SDK can return from
+        // `connect()` before that callback, and the host's first-turn gate
+        // would otherwise sit on the full timeout while the session is live.
+        notifySession(identity)
       }
 
       if (!record) {
@@ -481,6 +504,78 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     }
 
     res.writeHead(405).end()
+  }
+
+  function sessionIdentityKey(id: McpIdentity): string {
+    return id.kind === 'orchestrator'
+      ? `orchestrator:${id.workspaceId}`
+      : `${id.kind}:${id.workspaceId}:${id.agentId}`
+  }
+
+  function identityHasSession(wanted: McpIdentity): boolean {
+    if (liveIdentities.has(sessionIdentityKey(wanted))) return true
+    for (const record of sessions.values()) {
+      if (sameIdentity(record.identity, wanted)) return true
+    }
+    return false
+  }
+
+  function notifySession(identity: McpIdentity): void {
+    liveIdentities.add(sessionIdentityKey(identity))
+    for (const waiter of [...sessionWaiters]) {
+      if (!sameIdentity(waiter.identity, identity)) continue
+      sessionWaiters.delete(waiter)
+      clearTimeout(waiter.timer)
+      waiter.resolve(true)
+    }
+  }
+
+  function failSessionWaiters(workspaceId: string): void {
+    for (const key of [...liveIdentities]) {
+      const parts = key.split(':')
+      if (parts[1] === workspaceId) liveIdentities.delete(key)
+    }
+    for (const waiter of [...sessionWaiters]) {
+      if (waiter.identity.workspaceId !== workspaceId) continue
+      sessionWaiters.delete(waiter)
+      clearTimeout(waiter.timer)
+      waiter.resolve(false)
+    }
+  }
+
+  function expandWaitKey(
+    workspaceId: string,
+    key: { kind: 'orchestrator' } | { kind: 'subagent' | 'lead'; agentId: string }
+  ): McpIdentity {
+    return key.kind === 'orchestrator'
+      ? { kind: 'orchestrator', workspaceId }
+      : { kind: key.kind, workspaceId, agentId: key.agentId }
+  }
+
+  function waitForSession(
+    workspaceId: string,
+    key: { kind: 'orchestrator' } | { kind: 'subagent' | 'lead'; agentId: string },
+    timeoutMs: number
+  ): Promise<boolean> {
+    const identity = expandWaitKey(workspaceId, key)
+    if (identityHasSession(identity)) return Promise.resolve(true)
+    return new Promise((resolve) => {
+      const waiter = {
+        identity,
+        resolve,
+        timer: setTimeout(() => {
+          sessionWaiters.delete(waiter)
+          resolve(false)
+        }, Math.max(0, timeoutMs))
+      }
+      waiter.timer.unref?.()
+      sessionWaiters.add(waiter)
+      if (identityHasSession(identity)) {
+        sessionWaiters.delete(waiter)
+        clearTimeout(waiter.timer)
+        resolve(true)
+      }
+    })
   }
 
   const port = await new Promise<number>((resolve, reject) => {
@@ -583,7 +678,8 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
         buildSubagentUrl(port, ctx.workspaceId, agentId, ctx.subToken, host),
       leadUrl: (agentId: string) => buildLeadUrl(port, ctx.workspaceId, agentId, ctx.subToken, host),
       rotateOrchestratorToken: () => rotateOrchestratorToken(ctx.workspaceId),
-      applyOrchestratorToken: (token) => applyOrchestratorToken(ctx.workspaceId, token)
+      applyOrchestratorToken: (token) => applyOrchestratorToken(ctx.workspaceId, token),
+      waitForSession: (key, timeoutMs) => waitForSession(ctx.workspaceId, key, timeoutMs)
     }
   }
 
@@ -592,6 +688,7 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     if (!runtime) return
     workspaces.delete(workspaceId)
     closeSessionsOf(workspaceId)
+    failSessionWaiters(workspaceId)
     runtime.questions.clear()
     for (const lead of runtime.leads.values()) lead.events.close()
     runtime.leads.clear()

@@ -159,7 +159,11 @@ const PRESETS: readonly ProviderConfig[] = [
     // a launch concern, not an MCP concern — parallel to Claude's
     // `needsTrustPreacceptance` (state-file) path; Cursor has a flag instead.
     args: ['--trust'],
-    yoloArgs: ['--yolo'],
+    // Run Everything: `--force` (`--yolo` is the alias) plus sandbox off.
+    // Auto-review is the Cursor 3.6+ default; `--yolo` alone still prompts
+    // on tool calls that cannot run inside the sandbox. Orchestrators never
+    // receive these — spawn only appends yoloArgs for `kind: 'subagent'`.
+    yoloArgs: ['--force', '--sandbox', 'disabled'],
     modelArg: '--model',
     versionArgs: ['--version'],
     auth: { loginArgs: ['login'], statusArgs: ['status'] },

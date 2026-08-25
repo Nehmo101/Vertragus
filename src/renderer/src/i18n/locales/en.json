@@ -527,6 +527,14 @@
     "restoreWindow": "Shrink window — back into its zone",
     "closeWindow": "Close window",
     "searchPlaceholder": "Search … (Enter: next, Shift+Enter: previous)",
-    "searchClose": "Close search"
+    "searchClose": "Close search",
+    "boot": {
+      "preparing": "Preparing the run …",
+      "worktree": "Creating the worktree …",
+      "mcp": "Attaching MCP servers …",
+      "cli": "Starting the CLI …",
+      "handshake": "Waiting for MCP …",
+      "waiting": "MCP is not connected yet — the first turn is on hold so no tokens are spent."
+    }
   }
 }

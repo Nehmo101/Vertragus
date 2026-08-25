@@ -11,6 +11,13 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import type { Locale, Translate } from '../i18n'
 import type { TerminalAgentMeta, TerminalExitEvent } from '../../../preload'
+import HoundLogo from '../panel/HoundLogo'
+import {
+  bootOverlayClickThrough,
+  bootOverlayVisible,
+  isTerminalBootPhase,
+  type TerminalBootPhase
+} from '@shared/terminalBoot'
 import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
 import { shouldFocusTerminal, trackWindowFocus } from './windowFocus'
@@ -113,6 +120,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
   const searchRef = useRef<SearchAddon | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const [boot, setBoot] = useState<TerminalBootPhase | null>(null)
 
   // The bridge is injected by preload before the bundle runs — stable for the
   // lifetime of the window, so it is read during render, not in the effect.
@@ -197,6 +205,9 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       term.write(`\r\n\x1b[90m${t('terminal.exitLine', { code: event.exitCode })}\x1b[0m\r\n`)
     })
     const offTask = bridge.onTask((event) => setTask(event.task))
+    const offBoot = bridge.onBoot((event) => {
+      setBoot(isTerminalBootPhase(event.boot) ? event.boot : null)
+    })
     const offInput = term.onData((data) => bridge.input(data))
 
     const observer = new ResizeObserver(() => applyFit())
@@ -219,6 +230,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
         setMeta(result.meta)
         setTask(result.task)
         setMaximized(result.maximized)
+        setBoot(isTerminalBootPhase(result.boot) ? result.boot : null)
         if (result.exit) setExit(result.exit)
         term.write(result.snapshot)
         attached = true
@@ -239,6 +251,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       offData()
       offExit()
       offTask()
+      offBoot()
       offInput.dispose()
       searchRef.current = null
       termRef.current = null
@@ -339,6 +352,19 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
         </div>
       ) : null}
       <div className="cli-terminal" ref={hostRef} />
+      {bootOverlayVisible(boot) && boot ? (
+        <div
+          className={`cli-boot${bootOverlayClickThrough(boot) ? ' is-waiting' : ''}`}
+          role="status"
+          aria-live="polite"
+          aria-busy={boot !== 'waiting'}
+        >
+          <div className="cli-boot-hound">
+            <HoundLogo size={96} hero />
+          </div>
+          <p className="cli-boot-status">{t(`terminal.boot.${boot}`)}</p>
+        </div>
+      ) : null}
     </div>
   )
 }

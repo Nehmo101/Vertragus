@@ -5,7 +5,7 @@
  *
  *   name → Workspace (tokens, EventQueue, NameAllocator)
  *        → mcp.registerWorkspace (URLs)
- *        → orchestrator PTY + CLI window
+ *        → CLI window (boot overlay) → worktree → orchestrator PTY
  *
  * and `stopWorkspace` is its exact inverse, in the order that matters: every
  * subagent first, the orchestrator last (so it does not watch its team die and
