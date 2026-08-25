@@ -21,7 +21,7 @@ import { ORCHESTRATOR_TOOL_NAMES } from '@main/mcp/toolsOrchestrator'
 import { providerPreset, providerPresets } from '@main/providers/presets'
 import { extraMcpServerSchema } from '@shared/schema/mcpServer'
 import { providerConfigSchema, type ProviderConfig } from '@shared/schema/provider'
-import { PI_HARNESS_COMMAND, PI_MCP_ADAPTER_EXTENSION } from './piHarness'
+import { PI_HARNESS_COMMAND, PI_MCP_ADAPTER_EXTENSION, resolvePiHarnessCli } from './piHarness'
 import {
   buildAgentArgv,
   buildAgentEnv,
@@ -1131,9 +1131,11 @@ describe('Pi harness wrap', () => {
     expect(existsSync(join(cwd, '.pi', 'mcp.json'))).toBe(true)
   })
 
-  it('resolves the `pi` command and drops Claude timeout env', async () => {
+  it('resolves Electron-as-node onto the bundled Pi CLI and sets RUN_AS_NODE', async () => {
+    const cli = resolvePiHarnessCli()
+    expect(cli).toBeDefined()
     const resolve = vi.fn(async (command: string, args: string[]) => ({
-      file: `/bin/${command}`,
+      file: command,
       args
     }))
     const launch = await buildAgentLaunch(
@@ -1147,11 +1149,42 @@ describe('Pi harness wrap', () => {
       { resolve }
     )
 
+    expect(resolve).toHaveBeenCalledWith(process.execPath, [cli, ...launch.argv], expect.anything())
+    expect(launch.command).toBe(PI_HARNESS_COMMAND)
+    expect(launch.file).toBe(process.execPath)
+    expect(launch.args[0]).toBe(cli)
+    expect(launch.argv[0]).toBe('--no-session')
+    expect(launch.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
+    expect(buildAgentEnv(launchInput({ harness: 'pi', cwd, kind: 'orchestrator' }))).toEqual({
+      ELECTRON_RUN_AS_NODE: '1'
+    })
+  })
+
+  it('falls back to PATH `pi` with no Electron env when the package is missing', async () => {
+    const resolve = vi.fn(async (command: string, args: string[]) => ({
+      file: `/bin/${command}`,
+      args
+    }))
+    const launch = await buildAgentLaunch(
+      launchInput({
+        harness: 'pi',
+        cwd,
+        kind: 'orchestrator',
+        model: 'opus',
+        systemPrompt: 'You orchestrate.'
+      }),
+      { resolve, resolvePiCli: () => undefined }
+    )
+
     expect(resolve).toHaveBeenCalledWith(PI_HARNESS_COMMAND, launch.argv, expect.anything())
     expect(launch.command).toBe('pi')
     expect(launch.file).toBe('/bin/pi')
     expect(launch.env).toBeUndefined()
-    expect(buildAgentEnv(launchInput({ harness: 'pi', cwd, kind: 'orchestrator' }))).toBeUndefined()
+    expect(
+      buildAgentEnv(launchInput({ harness: 'pi', cwd, kind: 'orchestrator' }), {
+        resolvePiCli: () => undefined
+      })
+    ).toBeUndefined()
   })
 
   it('skips Claude/Kimi trust pre-acceptance and Grok cage env', async () => {
@@ -1182,11 +1215,26 @@ describe('Pi harness wrap', () => {
         kind: 'orchestrator',
         yolo: true
       }),
-      { resolve, createPty: () => grok }
+      { resolve, createPty: () => grok, resolvePiCli: () => undefined }
     )
     expect(grok.spawnOptions && 'env' in grok.spawnOptions).toBe(false)
     expect(grok.spawnOptions?.args).not.toContain('--no-subagents')
     expect(grok.spawnOptions?.args).not.toContain('--always-approve')
+
+    const grokBundled = new FakePty()
+    await spawnAgent(
+      launchInput({
+        harness: 'pi',
+        cwd,
+        provider: preset('grok'),
+        kind: 'orchestrator',
+        yolo: true
+      }),
+      { resolve, createPty: () => grokBundled }
+    )
+    expect(grokBundled.spawnOptions?.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
+    expect(grokBundled.spawnOptions?.env).not.toHaveProperty('GROK_SUBAGENTS')
+    expect(grokBundled.spawnOptions?.args).not.toContain('--no-subagents')
   })
 
   it('a subagent gets extras in .pi/mcp.json; orchestrator and lead never do', () => {

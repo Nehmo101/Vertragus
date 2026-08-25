@@ -1,11 +1,21 @@
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { PROVIDER_PRESET_IDS } from '@shared/schema/provider'
 import {
+  PI_CODING_AGENT_PACKAGE,
   PI_HARNESS_COMMAND,
   PI_MCP_ADAPTER_EXTENSION,
+  PI_MCP_ADAPTER_NPM_SPEC,
+  PI_MCP_ADAPTER_PACKAGE,
   buildPiHarnessArgv,
+  piHarnessEnv,
+  piMcpAdapterExtension,
   piProviderFor,
-  piThinkingFor
+  piThinkingFor,
+  preferAsarUnpacked,
+  resolvePiHarnessCli
 } from './piHarness'
 
 describe('piProviderFor', () => {
@@ -44,6 +54,42 @@ describe('piThinkingFor', () => {
     expect(piThinkingFor('medium')).toBe('medium')
     expect(piThinkingFor('high')).toBe('high')
     expect(piThinkingFor(undefined)).toBeUndefined()
+  })
+})
+
+describe('lockfile Pi CLI and adapter', () => {
+  it('resolves the packaged bin.pi entry, not a PATH name', () => {
+    const cli = resolvePiHarnessCli()
+    expect(cli).toBeDefined()
+    expect(cli).toMatch(/dist[/\\]cli\.js$/)
+    expect(existsSync(cli!)).toBe(true)
+    expect(PI_HARNESS_COMMAND).toBe('pi')
+    expect(PI_CODING_AGENT_PACKAGE).toBe('@mariozechner/pi-coding-agent')
+  })
+
+  it('pins the adapter to the installed version and prefers the lockfile copy', () => {
+    expect(PI_MCP_ADAPTER_PACKAGE).toBe('pi-mcp-adapter')
+    expect(PI_MCP_ADAPTER_NPM_SPEC).toMatch(/^npm:pi-mcp-adapter@\d+\.\d+\.\d+/)
+    expect(piMcpAdapterExtension()).toBe(PI_MCP_ADAPTER_EXTENSION)
+    expect(existsSync(PI_MCP_ADAPTER_EXTENSION)).toBe(true)
+    expect(PI_MCP_ADAPTER_EXTENSION).not.toMatch(/^npm:/)
+  })
+
+  it('only sets ELECTRON_RUN_AS_NODE when a bundled CLI path exists', () => {
+    expect(piHarnessEnv(undefined)).toBeUndefined()
+    expect(piHarnessEnv('/tmp/pi/dist/cli.js')).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
+  })
+
+  it('rewrites app.asar to app.asar.unpacked when that copy exists', () => {
+    const root = mkdtempSync(join(tmpdir(), 'vertragus-asar-'))
+    const asarFile = join(root, 'app.asar', 'node_modules', 'pkg', 'cli.js')
+    const unpackedFile = join(root, 'app.asar.unpacked', 'node_modules', 'pkg', 'cli.js')
+    mkdirSync(join(root, 'app.asar', 'node_modules', 'pkg'), { recursive: true })
+    mkdirSync(join(root, 'app.asar.unpacked', 'node_modules', 'pkg'), { recursive: true })
+    writeFileSync(unpackedFile, 'unpacked\n')
+    expect(preferAsarUnpacked(asarFile)).toBe(unpackedFile)
+    expect(preferAsarUnpacked(unpackedFile)).toBe(unpackedFile)
+    expect(preferAsarUnpacked(join(root, 'plain', 'cli.js'))).toBe(join(root, 'plain', 'cli.js'))
   })
 })
 

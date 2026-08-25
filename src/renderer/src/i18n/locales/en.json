@@ -330,7 +330,7 @@
     "agentPolicyAskOrchestrator": "Ask orchestrator — risky actions need its approval",
     "agentPolicyHint": "Yolo: full autonomy. Ask user: the CLI's own permission prompt waits for you in the agent terminal (hard boundary). Ask orchestrator: subagents run autonomously, but their contract requires the orchestrator's approval before risky actions (soft boundary — see the README threat model).",
     "piHarness": "Run agents through Pi",
-    "piHarnessHint": "Off by default. On: the roster still says Claude, Cursor, Codex, Kimi, Grok or Ollama — only the process is pi, with the slot's model and a mapped Pi backend. Native CLIs are not spawned. Takes effect on the next Play. Needs pi on PATH. Cursor maps to github-copilot; Ollama has no Pi backend, so only --model is passed. Pi has no permission prompts, so native yolo flags are not forwarded.",
+    "piHarnessHint": "Off by default. On: the roster still says Claude, Cursor, Codex, Kimi, Grok or Ollama — only the process is the bundled Pi CLI, with the slot's model and a mapped Pi backend. Native CLIs are not spawned. Takes effect on the next Play. PATH pi is the fallback if the package is missing. Cursor maps to github-copilot; Ollama has no Pi backend, so only --model is passed. Pi has no permission prompts, so native yolo flags are not forwarded.",
     "hotkey": "“Hide everything” hotkey",
     "hotkeyHint": "Electron format: join modifiers with +, e.g. Control+Alt+V. Takes effect right after saving.",
     "hotkeyPlaceholder": "Control+Alt+V",

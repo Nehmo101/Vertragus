@@ -782,18 +782,32 @@ keine Berechtigungsabfragen). `--tools` wird in v1 nicht eingeschränkt
 ### H2 MCP über `.pi/mcp.json` — **umgesetzt**
 
 Pi hat kein natives MCP. Der Launch schreibt `.pi/mcp.json` (`mcpServers`,
-derselbe Key wie Cursor, andere Datei) und lädt nur `npm:pi-mcp-adapter`
-(`--no-extensions -e`). Native Attachments (`.cursor/mcp.json`, Claude-
-transientes JSON, Grok-Käfig, Claude/Kimi-Trust-Preaccept) entfallen. Die
-Datei steht auf `WORKTREE_SECRET_FILES`. Wrap-an-Ollama reportet über MCP
-(`isPtyOnly` ist false).
+derselbe Key wie Cursor, andere Datei) und lädt nur den gepinnten
+`pi-mcp-adapter` (`--no-extensions -e`). Native Attachments
+(`.cursor/mcp.json`, Claude-transientes JSON, Grok-Käfig,
+Claude/Kimi-Trust-Preaccept) entfallen. Die Datei steht auf
+`WORKTREE_SECRET_FILES`. Wrap-an-Ollama reportet über MCP (`isPtyOnly`
+ist false).
 
 ### H3 Settings-Toggle — **umgesetzt**
 
 `piHarnessEnabled` in App-Settings, IPC und Settings. Cursors nächstes Pi-
 Backend ist `github-copilot`; Ollama hat kein Pi-Backend — beides ist
-dokumentiert, nicht übertüncht. Installation:
-`npm i -g --ignore-scripts @mariozechner/pi-coding-agent`.
+dokumentiert, nicht übertüncht.
+
+### H4 Lockfile-Pin und Dependabot — **umgesetzt**
+
+`@mariozechner/pi-coding-agent` und `pi-mcp-adapter` sind
+Produktionsabhängigkeiten. Spawn startet Electron als Node auf dem
+Paket-`bin.pi` (`dist/cli.js`), mit `ELECTRON_RUN_AS_NODE=1`, und `-e`
+lädt das installierte Adapter-Verzeichnis (versioniertes
+`npm:pi-mcp-adapter@x.y.z`, wenn das Paket fehlt). PATH-`pi` bleibt der
+Fallback, wenn die CLI nicht auf der Platte liegt.
+`.github/dependabot.yml` erlaubt nur diese zwei Namen, gruppiert als
+`pi-harness`, wöchentlich, kein Automerge — Overlay-Flags sind ein
+Vertrag. npm markiert den Namen `mariozechner` derzeit als veraltet
+zugunsten von `@earendil-works/pi-coding-agent`; das Lockfile bleibt beim
+deklarierten Namen, damit Dependabot das bumpt, was wir wirklich starten.
 
 ## Phase A3 — Automatisierung: Übernahme ohne Klick und der Pull Request des Laufs
 
@@ -854,4 +868,4 @@ gemergt hat.
 | Worker „nie committen” + Host-Snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, Handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` „Cursor hat kein agent_done“ | veraltet (`none` = Ollama) | ignorieren |
 | Automatisierung: Übernahme ohne Klick, Pull Request des Laufs | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest`, `agents/pullRequest.ts` | **A3** |
-| Pi-Harness-Wrap (kein siebter Provider) | `agents/piHarness.ts`, `spawn.ts`-Overlay, `.pi/mcp.json`, Setting `piHarnessEnabled` | **H** |
+| Pi-Harness-Wrap (kein siebter Provider) | `agents/piHarness.ts`, `spawn.ts`-Overlay, `.pi/mcp.json`, Setting `piHarnessEnabled`, Lockfile-Pin, `.github/dependabot.yml` | **H** |

@@ -74,6 +74,13 @@ describe('node toolchain fallback (Retro Lauf 1: spawn corepack ENOENT)', () => 
     expect(launch).toEqual({ file: 'definitely-missing-cli', args: ['--version'] })
     expect(accessMock).not.toHaveBeenCalled()
   })
+
+  it('returns an absolute command unchanged without consulting PATH', async () => {
+    const file = process.execPath
+    const launch = await resolveLaunch(file, ['-e', '0'])
+    expect(launch).toEqual({ file, args: ['-e', '0'] })
+    expect(execFileMock).not.toHaveBeenCalled()
+  })
 })
 
 // ---------------------------------------------------------------------------

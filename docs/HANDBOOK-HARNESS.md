@@ -775,7 +775,7 @@ restricted in v1 (it can hide MCP tools).
 ### H2 MCP via `.pi/mcp.json` — **implemented**
 
 Pi has no native MCP. The launch writes `.pi/mcp.json` (`mcpServers`, same
-key as Cursor, different file) and loads only `npm:pi-mcp-adapter`
+key as Cursor, different file) and loads only the pinned `pi-mcp-adapter`
 (`--no-extensions -e`). Native attach (`.cursor/mcp.json`, Claude
 transient JSON, Grok cage, Claude/Kimi trust preaccept) is skipped. The
 file is on `WORKTREE_SECRET_FILES`. Wrap-on Ollama reports over MCP
@@ -785,8 +785,20 @@ file is on `WORKTREE_SECRET_FILES`. Wrap-on Ollama reports over MCP
 
 `piHarnessEnabled` in app settings, IPC, and Settings. Cursor's closest Pi
 backend is `github-copilot`; Ollama has no Pi backend — both are
-documented, not papered over. Install:
-`npm i -g --ignore-scripts @mariozechner/pi-coding-agent`.
+documented, not papered over.
+
+### H4 lockfile pin and Dependabot — **implemented**
+
+`@mariozechner/pi-coding-agent` and `pi-mcp-adapter` are production
+dependencies. Spawn runs Electron as Node on the package `bin.pi`
+(`dist/cli.js`), with `ELECTRON_RUN_AS_NODE=1`, and `-e` loads the
+installed adapter directory (versioned `npm:pi-mcp-adapter@x.y.z` if the
+package is missing). PATH `pi` remains the fallback when the CLI is not
+on disk. `.github/dependabot.yml` allow-lists only those two names,
+grouped as `pi-harness`, weekly, no automerge — overlay flags are a
+contract. npm currently deprecates the `mariozechner` name in favor of
+`@earendil-works/pi-coding-agent`; the lockfile stays on the declared
+name so Dependabot bumps what we actually spawn.
 
 ## Phase A3 — automation: adoption without a click, and the run's pull request
 
@@ -843,4 +855,4 @@ host already merged.
 | Worker "never commit" + host snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` "cursor has no agent_done" | outdated (`none` = Ollama) | ignore |
 | Automation: adoption without a click, run pull request | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest`, `agents/pullRequest.ts` | **A3** |
-| Pi harness wrap (not a seventh provider) | `agents/piHarness.ts`, `spawn.ts` overlay, `.pi/mcp.json`, settings `piHarnessEnabled` | **H** |
+| Pi harness wrap (not a seventh provider) | `agents/piHarness.ts`, `spawn.ts` overlay, `.pi/mcp.json`, settings `piHarnessEnabled`, lockfile pin, `.github/dependabot.yml` | **H** |
