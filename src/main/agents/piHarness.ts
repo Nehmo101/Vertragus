@@ -20,17 +20,17 @@
  * Do not `import` the Pi CLI as a JS module — that would pull the agent into
  * the main bundle. Resolution reads `package.json` + `bin.pi` from disk.
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { EffortLevel } from '@shared/schema/provider'
 
 /**
- * Lockfile package we spawn. npm currently deprecates this name in favour of
- * `@earendil-works/pi-coding-agent`; we stay on the declared name so
- * Dependabot bumps what we actually launch.
+ * Lockfile package we spawn. Must be the same name `pi-mcp-adapter` imports
+ * (`@earendil-works/pi-coding-agent`). The deprecated `@mariozechner/*` 0.73
+ * line fails at `-e` load and Pi `process.exit(1)` before `session_start`.
  */
-export const PI_CODING_AGENT_PACKAGE = '@mariozechner/pi-coding-agent'
+export const PI_CODING_AGENT_PACKAGE = '@earendil-works/pi-coding-agent'
 
 /** Lockfile package loaded as Pi's only extension (`-e`). */
 export const PI_MCP_ADAPTER_PACKAGE = 'pi-mcp-adapter'
@@ -189,6 +189,12 @@ export interface PiHarnessArgvInput {
   model?: string
   effort?: EffortLevel
   systemPrompt?: string
+  /**
+   * Absolute path passed as `--append-system-prompt`. Pi reads a file when
+   * the value exists on disk, so a huge multiline role prompt never sits on
+   * argv. Wins over {@link systemPrompt} when both are set.
+   */
+  appendSystemPromptFile?: string
   initialPrompt?: string
 }
 
@@ -211,8 +217,8 @@ export function buildPiHarnessArgv(input: PiHarnessArgvInput): string[] {
   if (model) argv.push('--model', model)
   const thinking = piThinkingFor(input.effort)
   if (thinking) argv.push('--thinking', thinking)
-  const prompt = input.systemPrompt?.trim()
-  if (prompt) argv.push('--append-system-prompt', prompt)
+  const append = input.appendSystemPromptFile?.trim() || input.systemPrompt?.trim()
+  if (append) argv.push('--append-system-prompt', append)
   const initial = input.initialPrompt?.trim()
   if (initial) argv.push(initial)
   return argv
@@ -221,4 +227,32 @@ export function buildPiHarnessArgv(input: PiHarnessArgvInput): string[] {
 /** Env overlay so Electron's binary behaves like Node when running the CLI. */
 export function piHarnessEnv(cliPath: string | undefined): Record<string, string> | undefined {
   return cliPath ? { ELECTRON_RUN_AS_NODE: '1' } : undefined
+}
+
+/**
+ * Filename under `<configDir>/vertragus-mcp/`. Electron-as-node leaves
+ * `stdin`/`stdout`.isTTY unset even inside a PTY; Pi then picks print mode
+ * (`!stdinIsTTY || !stdoutIsTTY`) and one-shots or exits.
+ */
+export const PI_TTY_PRELOAD_FILE = 'pi-tty-preload.cjs'
+
+/** CJS source loaded with Node `-r` before `dist/cli.js`. Exported for snapshots. */
+export const PI_TTY_PRELOAD_SOURCE = `'use strict'
+for (const stream of [process.stdin, process.stdout, process.stderr]) {
+  if (!stream) continue
+  try {
+    Object.defineProperty(stream, 'isTTY', { value: true, configurable: true })
+  } catch {
+    stream.isTTY = true
+  }
+}
+`
+
+/** Write the TTY preload next to Claude's transient MCP configs. */
+export function writePiTtyPreload(configDir: string): string {
+  const dir = join(configDir, 'vertragus-mcp')
+  mkdirSync(dir, { recursive: true })
+  const path = join(dir, PI_TTY_PRELOAD_FILE)
+  writeFileSync(path, PI_TTY_PRELOAD_SOURCE)
+  return path
 }

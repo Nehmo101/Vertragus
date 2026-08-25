@@ -109,6 +109,15 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Fixed
 
+- **Pi wrap exited immediately on Play.** The lockfile still spawned
+  `@mariozechner/pi-coding-agent` 0.73.1 while `pi-mcp-adapter` 2.27
+  imports `@earendil-works/pi-coding-agent`, so extension load failed and
+  Pi `process.exit(1)` before `session_start`. Electron-as-node also left
+  stdin/stdout non-TTY, so even a matching CLI would pick print mode,
+  one-shot the goal, and take no further turns. Spawn now runs
+  `@earendil-works/pi-coding-agent`, preloads a TTY flag before
+  `dist/cli.js`, writes the role prompt to `.pi/APPEND_SYSTEM.md`, and
+  eager-attaches the Vertragus MCP server.
 - **The phone terminal rebuilt itself on nearly every render.** `useRemote()`
   returns a fresh object literal, so `api` changed identity on every render
   of `App`, and the terminal's create-and-attach effect depended on it —

@@ -118,6 +118,17 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Fixed
 
+- **Der Pi-Wrap beendete sich beim Play sofort.** Das Lockfile startete
+  noch `@mariozechner/pi-coding-agent` 0.73.1, während `pi-mcp-adapter`
+  2.27 `@earendil-works/pi-coding-agent` importiert — das Laden der
+  Extension scheiterte und Pi machte `process.exit(1)` vor
+  `session_start`. Electron-as-node ließ stdin/stdout außerdem ohne TTY,
+  sodass selbst eine passende CLI in den Print-Modus gegangen wäre, das
+  Ziel einmalig abgefeuert und keine weiteren Turns angenommen hätte.
+  Spawn startet jetzt `@earendil-works/pi-coding-agent`, lädt vor
+  `dist/cli.js` ein Preload, das die TTY-Flags setzt, schreibt den
+  Rollenprompt nach `.pi/APPEND_SYSTEM.md` und hängt den
+  Vertragus-MCP-Server eager an.
 - **Das Handy-Terminal baute sich bei fast jedem Render neu auf.** `useRemote()`
   liefert ein frisches Objektliteral, `api` wechselte also bei jedem Render
   von `App` die Identität — und der Effekt, der das Terminal erzeugt und

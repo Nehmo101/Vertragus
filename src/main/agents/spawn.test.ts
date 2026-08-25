@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -21,7 +21,13 @@ import { ORCHESTRATOR_TOOL_NAMES } from '@main/mcp/toolsOrchestrator'
 import { providerPreset, providerPresets } from '@main/providers/presets'
 import { extraMcpServerSchema } from '@shared/schema/mcpServer'
 import { providerConfigSchema, type ProviderConfig } from '@shared/schema/provider'
-import { PI_HARNESS_COMMAND, PI_MCP_ADAPTER_EXTENSION, resolvePiHarnessCli } from './piHarness'
+import {
+  PI_HARNESS_COMMAND,
+  PI_MCP_ADAPTER_EXTENSION,
+  PI_TTY_PRELOAD_FILE,
+  PI_TTY_PRELOAD_SOURCE,
+  resolvePiHarnessCli
+} from './piHarness'
 import {
   buildAgentArgv,
   buildAgentEnv,
@@ -1068,13 +1074,14 @@ describe('Pi harness wrap', () => {
       '--thinking',
       'high',
       '--append-system-prompt',
-      'You are a Worker.'
+      join(cwd, '.pi', 'APPEND_SYSTEM.md')
     ])
     expect(ptySystemPrompt).toBeUndefined()
     expect(argv.join(' ')).not.toMatch(/yolo|dangerously|always-approve/)
     expect(existsSync(join(configDir, 'vertragus-mcp', `${fileTag}.json`))).toBe(false)
+    expect(readFileSync(join(cwd, '.pi', 'APPEND_SYSTEM.md'), 'utf8')).toBe('You are a Worker.')
     expect(piConfig()).toEqual({
-      mcpServers: { vertragus: { url: launchInput().mcpUrl } }
+      mcpServers: { vertragus: { url: launchInput().mcpUrl, lifecycle: 'eager' } }
     })
   })
 
@@ -1102,7 +1109,7 @@ describe('Pi harness wrap', () => {
       '--model',
       'qwen3:32b',
       '--append-system-prompt',
-      'You are a Worker.'
+      join(cwd, '.pi', 'APPEND_SYSTEM.md')
     ])
     expect(ptySystemPrompt).toBeUndefined()
   })
@@ -1121,7 +1128,9 @@ describe('Pi harness wrap', () => {
 
     expect(ptySystemPrompt).toBeUndefined()
     expect(argv).toContain('--append-system-prompt')
-    expect(argv).toContain('You orchestrate.')
+    expect(argv).toContain(join(cwd, '.pi', 'APPEND_SYSTEM.md'))
+    expect(readFileSync(join(cwd, '.pi', 'APPEND_SYSTEM.md'), 'utf8')).toBe('You orchestrate.')
+    expect(argv).not.toContain('You orchestrate.')
     expect(argv).toContain('--provider')
     expect(argv).toContain('github-copilot')
     expect(argv).not.toContain('--trust')
@@ -1149,10 +1158,17 @@ describe('Pi harness wrap', () => {
       { resolve }
     )
 
-    expect(resolve).toHaveBeenCalledWith(process.execPath, [cli, ...launch.argv], expect.anything())
+    expect(resolve).toHaveBeenCalledWith(
+      process.execPath,
+      ['-r', join(configDir, 'vertragus-mcp', PI_TTY_PRELOAD_FILE), cli, ...launch.argv],
+      expect.anything()
+    )
     expect(launch.command).toBe(PI_HARNESS_COMMAND)
     expect(launch.file).toBe(process.execPath)
-    expect(launch.args[0]).toBe(cli)
+    expect(launch.args[0]).toBe('-r')
+    expect(launch.args[1]).toBe(join(configDir, 'vertragus-mcp', PI_TTY_PRELOAD_FILE))
+    expect(launch.args[2]).toBe(cli)
+    expect(readFileSync(launch.args[1]!, 'utf8')).toBe(PI_TTY_PRELOAD_SOURCE)
     expect(launch.argv[0]).toBe('--no-session')
     expect(launch.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
     expect(buildAgentEnv(launchInput({ harness: 'pi', cwd, kind: 'orchestrator' }))).toEqual({
@@ -1179,12 +1195,30 @@ describe('Pi harness wrap', () => {
     expect(resolve).toHaveBeenCalledWith(PI_HARNESS_COMMAND, launch.argv, expect.anything())
     expect(launch.command).toBe('pi')
     expect(launch.file).toBe('/bin/pi')
+    expect(launch.args[0]).toBe('--no-session')
+    expect(launch.args).not.toContain('-r')
     expect(launch.env).toBeUndefined()
     expect(
       buildAgentEnv(launchInput({ harness: 'pi', cwd, kind: 'orchestrator' }), {
         resolvePiCli: () => undefined
       })
     ).toBeUndefined()
+  })
+
+  it('puts a multiline role prompt in APPEND_SYSTEM.md so argv stays one-line', () => {
+    const prompt = 'Line 1\nLine 2'
+    const { argv } = buildAgentArgv(launchInput({ harness: 'pi', cwd, systemPrompt: prompt }))
+    expect(needsFaithfulArgs(argv)).toBe(false)
+    expect(argv).not.toContain(prompt)
+    expect(readFileSync(join(cwd, '.pi', 'APPEND_SYSTEM.md'), 'utf8')).toBe(prompt)
+  })
+
+  it('removes a stale APPEND_SYSTEM.md when the launch has no prompt', () => {
+    mkdirSync(join(cwd, '.pi'), { recursive: true })
+    writeFileSync(join(cwd, '.pi', 'APPEND_SYSTEM.md'), 'stale')
+    const { argv } = buildAgentArgv(launchInput({ harness: 'pi', cwd }))
+    expect(argv).not.toContain('--append-system-prompt')
+    expect(existsSync(join(cwd, '.pi', 'APPEND_SYSTEM.md'))).toBe(false)
   })
 
   it('skips Claude/Kimi trust pre-acceptance and Grok cage env', async () => {
@@ -1235,6 +1269,7 @@ describe('Pi harness wrap', () => {
     expect(grokBundled.spawnOptions?.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
     expect(grokBundled.spawnOptions?.env).not.toHaveProperty('GROK_SUBAGENTS')
     expect(grokBundled.spawnOptions?.args).not.toContain('--no-subagents')
+    expect(grokBundled.spawnOptions?.args?.[0]).toBe('-r')
   })
 
   it('a subagent gets extras in .pi/mcp.json; orchestrator and lead never do', () => {
@@ -1267,7 +1302,10 @@ describe('Pi harness wrap', () => {
       url: 'https://mcp.linear.app/mcp',
       headers: { Authorization: 'Bearer x' }
     })
-    expect(sub.mcpServers.vertragus).toEqual({ url: launchInput().mcpUrl })
+    expect(sub.mcpServers.vertragus).toEqual({
+      url: launchInput().mcpUrl,
+      lifecycle: 'eager'
+    })
 
     for (const kind of ['orchestrator', 'lead'] as const) {
       const isolated = mkdtempSync(join(tmpdir(), 'vertragus-spawn-pi-'))
@@ -1285,6 +1323,10 @@ describe('Pi harness wrap', () => {
           mcpServers: Record<string, unknown>
         }
         expect(Object.keys(written.mcpServers)).toEqual(['vertragus'])
+        expect(written.mcpServers.vertragus).toEqual({
+          url: launchInput().mcpUrl,
+          lifecycle: 'eager'
+        })
         expect(existsSync(join(isolated, '.cursor', 'mcp.json'))).toBe(false)
       } finally {
         rmSync(isolated, { recursive: true, force: true })

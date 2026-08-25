@@ -13,10 +13,10 @@ updates:
       interval: weekly
     open-pull-requests-limit: 2
     allow:
-      - dependency-name: '@mariozechner/pi-coding-agent'
+      - dependency-name: '@earendil-works/pi-coding-agent'
       - dependency-name: pi-mcp-adapter
     groups:
       pi-harness:
         patterns:
-          - '@mariozechner/pi-coding-agent'
+          - '@earendil-works/pi-coding-agent'
           - pi-mcp-adapter

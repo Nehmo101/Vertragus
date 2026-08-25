@@ -60,7 +60,9 @@ import {
   toCursorMcpConfig,
   toKimiMcpConfig,
   toPiMcpConfig,
+  PI_APPEND_SYSTEM_FILE,
   PI_MCP_FILE,
+  PI_MCP_LIFECYCLE_EAGER,
   PI_PROJECT_DIR,
   WORKTREE_SECRET_FILES,
   tomlString,
@@ -70,6 +72,7 @@ import {
   writeCursorProjectMcpConfig,
   writeKimiProjectMcpConfig,
   writePiHarnessMcpConfig,
+  writePiHarnessAppendSystemPrompt,
   assertWrittenPiMcpConfig
 } from './attach'
 import { ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
@@ -444,11 +447,11 @@ describe('cursor attach', () => {
 })
 
 describe('pi harness attach', () => {
-  it('installs .pi/mcp.json in the WORKING directory with a bare url', () => {
+  it('installs .pi/mcp.json in the WORKING directory with a bare url and eager lifecycle', () => {
     const path = writePiHarnessMcpConfig(URL, workspaceDir)
     expect(path).toBe(join(workspaceDir, PI_PROJECT_DIR, PI_MCP_FILE))
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
-      mcpServers: { vertragus: { url: URL } }
+      mcpServers: { vertragus: { url: URL, lifecycle: PI_MCP_LIFECYCLE_EAGER } }
     })
     // Same JSON key as Cursor; a wrap must never mutate Cursor's project file.
     expect(existsSync(join(workspaceDir, CURSOR_PROJECT_DIR, CURSOR_MCP_FILE))).toBe(false)
@@ -472,7 +475,7 @@ describe('pi harness attach', () => {
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
       mcpServers: {
         'user-server': { url: 'http://127.0.0.1:9/user' },
-        vertragus: { url: URL }
+        vertragus: { url: URL, lifecycle: PI_MCP_LIFECYCLE_EAGER }
       },
       extraTopLevel: true
     })
@@ -485,7 +488,7 @@ describe('pi harness attach', () => {
 
     const path = writePiHarnessMcpConfig(URL, workspaceDir)
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
-      mcpServers: { vertragus: { url: URL } }
+      mcpServers: { vertragus: { url: URL, lifecycle: PI_MCP_LIFECYCLE_EAGER } }
     })
   })
 
@@ -495,16 +498,19 @@ describe('pi harness attach', () => {
     writeFileSync(join(dir, PI_MCP_FILE), JSON.stringify(['garbage']))
 
     expect(JSON.parse(readFileSync(writePiHarnessMcpConfig(URL, workspaceDir), 'utf8'))).toEqual({
-      mcpServers: { vertragus: { url: URL } }
+      mcpServers: { vertragus: { url: URL, lifecycle: PI_MCP_LIFECYCLE_EAGER } }
     })
   })
 
   it('builds the merge from an absent existing object', () => {
     expect(toPiMcpConfig(null, URL)).toEqual({
-      mcpServers: { vertragus: { url: URL } }
+      mcpServers: { vertragus: { url: URL, lifecycle: PI_MCP_LIFECYCLE_EAGER } }
     })
     expect(toPiMcpConfig({ mcpServers: { other: { url: 'x' } } }, URL)).toEqual({
-      mcpServers: { other: { url: 'x' }, vertragus: { url: URL } }
+      mcpServers: {
+        other: { url: 'x' },
+        vertragus: { url: URL, lifecycle: PI_MCP_LIFECYCLE_EAGER }
+      }
     })
   })
 
@@ -514,8 +520,24 @@ describe('pi harness attach', () => {
     expect(() => assertWrittenPiMcpConfig(path)).toThrow(/Invalid Vertragus Pi MCP config/)
   })
 
+  it('rejects a project config that lost eager lifecycle', () => {
+    const path = writePiHarnessMcpConfig(URL, workspaceDir)
+    writeFileSync(path, JSON.stringify({ mcpServers: { vertragus: { url: URL } } }))
+    expect(() => assertWrittenPiMcpConfig(path)).toThrow(/Invalid Vertragus Pi MCP config/)
+  })
+
+  it('writes APPEND_SYSTEM.md and removes it when the prompt is empty', () => {
+    const path = writePiHarnessAppendSystemPrompt(workspaceDir, '  You orchestrate.  ')
+    expect(path).toBe(join(workspaceDir, PI_PROJECT_DIR, PI_APPEND_SYSTEM_FILE))
+    expect(readFileSync(path!, 'utf8')).toBe('You orchestrate.')
+    expect(writePiHarnessAppendSystemPrompt(workspaceDir, '   ')).toBeUndefined()
+    expect(existsSync(path!)).toBe(false)
+    expect(writePiHarnessAppendSystemPrompt(workspaceDir, undefined)).toBeUndefined()
+  })
+
   it('lists the wrap file next to the other token-carrying project files', () => {
     expect(WORKTREE_SECRET_FILES).toContain('.pi/mcp.json')
+    expect(WORKTREE_SECRET_FILES).not.toContain('.pi/APPEND_SYSTEM.md')
     expect(WORKTREE_SECRET_FILES).toEqual([
       '.cursor/mcp.json',
       '.kimi-code/mcp.json',
@@ -738,7 +760,7 @@ describe('E6 extra MCP servers', () => {
     const existing = { mcpServers: { theirs: { url: 'http://example.test/mcp' } } }
     expect(toPiMcpConfig(existing, URL, EXTRA).mcpServers).toEqual({
       theirs: { url: 'http://example.test/mcp' },
-      vertragus: { url: URL },
+      vertragus: { url: URL, lifecycle: 'eager' },
       browser: { url: 'http://127.0.0.1:9200/mcp' }
     })
   })

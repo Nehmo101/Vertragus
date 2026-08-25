@@ -14,11 +14,13 @@
  *   3. electron-builder.yml unpacks the trees native/WASM load from, covers
  *      all of node_modules in mac.x64ArchFiles (unscoped addons like koffi),
  *      and keeps mergeASARs off (Pi unpack trees overflow the asar glob).
+ *   4. The installed adapter imports the same CLI package we spawn (a
+ *      name mismatch is process.exit(1) at extension load).
  *
  * Self-checks at the bottom keep the scanners honest: a regex that silently
  * stops matching must fail the suite, not green it.
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -39,6 +41,23 @@ function quotedName(name: string): string {
   return name.startsWith('@') ? `'${name}'` : name
 }
 
+function adapterPackageDir(): string {
+  return join(repoRoot, 'node_modules', PI_MCP_ADAPTER_PACKAGE)
+}
+
+function walkAdapterSources(dir: string, acc: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules') continue
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      walkAdapterSources(path, acc)
+      continue
+    }
+    if (/\.(ts|js|mjs|cjs|mts|cts)$/.test(entry.name)) acc.push(path)
+  }
+  return acc
+}
+
 describe('package.json pins', () => {
   const pkg = JSON.parse(readFileSync(PACKAGE_JSON, 'utf8')) as {
     dependencies?: Record<string, string>
@@ -52,7 +71,8 @@ describe('package.json pins', () => {
 
   it('does not add Pi as a provider preset by sneaking a third name into the pin', () => {
     expect(PINNED).toHaveLength(2)
-    expect(PINNED).toEqual(['@mariozechner/pi-coding-agent', 'pi-mcp-adapter'])
+    expect(PINNED).toEqual(['@earendil-works/pi-coding-agent', 'pi-mcp-adapter'])
+    expect(Object.keys(deps)).not.toContain('@mariozechner/pi-coding-agent')
   })
 })
 
@@ -87,6 +107,7 @@ describe('electron-builder asarUnpack', () => {
 
   it('unpacks the Pi CLI, photon, the adapter, and native keyring', () => {
     expect(source).toMatch(/asarUnpack:/)
+    expect(source).toContain('@earendil-works/**')
     expect(source).toContain('@mariozechner/**')
     expect(source).toContain('@silvia-odwyer/photon-node')
     expect(source).toContain('pi-mcp-adapter/**')
@@ -103,6 +124,20 @@ describe('electron-builder asarUnpack', () => {
   })
 })
 
+describe('adapter imports the lockfile CLI package', () => {
+  it('pi-mcp-adapter loads the same @earendil-works package we spawn', () => {
+    const dir = adapterPackageDir()
+    expect(existsSync(join(dir, 'package.json')), 'pi-mcp-adapter missing from node_modules').toBe(
+      true
+    )
+    const files = walkAdapterSources(dir)
+    expect(files.length, 'adapter source walk found no JS/TS files').toBeGreaterThan(0)
+    const source = files.map((file) => readFileSync(file, 'utf8')).join('\n')
+    expect(source.includes(PI_CODING_AGENT_PACKAGE)).toBe(true)
+    expect(source).not.toMatch(/@mariozechner\/pi-coding-agent/)
+  })
+})
+
 describe('the scanners themselves', () => {
   const dependabot = readFileSync(DEPENDABOT, 'utf8')
   const builder = readFileSync(ELECTRON_BUILDER, 'utf8')
@@ -114,7 +149,15 @@ describe('the scanners themselves', () => {
 
   it('still sees asarUnpack patterns in electron-builder.yml', () => {
     expect(builder.indexOf('asarUnpack:'), 'asarUnpack key vanished').toBeGreaterThanOrEqual(0)
+    expect(builder).toMatch(/node_modules\/@earendil-works/)
     expect(builder).toMatch(/node_modules\/@mariozechner/)
+  })
+
+  it('still matches the adapter import it polices', () => {
+    const files = walkAdapterSources(adapterPackageDir())
+    expect(files.length, 'adapter source walk went silent').toBeGreaterThan(0)
+    const source = files.map((file) => readFileSync(file, 'utf8')).join('\n')
+    expect(source.includes(PI_CODING_AGENT_PACKAGE), 'adapter import scan went silent').toBe(true)
   })
 
   it('still matches the x64ArchFiles line it polices', () => {

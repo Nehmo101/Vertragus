@@ -28,9 +28,11 @@ asarUnpack:
   # node-pty ships a native binding and a helper .exe; both must be real files
   # on disk, not asar entries, or spawning an agent fails at runtime.
   - '**/node_modules/@lydell/node-pty*/**'
-  # Pi harness wrap: the CLI, photon WASM/native, the MCP adapter, and the
-  # adapter's keyring binding must load from real files. JS-only trees would
-  # run from asar; native/WASM next to them would not.
+  # Pi harness wrap: the CLI (@earendil-works), optional clipboard native
+  # (@mariozechner), photon WASM/native, the MCP adapter, and the adapter's
+  # keyring binding must load from real files. JS-only trees would run from
+  # asar; native/WASM next to them would not.
+  - '**/node_modules/@earendil-works/**'
   - '**/node_modules/@mariozechner/**'
   - '**/node_modules/@silvia-odwyer/photon-node/**'
   - '**/node_modules/pi-mcp-adapter/**'
