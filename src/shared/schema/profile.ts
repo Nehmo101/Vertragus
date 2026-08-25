@@ -13,6 +13,7 @@
 import { z } from 'zod'
 import { effortLevelSchema } from './provider'
 import { zoneLayoutSchema } from './zones'
+import { initialRolePromptEntries } from '../prompts/rolePrompt'
 
 /** Upper bounds. High enough to never be in the way, low enough to be a bug net. */
 export const MAX_SLOTS = 16
@@ -281,14 +282,15 @@ export interface CreateEmptyProfileInput {
   id?: string
 }
 
-/** A new, valid, empty profile — no slots yet, orchestrator on Claude Code. */
+/** A new, valid profile — no slots yet, orchestrator on Claude Code, starter extras. */
 export function createEmptyProfile(input: CreateEmptyProfileInput = {}): Profile {
   return profileSchema.parse({
     id: input.id ?? createLocalId('profile'),
     name: input.name?.trim() || 'New profile',
     repoPath: input.repoPath ?? '',
     orchestrator: { providerId: input.orchestratorProviderId ?? 'claude' },
-    slots: []
+    slots: [],
+    rolePrompts: initialRolePromptEntries()
   })
 }
 

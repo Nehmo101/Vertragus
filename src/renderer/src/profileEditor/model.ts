@@ -18,6 +18,7 @@ import {
   type RoleTemplate
 } from '@shared/schema/profile'
 import { LEAD_ROLE_ID, ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
+import { initialRolePromptDraft } from '@shared/prompts/rolePrompt'
 import type { EffortLevel } from '@shared/schema/provider'
 import { collapseModelVariants } from '@shared/models'
 import type { ModelDiscoveryResult } from '../../../preload'
@@ -79,7 +80,7 @@ export function emptyDraft(defaultProviderId: string, id = createLocalId('profil
     maxSubagents: '',
     autoSubmitTasks: true,
     automation: emptyAutomationDraft(),
-    rolePrompts: {}
+    rolePrompts: initialRolePromptDraft()
   }
 }
 

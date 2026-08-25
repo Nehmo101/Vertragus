@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { starterRolePrompt } from '@shared/prompts/rolePrompt'
 import type { DraftErrors, RoleOption } from './model'
 
 interface Props {
@@ -12,10 +13,10 @@ interface Props {
 /**
  * Extra system prompt per identity — Orchestrator, Lead, and every role.
  *
- * Folded by default so the sheet stays a slot editor first. A filled prompt
- * opens on first paint so a saved overlay is not hidden behind a closed
- * disclosure. The shipped role / loop prompt still applies; this is only how
- * the agent speaks and reports back in this profile.
+ * Folded by default so the sheet stays a slot editor first. New profiles
+ * arrive with starter text (badge "set"); the fold stays closed so nine
+ * open textareas do not bury the slots. The shipped role / loop prompt
+ * still applies underneath.
  */
 export function RolePromptsSection({
   identities,
@@ -57,9 +58,11 @@ function RolePromptFold({
 }): React.JSX.Element {
   const { t } = useTranslation()
   const filled = value.trim().length > 0
-  // React's DetailsHTMLAttributes has `open` but not `defaultOpen`, so the
-  // initial-open-when-filled behaviour is a small controlled fold.
-  const [open, setOpen] = useState(filled)
+  const starter = starterRolePrompt(identity.id)
+  const atStarter = Boolean(starter) && value.trim() === starter!.trim()
+  // Always start closed — a new profile has every identity filled, and
+  // opening them all would bury the rest of the sheet.
+  const [open, setOpen] = useState(false)
 
   return (
     <details
@@ -87,6 +90,15 @@ function RolePromptFold({
           spellCheck={false}
           onChange={(event) => onChange(event.target.value)}
         />
+        {starter && !atStarter ? (
+          <button
+            type="button"
+            className="pe-ghost pe-role-prompt-restore"
+            onClick={() => onChange(starter)}
+          >
+            {t('profileEditor.rolePromptRestore')}
+          </button>
+        ) : null}
       </div>
     </details>
   )

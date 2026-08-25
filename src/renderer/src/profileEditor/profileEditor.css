@@ -405,6 +405,12 @@
   font: 400 12px var(--font-mono);
 }
 
+.pe-role-prompt-restore {
+  align-self: flex-start;
+  padding: 4px 9px;
+  font-size: 11px;
+}
+
 .pe-max-subagents {
   max-width: 240px;
 }

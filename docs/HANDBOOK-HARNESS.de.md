@@ -953,8 +953,11 @@ gemergt hat.
 ## Extra-System-Prompts pro Identität
 
 Optional, pro Profil (`rolePrompts` in `shared/schema/profile.ts`). Der
-Profil-Editor listet Orchestrator, Lead und jedes Rollen-Template. Leer
-heißt: nur der mitgelieferte bzw. Host-generierte Prompt. Ein ausgefülltes
+Profil-Editor listet Orchestrator, Lead und jedes Rollen-Template. Ein
+**neues** Profil kommt mit kurzen Starttexten (`INITIAL_ROLE_PROMPTS` in
+`prompts/rolePrompt.ts`), die du ändern, leeren oder wiederherstellen
+kannst; ein bestehendes Profil ohne Extras bleibt leer. Leer heißt: nur
+der mitgelieferte bzw. Host-generierte Prompt. Ein ausgefülltes
 Feld wird beim Spawn **angehängt** (`appendUserRolePrompt`) — nach dem
 Worker-/Tester-Rollentext, dem Orchestrator-Loop-Prompt, dem Lead-Prompt
 und dem Successor-Seed. Es ersetzt nichts davon, sodass niemand

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { profileSchema, ROLE_PROMPT_MAX_CHARS, type Profile } from '@shared/schema/profile'
 import { BUILTIN_ROLE_TEMPLATES, roleColor } from '@shared/prompts/roles'
+import { initialRolePromptDraft } from '@shared/prompts/rolePrompt'
 import { translator } from '../i18n'
 import {
   CUSTOM_ROLE_VALUE,
@@ -129,7 +130,7 @@ describe('draft ⇄ profile', () => {
   })
 
   it('carries per-identity extra prompts both ways and omits blanks', () => {
-    expect(emptyDraft('claude', 'profile-x').rolePrompts).toEqual({})
+    expect(emptyDraft('claude', 'profile-x').rolePrompts).toEqual(initialRolePromptDraft())
     expect(draftFromProfile(SAVED).rolePrompts).toEqual({})
 
     const filled = draft({

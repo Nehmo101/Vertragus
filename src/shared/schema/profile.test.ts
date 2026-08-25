@@ -306,6 +306,19 @@ describe('createEmptyProfile', () => {
       slots: []
     })
     expect(profile.id).toMatch(/^profile-/)
+    expect(profile.rolePrompts?.map((entry) => entry.roleId).sort()).toEqual(
+      [
+        'architect',
+        'docs',
+        'explorer',
+        'janitor',
+        'lead',
+        'orchestrator',
+        'reviewer',
+        'tester',
+        'worker'
+      ]
+    )
   })
 
   it('gives two profiles created in a row different ids', () => {
