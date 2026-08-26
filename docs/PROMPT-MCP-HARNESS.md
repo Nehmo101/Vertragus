@@ -5,6 +5,9 @@ English | [Deutsch](PROMPT-MCP-HARNESS.de.md)
 > Copy-paste-ready agent prompt. Primary source for ordering and
 > non-goals: [`HANDBOOK-HARNESS.md`](./HANDBOOK-HARNESS.md). Code anchors
 > below. Do **not** rebuild A1–A3 / Remote v1 / C1–C2 — those are in place.
+> Intake, Scout, and the run archive are a later program:
+> [`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md),
+> [`PROMPT-INTAKE-ARCHIVE.md`](./PROMPT-INTAKE-ARCHIVE.md).
 
 ---
 
