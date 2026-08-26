@@ -334,18 +334,35 @@ describe('attention blink', () => {
     expect(agentRowClass(orch)).toBe('panel-agent')
   })
 
-  it('pulses the subagent row instead when a worker is waiting', () => {
-    const card = workspace({ agents: [orch, workerWaiting] })
-    expect(workspaceNeedsAttention(card)).toBe(false)
-    expect(workspaceCardClass(card)).toBe('panel-card is-active')
-    expect(agentNeedsAttention(workerWaiting)).toBe(true)
-    expect(agentRowClass(workerWaiting)).toBe('panel-agent needs-attention')
+  it('pulses the card when ask_user sets userQuestion', () => {
+    const card = workspace({
+      agents: [orch, workerIdle],
+      userQuestion: { questionId: 'q-u', question: 'Ship it?' }
+    })
+    expect(workspaceNeedsAttention(card)).toBe(true)
+    expect(workspaceCardClass(card)).toBe('panel-card is-active needs-attention')
+    expect(agentNeedsAttention(orch)).toBe(false)
   })
 
-  it('ignores blank pending questions', () => {
+  it('pulses the card and the subagent row when a worker is waiting', () => {
+    const card = workspace({ agents: [orch, workerWaiting] })
+    expect(workspaceNeedsAttention(card)).toBe(true)
+    expect(workspaceCardClass(card)).toBe('panel-card is-active needs-attention')
+    expect(agentNeedsAttention(workerWaiting)).toBe(true)
+    expect(agentRowClass(workerWaiting)).toBe('panel-agent needs-attention')
+    expect(agentNeedsAttention(orch)).toBe(false)
+    expect(agentRowClass(orch)).toBe('panel-agent')
+  })
+
+  it('ignores blank pending questions and blank userQuestion', () => {
     const blank = agent({ roleId: 'orchestrator', pendingQuestion: '   ' })
     expect(workspaceNeedsAttention(workspace({ agents: [blank] }))).toBe(false)
     expect(agentNeedsAttention(agent({ pendingQuestion: '   ' }))).toBe(false)
+    expect(
+      workspaceNeedsAttention(
+        workspace({ userQuestion: { questionId: 'q', question: '   ' } })
+      )
+    ).toBe(false)
   })
 
   it('hints on the collapsed card only while a subagent row would blink', () => {

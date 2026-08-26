@@ -150,6 +150,11 @@ export interface McpServerHandle {
     agentId: string
   ): { questionId: string; question: string } | undefined
   /**
+   * Unanswered questions across every registered workspace. Native
+   * taskbar/dock attention follows this count (see panelAttention).
+   */
+  openQuestionCount(): number
+  /**
    * Answer one open question on the SAME path `send_to_agent{questionId}`
    * takes (H1): sentinel questions deliver to the PTY first, MCP questions
    * wake their parked `ask_orchestrator` waiter. Never throws — failures come
@@ -726,6 +731,12 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     ): { questionId: string; question: string } | undefined {
       const open = workspaces.get(workspaceId)?.questions.openForAgent(agentId)
       return open ? { questionId: open.questionId, question: open.question } : undefined
+    },
+
+    openQuestionCount(): number {
+      let n = 0
+      for (const runtime of workspaces.values()) n += runtime.questions.openCount
+      return n
     },
 
     async answerQuestion(workspaceId, agentId, questionId, text) {

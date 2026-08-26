@@ -50,6 +50,8 @@ describe('mainMessages', () => {
   it('translates the OS window titles instead of hard-coding them', () => {
     expect(mainMessages('de').settingsWindowTitle).toBe('Vertragus — Einstellungen')
     expect(mainMessages('en').settingsWindowTitle).toBe('Vertragus — Settings')
+    expect(mainMessages('de').panelAttentionOverlay).toBe('Offene Frage')
+    expect(mainMessages('en').panelAttentionOverlay).toBe('Open question')
     expect(mainMessages('en').zoneOverlayTitle).toBe('Vertragus — Zones')
   })
 
