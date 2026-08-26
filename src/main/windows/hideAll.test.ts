@@ -30,9 +30,11 @@ vi.mock('./profileEditor', () => ({
 }))
 vi.mock('./providerEditor', () => ({ listProviderEditorWindows: () => [] }))
 vi.mock('./settingsWindow', () => ({ listSettingsWindows: () => [] }))
+vi.mock('./timelineWindow', () => ({ listTimelineWindows: vi.fn(() => []) }))
 
 import { layoutCliWindowsByWorkspace, listCliWindows } from './cliWindow'
 import { listProfileEditorWindows } from './profileEditor'
+import { listTimelineWindows } from './timelineWindow'
 import {
   createHideAllController,
   forgetHideAll,
@@ -110,6 +112,7 @@ beforeEach(() => {
   vi.mocked(layoutCliWindowsByWorkspace).mockReset()
   vi.mocked(listProfileEditorWindows).mockReset()
   vi.mocked(listProfileEditorWindows).mockReturnValue([])
+  vi.mocked(listTimelineWindows).mockReturnValue([])
   getSettings.mockReturnValue({
     hideAllHotkey: 'Control+Alt+V',
     ui: { snapToZones: true }
@@ -344,6 +347,26 @@ describe('production snapToZones', () => {
     )
     expect(iface).not.toMatch(/\bminimize\b/)
     expect(iface).not.toMatch(/\brestore\b/)
+  })
+})
+
+describe('timeline membership', () => {
+  it('hides timeline windows from the production target list', () => {
+    const { log, windows } = harness(['w1'])
+    vi.mocked(listTimelineWindows).mockReturnValue([
+      { workspaceId: 'w1', window: windows.w1 as never }
+    ])
+
+    expect(toggleHideAll()).toBe('hidden')
+    expect(log).toEqual(['hide:w1'])
+    expect(windows.w1!.visible).toBe(false)
+  })
+
+  it('names them timeline:<workspaceId> and never minimize()/restore()', () => {
+    const source = readFileSync(join(__dirname, 'hideAll.ts'), 'utf8')
+    expect(source).toMatch(/listTimelineWindows/)
+    expect(source).toMatch(/timeline:\$\{workspaceId\}/)
+    expect(source).toMatch(/never `minimize\(\)` \/ `restore\(\)`/)
   })
 })
 

@@ -63,6 +63,7 @@ import type { ProviderConfig } from '@shared/schema/provider'
 import { normalizeAppearance, type Appearance } from '@shared/appearance'
 import { DEFAULT_CLI_SURFACE, isCliSurface, type CliSurface } from '@shared/cliSurface'
 import { mainMessages, readLocale } from '@shared/mainMessages'
+import type { AgentEvent } from '@shared/schema/events'
 import type { AppSettings, SettingsStore, VoiceSettings } from '@main/store/settings'
 import { effectiveAgentPolicy, settings } from '@main/store/settings'
 import type { AgentPolicy } from '@shared/agentPolicy'
@@ -98,6 +99,12 @@ import {
   isSettingsWindowSender,
   openSettingsWindow
 } from '@main/windows/settingsWindow'
+import {
+  closeTimelineWindow,
+  getTimelineWindow,
+  isTimelineWindowSender,
+  listTimelineWindows
+} from '@main/windows/timelineWindow'
 import { appUpdater, onUpdateState } from '@main/updater'
 import {
   closeZoneOverlayWindows,
@@ -217,6 +224,13 @@ export const APP_CHANNELS = {
   providerEditorClose: 'providerEditor:close',
   settingsWindowOpen: 'settingsWindow:open',
   settingsWindowClose: 'settingsWindow:close',
+  /**
+   * Timeline journal: attach from that window only. Snapshot is a host-read of
+   * events.jsonl (capped); live events go to THAT window on `ev:timeline`.
+   * The renderer never reads the journal file.
+   */
+  timelineAttach: 'timeline:attach',
+  timelineClose: 'timeline:close',
   updatesGet: 'updates:get',
   updatesCheck: 'updates:check',
   updatesInstall: 'updates:install',
@@ -229,6 +243,7 @@ export const APP_CHANNELS = {
   eventProfiles: 'ev:profiles',
   eventProviders: 'ev:providers',
   eventWorkspaces: 'ev:workspaces',
+  eventTimeline: 'ev:timeline',
   eventUpdate: 'ev:update',
   /**
    * App settings changed — the whole {@link PanelSettings} object, pushed to
@@ -331,6 +346,26 @@ export interface WorkspaceTaskSummary {
  * and through the orchestrator's `task_list`.
  */
 export const PANEL_TASKS_MAX = 30
+
+/**
+ * Same cap as the EventQueue ring (`DEFAULT_EVENT_CAPACITY`). A timeline
+ * snapshot is a suffix of the journal, never the whole unbounded file.
+ */
+export const TIMELINE_EVENTS_MAX = 1000
+
+export function capTimelineEvents<T>(
+  events: readonly T[],
+  cap = TIMELINE_EVENTS_MAX
+): T[] {
+  if (events.length <= cap) return [...events]
+  return events.slice(-cap)
+}
+
+/** What `timeline:attach` answers — host-read journal, never a file path. */
+export interface TimelineAttachResult {
+  workspaceId: string
+  events: AgentEvent[]
+}
 
 /**
  * Current-task fields the panel paints on an agent row and its hover card.
@@ -518,6 +553,19 @@ export interface WorkspaceDirectory {
   removeWorktree(profileId: string, worktreePath: string): Promise<StaleWorktreeSummary[]>
   /** Optional push channel; without it the panel only refreshes on demand. */
   onChange?(listener: () => void): () => void
+  /**
+   * Host-read of this run's journal for the timeline window. Fail-soft (empty
+   * on a missing file). The renderer never reads `events.jsonl`.
+   */
+  readTimelineEvents?(workspaceId: string): Promise<AgentEvent[]>
+  /**
+   * Live journal events for one workspace — the same stream the journal
+   * already appends. Pushed to that timeline only, never on `ev:workspaces`.
+   */
+  onTimelineEvent?(
+    workspaceId: string,
+    listener: (event: AgentEvent) => void
+  ): () => void
 }
 
 /**
@@ -966,6 +1014,15 @@ export interface AppIpcHost {
 
   /** True for the one settings window; see windows/settingsWindow.ts. */
   isSettingsSender(webContentsId: number): boolean
+  /**
+   * workspaceId behind this webContents, or null. Authorization root for
+   * `requirePanelOrOwnTimeline` and `timeline:attach`.
+   */
+  timelineSender?(webContentsId: number): string | null
+  /** Push one journal event to that workspace's timeline only. */
+  sendTimelineEvent?(workspaceId: string, event: AgentEvent): boolean
+  /** Close the timeline bound to this webContents (view-only). */
+  closeTimeline?(webContentsId: number): void
   openSettings(): void
   closeSettings(): void
   /**
@@ -1380,6 +1437,51 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     }
   }
 
+  /** Panel, or any timeline window (list / settings read). */
+  const requirePanelOrTimeline = (event: IpcEvent, channel: string): void => {
+    if (host.isPanelSender(event.sender.id)) return
+    if (host.timelineSender?.(event.sender.id)) return
+    throw new Error(`${channel} rejected — sender is not the panel window`)
+  }
+
+  /**
+   * Panel, or the timeline whose bound workspaceId matches the payload.
+   * Timeline-A must never stop (or answer, promote, …) workspace-B.
+   */
+  const requirePanelOrOwnTimeline = (
+    event: IpcEvent,
+    channel: string,
+    payload?: unknown
+  ): void => {
+    if (host.isPanelSender(event.sender.id)) return
+    const bound = host.timelineSender?.(event.sender.id)
+    if (!bound) {
+      throw new Error(`${channel} rejected — sender is not the panel window`)
+    }
+    if (
+      channel === APP_CHANNELS.workspacesFocusAgent ||
+      channel === APP_CHANNELS.workspacesCloseAgent
+    ) {
+      const agentId =
+        typeof payload === 'string' ? payload : (payload as { agentId?: string } | undefined)?.agentId
+      if (!agentId) return
+      const owner = host.directory
+        .list()
+        .find((workspace) => workspace.agents.some((agent) => agent.agentId === agentId))
+      if (!owner || owner.workspaceId !== bound) {
+        throw new Error(`${channel} rejected — agent does not belong to this timeline`)
+      }
+      return
+    }
+    const workspaceId =
+      typeof payload === 'string'
+        ? payload
+        : (payload as { workspaceId?: string } | undefined)?.workspaceId
+    if (workspaceId && workspaceId !== bound) {
+      throw new Error(`${channel} rejected — timeline is not bound to that workspace`)
+    }
+  }
+
   /** Panel or an editor window: profiles, roles, providers, models, folder pick. */
   const requireAppWindow = (event: IpcEvent, channel: string): void => {
     if (host.isPanelSender(event.sender.id)) return
@@ -1416,14 +1518,16 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
 
   const handle = (
     channel: string,
-    guard: (event: IpcEvent, channel: string) => void,
+    guard: (event: IpcEvent, channel: string, payload?: unknown) => void,
     listener: (event: IpcEvent, payload?: unknown) => unknown
   ): void => {
     host.ipcMain.handle(channel, ((event: IpcEvent, payload?: unknown) => {
-      guard(event, channel)
+      guard(event, channel, payload)
       return listener(event, payload)
     }) as IpcListener)
   }
+
+  const timelineUnsubs = new Map<string, () => void>()
 
   const emitProfiles = (profiles: Profile[]): void => {
     host.broadcast(APP_CHANNELS.eventProfiles, profiles)
@@ -1641,7 +1745,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
 
   // --- workspaces --------------------------------------------------------
 
-  handle(APP_CHANNELS.workspacesList, requirePanel, () => host.directory.list())
+  handle(APP_CHANNELS.workspacesList, requirePanelOrTimeline, () => host.directory.list())
 
   handle(APP_CHANNELS.workspacesStart, requirePanel, async (_event, payload) => {
     const body =
@@ -1675,7 +1779,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
 
   // H2 refill: unlike the start goal above, THIS one is the whole point of the
   // call — a blank field is refused instead of quietly starting nothing.
-  handle(APP_CHANNELS.workspacesGoal, requirePanel, async (_event, payload) => {
+  handle(APP_CHANNELS.workspacesGoal, requirePanelOrOwnTimeline, async (_event, payload) => {
     const body = (payload ?? {}) as { workspaceId?: string; goal?: unknown }
     if (!body.workspaceId) throw new Error('workspaces:goal rejected — missing workspace id')
     const goal = typeof body.goal === 'string' ? body.goal.trim() : ''
@@ -1702,7 +1806,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     return host.directory.sendToOrchestrator(body.workspaceId, text)
   })
 
-  handle(APP_CHANNELS.workspacesStop, requirePanel, async (_event, payload) => {
+  handle(APP_CHANNELS.workspacesStop, requirePanelOrOwnTimeline, async (_event, payload) => {
     const workspaceId =
       typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
     if (!workspaceId) throw new Error('workspaces:stop rejected — missing workspace id')
@@ -1710,7 +1814,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     emitWorkspaces()
   })
 
-  handle(APP_CHANNELS.workspacesSucceedOrchestrator, requirePanel, async (_event, payload) => {
+  handle(APP_CHANNELS.workspacesSucceedOrchestrator, requirePanelOrOwnTimeline, async (_event, payload) => {
     const workspaceId =
       typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
     if (!workspaceId) {
@@ -1720,21 +1824,21 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     emitWorkspaces()
   })
 
-  handle(APP_CHANNELS.workspacesFocusAgent, requirePanel, (_event, payload) => {
+  handle(APP_CHANNELS.workspacesFocusAgent, requirePanelOrOwnTimeline, (_event, payload) => {
     const agentId =
       typeof payload === 'string' ? payload : (payload as { agentId?: string })?.agentId
     if (!agentId) throw new Error('workspaces:focusAgent rejected — missing agent id')
     host.directory.focusAgent(agentId)
   })
 
-  handle(APP_CHANNELS.workspacesFocus, requirePanel, (_event, payload) => {
+  handle(APP_CHANNELS.workspacesFocus, requirePanelOrOwnTimeline, (_event, payload) => {
     const workspaceId =
       typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
     if (!workspaceId) throw new Error('workspaces:focus rejected — missing workspace id')
     host.directory.focusWorkspace(workspaceId)
   })
 
-  handle(APP_CHANNELS.workspacesCloseAgent, requirePanel, (_event, payload) => {
+  handle(APP_CHANNELS.workspacesCloseAgent, requirePanelOrOwnTimeline, (_event, payload) => {
     const agentId =
       typeof payload === 'string' ? payload : (payload as { agentId?: string })?.agentId
     if (!agentId) throw new Error('workspaces:closeAgent rejected — missing agent id')
@@ -1742,7 +1846,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     emitWorkspaces()
   })
 
-  handle(APP_CHANNELS.workspacesAnswerQuestion, requirePanel, async (_event, payload) => {
+  handle(APP_CHANNELS.workspacesAnswerQuestion, requirePanelOrOwnTimeline, async (_event, payload) => {
     const body = (payload ?? {}) as {
       workspaceId?: string
       agentId?: string
@@ -1760,7 +1864,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     emitWorkspaces()
   })
 
-  handle(APP_CHANNELS.workspacesUserMessage, requirePanel, async (_event, payload) => {
+  handle(APP_CHANNELS.workspacesUserMessage, requirePanelOrOwnTimeline, async (_event, payload) => {
     const body = (payload ?? {}) as { workspaceId?: string; text?: string; targetAgentId?: string }
     if (!body.workspaceId) throw new Error('workspaces:userMessage rejected — missing workspace id')
     if (!body.text?.trim()) throw new Error('workspaces:userMessage rejected — missing text')
@@ -1772,7 +1876,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     )
   })
 
-  handle(APP_CHANNELS.workspacesPromoteAgent, requirePanel, async (_event, payload) => {
+  handle(APP_CHANNELS.workspacesPromoteAgent, requirePanelOrOwnTimeline, async (_event, payload) => {
     const body = (payload ?? {}) as { workspaceId?: string; agentId?: string }
     if (!body.workspaceId) throw new Error('workspaces:promoteAgent rejected — missing workspace id')
     if (!body.agentId) throw new Error('workspaces:promoteAgent rejected — missing agent id')
@@ -1783,7 +1887,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   // lifecycle uses, and the remote gateway holds an allow-list of verbs rather
   // than a mirror of these channels — so this one cannot be reached from a
   // paired browser at all.
-  handle(APP_CHANNELS.workspacesOpenRunFolder, requirePanel, async (_event, payload) => {
+  handle(APP_CHANNELS.workspacesOpenRunFolder, requirePanelOrOwnTimeline, async (_event, payload) => {
     const workspaceId =
       typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
     if (!workspaceId) throw new Error('workspaces:openRunFolder rejected — missing workspace id')
@@ -1874,7 +1978,14 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
 
   // --- settings & windows ------------------------------------------------
 
-  handle(APP_CHANNELS.settingsGet, requireAppWindow, () => panelSettings())
+  handle(
+    APP_CHANNELS.settingsGet,
+    (event, channel) => {
+      if (host.timelineSender?.(event.sender.id)) return
+      requireAppWindow(event, channel)
+    },
+    () => panelSettings()
+  )
 
   /**
    * Appearance, readable from ANY window — the one deliberate hole in the
@@ -2148,6 +2259,39 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     host.closeSettings()
   }) as IpcListener)
 
+  // --- timeline journal --------------------------------------------------
+
+  handle(APP_CHANNELS.timelineAttach, (event, channel) => {
+    if (!host.timelineSender?.(event.sender.id)) {
+      throw new Error(`${channel} rejected — sender is not a timeline window`)
+    }
+  }, async (event, payload) => {
+    const bound = host.timelineSender!(event.sender.id)!
+    const claimed =
+      typeof payload === 'string'
+        ? payload
+        : (payload as { workspaceId?: string } | undefined)?.workspaceId
+    if (claimed && claimed !== bound) {
+      throw new Error('timeline:attach rejected — window may only attach to its own workspace')
+    }
+    const raw = (await host.directory.readTimelineEvents?.(bound)) ?? []
+    const events = capTimelineEvents(raw)
+    timelineUnsubs.get(bound)?.()
+    const off = host.directory.onTimelineEvent?.(bound, (next) => {
+      host.sendTimelineEvent?.(bound, next)
+    })
+    if (off) timelineUnsubs.set(bound, off)
+    return { workspaceId: bound, events } satisfies TimelineAttachResult
+  })
+
+  host.ipcMain.on(APP_CHANNELS.timelineClose, ((event: IpcEvent): void => {
+    const bound = host.timelineSender?.(event.sender.id)
+    if (!bound) return
+    timelineUnsubs.get(bound)?.()
+    timelineUnsubs.delete(bound)
+    host.closeTimeline?.(event.sender.id)
+  }) as IpcListener)
+
   // --- self-update --------------------------------------------------------
 
   handle(APP_CHANNELS.updatesGet, requireSettingsWindow, () => host.updateState())
@@ -2298,6 +2442,8 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
       unsubscribeDirectory = undefined
       unsubscribeUpdates?.()
       unsubscribeUpdates = undefined
+      for (const off of timelineUnsubs.values()) off()
+      timelineUnsubs.clear()
       healthCache = undefined
       zoneDrafts.clear()
       for (const channel of Object.values(APP_CHANNELS)) {
@@ -2312,13 +2458,14 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
 
 let instance: AppIpc | undefined
 
-/** The windows that may see app state: the panel, the editors, the settings. */
+/** The windows that may see app state: the panel, the editors, settings, timelines. */
 function appWindows(): (BrowserWindow | null)[] {
   return [
     getPanelWindow(),
     ...listProfileEditorWindows().map((entry) => entry.window),
     ...listProviderEditorWindows().map((entry) => entry.window),
-    getSettingsWindow()
+    getSettingsWindow(),
+    ...listTimelineWindows().map((entry) => entry.window)
   ]
 }
 
@@ -2511,6 +2658,17 @@ export function registerAppIpc(
     hotkeyStatus: () => hideAllHotkeyStatus(),
 
     isSettingsSender: (id) => isSettingsWindowSender(id),
+    timelineSender: (id) => isTimelineWindowSender(id),
+    sendTimelineEvent: (workspaceId, event) => {
+      const win = getTimelineWindow(workspaceId)
+      if (!win || win.webContents.isDestroyed()) return false
+      win.webContents.send(APP_CHANNELS.eventTimeline, event)
+      return true
+    },
+    closeTimeline: (webContentsId) => {
+      const workspaceId = isTimelineWindowSender(webContentsId)
+      if (workspaceId) closeTimelineWindow(workspaceId)
+    },
     openSettings: () => {
       openSettingsWindow()
     },

@@ -11,6 +11,7 @@ import type { BrowserExtensionInstallResult, BrowserExtensionStatus } from '@sha
 import type { TerminalBootPhase } from '@shared/terminalBoot'
 import type { CliSession } from '@shared/cliSession'
 import type { CliSurface } from '@shared/cliSurface'
+import type { AgentEvent } from '@shared/schema/events'
 
 /** Mirrors main/appIpc.PanelMcpServer — secrets never appear here. */
 export interface PanelMcpServer {
@@ -301,6 +302,8 @@ const APP = {
   providerEditorClose: 'providerEditor:close',
   settingsWindowOpen: 'settingsWindow:open',
   settingsWindowClose: 'settingsWindow:close',
+  timelineAttach: 'timeline:attach',
+  timelineClose: 'timeline:close',
   updatesGet: 'updates:get',
   updatesCheck: 'updates:check',
   updatesInstall: 'updates:install',
@@ -313,6 +316,7 @@ const APP = {
   eventProfiles: 'ev:profiles',
   eventProviders: 'ev:providers',
   eventWorkspaces: 'ev:workspaces',
+  eventTimeline: 'ev:timeline',
   eventUpdate: 'ev:update',
   eventSettings: 'ev:settings',
   eventVoice: 'ev:voice',
@@ -440,6 +444,13 @@ export interface StaleWorktreeSummary {
 /** Retro records, re-exported so renderer code imports them from the bridge. */
 export type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 export type { RunJournalView, RunListEntry } from '@shared/schema/runArchive'
+export type { AgentEvent } from '@shared/schema/events'
+
+/** Snapshot `timeline:attach` answers — host-read journal, never a file path. */
+export interface TimelineAttachResult {
+  workspaceId: string
+  events: AgentEvent[]
+}
 
 /** Result of a provider version probe (see main/providers/health.ts). */
 export interface ProviderHealth {
@@ -869,6 +880,18 @@ const app = {
     subscribe(APP.eventProviders, listener),
   onWorkspaces: (listener: (workspaces: WorkspaceSummary[]) => void): (() => void) =>
     subscribe(APP.eventWorkspaces, listener),
+  /**
+   * Journal snapshot for THIS timeline window. Main derives the workspace from
+   * the sender; the renderer never reads events.jsonl.
+   */
+  attachTimeline: (): Promise<TimelineAttachResult> => ipcRenderer.invoke(APP.timelineAttach),
+  /** Close this overview sheet — the workspace keeps running. */
+  closeTimeline: (): void => {
+    ipcRenderer.send(APP.timelineClose)
+  },
+  /** Live journal events for this window only — not the ev:workspaces firehose. */
+  onTimelineEvent: (listener: (event: AgentEvent) => void): (() => void) =>
+    subscribe(APP.eventTimeline, listener),
   /** Self-update state — drives the panel's "Update bereit" badge. */
   onUpdate: (listener: (state: UpdateState) => void): (() => void) =>
     subscribe(APP.eventUpdate, listener),

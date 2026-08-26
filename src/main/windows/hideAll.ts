@@ -33,6 +33,7 @@ import { listProfileEditorWindows } from './profileEditor'
 import { listProviderEditorWindows } from './providerEditor'
 import { listSettingsWindows } from './settingsWindow'
 import { suppressMoveTracking } from './placement'
+import { listTimelineWindows } from './timelineWindow'
 
 /** The slice of BrowserWindow hide-all uses. */
 export interface HideableWindow {
@@ -123,14 +124,18 @@ export function createHideAllController(deps: HideAllDeps): HideAllController {
 // --- production wiring ---------------------------------------------------
 
 /**
- * CLI windows first, then open profile editors, then the settings sheet. The
- * panel is absent by construction: it is the only surface that must survive
- * hide-all.
+ * CLI windows first, then timelines, then open editors, then the settings
+ * sheet. The panel is absent by construction: it is the only surface that
+ * must survive hide-all. Timelines are `hide()`d, never minimized.
  */
 function appTargets(): HideAllTarget[] {
   return [
     ...listCliWindows().map(({ agentId, window }) => ({
       key: `agent:${agentId}`,
+      window: window as unknown as HideableWindow
+    })),
+    ...listTimelineWindows().map(({ workspaceId, window }) => ({
+      key: `timeline:${workspaceId}`,
       window: window as unknown as HideableWindow
     })),
     ...listProfileEditorWindows().map(({ key, window }) => ({

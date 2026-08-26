@@ -53,6 +53,13 @@ vi.mock('@main/windows/settingsWindow', () => ({
   closeSettingsWindow: vi.fn(),
   getSettingsWindow: vi.fn(() => null)
 }))
+vi.mock('@main/windows/timelineWindow', () => ({
+  isTimelineWindowSender: vi.fn(() => null),
+  openTimelineWindow: vi.fn(),
+  closeTimelineWindow: vi.fn(),
+  getTimelineWindow: vi.fn(() => null),
+  listTimelineWindows: vi.fn(() => [])
+}))
 vi.mock('@main/updater', () => ({
   appUpdater: vi.fn(() => ({
     state: vi.fn(),
@@ -88,7 +95,9 @@ import { settings } from '@main/store/settings'
 import {
   APP_CHANNELS,
   agentCurrentTaskFields,
+  capTimelineEvents,
   createAppIpc,
+  TIMELINE_EVENTS_MAX,
   createStubWorkspaceDirectory,
   disposeAppIpc,
   mergeMcpServersPatch,
@@ -166,6 +175,8 @@ const OVERLAY_A_ID = 4
 const OVERLAY_B_ID = 5
 const SETTINGS_ID = 6
 const PROVIDER_EDITOR_ID = 7
+const TIMELINE_ID = 8
+const OTHER_TIMELINE_ID = 9
 
 function profile(id: string, name = id): Profile {
   return profileSchema.parse({
@@ -363,7 +374,11 @@ interface Harness {
     removedWorktrees: Array<{ profileId: string; path: string }>
     staleWorktrees: { path: string; branch?: string }[]
     change?: () => void
+    timelineEvents: unknown[]
+    timelineListener?: (event: unknown) => void
   }
+  timelineSent: Array<{ workspaceId: string; event: unknown }>
+  timelineClosed: number[]
   health: ReturnType<typeof vi.fn>
   /** WP-7: the login probe behind `providers:authStatus`. */
   auth: ReturnType<typeof vi.fn>
@@ -469,6 +484,8 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     now: 1_000,
     settingsOpened: 0,
     settingsClosed: 0,
+    timelineSent: [] as Array<{ workspaceId: string; event: unknown }>,
+    timelineClosed: [] as number[],
     registeredHotkeys: [] as string[],
     hotkeyRegisters: true,
     autostartWrites: [] as boolean[],
@@ -570,6 +587,17 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
       return () => {
         result.directory.change = undefined
       }
+    },
+    timelineEvents: [] as unknown[],
+    timelineListener: undefined as ((event: unknown) => void) | undefined,
+    async readTimelineEvents() {
+      return this.timelineEvents
+    },
+    onTimelineEvent(_workspaceId: string, listener: (event: unknown) => void) {
+      this.timelineListener = listener
+      return () => {
+        this.timelineListener = undefined
+      }
     }
   }
   result.directory = directory as Harness['directory']
@@ -644,6 +672,15 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     now: () => result.now,
 
     isSettingsSender: (id) => id === SETTINGS_ID,
+    timelineSender: (id) =>
+      id === TIMELINE_ID ? 'w1' : id === OTHER_TIMELINE_ID ? 'w2' : null,
+    sendTimelineEvent: (workspaceId, event) => {
+      result.timelineSent.push({ workspaceId, event })
+      return true
+    },
+    closeTimeline: (webContentsId) => {
+      result.timelineClosed.push(webContentsId)
+    },
     openSettings: () => {
       result.settingsOpened += 1
     },
@@ -3126,7 +3163,7 @@ describe('preload parity', () => {
     }
     const found = [
       ...source.matchAll(
-        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|runs|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|remote|voice|ev|attachments):[a-zA-Z]+)'/g
+        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|runs|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|remote|voice|ev|attachments|timeline):[a-zA-Z]+)'/g
       )
     ].map((match) => match[1])
     expect(new Set(found)).toEqual(expected)
@@ -3139,6 +3176,137 @@ describe('preload parity', () => {
     const toPreload: PreloadWorkspaceSummary = fromMain
     const backAgain: WorkspaceSummary = toPreload
     expect(backAgain).toBe(fromMain)
+  })
+})
+
+describe('timeline broadcast membership', () => {
+  it('includes timeline windows in appWindows so they receive ev:workspaces', () => {
+    const source = readFileSync(join(__dirname, 'appIpc.ts'), 'utf8')
+    expect(source).toMatch(/listTimelineWindows\(\)\.map\(\(entry\) => entry\.window\)/)
+    expect(source).toMatch(/eventTimeline: 'ev:timeline'/)
+    expect(source).not.toMatch(/eventWorkspaces: 'ev:timeline'/)
+  })
+})
+
+describe('capTimelineEvents', () => {
+  it('keeps a suffix at the EventQueue ring size', () => {
+    const events = Array.from({ length: TIMELINE_EVENTS_MAX + 5 }, (_, i) => i)
+    expect(capTimelineEvents(events)).toEqual(
+      Array.from({ length: TIMELINE_EVENTS_MAX }, (_, i) => i + 5)
+    )
+    expect(capTimelineEvents([1, 2, 3])).toEqual([1, 2, 3])
+  })
+})
+
+describe('requirePanelOrOwnTimeline', () => {
+  it('lets the bound timeline stop its own workspace and refuses another', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesStop, TIMELINE_ID, { workspaceId: 'w1' })
+    expect(h.directory.stopped).toEqual(['w1'])
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesStop, TIMELINE_ID, { workspaceId: 'w2' })
+    ).toThrow(/not bound to that workspace/)
+    expect(h.directory.stopped).toEqual(['w1'])
+  })
+
+  it('never lets timeline-A focus an agent of workspace-B', () => {
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesFocusAgent, OTHER_TIMELINE_ID, { agentId: 'w1-orch' })
+    ).toThrow(/does not belong to this timeline/)
+    expect(h.directory.focused).toEqual([])
+    h.ipc.invoke(APP_CHANNELS.workspacesFocusAgent, TIMELINE_ID, { agentId: 'w1-orch' })
+    expect(h.directory.focused).toEqual(['w1-orch'])
+  })
+
+  it('lets the bound timeline refill the goal, answer, promote and open the run folder', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesGoal, TIMELINE_ID, {
+      workspaceId: 'w1',
+      goal: 'ship it'
+    })
+    await h.ipc.invoke(APP_CHANNELS.workspacesAnswerQuestion, TIMELINE_ID, {
+      workspaceId: 'w1',
+      agentId: 'w1-orch',
+      questionId: 'q1',
+      text: 'yes'
+    })
+    await h.ipc.invoke(APP_CHANNELS.workspacesPromoteAgent, TIMELINE_ID, {
+      workspaceId: 'w1',
+      agentId: 'w1-orch'
+    })
+    await h.ipc.invoke(APP_CHANNELS.workspacesOpenRunFolder, TIMELINE_ID, { workspaceId: 'w1' })
+    expect(h.directory.goalsAssigned).toEqual([{ workspaceId: 'w1', goal: 'ship it' }])
+    expect(h.directory.answered).toEqual([
+      { workspaceId: 'w1', agentId: 'w1-orch', questionId: 'q1', text: 'yes' }
+    ])
+    expect(h.directory.promoted).toEqual([{ workspaceId: 'w1', agentId: 'w1-orch' }])
+    expect(h.directory.runFolders).toEqual(['w1'])
+  })
+
+  it('still rejects a CLI window on those channels', () => {
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesStop, CLI_ID, { workspaceId: 'w1' })
+    ).toThrow(/not the panel window/)
+  })
+
+  it('lets a timeline list workspaces (it filters client-side)', () => {
+    expect(h.ipc.invoke(APP_CHANNELS.workspacesList, TIMELINE_ID)).toHaveLength(1)
+  })
+})
+
+describe('timeline:attach', () => {
+  it('answers a host-read snapshot and pushes live events to that window only', async () => {
+    const event = {
+      type: 'agent_started' as const,
+      seq: 1,
+      ts: 1,
+      agentId: 'a1',
+      name: 'Virgilio',
+      roleId: 'orchestrator'
+    }
+    h.directory.timelineEvents = [event]
+    const snapshot = (await h.ipc.invoke(APP_CHANNELS.timelineAttach, TIMELINE_ID)) as {
+      workspaceId: string
+      events: unknown[]
+    }
+    expect(snapshot).toEqual({ workspaceId: 'w1', events: [event] })
+
+    h.directory.timelineListener?.(event)
+    expect(h.timelineSent).toEqual([{ workspaceId: 'w1', event }])
+    expect(h.broadcasts.map((entry) => entry.channel)).not.toContain(APP_CHANNELS.eventTimeline)
+  })
+
+  it('refuses a foreign workspace id and a non-timeline sender', async () => {
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.timelineAttach, TIMELINE_ID, { workspaceId: 'w2' }))
+    ).rejects.toThrow(/own workspace/)
+    expect(() => h.ipc.invoke(APP_CHANNELS.timelineAttach, PANEL_ID)).toThrow(
+      /not a timeline window/
+    )
+    expect(() => h.ipc.invoke(APP_CHANNELS.timelineAttach, CLI_ID)).toThrow(
+      /not a timeline window/
+    )
+  })
+
+  it('caps the snapshot at the EventQueue ring size', async () => {
+    h.directory.timelineEvents = Array.from({ length: TIMELINE_EVENTS_MAX + 3 }, (_, i) => ({
+      type: 'agent_progress' as const,
+      seq: i + 1,
+      ts: i,
+      agentId: 'a1',
+      name: 'Virgilio',
+      roleId: 'orchestrator',
+      note: String(i)
+    }))
+    const snapshot = (await h.ipc.invoke(APP_CHANNELS.timelineAttach, TIMELINE_ID)) as {
+      events: Array<{ seq: number }>
+    }
+    expect(snapshot.events).toHaveLength(TIMELINE_EVENTS_MAX)
+    expect(snapshot.events[0]!.seq).toBe(4)
+  })
+
+  it('closes only the sender timeline', () => {
+    h.ipc.send(APP_CHANNELS.timelineClose, TIMELINE_ID)
+    h.ipc.send(APP_CHANNELS.timelineClose, PANEL_ID)
+    expect(h.timelineClosed).toEqual([TIMELINE_ID])
   })
 })
 

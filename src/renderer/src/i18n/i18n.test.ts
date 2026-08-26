@@ -89,7 +89,10 @@ const DYNAMIC_KEY_PREFIXES = [
   'terminal.boot.',
   // terminal/SessionPane.tsx — indexed by CliSessionState / CliLogKind
   'terminal.sessionState.',
-  'terminal.log.'
+  'terminal.log.',
+  // timeline/formatEvent.ts — indexed by AgentEventType
+  'timeline.event.'
+
 ]
 
 /** `panel.agentCount_one` / `_other` are one key to a caller: `panel.agentCount`. */

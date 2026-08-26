@@ -168,6 +168,12 @@ export interface WorkspaceManager {
    * task only. Fires {@link onChange} when either field changes.
    */
   noteOrchestratorGoal(agentId: string, chunk: string): boolean
+  /**
+   * Live journal events for this workspace — the same stream `events.jsonl`
+   * appends (root queue plus lead subtrees). The timeline window is the
+   * consumer; the renderer never reads the file.
+   */
+  onTimelineEvent(workspaceId: string, listener: (event: AgentEvent) => void): () => void
 }
 
 function resolveValue<T>(source: T | (() => T)): T {
@@ -193,7 +199,15 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
    */
   const runMetas = new Map<string, { journal: RunJournal; meta: RunMeta }>()
   const changeListeners = new Set<() => void>()
+  /** Timeline windows tap the same events the journal appends. */
+  const timelineListeners = new Map<string, Set<(event: AgentEvent) => void>>()
   let notifyScheduled = false
+
+  function emitTimeline(workspaceId: string, event: AgentEvent): void {
+    const listeners = timelineListeners.get(workspaceId)
+    if (!listeners) return
+    for (const listener of [...listeners]) listener(event)
+  }
 
   /** Collapse same-tick bursts into one notification — no timers involved. */
   function notifyChange(): void {
@@ -314,7 +328,10 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     changeTaps.set(workspace.workspaceId, [
       workspace.events.onPush(() => notifyChange()),
       registered.runtime.questions.onMutate(() => notifyChange()),
-      ...(journal ? [workspace.events.onPush((event) => journal.append(event))] : [])
+      workspace.events.onPush((event) => {
+        journal?.append(event)
+        emitTimeline(workspace.workspaceId, event)
+      })
     ])
     // F: lead queues carry the subtrees' events past the root queue — the
     // retro and the journal need them for honest history, the panel needs
@@ -327,6 +344,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
           lead.events.onPush((event) => {
             tap?.events.push(event)
             journal?.append(event)
+            emitTimeline(workspace.workspaceId, event)
             notifyChange()
           })
         )
@@ -368,6 +386,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       if (workspace.orchestratorAlive) throw error
       workspaces.delete(workspace.workspaceId)
       runMetas.delete(workspace.workspaceId)
+      timelineListeners.delete(workspace.workspaceId)
       dropTap(workspace.workspaceId)
       dropChangeTap(workspace.workspaceId)
       await workspace.close()
@@ -412,6 +431,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     )
     const endReason = workspace.pendingRetroSummary ? 'retro' : crashed ? 'crash' : 'user_stop'
     workspaces.delete(workspaceId)
+    timelineListeners.delete(workspaceId)
     // A3: the user pressing Stop is the other "the work is done" — open the
     // pull request the profile asked for if record_retro never got around to
     // it. Before close(), because the event queue dies in there; at most one
@@ -492,6 +512,19 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       if (!workspace.noteOrchestratorGoal(chunk)) return false
       notifyChange()
       return true
+    },
+
+    onTimelineEvent(workspaceId, listener) {
+      let set = timelineListeners.get(workspaceId)
+      if (!set) {
+        set = new Set()
+        timelineListeners.set(workspaceId, set)
+      }
+      set.add(listener)
+      return () => {
+        set!.delete(listener)
+        if (set!.size === 0) timelineListeners.delete(workspaceId)
+      }
     }
   }
 }
