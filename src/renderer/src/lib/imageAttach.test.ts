@@ -7,6 +7,7 @@ import {
   collectDroppedImages,
   insertAttachmentText,
   isImageFile,
+  pasteClipboardImage,
   shouldPreventPasteDefault,
   trackStagingId
 } from './imageAttach'
@@ -58,6 +59,19 @@ describe('clipboardDataLooksLikeImage / preventDefault', () => {
     expect(clipboardDataLooksLikeImage({ types: ['text/plain'] })).toBe(false)
     expect(shouldPreventPasteDefault(null)).toBe(false)
     expect(shouldPreventPasteDefault({ relativePath: '.vertragus/attachments/a.png' })).toBe(true)
+  })
+
+  it('paste with only text/plain must not invoke the save callback', () => {
+    let saves = 0
+    const save = (): void => {
+      saves += 1
+    }
+    expect(pasteClipboardImage({ types: ['text/plain'] }, save)).toBe(false)
+    expect(saves).toBe(0)
+    expect(pasteClipboardImage({ types: ['text/plain', 'text/html'] }, save)).toBe(false)
+    expect(saves).toBe(0)
+    expect(pasteClipboardImage({ types: ['image/png'] }, save)).toBe(true)
+    expect(saves).toBe(1)
   })
 })
 

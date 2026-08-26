@@ -62,6 +62,20 @@ export function shouldPreventPasteDefault(result: AttachmentSaveResult | null): 
   return result !== null
 }
 
+/**
+ * Paste-event gate used by goal/composer/CLI. Text-only Ctrl+V must not call
+ * save('clipboard') — Windows often still holds a previous screenshot.
+ * Returns whether save ran.
+ */
+export function pasteClipboardImage(
+  data: Parameters<typeof clipboardDataLooksLikeImage>[0],
+  save: () => void
+): boolean {
+  if (!clipboardDataLooksLikeImage(data)) return false
+  save()
+  return true
+}
+
 export type DroppedImageSource = { absPath: string } | { bytes: Uint8Array; mime: string }
 
 export function electronFilePath(file: File): string | undefined {

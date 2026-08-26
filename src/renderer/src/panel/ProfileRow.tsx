@@ -101,8 +101,8 @@ export function ProfileRow({
 
   const onGoalPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     if (!onSaveAttachment) return
-    const looks = clipboardDataLooksLikeImage(event.clipboardData)
-    if (looks) event.preventDefault()
+    if (!clipboardDataLooksLikeImage(event.clipboardData)) return
+    event.preventDefault()
     void onSaveAttachment({ profileId: profile.id }, 'clipboard').then((result) => {
       if (!result) return
       insertSaved(result)
