@@ -154,10 +154,13 @@ interface Harness {
   spawns: RecordedSpawn[]
 }
 
-function harness(overrides: Partial<WorkspaceManagerDeps> = {}): Harness {
+function harness(
+  overrides: Partial<WorkspaceManagerDeps> & { ptySystemPrompt?: boolean } = {}
+): Harness {
+  const { ptySystemPrompt, ...deps } = overrides
   const log: string[] = []
   const mcp = new FakeMcp(log)
-  const spawner = fakeSpawn()
+  const spawner = fakeSpawn({ ptySystemPrompt })
   const seeder = fakeSeed()
   const windows: WorkspaceWindows = {
     open: (agentId) => log.push(`open:${agentId}`),
@@ -178,7 +181,7 @@ function harness(overrides: Partial<WorkspaceManagerDeps> = {}): Harness {
     createWorktree: fakeWorktrees().createWorktree as unknown as WorkspaceDeps['createWorktree'],
     seed: seeder.seed as unknown as WorkspaceDeps['seed'],
     newId: sequentialIds('id'),
-    ...overrides
+    ...deps
   })
 
   return { manager, mcp, log, spawns: spawner.calls }
@@ -216,8 +219,13 @@ describe('startWorkspace', () => {
       resume: { briefing: 'Old run left branch vertragus/a1.', fromWorkspaceId: 'ws-old' }
     })
 
-    expect(metas).toHaveLength(1)
+    expect(metas).toHaveLength(2)
     expect(metas[0]).toMatchObject({
+      profileId: testProfile().id,
+      resumedFrom: 'ws-old'
+    })
+    expect(metas[0]).not.toHaveProperty('goal')
+    expect(metas[1]).toMatchObject({
       profileId: testProfile().id,
       goal: 'continue the parser work',
       resumedFrom: 'ws-old'
@@ -338,12 +346,36 @@ describe('startWorkspace', () => {
   })
 
   it('seeds a goal into the orchestrator after start (H2) and records it', async () => {
-    const { manager, spawns } = harness()
+    const metas: unknown[] = []
+    const { manager, spawns } = harness({
+      journal: () => ({
+        path: '/repo/.vertragus/runs/x/events.jsonl',
+        append: () => {},
+        writeMeta: (meta) => metas.push(meta)
+      })
+    })
     const running = await manager.startWorkspace(testProfile(), { goal: '  Fix the login bug  ' })
 
     expect(running.workspace.goalText).toBe('Fix the login bug')
     expect(spawns[0]!.pty.written).toContain('Fix the login bug')
     expect(spawns[0]!.input.initialPrompt).toBeUndefined()
+    expect(metas).toHaveLength(2)
+    expect(metas[0]).not.toHaveProperty('goal')
+    expect(metas[1]).toMatchObject({ goal: 'Fix the login bug' })
+  })
+
+  it('folds a cursor start-goal into the system-prompt seed — one paste, not two turns', async () => {
+    const { manager, spawns } = harness({ ptySystemPrompt: true })
+    const running = await manager.startWorkspace(
+      testProfile({ orchestrator: { providerId: 'cursor' } }),
+      { goal: 'Fix the login bug' }
+    )
+
+    expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(spawns[0]!.input.initialPrompt).toBeUndefined()
+    const pastes = spawns[0]!.pty.written.filter((chunk) => chunk.includes('Fix the login bug'))
+    expect(pastes).toHaveLength(1)
+    expect(pastes[0]).toMatch(/\n\nFix the login bug$/)
   })
 
   it('delivers a grok start-goal as a trailing positional argv, without PTY-seeding it', async () => {
@@ -399,6 +431,7 @@ describe('startWorkspace', () => {
   })
 
   it('a failed goal delivery surfaces the error but keeps the workspace running', async () => {
+    const metas: unknown[] = []
     let orchestratorSeeded = false
     const { manager } = harness({
       seed: (async (write: (text: string) => void, _s: unknown, prompt: string) => {
@@ -409,7 +442,12 @@ describe('startWorkspace', () => {
         }
         write(prompt)
         return true
-      }) as unknown as WorkspaceDeps['seed']
+      }) as unknown as WorkspaceDeps['seed'],
+      journal: () => ({
+        path: '/repo/.vertragus/runs/x/events.jsonl',
+        append: () => {},
+        writeMeta: (meta) => metas.push(meta)
+      })
     })
 
     await expect(
@@ -419,6 +457,9 @@ describe('startWorkspace', () => {
     expect(manager.list()).toHaveLength(1)
     expect(manager.list()[0]!.orchestratorAlive).toBe(true)
     expect(manager.list()[0]!.goalText).toBeUndefined()
+    // Resume must not brief on a goal the CLI never took.
+    expect(metas).toHaveLength(1)
+    expect(metas[0]).not.toHaveProperty('goal')
   })
 
   it('H2 refill: a bare run takes its goal later and the journal meta learns it', async () => {
@@ -465,7 +506,8 @@ describe('startWorkspace', () => {
     await expect(manager.assignGoal('ws-nobody', 'Goal.')).rejects.toThrow(/unknown workspace/)
 
     expect(running.workspace.goalText).toBe('Fix the login bug')
-    expect(metas).toHaveLength(1)
+    expect(metas).toHaveLength(2)
+    expect(metas[1]).toMatchObject({ goal: 'Fix the login bug' })
   })
 
   it('H2 refill: a refused delivery leaves goalText and the meta untouched', async () => {

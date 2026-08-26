@@ -47,7 +47,7 @@ Remote-Server.
 | Haken / Phase | Status |
 | --- | --- |
 | H1 `answer_question` am Gateway | **umgesetzt** (Track 0) — ein Host-Pfad (`mcp/answerQuestion.ts`), Gateway-Verb, Panel-Badge |
-| H2 `workspaces:start {goal}` | **umgesetzt** (Track 0) — Goal-Seed über den Assignment-Handshake, Back-compat ohne Goal; Nachtrag (`workspaces:goal`) gibt einem bar gestarteten Lauf sein Ziel später |
+| H2 `workspaces:start {goal}` | **umgesetzt** (Track 0) — Goal-Seed über den Assignment-Handshake (PTY-Prompt-Provider fügen System-Prompt + Ziel als einen ersten Turn ein); Back-compat ohne Goal; Nachtrag (`workspaces:goal`) gibt einem bar gestarteten Lauf sein Ziel später; `meta.json` schreibt ein Ziel nur, nachdem die CLI es angenommen hat |
 | C3 Snapshot-Commit / C4 Handoff-Paket | **umgesetzt** (Track 1) — `snapshotDone` committet dirty Worktrees beim Done; `start_agent{baseBranch}` trägt Handoff-Block |
 | C5 Orchestrator-Idle-Watchdog | **umgesetzt** (Track 2) — `orchestrator_idle` Event + Panel/Remote-Hinweis; Timeouts ≠ Idle (Touch bei Call-Start und -Ende) |
 | C6 Orchestrator-Succession (Context-Handoff) | **S1 im Code** — siehe [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
@@ -116,6 +116,8 @@ die schon den MCP-Loop fährt, ist genau das Zwei-Hirne-Versagen aus H1;
 das Steuern eines laufenden Ziels bleibt Sache von `user_message`. Ein
 zugestellter Nachtrag schreibt außerdem die `meta.json` des Laufs neu, damit
 das Resume aus E3 auf dem Ziel briefed, das der Lauf wirklich bekommen hat.
+Start-mit-Ziel folgt derselben Regel: die Identitäts-`meta.json` entsteht
+ohne Ziel, und das Ziel kommt erst dazu, nachdem die CLI es angenommen hat.
 
 ### H3 — erledigt in PR #17
 
