@@ -15,7 +15,9 @@ import {
   grokAllowMcpArgs,
   grokOrchestratorArgv,
   grokOrchestratorEnv,
-  orchestratorAllowedTools
+  orchestratorAllowedTools,
+  piVertragusServerEntry,
+  toPiMcpConfig
 } from '@main/mcp/attach'
 import { ORCHESTRATOR_TOOL_NAMES } from '@main/mcp/toolsOrchestrator'
 import { providerPreset, providerPresets } from '@main/providers/presets'
@@ -25,7 +27,10 @@ import {
   PI_CLI_ENTRY_FILE,
   PI_HARNESS_COMMAND,
   PI_MCP_ADAPTER_EXTENSION,
+  PI_MCP_DIRECT_TOOLS_ENV,
+  PI_MCP_DIRECT_TOOLS_VALUE,
   PI_WINDOWS_NODE_COMMAND,
+  piHarnessEnv,
   resolvePiHarnessCli
 } from './piHarness'
 import {
@@ -163,7 +168,7 @@ describe('buildAgentArgv — per preset', () => {
     expect(written.mcpServers.vertragus!.url).toContain('agent=a1')
   })
 
-  it('composes a Cursor orchestrator: trust + approve-mcps, no yolo', () => {
+  it('composes a Cursor orchestrator: trust, Run Everything, approve-mcps', () => {
     const { argv, ptySystemPrompt } = buildAgentArgv(
       launchInput({
         provider: preset('cursor'),
@@ -174,10 +179,8 @@ describe('buildAgentArgv — per preset', () => {
       })
     )
 
-    expect(argv).toEqual(['--trust', '--approve-mcps'])
+    expect(argv).toEqual(['--trust', '--force', '--sandbox', 'disabled', '--approve-mcps'])
     expect(argv).not.toContain('--yolo')
-    expect(argv).not.toContain('--force')
-    expect(argv).not.toContain('--sandbox')
     // Prompt delivery stays PTY even though MCP is attached — orthogonal.
     expect(ptySystemPrompt).toBe('You orchestrate.')
   })
@@ -198,22 +201,26 @@ describe('buildAgentArgv — per preset', () => {
     ])
   })
 
-  it('does not Run Everything a Cursor lead even when yolo is requested', () => {
+  it('puts a Cursor lead in Run Everything even when yolo is requested', () => {
     const { argv } = buildAgentArgv(
       launchInput({ provider: preset('cursor'), kind: 'lead', yolo: true, cwd })
     )
-    expect(argv).not.toContain('--force')
-    expect(argv).not.toContain('--yolo')
-    expect(argv).not.toContain('--sandbox')
+    expect(argv).toEqual(['--trust', '--force', '--sandbox', 'disabled', '--approve-mcps'])
   })
 
-  it('does not put a Cursor subagent in Run Everything when yolo is off', () => {
+  it('puts a Cursor subagent in Run Everything when yolo is off', () => {
     const { argv } = buildAgentArgv(
       launchInput({ provider: preset('cursor'), model: 'gpt-5.6', yolo: false, cwd })
     )
-    expect(argv).toEqual(['--trust', '--model', 'gpt-5.6', '--approve-mcps'])
-    expect(argv).not.toContain('--force')
-    expect(argv).not.toContain('--sandbox')
+    expect(argv).toEqual([
+      '--trust',
+      '--model',
+      'gpt-5.6',
+      '--force',
+      '--sandbox',
+      'disabled',
+      '--approve-mcps'
+    ])
   })
 
   it('gives Ollama its model positionally, right behind the base args', () => {
@@ -718,11 +725,18 @@ describe('MCP attach — the regression that killed the old repo', () => {
 })
 
 describe('yolo', () => {
-  it('never reaches an orchestrator, whatever the provider or the flag says', () => {
+  it('never reaches an orchestrator via provider yoloArgs, except Cursor Run Everything', () => {
     for (const provider of providerPresets()) {
       const { argv } = buildAgentArgv(
         launchInput({ provider, kind: 'orchestrator', yolo: true, model: 'm', cwd })
       )
+      if (provider.presetId === 'cursor') {
+        // Auto-review otherwise still blocks MCP; Cursor has no per-tool allow-list.
+        expect(argv, 'cursor orchestrator is Run Everything').toEqual(
+          expect.arrayContaining(['--force', '--sandbox', 'disabled'])
+        )
+        continue
+      }
       for (const flag of provider.yoloArgs) {
         expect(argv, `${provider.id} orchestrator must not be yolo`).not.toContain(flag)
       }
@@ -899,7 +913,7 @@ describe('spawnAgent', () => {
     expect(ensureCursorApprovals).not.toHaveBeenCalled()
   })
 
-  it('writes Cursor Run Everything cli.json only for yolo subagents', async () => {
+  it('writes Cursor Run Everything cli.json for every native Cursor launch, never for Pi wrap', async () => {
     const ensureCursorRunMode = vi.fn()
     await spawnAgent(launchInput({ provider: preset('cursor'), cwd, yolo: true }), {
       resolve,
@@ -916,6 +930,9 @@ describe('spawnAgent', () => {
       ensureCursorApprovals: () => undefined,
       ensureCursorRunMode
     })
+    expect(ensureCursorRunMode).toHaveBeenCalledExactlyOnceWith(cwd)
+
+    ensureCursorRunMode.mockClear()
     await spawnAgent(
       launchInput({ provider: preset('cursor'), cwd, kind: 'orchestrator', yolo: true }),
       {
@@ -925,6 +942,9 @@ describe('spawnAgent', () => {
         ensureCursorRunMode
       }
     )
+    expect(ensureCursorRunMode).toHaveBeenCalledExactlyOnceWith(cwd)
+
+    ensureCursorRunMode.mockClear()
     await spawnAgent(
       launchInput({ provider: preset('cursor'), cwd, harness: 'pi', yolo: true }),
       {
@@ -937,8 +957,29 @@ describe('spawnAgent', () => {
     expect(ensureCursorRunMode).not.toHaveBeenCalled()
   })
 
-  it('writes .cursor/cli.json on a yolo Cursor spawn', async () => {
-    await spawnAgent(launchInput({ provider: preset('cursor'), cwd, yolo: true }), {
+  it('writes Run Everything for a custom cursor-agent even when MCP is none', async () => {
+    const ensureCursorRunMode = vi.fn()
+    const ensureCursorApprovals = vi.fn()
+    const provider: ProviderConfig = {
+      ...preset('ollama'),
+      command: 'C:\\Tools\\cursor-agent.exe',
+      args: ['--trust']
+    }
+    expect(buildAgentArgv(launchInput({ provider, cwd })).argv).toEqual(
+      expect.arrayContaining(['--force', '--sandbox', 'disabled'])
+    )
+    await spawnAgent(launchInput({ provider, cwd }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureCursorApprovals,
+      ensureCursorRunMode
+    })
+    expect(ensureCursorApprovals).not.toHaveBeenCalled()
+    expect(ensureCursorRunMode).toHaveBeenCalledExactlyOnceWith(cwd)
+  })
+
+  it('writes .cursor/cli.json on every native Cursor spawn', async () => {
+    await spawnAgent(launchInput({ provider: preset('cursor'), cwd, kind: 'orchestrator' }), {
       resolve,
       createPty: () => new FakePty(),
       ensureCursorApprovals: () => undefined
@@ -1185,9 +1226,13 @@ describe('E6 extra MCP servers', () => {
 describe('Pi harness wrap', () => {
   const EXTRA = [{ name: 'browser', url: 'http://127.0.0.1:9200/mcp' }]
 
-  function piConfig(): { mcpServers: Record<string, unknown> } {
+  function piConfig(): {
+    mcpServers: Record<string, unknown>
+    settings: Record<string, unknown>
+  } {
     return JSON.parse(readFileSync(join(cwd, '.pi', 'mcp.json'), 'utf8')) as {
       mcpServers: Record<string, unknown>
+      settings: Record<string, unknown>
     }
   }
 
@@ -1224,9 +1269,34 @@ describe('Pi harness wrap', () => {
     expect(argv.join(' ')).not.toMatch(/yolo|dangerously|always-approve/)
     expect(existsSync(join(configDir, 'vertragus-mcp', `${fileTag}.json`))).toBe(false)
     expect(readFileSync(join(cwd, '.pi', 'APPEND_SYSTEM.md'), 'utf8')).toBe('You are a Worker.')
-    expect(piConfig()).toEqual({
-      mcpServers: { vertragus: { url: launchInput().mcpUrl, lifecycle: 'eager' } }
+    expect(piConfig()).toEqual(toPiMcpConfig(null, launchInput().mcpUrl))
+  })
+
+  it('writes the provider MCP timeout onto the wrap (600s default, not the SDK 60s)', () => {
+    buildAgentArgv(launchInput({ harness: 'pi', cwd }))
+    expect(piConfig().mcpServers.vertragus).toEqual(
+      piVertragusServerEntry(launchInput().mcpUrl, 600_000)
+    )
+    expect(piConfig().settings).toMatchObject({
+      requestTimeoutMs: 600_000,
+      disableProxyTool: false
     })
+
+    const provider: ProviderConfig = { ...preset('claude'), mcpToolTimeoutSec: 90 }
+    const isolated = mkdtempSync(join(tmpdir(), 'vertragus-spawn-pi-timeout-'))
+    try {
+      buildAgentArgv(launchInput({ harness: 'pi', cwd: isolated, provider }))
+      const written = JSON.parse(readFileSync(join(isolated, '.pi', 'mcp.json'), 'utf8')) as {
+        settings: { requestTimeoutMs: number }
+        mcpServers: { vertragus: { requestTimeoutMs: number; lifecycle: string } }
+      }
+      expect(written.settings.requestTimeoutMs).toBe(90_000)
+      expect(written.mcpServers.vertragus.requestTimeoutMs).toBe(90_000)
+      expect(written.mcpServers.vertragus.lifecycle).toBe('lazy-keep-alive')
+      expect(written.mcpServers.vertragus).toMatchObject({ idleTimeout: 0 })
+    } finally {
+      rmSync(isolated, { recursive: true, force: true })
+    }
   })
 
   it('does not leak Ollama provider.args — omit --provider, keep --model', () => {
@@ -1314,10 +1384,10 @@ describe('Pi harness wrap', () => {
     expect(launch.args).not.toContain(cli)
     expect(readFileSync(entry, 'utf8')).toContain(JSON.stringify(cli))
     expect(launch.argv[0]).toBe('--no-session')
-    expect(launch.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
+    expect(launch.env).toEqual(piHarnessEnv(cli, 'linux'))
     expect(
       buildAgentEnv(launchInput({ harness: 'pi', cwd, kind: 'orchestrator', platform: 'linux' }))
-    ).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
+    ).toEqual(piHarnessEnv(cli, 'linux'))
   })
 
   it('on Windows runs PATH node, not Electron — ConPTY cannot host electron.exe', async () => {
@@ -1344,10 +1414,12 @@ describe('Pi harness wrap', () => {
     expect(launch.command).toBe(PI_HARNESS_COMMAND)
     expect(launch.file).toBe(PI_WINDOWS_NODE_COMMAND)
     expect(launch.args[0]).toBe(entry)
-    expect(launch.env).toBeUndefined()
+    expect(launch.env).toEqual(piHarnessEnv(cli, 'win32'))
     expect(
       buildAgentEnv(launchInput({ harness: 'pi', cwd, kind: 'orchestrator', platform: 'win32' }))
-    ).toBeUndefined()
+    ).toEqual(piHarnessEnv(cli, 'win32'))
+    expect(launch.env?.[PI_MCP_DIRECT_TOOLS_ENV]).toBe(PI_MCP_DIRECT_TOOLS_VALUE)
+    expect(launch.env?.ELECTRON_RUN_AS_NODE).toBeUndefined()
   })
 
   it('refuses a Windows wrap that resolved onto Electron instead of node', async () => {
@@ -1389,12 +1461,12 @@ describe('Pi harness wrap', () => {
     expect(launch.file).toBe('/bin/pi')
     expect(launch.args[0]).toBe('--no-session')
     expect(launch.args).not.toContain('-r')
-    expect(launch.env).toBeUndefined()
+    expect(launch.env).toEqual(piHarnessEnv(undefined))
     expect(
       buildAgentEnv(launchInput({ harness: 'pi', cwd, kind: 'orchestrator' }), {
         resolvePiCli: () => undefined
       })
-    ).toBeUndefined()
+    ).toEqual(piHarnessEnv(undefined))
   })
 
   it('puts a multiline role prompt in APPEND_SYSTEM.md so argv stays one-line', () => {
@@ -1443,7 +1515,7 @@ describe('Pi harness wrap', () => {
       }),
       { resolve, createPty: () => grok, resolvePiCli: () => undefined }
     )
-    expect(grok.spawnOptions && 'env' in grok.spawnOptions).toBe(false)
+    expect(grok.spawnOptions?.env).toEqual(piHarnessEnv(undefined, process.platform))
     expect(grok.spawnOptions?.args).not.toContain('--no-subagents')
     expect(grok.spawnOptions?.args).not.toContain('--always-approve')
 
@@ -1459,7 +1531,7 @@ describe('Pi harness wrap', () => {
       { resolve, createPty: () => grokBundled }
     )
     expect(grokBundled.spawnOptions?.env).toEqual(
-      process.platform === 'win32' ? undefined : { ELECTRON_RUN_AS_NODE: '1' }
+      piHarnessEnv(resolvePiHarnessCli(), process.platform)
     )
     expect(grokBundled.spawnOptions?.env?.GROK_SUBAGENTS).toBeUndefined()
     expect(grokBundled.spawnOptions?.args).not.toContain('--no-subagents')
@@ -1496,10 +1568,7 @@ describe('Pi harness wrap', () => {
       url: 'https://mcp.linear.app/mcp',
       headers: { Authorization: 'Bearer x' }
     })
-    expect(sub.mcpServers.vertragus).toEqual({
-      url: launchInput().mcpUrl,
-      lifecycle: 'eager'
-    })
+    expect(sub.mcpServers.vertragus).toEqual(piVertragusServerEntry(launchInput().mcpUrl))
 
     for (const kind of ['orchestrator', 'lead'] as const) {
       const isolated = mkdtempSync(join(tmpdir(), 'vertragus-spawn-pi-'))
@@ -1517,10 +1586,7 @@ describe('Pi harness wrap', () => {
           mcpServers: Record<string, unknown>
         }
         expect(Object.keys(written.mcpServers)).toEqual(['vertragus'])
-        expect(written.mcpServers.vertragus).toEqual({
-          url: launchInput().mcpUrl,
-          lifecycle: 'eager'
-        })
+        expect(written.mcpServers.vertragus).toEqual(piVertragusServerEntry(launchInput().mcpUrl))
         expect(existsSync(join(isolated, '.cursor', 'mcp.json'))).toBe(false)
       } finally {
         rmSync(isolated, { recursive: true, force: true })

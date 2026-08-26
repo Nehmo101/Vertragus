@@ -161,8 +161,9 @@ const PRESETS: readonly ProviderConfig[] = [
     args: ['--trust'],
     // Run Everything: `--force` (`--yolo` is the alias) plus sandbox off.
     // Auto-review is the Cursor 3.6+ default; `--yolo` alone still prompts
-    // on tool calls that cannot run inside the sandbox. Orchestrators never
-    // receive these — spawn only appends yoloArgs for `kind: 'subagent'`.
+    // on tool calls that cannot run inside the sandbox. Spawn applies these
+    // to every native Cursor launch, including orchestrators — Cursor has no
+    // per-tool allow-list, and Auto-review otherwise still blocks MCP.
     yoloArgs: ['--force', '--sandbox', 'disabled'],
     modelArg: '--model',
     versionArgs: ['--version'],

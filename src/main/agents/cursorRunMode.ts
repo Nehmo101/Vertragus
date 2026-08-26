@@ -1,5 +1,5 @@
 /**
- * Cursor Agent "Run Everything" for yolo subagents.
+ * Cursor Agent "Run Everything" for every native Cursor launch.
  *
  * `--yolo` is only an alias of `--force`. Cursor 3.6+ defaults to Auto-review
  * (sandbox + classifier), so `--yolo` alone still stops on tool calls that
@@ -9,9 +9,9 @@
  *
  * Argv is the session override. The project `.cursor/cli.json` is the same
  * belt as `mcp-approvals.json`: some TUI builds still read the persisted
- * mode and ignore `--force`. We only ever set `approvalMode` / `sandbox.mode`
- * on a yolo *subagent*; orchestrators and `ask-user` launches are untouched.
- * Fail-soft: a cwd we cannot write does not block spawn.
+ * mode and ignore `--force`. Applied to orchestrator, lead, and worker —
+ * Auto-review otherwise still blocks MCP initialize. Pi wrap never writes
+ * this file. Fail-soft: a cwd we cannot write does not block spawn.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -49,10 +49,20 @@ export interface CursorRunModeResult {
   reason?: string
 }
 
+function isCursorAgentCommand(command: string | undefined): boolean {
+  if (!command) return false
+  const base = command.replace(/^.*[/\\]/, '').toLowerCase()
+  return /^cursor-agent(\.(exe|cmd|ps1|bat))?$/.test(base)
+}
+
 export function cursorUsesProjectDialect(
-  provider: Pick<ProviderConfig, 'presetId' | 'mcp'>
+  provider: Pick<ProviderConfig, 'presetId' | 'mcp'> & Partial<Pick<ProviderConfig, 'command'>>
 ): boolean {
-  return provider.presetId === 'cursor' || provider.mcp.kind === 'cursor-project'
+  return (
+    provider.presetId === 'cursor' ||
+    provider.mcp.kind === 'cursor-project' ||
+    isCursorAgentCommand(provider.command)
+  )
 }
 
 export function argvHasCursorForce(argv: readonly string[]): boolean {

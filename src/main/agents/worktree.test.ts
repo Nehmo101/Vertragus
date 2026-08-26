@@ -140,6 +140,7 @@ describe('createWorktree', () => {
 
     const exclude = readFileSync(join(repoPath, '.git', 'info', 'exclude'), 'utf8')
     expect(exclude).toContain('/.cursor/mcp.json')
+    expect(exclude).toContain('/.cursor/cli.json')
     expect(exclude).toContain('/.kimi-code/mcp.json')
     expect(exclude).toContain('/.grok/config.toml')
     expect(exclude).toContain('/.pi/mcp.json')

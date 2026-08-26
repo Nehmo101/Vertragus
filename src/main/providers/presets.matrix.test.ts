@@ -344,28 +344,43 @@ describe('preset argv matrix', () => {
       {
         "orchestrator bare": [
           "--trust",
+          "--force",
+          "--sandbox",
+          "disabled",
           "--approve-mcps",
         ],
         "orchestrator full": [
           "--trust",
           "--model",
           "auto",
+          "--force",
+          "--sandbox",
+          "disabled",
           "--approve-mcps",
         ],
         "orchestrator full+yolo": [
           "--trust",
           "--model",
           "auto",
+          "--force",
+          "--sandbox",
+          "disabled",
           "--approve-mcps",
         ],
         "subagent bare": [
           "--trust",
+          "--force",
+          "--sandbox",
+          "disabled",
           "--approve-mcps",
         ],
         "subagent full": [
           "--trust",
           "--model",
           "auto",
+          "--force",
+          "--sandbox",
+          "disabled",
           "--approve-mcps",
         ],
         "subagent full+yolo": [

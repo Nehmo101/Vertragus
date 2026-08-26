@@ -4,7 +4,9 @@
  * - `yolo` — the CLI runs with its skip-permissions flags; the agent acts.
  * - `ask-user` — no yolo flags; the CLI's own permission prompt appears in the
  *   agent's terminal and waits for the user. Hard enforcement, needs a human
- *   at the desktop.
+ *   at the desktop. Native Cursor is the exception: Auto-review still blocks
+ *   MCP unless the process is Run Everything, so `ask-user` does not change
+ *   Cursor's CLI flags.
  * - `ask-orchestrator` — the CLI still runs with yolo flags (nobody sits at a
  *   subagent terminal), but the task contract adds a rule to clear risky
  *   actions through `ask_orchestrator` first. Soft, prompt-level enforcement —

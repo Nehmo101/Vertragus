@@ -13,6 +13,8 @@ import {
   PI_MCP_ADAPTER_EXTENSION,
   PI_MCP_ADAPTER_NPM_SPEC,
   PI_MCP_ADAPTER_PACKAGE,
+  PI_MCP_DIRECT_TOOLS_ENV,
+  PI_MCP_DIRECT_TOOLS_VALUE,
   PI_TTY_PRELOAD_FILE,
   PI_TTY_PRELOAD_SOURCE,
   buildPiHarnessArgv,
@@ -48,10 +50,10 @@ const electronBinary = resolveElectronBinary()
 function wrapCwdWithPiMcp(): string {
   const cwd = mkdtempSync(join(tmpdir(), 'vertragus-pi-cwd-'))
   mkdirSync(join(cwd, '.pi'), { recursive: true })
-  // Lazy on purpose: the URL is a black hole (port 9). Production Pi configs
-  // use eager, but these tests measure TTY-preload / print-mode, not MCP
-  // connect. Windows Pi treats a refused eager fetch as fatal and exits
-  // before DECSET 2004 — which is not the invariant under test.
+  // Lazy on purpose: the URL is a black hole (port 9). Production wrap
+  // configs use lazy-keep-alive; these tests measure TTY-preload / print-mode,
+  // not MCP connect. Windows Pi treats a refused startup fetch as fatal and
+  // exits before DECSET 2004 — which is not the invariant under test.
   writeFileSync(
     join(cwd, '.pi', 'mcp.json'),
     JSON.stringify({
@@ -199,11 +201,20 @@ describe('lockfile Pi CLI and adapter', () => {
     expect(PI_MCP_ADAPTER_EXTENSION).not.toMatch(/^npm:/)
   })
 
-  it('only sets ELECTRON_RUN_AS_NODE on POSIX when a bundled CLI path exists', () => {
-    expect(piHarnessEnv(undefined)).toBeUndefined()
-    expect(piHarnessEnv('/tmp/pi/dist/cli.js', 'linux')).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
-    expect(piHarnessEnv('/tmp/pi/dist/cli.js', 'darwin')).toEqual({ ELECTRON_RUN_AS_NODE: '1' })
-    expect(piHarnessEnv('/tmp/pi/dist/cli.js', 'win32')).toBeUndefined()
+  it('always sets MCP_DIRECT_TOOLS=vertragus; ELECTRON_RUN_AS_NODE only on POSIX with a bundled CLI', () => {
+    expect(piHarnessEnv(undefined)).toEqual({ [PI_MCP_DIRECT_TOOLS_ENV]: PI_MCP_DIRECT_TOOLS_VALUE })
+    expect(piHarnessEnv('/tmp/pi/dist/cli.js', 'linux')).toEqual({
+      ELECTRON_RUN_AS_NODE: '1',
+      [PI_MCP_DIRECT_TOOLS_ENV]: PI_MCP_DIRECT_TOOLS_VALUE
+    })
+    expect(piHarnessEnv('/tmp/pi/dist/cli.js', 'darwin')).toEqual({
+      ELECTRON_RUN_AS_NODE: '1',
+      [PI_MCP_DIRECT_TOOLS_ENV]: PI_MCP_DIRECT_TOOLS_VALUE
+    })
+    expect(piHarnessEnv('/tmp/pi/dist/cli.js', 'win32')).toEqual({
+      [PI_MCP_DIRECT_TOOLS_ENV]: PI_MCP_DIRECT_TOOLS_VALUE
+    })
+    expect(PI_MCP_DIRECT_TOOLS_VALUE).toBe('vertragus')
   })
 
   it('picks PATH node on Windows and Electron-as-node elsewhere', () => {

@@ -31,8 +31,15 @@ export interface PiPlaySmokeJudgement {
 }
 
 const MCP_CONNECTED = /servers connected \(\d+ tools\)/
+const MCP_STATUS_CONNECTED = /1 server enabled \(1 connected\)/
+const MCP_DIRECT_REFRESH = /direct tools refreshed \(\+([1-9]\d*)/
 const MCP_FAILED = /Failed to connect to vertragus/i
 const TUI_BRACKETED_PASTE = '?2004h'
+
+function mcpAttached(text: string): boolean {
+  const connected = MCP_CONNECTED.test(text) || MCP_STATUS_CONNECTED.test(text)
+  return connected && MCP_DIRECT_REFRESH.test(text)
+}
 
 /**
  * Classify one PTY snapshot. `wait` means keep polling.
@@ -42,7 +49,7 @@ export function judgePiPlayScrollback(text: string): PiPlaySmokeJudgement {
     return { status: 'fail', reason: 'Pi MCP adapter failed to connect to vertragus' }
   }
   const tui = text.includes(TUI_BRACKETED_PASTE)
-  const mcp = MCP_CONNECTED.test(text)
+  const mcp = mcpAttached(text)
   if (tui && mcp) {
     return { status: 'pass', reason: 'Pi TUI started and Vertragus MCP attached' }
   }

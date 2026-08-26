@@ -43,9 +43,11 @@
  *   own path; spawn also writes the approvals file (see
  *   `agents/cursorMcpApprovals.ts`) because the interactive TUI still stops
  *   on a per-server click for many builds even with the flag.
- * - Tool-call approval for yolo subagents is Cursor **Run Everything**:
- *   `--force` (alias `--yolo`) and `--sandbox disabled` (preset yoloArgs,
- *   plus a project `.cursor/cli.json`). Orchestrators never get those flags.
+ * - Tool-call approval is Cursor **Run Everything** on every native Cursor
+ *   launch (orchestrator, lead, worker, any policy): `--force` (alias
+ *   `--yolo`) and `--sandbox disabled` (preset yoloArgs, plus a project
+ *   `.cursor/cli.json`). Cursor 3.6+ Auto-review otherwise still stops MCP
+ *   and tool calls. Pi wrap skips this dialect entirely.
  * - Workspace trust: a fresh directory blocks on a TUI modal before anything
  *   runs; the verified `--trust` flag suppresses it (preset `args`, not here).
  * - `cursor-agent mcp enable` works but crashes on teardown (libuv assert,
@@ -177,14 +179,17 @@ export const READONLY_CLAUDE_TOOLS = ['Read', 'Glob', 'Grep', 'TodoWrite'] as co
 
 /**
  * Worktree-relative files the project-file dialects (Kimi, Cursor, Grok)
- * and the Pi harness wrap write into an agent's checkout — each carries the
- * agent's tokenised MCP URL. `createWorktree` puts them on the repository's
- * shared `.git/info/exclude`, because an agent running `git add -A` in its
- * own worktree must not be able to commit its token into the user's history.
- * (Claude's config lives outside the repo; Codex passes argv overrides.)
+ * and the Pi harness wrap write into an agent's checkout. MCP files carry
+ * the agent's tokenised URL; `.cursor/cli.json` is the host-written Run
+ * Everything config (unrestricted approvalMode). `createWorktree` puts them
+ * on the repository's shared `.git/info/exclude`, because an agent running
+ * `git add -A` in its own worktree must not be able to commit them into the
+ * user's history. (Claude's config lives outside the repo; Codex passes
+ * argv overrides.)
  */
 export const WORKTREE_SECRET_FILES = [
   '.cursor/mcp.json',
+  '.cursor/cli.json',
   '.kimi-code/mcp.json',
   '.grok/config.toml',
   '.pi/mcp.json'
@@ -812,22 +817,90 @@ export function writeCursorProjectMcpConfig(
  *
  * The adapter uses the same `mcpServers` key as Cursor; the file lives at
  * `.pi/mcp.json` so a wrap never mutates `.cursor/mcp.json`. HTTP is a bare
- * `url`; the Vertragus entry also sets `lifecycle: "eager"` so MCP tools
- * exist before the first user turn (the adapter's default is lazy and races
- * the trailing positional prompt). Extra servers stay as `{ url }` / stdio.
+ * `url`. The Vertragus entry is not a lazy proxy dump:
+ * - `lifecycle: "lazy-keep-alive"` (not `"eager"`). The adapter's eager
+ *   path connects at extension load, then tears that client down on
+ *   `session_start` — Vertragus `waitForSession` would fire on the doomed
+ *   handshake and the host would type Enter into a reconnect. Lazy-keep-alive
+ *   skips load-time connect; `MCP_DIRECT_TOOLS=vertragus` still bootstraps
+ *   and waits at `session_start`, then idle-timeout 0 keeps `await_events`
+ *   from being dropped.
+ * - `directTools: true` and `toolPrefix: "none"` so `await_events` /
+ *   `start_agent` register as first-class Pi tools — the adapter's default
+ *   is a single `mcp()` proxy, which the orchestrator prompt does not call.
+ * - `auth: false` / `oauth: false` so a 401 is not treated as OAuth.
+ * - `httpTransport: "streamable-http"` so a 406 does not fall back to SSE
+ *   (Vertragus has no SSE endpoint).
+ * - `requestTimeoutMs` matches Claude's 600 s MCP tool window. The SDK
+ *   default is ~60 s, which kills `await_events`.
+ * Extra servers stay as `{ url }` / stdio. Adapter settings keep the
+ * startup connect banner the Play smoke reads, and leave the `mcp` proxy
+ * registered so extras (no `directTools`) and a cold metadata cache still
+ * have a fallback. Spawn never sets `disableProxyTool`.
  */
 export const PI_PROJECT_DIR = '.pi'
 export const PI_MCP_FILE = 'mcp.json'
-/** Adapter lifecycle so Vertragus tools attach at extension load, not later. */
-export const PI_MCP_LIFECYCLE_EAGER = 'eager'
+/**
+ * Skip load-time eager connect (torn down on `session_start`) but keep the
+ * client after the first real handshake. See the wrap comment above.
+ */
+export const PI_MCP_LIFECYCLE = 'lazy-keep-alive'
+/** Register Vertragus tools on Pi's tool list, not behind the `mcp` proxy. */
+export const PI_MCP_DIRECT_TOOLS = true
+/** Keep original MCP names (`await_events`), matching the role prompt. */
+export const PI_MCP_TOOL_PREFIX_NONE = 'none'
+/** Pin Streamable HTTP — Vertragus does not speak SSE. */
+export const PI_MCP_HTTP_TRANSPORT = 'streamable-http'
+/** Classic initialize; MCP SDK v2 "auto" is for 2026-era servers. */
+export const PI_MCP_PROTOCOL_LEGACY = 'legacy'
+/** Pin idle at 0 minutes so a parked `await_events` is not dropped. */
+export const PI_MCP_IDLE_TIMEOUT_MINUTES = 0
 /** Role / orchestrator prompt passed as `--append-system-prompt` (no token). */
 export const PI_APPEND_SYSTEM_FILE = 'APPEND_SYSTEM.md'
+/**
+ * Default MCP request timeout for the wrap, in milliseconds. Claude's
+ * native dialect uses 600 s via `MCP_TOOL_TIMEOUT`; Pi's SDK default is ~60 s.
+ */
+export const PI_MCP_REQUEST_TIMEOUT_MS = 600_000
+
+/** Seconds → ms for the adapter; absent / invalid falls back to 600 s. */
+export function piMcpRequestTimeoutMs(timeoutSec?: number): number {
+  const sec = timeoutSec && timeoutSec > 0 ? timeoutSec : 600
+  return Math.min(3_600_000, Math.max(1_000, Math.floor(sec) * 1000))
+}
+
+/** Adapter settings merged into `.pi/mcp.json` on every wrap launch. */
+export const PI_MCP_ADAPTER_SETTINGS = {
+  notifyOnStartupConnect: true,
+  requestTimeoutMs: PI_MCP_REQUEST_TIMEOUT_MS,
+  disableProxyTool: false
+} as const
+
+export function piVertragusServerEntry(
+  url: string,
+  requestTimeoutMs: number = PI_MCP_REQUEST_TIMEOUT_MS
+): Record<string, unknown> {
+  return {
+    url,
+    lifecycle: PI_MCP_LIFECYCLE,
+    auth: false,
+    oauth: false,
+    directTools: PI_MCP_DIRECT_TOOLS,
+    toolPrefix: PI_MCP_TOOL_PREFIX_NONE,
+    exposeResources: false,
+    httpTransport: PI_MCP_HTTP_TRANSPORT,
+    protocolVersion: PI_MCP_PROTOCOL_LEGACY,
+    requestTimeoutMs,
+    idleTimeout: PI_MCP_IDLE_TIMEOUT_MINUTES
+  }
+}
 
 export function toPiMcpConfig(
   existing: Record<string, unknown> | null | undefined,
   url: string,
-  extras?: readonly AttachableExtra[]
-): { mcpServers: Record<string, unknown> } {
+  extras?: readonly AttachableExtra[],
+  requestTimeoutMs: number = PI_MCP_REQUEST_TIMEOUT_MS
+): { mcpServers: Record<string, unknown>; settings: Record<string, unknown> } {
   const prevServers = existing?.mcpServers
   const servers =
     prevServers && typeof prevServers === 'object' && !Array.isArray(prevServers)
@@ -837,24 +910,71 @@ export function toPiMcpConfig(
     if (extra.id === MCP_SERVER_NAME) continue
     servers[extra.id] = dialectEntry(extra, 'cursor')
   }
-  servers[MCP_SERVER_NAME] = { url, lifecycle: PI_MCP_LIFECYCLE_EAGER }
+  servers[MCP_SERVER_NAME] = piVertragusServerEntry(url, requestTimeoutMs)
   const base =
     existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...existing } : {}
-  return { ...base, mcpServers: servers }
+  const prevSettings = base.settings
+  const settings =
+    prevSettings && typeof prevSettings === 'object' && !Array.isArray(prevSettings)
+      ? { ...(prevSettings as Record<string, unknown>) }
+      : {}
+  settings.notifyOnStartupConnect = PI_MCP_ADAPTER_SETTINGS.notifyOnStartupConnect
+  settings.requestTimeoutMs = requestTimeoutMs
+  settings.disableProxyTool = PI_MCP_ADAPTER_SETTINGS.disableProxyTool
+  return { ...base, settings, mcpServers: servers }
+}
+
+function isPiVertragusEntry(
+  value: unknown
+): value is {
+  url: string
+  lifecycle: string
+  auth: boolean
+  oauth: boolean
+  directTools: boolean
+  toolPrefix: string
+  httpTransport: string
+  protocolVersion: string
+  requestTimeoutMs: number
+  idleTimeout: number
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const entry = value as Record<string, unknown>
+  return (
+    typeof entry.url === 'string' &&
+    entry.url.length > 0 &&
+    entry.lifecycle === PI_MCP_LIFECYCLE &&
+    entry.auth === false &&
+    entry.oauth === false &&
+    entry.directTools === PI_MCP_DIRECT_TOOLS &&
+    entry.toolPrefix === PI_MCP_TOOL_PREFIX_NONE &&
+    entry.httpTransport === PI_MCP_HTTP_TRANSPORT &&
+    entry.protocolVersion === PI_MCP_PROTOCOL_LEGACY &&
+    typeof entry.requestTimeoutMs === 'number' &&
+    entry.requestTimeoutMs > 0 &&
+    entry.idleTimeout === PI_MCP_IDLE_TIMEOUT_MINUTES
+  )
 }
 
 export function assertWrittenPiMcpConfig(configPath: string): void {
   const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>
-  const servers = parsed.mcpServers as
-    | Record<string, { url?: string; lifecycle?: string }>
-    | undefined
-  const vertragus = servers?.[MCP_SERVER_NAME]
-  if (
-    !servers ||
-    typeof servers !== 'object' ||
-    !vertragus?.url ||
-    vertragus.lifecycle !== PI_MCP_LIFECYCLE_EAGER
-  ) {
+  const servers = parsed.mcpServers
+  const settings = parsed.settings
+  const vertragus =
+    servers && typeof servers === 'object' && !Array.isArray(servers)
+      ? (servers as Record<string, unknown>)[MCP_SERVER_NAME]
+      : undefined
+  const settingsRecord =
+    settings && typeof settings === 'object' && !Array.isArray(settings)
+      ? (settings as Record<string, unknown>)
+      : undefined
+  const settingsOk =
+    settingsRecord !== undefined &&
+    settingsRecord.notifyOnStartupConnect === true &&
+    settingsRecord.disableProxyTool === false &&
+    typeof settingsRecord.requestTimeoutMs === 'number' &&
+    settingsRecord.requestTimeoutMs > 0
+  if (!isPiVertragusEntry(vertragus) || !settingsOk) {
     throw new Error(`Invalid Vertragus Pi MCP config written to ${configPath}`)
   }
 }
@@ -869,7 +989,8 @@ export function assertWrittenPiMcpConfig(configPath: string): void {
 export function writePiHarnessMcpConfig(
   url: string,
   workspaceDir: string,
-  extras?: readonly AttachableExtra[]
+  extras?: readonly AttachableExtra[],
+  requestTimeoutMs: number = PI_MCP_REQUEST_TIMEOUT_MS
 ): string {
   const dir = join(workspaceDir, PI_PROJECT_DIR)
   mkdirSync(dir, { recursive: true })
@@ -886,7 +1007,10 @@ export function writePiHarnessMcpConfig(
     // Absent or unparseable → replace / create.
   }
 
-  writeFileSync(configPath, JSON.stringify(toPiMcpConfig(existing, url, extras), null, 2))
+  writeFileSync(
+    configPath,
+    JSON.stringify(toPiMcpConfig(existing, url, extras, requestTimeoutMs), null, 2)
+  )
   assertWrittenPiMcpConfig(configPath)
   return configPath
 }
