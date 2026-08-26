@@ -60,6 +60,7 @@ const PRESETS: readonly ProviderConfig[] = [
     yoloArgs: ['--dangerously-skip-permissions'],
     modelArg: '--model',
     effortArg: { style: 'flag', flag: '--effort' },
+    effortLevels: ['low', 'medium', 'high'],
     versionArgs: ['--version'],
     auth: { loginArgs: ['auth', 'login'], statusArgs: ['auth', 'status'] },
     systemPromptDelivery: { kind: 'arg', flag: '--append-system-prompt' },
@@ -109,8 +110,10 @@ const PRESETS: readonly ProviderConfig[] = [
     yoloArgs: ['--dangerously-bypass-approvals-and-sandbox'],
     modelArg: '--model',
     // Codex has no --effort flag; the level travels as a process-local config
-    // override (`-c model_reasoning_effort="high"`).
+    // override (`-c model_reasoning_effort="high"`). xhigh is a documented Codex
+    // rung; the cache has no per-model list, so this fallback is the picker.
     effortArg: { style: 'template', flag: '-c', template: 'model_reasoning_effort="{effort}"' },
+    effortLevels: ['low', 'medium', 'high', 'xhigh'],
     versionArgs: ['--version'],
     auth: { loginArgs: ['login'], statusArgs: ['login', 'status'] },
     systemPromptDelivery: { kind: 'codex-config' },
@@ -236,6 +239,17 @@ const PRESETS: readonly ProviderConfig[] = [
     initialPromptDelivery: { kind: 'positional' },
     mcp: { kind: 'grok-project' },
     modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },
+    /**
+     * Per-model `reasoning_efforts` live in the local Grok models cache. Ids
+     * still come from `grok models` (so the grok-build alias stays); this
+     * file only attaches effort rungs and is never a second catalogue.
+     */
+    effortDiscovery: {
+      kind: 'file',
+      path: '~/.grok/models_cache.json',
+      parse: 'json',
+      jsonPath: 'models'
+    },
     /**
      * The rolling coding-agent alias of the Grok CLI — `grok-build`, which the
      * CLI resolves to whatever currently powers Grok Build (see

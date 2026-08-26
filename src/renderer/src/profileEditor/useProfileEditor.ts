@@ -17,6 +17,7 @@ import { errorText } from '../lib/ipcError'
 import {
   draftFromProfile,
   emptyDraft,
+  resetInvalidEfforts,
   validateDraft,
   type DraftErrors,
   type ProfileDraft
@@ -195,6 +196,12 @@ export function useProfileEditor(
   useEffect(() => {
     for (const providerId of providerIdsInUse) loadModels(providerId)
   }, [loadModels, providerIdsInUse])
+
+  useEffect(() => {
+    setDraft((current) =>
+      current ? resetInvalidEfforts(current, providers, models, modelsLoading) : current
+    )
+  }, [providers, models, modelsLoading])
 
   const update = useCallback((mutate: (current: ProfileDraft) => ProfileDraft) => {
     setDraft((current) => (current ? mutate(current) : current))

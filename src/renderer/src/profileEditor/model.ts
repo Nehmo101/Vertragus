@@ -19,9 +19,9 @@ import {
 } from '@shared/schema/profile'
 import { LEAD_ROLE_ID, ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
 import { initialRolePromptDraft } from '@shared/prompts/rolePrompt'
-import type { EffortLevel } from '@shared/schema/provider'
-import { collapseModelVariants } from '@shared/models'
-import type { ModelDiscoveryResult } from '../../../preload'
+import { uniqueEffortLevels, type EffortLevel } from '@shared/schema/provider'
+import { collapseModelVariants, normalizeModelKey } from '@shared/models'
+import type { ModelDiscoveryResult, ProviderListEntry } from '../../../preload'
 import type { Translate } from '../i18n'
 
 /** `''` means "not set" for every optional field in the form. */
@@ -342,6 +342,127 @@ export function modelComboStatus(
     tone: warn ? 'warn' : 'ok',
     text: warn ? withDetail(summary) : summary,
     title: withDetail(summary)
+  }
+}
+
+/**
+ * Discovered effort rungs for one model id. Exact spelling first, then a
+ * punctuation-folded match so `grok-4.6` and a twin key still line up.
+ */
+export function lookupModelEfforts(
+  discovered: Record<string, readonly string[]> | undefined,
+  model: string
+): EffortLevel[] {
+  const id = model.trim()
+  if (!id || !discovered) return []
+  const direct = discovered[id]
+  if (direct && direct.length > 0) return uniqueEffortLevels([...direct])
+  const key = normalizeModelKey(id)
+  for (const [name, list] of Object.entries(discovered)) {
+    if (normalizeModelKey(name) === key && list.length > 0) return uniqueEffortLevels([...list])
+  }
+  return []
+}
+
+/**
+ * Dropdown rungs: the selected model's discovered list, else the provider
+ * fallback. Empty = only Standard (CLI default).
+ */
+export function effortSelectOptions(
+  model: string,
+  providerLevels: readonly string[] | undefined,
+  discovered: Record<string, readonly string[]> | undefined
+): EffortLevel[] {
+  const fromModel = lookupModelEfforts(discovered, model)
+  if (fromModel.length > 0) return fromModel
+  return uniqueEffortLevels(providerLevels ?? [])
+}
+
+export function rowEffortOptions(
+  model: string,
+  providerId: string,
+  providers: readonly ProviderListEntry[],
+  catalogue: ModelDiscoveryResult | undefined
+): EffortLevel[] {
+  const levels = providers.find((entry) => entry.config.id === providerId)?.config.effortLevels
+  return effortSelectOptions(model, levels, catalogue?.efforts)
+}
+
+/**
+ * `undefined` while discovery for this provider has not finished — the stored
+ * token must not be wiped before the per-model list exists.
+ */
+export function knownEffortOptions(
+  model: string,
+  providerLevels: readonly string[] | undefined,
+  catalogue: ModelDiscoveryResult | undefined,
+  loading: boolean
+): EffortLevel[] | undefined {
+  if (loading || catalogue === undefined) return undefined
+  return effortSelectOptions(model, providerLevels, catalogue.efforts)
+}
+
+export function coerceEffort(
+  effort: EffortChoice,
+  options: readonly string[] | undefined
+): EffortChoice {
+  if (options === undefined) return effort
+  if (!effort) return ''
+  return options.includes(effort) ? effort : ''
+}
+
+export function coerceRowEffort(
+  effort: EffortChoice,
+  model: string,
+  providerId: string,
+  providers: readonly ProviderListEntry[],
+  catalogues: Record<string, ModelDiscoveryResult>,
+  loading: Record<string, boolean>
+): EffortChoice {
+  const levels = providers.find((entry) => entry.config.id === providerId)?.config.effortLevels
+  return coerceEffort(
+    effort,
+    knownEffortOptions(model, levels, catalogues[providerId], loading[providerId] ?? false)
+  )
+}
+
+/** Drop a stored effort that the new model/provider list does not offer. */
+export function resetInvalidEfforts(
+  draft: ProfileDraft,
+  providers: readonly ProviderListEntry[],
+  catalogues: Record<string, ModelDiscoveryResult>,
+  loading: Record<string, boolean>
+): ProfileDraft {
+  const nextOrch = coerceRowEffort(
+    draft.orchestrator.effort,
+    draft.orchestrator.model,
+    draft.orchestrator.providerId,
+    providers,
+    catalogues,
+    loading
+  )
+  let changed = nextOrch !== draft.orchestrator.effort
+  const slots = draft.slots.map((slot) => {
+    const next = coerceRowEffort(
+      slot.effort,
+      slot.model,
+      slot.providerId,
+      providers,
+      catalogues,
+      loading
+    )
+    if (next === slot.effort) return slot
+    changed = true
+    return { ...slot, effort: next }
+  })
+  if (!changed) return draft
+  return {
+    ...draft,
+    orchestrator:
+      nextOrch === draft.orchestrator.effort
+        ? draft.orchestrator
+        : { ...draft.orchestrator, effort: nextOrch },
+    slots
   }
 }
 

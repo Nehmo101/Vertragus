@@ -30,6 +30,7 @@ function config(id: string, overrides: Partial<ProviderConfig> = {}): ProviderCo
     mcp: { kind: 'none' },
     modelDiscovery: { kind: 'none' },
     seedModels: [],
+    effortLevels: [],
     enabled: true,
     ...overrides
   }

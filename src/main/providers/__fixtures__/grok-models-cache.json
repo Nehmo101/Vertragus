@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-08-26T00:00:00Z",
+  "grok_version": "1.0.5",
+  "models": {
+    "grok-4.6": {
+      "info": {
+        "id": "grok-4.6",
+        "name": "Grok 4.6",
+        "reasoning_effort": "high",
+        "supports_reasoning_effort": true,
+        "reasoning_efforts": [
+          { "id": "xhigh", "value": "xhigh", "label": "Extra High Effort", "default": false },
+          { "id": "high", "value": "high", "label": "High Effort", "default": true },
+          { "id": "medium", "value": "medium", "label": "Medium Effort", "default": false },
+          { "id": "low", "value": "low", "label": "Low Effort", "default": false }
+        ]
+      }
+    },
+    "grok-4.5": {
+      "info": {
+        "id": "grok-4.5",
+        "name": "Grok 4.5",
+        "reasoning_effort": "high",
+        "supports_reasoning_effort": true,
+        "reasoning_efforts": [
+          { "id": "high", "value": "high", "label": "High Effort", "default": true },
+          { "id": "medium", "value": "medium", "label": "Medium Effort", "default": false },
+          { "id": "low", "value": "low", "label": "Low Effort", "default": false }
+        ]
+      }
+    }
+  }
+}
