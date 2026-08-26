@@ -73,6 +73,7 @@
     "assignGoalSend": "Set goal",
     "workspaceGoal": "Goal: {{goal}}",
     "answerQuestion": "Answer {{agent}}’s question",
+    "answerChoice": "Answer with “{{choice}}”",
     "answerPlaceholder": "Answer …",
     "answerSend": "Answer",
     "orchestratorIdle": "Orchestrator silent — no more tool calls",

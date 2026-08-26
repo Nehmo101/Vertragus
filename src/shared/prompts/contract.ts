@@ -173,7 +173,7 @@ function buildMcpContract({
       ? 'Do the work yourself when it fits in one pass. For an isolated slice you would otherwise block on (a parallel area, a review, a browser check) you MAY start_agent a helper, loop await_events until it reports, verify with inspect_agent, integrate_branch onto YOUR branch, and you still report_done for the whole assignment. Helpers cannot spawn further. Do not nest for small single-file tasks.'
       : 'Do the work yourself. Read the repository, change the files, run the checks.',
     'When the task is finished, call report_done with a short factual summary of what you changed and how you verified it. Use status "success" only when you verified it, "blocked" when something outside your control stops you, "failed" when you tried and it does not work.',
-    'If you need a decision, a permission, an interface, or information you cannot obtain yourself, call ask_orchestrator and wait for the answer. Do not guess, do not pick a random option, and do not idle.',
+    'If you need a decision, a permission, an interface, or information you cannot obtain yourself, call ask_orchestrator and wait for the answer. For a decision, pass 2–8 short labels in choices — question is the prompt only, never a numbered list. Do not guess, do not pick a random option, and do not idle.',
     ...(approvals === 'ask-orchestrator'
       ? [
           'Before an action that is hard to undo or that reaches beyond your worktree — deleting files outside it, installing software system-wide, pushing branches, or changing state on an external service — call ask_orchestrator and wait for the approval. Ordinary work inside your worktree needs no approval.'

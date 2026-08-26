@@ -13,6 +13,16 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Auswahl-Buttons bei Agenten- und User-Fragen.** `ask_user` und
+  `ask_orchestrator` nehmen optionale `choices` (höchstens 28 kurze
+  Labels). Das `?`-Badge im Panel und das Antwortformular auf dem Handy
+  zeigen einen Button pro Wahl plus das bestehende freie Textfeld; ein
+  Tippen sendet das Label über denselben `answerQuestion` /
+  `answer_question`-Pfad. Fragen ohne strukturierte `choices` fallen auf
+  ein konservatives Parsen einer aufeinanderfolgenden nummerierten,
+  buchstabierten oder Aufzählungsliste (mindestens zwei Einträge) zurück
+  und bleiben sonst nur Text. MCP-Tool-Contract-Version ist jetzt
+  `1.2.0`.
 - **Pi-Wrap-MCP als erstklassige Tools.** Der Community-Adapter defaultet
   auf einen lazy `mcp()`-Proxy, sodass ein Wrap, der nur
   `{ url, lifecycle: "eager" }` schrieb, connecten konnte, ohne

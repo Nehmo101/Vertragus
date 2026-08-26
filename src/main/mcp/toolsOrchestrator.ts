@@ -8,6 +8,7 @@
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { questionChoicesInputSchema } from '@shared/questionChoices'
 import { buildHandoffBlock, buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
 import { successionRequestSchema } from '@shared/schema/handoff'
 import { searchRuns } from '@main/workspace/searchRuns'
@@ -912,15 +913,21 @@ export function registerOrchestratorTools(
       description:
         'Ask the HUMAN a question and wait for the answer — for decisions that are genuinely the ' +
         'user’s (scope changes, destructive actions, product choices), never for things an agent or ' +
-        'you can decide. Blocks until the user answers in the panel or on their phone. If it returns ' +
-        'answer: null, call it again with the returned ticket and the unchanged question. Never guess ' +
-        'the user’s decision and never continue without it.',
+        'you can decide. Blocks until the user answers in the panel or on their phone. For a decision, ' +
+        'pass 2–8 short labels in choices (at most 28); question is the prompt only — do not dump ' +
+        'numbered options into it. If it returns answer: null, call it again with the returned ticket ' +
+        'and the unchanged question. Never guess the user’s decision and never continue without it.',
       inputSchema: {
         question: z
           .string()
           .min(1)
           .max(4_000)
-          .describe('One concrete question, with the context the user needs to answer it'),
+          .describe('The prompt only — do not dump numbered options into this string'),
+        choices: questionChoicesInputSchema
+          .optional()
+          .describe(
+            'Short labels for a decision (typically 2–8, at most 28). The human taps one to answer. Omit for open-ended questions.'
+          ),
         ticket: z
           .string()
           .min(1)
@@ -928,7 +935,7 @@ export function registerOrchestratorTools(
           .describe('Only when resuming: the ticket from a previous answer: null response')
       }
     },
-    async ({ question, ticket }): Promise<ToolText> => {
+    async ({ question, ticket, choices }): Promise<ToolText> => {
       // The same raised window that funds the long await_events poll: ask_user
       // runs on the orchestrator's own CLI, so awaitMax is exactly the block
       // this call can afford — a human who answers within it costs zero
@@ -969,13 +976,21 @@ export function registerOrchestratorTools(
       // two blocking prompts for one orchestrator.
       const alreadyOpen = runtime.questions.openForAgent(USER_QUESTION_AGENT_ID)
       const pending =
-        alreadyOpen ?? runtime.questions.create(USER_QUESTION_AGENT_ID, question)
+        alreadyOpen ??
+        runtime.questions.create(USER_QUESTION_AGENT_ID, question, {
+          ...(choices && choices.length > 0 ? { choices } : {})
+        })
       if (!alreadyOpen) {
         // Quiet: the badge/remote signal for the PANEL — the asker itself is
         // blocked right here on waitForAnswer and must not be woken by the
         // echo of its own question.
         ctx.events.push(
-          { type: 'user_question', questionId: pending.questionId, question },
+          {
+            type: 'user_question',
+            questionId: pending.questionId,
+            question,
+            ...(pending.choices && pending.choices.length > 0 ? { choices: pending.choices } : {})
+          },
           { quiet: true }
         )
       }

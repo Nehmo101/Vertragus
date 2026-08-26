@@ -120,9 +120,14 @@ class FakeMcp implements McpServerHandle {
   openQuestion(
     workspaceId: string,
     agentId: string
-  ): { questionId: string; question: string } | undefined {
+  ): { questionId: string; question: string; choices?: string[] } | undefined {
     const open = this.runtimes.get(workspaceId)?.questions.openForAgent(agentId)
-    return open ? { questionId: open.questionId, question: open.question } : undefined
+    if (!open) return undefined
+    return {
+      questionId: open.questionId,
+      question: open.question,
+      ...(open.choices && open.choices.length > 0 ? { choices: open.choices } : {})
+    }
   }
   async answerQuestion(
     workspaceId: string,

@@ -321,4 +321,31 @@ describe('agent event schema', () => {
     expect(isAgentEvent(event, 'agent_done')).toBe(false)
     if (isAgentEvent(event, 'agent_question')) expect(event.questionId).toBe('q1')
   })
+
+  it('carries optional choices on agent_question and user_question', () => {
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'agent_question',
+        ...identity,
+        questionId: 'q1',
+        question: 'which db?',
+        choices: ['Postgres', 'SQLite']
+      })
+    ).toMatchObject({ choices: ['Postgres', 'SQLite'] })
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'user_question',
+        questionId: 'q-u',
+        question: 'Ship it?',
+        choices: ['Yes', 'No']
+      })
+    ).toMatchObject({ choices: ['Yes', 'No'] })
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'user_question',
+        questionId: 'q-u',
+        question: 'Ship it?'
+      })
+    ).not.toHaveProperty('choices')
+  })
 })

@@ -22,7 +22,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import type { TaskBoard } from '@main/workspace/taskBoard'
 import { answerAgentQuestion, type AnswerQuestionOutcome } from './answerQuestion'
-import { PendingQuestions } from './pendingQuestions'
+import { PendingQuestions, toOpenQuestionView, type OpenQuestionView } from './pendingQuestions'
 import { registerOrchestratorTools } from './toolsOrchestrator'
 import { registerSubagentTools } from './toolsSubagent'
 import { BROWSER_PATH, isBrowserBridgeOrigin } from '@shared/browserExtension'
@@ -37,6 +37,7 @@ import {
 } from './types'
 
 export { isAllowedHostHeader, isAllowedOrigin } from './httpAllow'
+export type { OpenQuestionView }
 
 /** MCP namespace of our tools: `mcp__vertragus__<tool>`. */
 export const MCP_SERVER_NAME = 'vertragus'
@@ -55,7 +56,7 @@ export const MCP_SERVER_NAME = 'vertragus'
  * every release that did not make one. `docs/RELEASE-CHECKLIST.md` carries the
  * reminder to bump it when the surface actually moved.
  */
-export const MCP_SERVER_VERSION = '1.1.0'
+export const MCP_SERVER_VERSION = '1.2.0'
 export const MCP_PATH = '/mcp'
 export const MCP_BIND_HOST = '127.0.0.1'
 
@@ -145,10 +146,7 @@ export interface McpServerHandle {
    * Open question of an agent WITH its id — what the panel and the remote
    * client need to answer it (the text alone cannot address the registry).
    */
-  openQuestion(
-    workspaceId: string,
-    agentId: string
-  ): { questionId: string; question: string } | undefined
+  openQuestion(workspaceId: string, agentId: string): OpenQuestionView | undefined
   /**
    * Answer one open question on the SAME path `send_to_agent{questionId}`
    * takes (H1): sentinel questions deliver to the PTY first, MCP questions
@@ -720,12 +718,9 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
       return workspaces.get(workspaceId)?.questions.openForAgent(agentId)?.question
     },
 
-    openQuestion(
-      workspaceId: string,
-      agentId: string
-    ): { questionId: string; question: string } | undefined {
+    openQuestion(workspaceId: string, agentId: string): OpenQuestionView | undefined {
       const open = workspaces.get(workspaceId)?.questions.openForAgent(agentId)
-      return open ? { questionId: open.questionId, question: open.question } : undefined
+      return open ? toOpenQuestionView(open) : undefined
     },
 
     async answerQuestion(workspaceId, agentId, questionId, text) {

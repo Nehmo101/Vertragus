@@ -12,6 +12,15 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **Choice buttons on agent and user questions.** `ask_user` and
+  `ask_orchestrator` take optional `choices` (at most 28 short labels).
+  The panel `?` badge and the phone answer form show one button per
+  choice plus the existing custom text field; tapping a button submits
+  that label on the same `answerQuestion` / `answer_question` path.
+  Questions without structured choices fall back to a conservative parse
+  of a consecutive numbered, lettered, or bulleted list (at least two
+  items) and otherwise stay text-only. MCP tool-contract version is now
+  `1.2.0`.
 - **Pi wrap MCP as first-class tools.** The community adapter's default is a
   lazy `mcp()` proxy, so a wrap that only wrote `{ url, lifecycle: "eager" }`
   could connect without ever exposing `await_events`. `.pi/mcp.json` now

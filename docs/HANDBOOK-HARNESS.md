@@ -354,7 +354,10 @@ Orchestrator tool, blocking, ticket like `ask_orchestrator`.
 best-supported option" is dropped.
 
 Subagent questions: the same host path as H1 `answer_question`. User
-questions: resolving the `ask_user` waiter. One text field, two backends.
+questions: resolving the `ask_user` waiter. Choice buttons when the
+question carries structured `choices` (or a parseable numbered/lettered/
+bulleted list of at least two items); the custom text field stays
+visible underneath. Open-ended questions stay prompt + text field.
 
 ### D4 yolo as a policy
 

@@ -2089,7 +2089,8 @@ export class Workspace implements AgentHost {
     const openQuestions = (this.questions?.listOpen() ?? []).map((question) => ({
       questionId: question.questionId,
       agentId: question.agentId,
-      question: question.question
+      question: question.question,
+      ...(question.choices && question.choices.length > 0 ? { choices: question.choices } : {})
     }))
 
     // S4: the plan rides along — tombstones excluded (a successor's task_list

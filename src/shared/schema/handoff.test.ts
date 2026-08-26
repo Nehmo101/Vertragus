@@ -46,7 +46,9 @@ describe('buildHandoffPackage', () => {
     successorAgentId: 'o2',
     eventCursor: 9,
     agents: [{ agentId: 'a1', name: 'Caronte', role: 'worker', status: 'working' }],
-    openQuestions: [{ questionId: 'q1', agentId: 'a1', question: 'which file?' }],
+    openQuestions: [
+      { questionId: 'q1', agentId: 'a1', question: 'which file?', choices: ['src/a.ts', 'src/b.ts'] }
+    ],
     recentEvents: [{ seq: 9, type: 'agent_done', agentId: 'a1', summary: 'ok' }]
   }
 

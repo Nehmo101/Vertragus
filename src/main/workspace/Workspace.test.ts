@@ -1044,7 +1044,7 @@ describe('requestSuccession', () => {
     })
     const predecessor = await workspace.startOrchestrator()
     const worker = await workspace.startAgent({ role: 'worker', task: 'Implement the parser.' })
-    questions.create(worker.agentId, 'which interface?')
+    questions.create(worker.agentId, 'which interface?', { choices: ['REST', 'GraphQL'] })
 
     const begun = workspace.requestSuccession({
       reason: 'context_full',
@@ -1074,8 +1074,12 @@ describe('requestSuccession', () => {
     expect(prompts.at(-1)).toContain(`cursor ${begun.eventCursor}`)
     expect(prompts.at(-1)).toContain('which interface?')
 
-    const pkg = packages[0] as { openQuestions: Array<{ question: string }>; eventCursor: number }
+    const pkg = packages[0] as {
+      openQuestions: Array<{ question: string; choices?: string[] }>
+      eventCursor: number
+    }
     expect(pkg.openQuestions[0]?.question).toBe('which interface?')
+    expect(pkg.openQuestions[0]?.choices).toEqual(['REST', 'GraphQL'])
     expect(pkg.eventCursor).toBe(begun.eventCursor)
   })
 

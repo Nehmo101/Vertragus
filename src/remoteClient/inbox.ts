@@ -11,6 +11,7 @@
  * Pure on purpose — the aggregation is the part that can silently drop a
  * question, and it is the part a unit test can hold.
  */
+import { questionChoicesDisplay } from '@shared/questionChoices'
 import type { RemoteWorkspaceSummary } from '@shared/remote/protocol'
 
 /**
@@ -35,6 +36,8 @@ export interface InboxEntry {
   agentName?: string
   questionId: string
   question: string
+  /** Structured labels from the wire; the UI also parses the question text. */
+  choices?: string[]
 }
 
 /** The reserved addressee the gateway accepts for an `ask_user` answer. */
@@ -64,7 +67,8 @@ export function questionInbox(workspaces: readonly RemoteWorkspaceSummary[]): In
         workspaceName: workspace.name,
         agentId: USER_AGENT_ID,
         questionId: asked.questionId,
-        question: asked.question.trim()
+        question: asked.question.trim(),
+        ...(asked.choices && asked.choices.length > 0 ? { choices: asked.choices } : {})
       })
     }
     for (const agent of workspace.agents) {
@@ -78,7 +82,10 @@ export function questionInbox(workspaces: readonly RemoteWorkspaceSummary[]): In
         agentId: agent.agentId,
         agentName: agent.name,
         questionId: agent.pendingQuestionId,
-        question
+        question,
+        ...(agent.pendingQuestionChoices && agent.pendingQuestionChoices.length > 0
+          ? { choices: agent.pendingQuestionChoices }
+          : {})
       })
     }
   }
@@ -100,10 +107,11 @@ export function inboxEntriesFor(
  * reason this screen exists.
  */
 export function inboxPrompt(
-  entry: Pick<InboxEntry, 'kind' | 'question'>,
+  entry: Pick<InboxEntry, 'kind' | 'question' | 'choices'>,
   copy: { userQuestion: (question: string) => string }
 ): string {
-  return entry.kind === 'user' ? copy.userQuestion(entry.question) : entry.question
+  const { prompt } = questionChoicesDisplay(entry.question, entry.choices)
+  return entry.kind === 'user' ? copy.userQuestion(prompt) : prompt
 }
 
 /** Where the question came from, for the line under it. */

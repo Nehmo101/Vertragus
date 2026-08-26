@@ -8,6 +8,7 @@
  * (at-least-once delivery, duplicate-free reads).
  */
 import { z } from 'zod'
+import { questionChoicesFieldSchema } from '../questionChoices'
 
 export const AGENT_EVENT_TYPES = [
   'agent_started',
@@ -113,7 +114,9 @@ const agentQuestionPayload = z.object({
   type: z.literal('agent_question'),
   ...identity,
   questionId: z.string().min(1),
-  question: z.string().min(1)
+  question: z.string().min(1),
+  /** Short labels for a decision; absent = text-only (or parse fallback). */
+  choices: questionChoicesFieldSchema.optional()
 })
 
 const agentProgressPayload = z.object({
@@ -202,7 +205,9 @@ const userMessagePayload = z.object({
 const userQuestionPayload = z.object({
   type: z.literal('user_question'),
   questionId: z.string().min(1),
-  question: z.string().min(1)
+  question: z.string().min(1),
+  /** Short labels for a decision; absent = text-only (or parse fallback). */
+  choices: questionChoicesFieldSchema.optional()
 })
 
 /**

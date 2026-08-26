@@ -68,12 +68,18 @@ describe('questionInbox', () => {
     const entries = questionInbox([
       workspace({
         workspaceId: 'w1',
-        agents: [agent({ pendingQuestion: 'Use bcrypt?', pendingQuestionId: 'q-a' })]
+        agents: [
+          agent({
+            pendingQuestion: 'Use bcrypt?',
+            pendingQuestionId: 'q-a',
+            pendingQuestionChoices: ['Yes', 'No']
+          })
+        ]
       }),
       workspace({
         workspaceId: 'w2',
         name: 'Inferno',
-        userQuestion: { questionId: 'q-u', question: 'Ship it?' },
+        userQuestion: { questionId: 'q-u', question: 'Ship it?', choices: ['Ship', 'Wait'] },
         agents: [
           agent({ agentId: 'a2', name: 'Virgilio', pendingQuestion: 'Rebase?', pendingQuestionId: 'q-b' })
         ]
@@ -84,10 +90,16 @@ describe('questionInbox', () => {
       kind: 'user',
       agentId: USER_AGENT_ID,
       workspaceName: 'Inferno',
-      question: 'Ship it?'
+      question: 'Ship it?',
+      choices: ['Ship', 'Wait']
     })
     expect(entries[0]?.agentName).toBeUndefined()
-    expect(entries[1]).toMatchObject({ kind: 'agent', agentId: 'a1', agentName: 'Caronte' })
+    expect(entries[1]).toMatchObject({
+      kind: 'agent',
+      agentId: 'a1',
+      agentName: 'Caronte',
+      choices: ['Yes', 'No']
+    })
   })
 
   it('drops questions that answer_question could not address', () => {
@@ -123,6 +135,15 @@ describe('inbox rendering helpers', () => {
   it('frames an ask_user as addressed to the human and leaves agent text alone', () => {
     expect(inboxPrompt({ kind: 'user', question: 'Ship it?' }, copy)).toBe('Frage an dich: Ship it?')
     expect(inboxPrompt({ kind: 'agent', question: 'Use bcrypt?' }, copy)).toBe('Use bcrypt?')
+  })
+
+  it('strips a parsed numbered list from the prompt the human reads', () => {
+    expect(
+      inboxPrompt({ kind: 'agent', question: 'Which db?\n1. Postgres\n2. SQLite' }, copy)
+    ).toBe('Which db?')
+    expect(
+      inboxPrompt({ kind: 'user', question: 'Ship?\n1. Yes\n2. No' }, copy)
+    ).toBe('Frage an dich: Ship?')
   })
 
   it('names the workspace, and the agent when there is one', () => {
