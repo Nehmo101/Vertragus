@@ -226,6 +226,9 @@ const PRESETS: readonly ProviderConfig[] = [
     yoloArgs: ['--always-approve'],
     modelArg: '--model',
     effortArg: { style: 'flag', flag: '--effort' },
+    // Per-model rungs come from the sidecar cache. grok-build / grok-4.3 /
+    // empty (CLI default) have no cache entry, so this fallback is the picker.
+    effortLevels: ['low', 'medium', 'high', 'xhigh'],
     versionArgs: ['--version'],
     // `grok login` is browser/device-code OAuth; the CLI exposes no status probe.
     auth: { loginArgs: ['login'] },
