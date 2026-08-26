@@ -37,6 +37,7 @@ const SHAPES: ProviderConfig[] = (
       yoloArgs: ['--dangerously-skip-permissions'],
       modelArg: '--model',
       effortArg: { style: 'flag', flag: '--effort' },
+      effortLevels: ['low', 'medium', 'high'],
       auth: { loginArgs: ['auth', 'login'], statusArgs: ['auth', 'status'] },
       systemPromptDelivery: { kind: 'arg', flag: '--append-system-prompt' },
       mcp: {
@@ -62,6 +63,7 @@ const SHAPES: ProviderConfig[] = (
       yoloArgs: ['--dangerously-bypass-approvals-and-sandbox'],
       modelArg: '--model',
       effortArg: { style: 'template', flag: '-c', template: 'model_reasoning_effort="{effort}"' },
+      effortLevels: ['low', 'medium', 'high', 'xhigh'],
       auth: { loginArgs: ['login'], statusArgs: ['login', 'status'] },
       systemPromptDelivery: { kind: 'codex-config' },
       mcp: { kind: 'codex-overrides' },
@@ -112,6 +114,12 @@ const SHAPES: ProviderConfig[] = (
       yoloArgs: ['--always-approve'],
       modelArg: '--model',
       effortArg: { style: 'flag', flag: '--effort' },
+      effortDiscovery: {
+        kind: 'file',
+        path: '~/.grok/models_cache.json',
+        parse: 'json',
+        jsonPath: 'models'
+      },
       auth: { loginArgs: ['login'] },
       systemPromptDelivery: { kind: 'arg', flag: '--append-system-prompt' },
       initialPromptDelivery: { kind: 'positional' },
@@ -230,6 +238,33 @@ describe('draft ⇄ ProviderConfig', () => {
     expect((toProviderInput(edited) as { seed?: unknown }).seed).toEqual(tuned.seed)
   })
 
+  it('round-trips a declared fallback effort list', () => {
+    const input = toProviderInput(draft({ effortLevels: 'low\nxhigh\nmax' })) as {
+      effortLevels: string[]
+    }
+    expect(input.effortLevels).toEqual(['low', 'xhigh', 'max'])
+    const result = validateDraft(t, draft({ effortLevels: 'low\nmax' }))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.config.effortLevels).toEqual(['low', 'max'])
+  })
+
+  it('rejects a junk fallback effort token', () => {
+    const result = validateDraft(t, draft({ effortLevels: 'ultra' }))
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.errors.effortLevels).toBeTruthy()
+  })
+
+  it('carries effortDiscovery through an edit instead of dropping it', () => {
+    const grokLike = shape('shape-grok')
+    const edited = { ...draftFromProvider(grokLike), label: 'Grok (mine)' }
+    expect((toProviderInput(edited) as { effortDiscovery?: unknown }).effortDiscovery).toEqual({
+      kind: 'file',
+      path: '~/.grok/models_cache.json',
+      parse: 'json',
+      jsonPath: 'models'
+    })
+  })
+
   it('carries initialPromptDelivery through an edit instead of dropping it', () => {
     const grokLike = shape('shape-grok')
     const edited = { ...draftFromProvider(grokLike), label: 'Grok (mine)' }
@@ -299,12 +334,15 @@ describe('validation', () => {
       'Please enter a complete url (with http:// or https://).'
     )
     expect(messageForField(t, 'discoveryUrl')).toContain('vollständige Url')
+    expect(messageForField(en, 'effortLevels')).toBe('Unknown effort value.')
+    expect(messageForField(t, 'effortLevels')).toContain('Effort-Wert')
   })
 
   it('maps nested schema paths onto form fields', () => {
     expect(fieldForPath('mcp.configArg')).toBe('mcpConfigArg')
     expect(fieldForPath('modelDiscovery.url')).toBe('discoveryUrl')
     expect(fieldForPath('effortArg.template')).toBe('effortTemplate')
+    expect(fieldForPath('effortLevels.0')).toBe('effortLevels')
     // One rejected entry belongs on the whole textarea, not on `form`.
     expect(fieldForPath('args.3')).toBe('args')
     expect(fieldForPath('auth.loginArgs.0')).toBe('authLoginArgs')

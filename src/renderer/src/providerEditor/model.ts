@@ -44,6 +44,13 @@ export interface ProviderDraft {
   effortStyle: EffortStyleChoice
   effortFlag: string
   effortTemplate: string
+  /** Newline-separated fallback rungs; empty = only Standard. */
+  effortLevels: string
+  /**
+   * Carried, not edited: per-model effort catalogue (Grok's models cache).
+   * Dropping it on save would strip grok-4.6's xhigh list.
+   */
+  effortDiscovery?: ProviderConfig['effortDiscovery']
   versionArgs: string
   authLoginArgs: string
   authStatusArgs: string
@@ -108,6 +115,7 @@ export function emptyDraft(): ProviderDraft {
     effortStyle: '',
     effortFlag: '',
     effortTemplate: '',
+    effortLevels: '',
     versionArgs: '--version',
     authLoginArgs: '',
     authStatusArgs: '',
@@ -143,6 +151,8 @@ export function draftFromProvider(config: ProviderConfig): ProviderDraft {
     effortStyle: config.effortArg?.style ?? '',
     effortFlag: config.effortArg?.flag ?? '',
     effortTemplate: config.effortArg?.style === 'template' ? config.effortArg.template : '',
+    effortLevels: fromLines(config.effortLevels),
+    ...(config.effortDiscovery ? { effortDiscovery: config.effortDiscovery } : {}),
     versionArgs: fromLines(config.versionArgs),
     authLoginArgs: fromLines(config.auth?.loginArgs),
     authStatusArgs: fromLines(config.auth?.statusArgs),
@@ -252,6 +262,8 @@ export function toProviderInput(draft: ProviderDraft): unknown {
     yoloArgs: toLines(draft.yoloArgs),
     ...(optionalText(draft.modelArg) ? { modelArg: draft.modelArg.trim() } : {}),
     ...(effortArg ? { effortArg } : {}),
+    effortLevels: toLines(draft.effortLevels),
+    ...(draft.effortDiscovery ? { effortDiscovery: draft.effortDiscovery } : {}),
     versionArgs: toLines(draft.versionArgs),
     // No login command at all = no auth block, rather than an empty one.
     ...(loginArgs.length > 0 || statusArgs.length > 0
@@ -285,6 +297,7 @@ export function fieldForPath(path: string): string {
     'effortArg.flag': 'effortFlag',
     'effortArg.template': 'effortTemplate',
     effortArg: 'effortStyle',
+    effortLevels: 'effortLevels',
     'auth.loginArgs': 'authLoginArgs',
     'auth.statusArgs': 'authStatusArgs',
     'systemPromptDelivery.flag': 'promptFlag',
@@ -321,6 +334,8 @@ export function messageForField(t: Translate, field: string): string {
       return t('providerEditor.errors.command')
     case 'effortTemplate':
       return t('providerEditor.errors.effortTemplate')
+    case 'effortLevels':
+      return t('providerEditor.errors.effortLevels')
     case 'effortFlag':
     case 'promptFlag':
     case 'mcpConfigArg':

@@ -23,14 +23,27 @@ export type ProviderPresetId = (typeof PROVIDER_PRESET_IDS)[number]
 export const providerPresetIdSchema = z.enum(PROVIDER_PRESET_IDS)
 
 /**
- * Canonical effort ladder. Deliberately three rungs: `low|medium|high` are the
- * only levels both CLIs that expose the knob agree on (Claude `--effort`,
- * Codex `-c model_reasoning_effort`), so nothing ever has to be clamped down
- * into an unknown flag — which kills a launch.
+ * Persistable CLI effort tokens. The profile editor lists whatever the
+ * selected model (or the provider fallback) actually offers — this array is
+ * the store allow-list, not a global dropdown. `ultra` is not a rung any
+ * shipped CLI documents.
  */
-export const EFFORT_LEVELS = ['low', 'medium', 'high'] as const
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export type EffortLevel = (typeof EFFORT_LEVELS)[number]
 export const effortLevelSchema = z.enum(EFFORT_LEVELS)
+
+/** Drop blanks, junk and duplicates; keep first-seen order. */
+export function uniqueEffortLevels(values: readonly string[]): EffortLevel[] {
+  const seen = new Set<EffortLevel>()
+  const out: EffortLevel[] = []
+  for (const value of values) {
+    const parsed = effortLevelSchema.safeParse(value.trim())
+    if (!parsed.success || seen.has(parsed.data)) continue
+    seen.add(parsed.data)
+    out.push(parsed.data)
+  }
+  return out
+}
 
 const MAX_ARG_LENGTH = 400
 const MAX_ARGS = 64
@@ -236,6 +249,18 @@ export const providerConfigSchema = z
     /** Flag taking the model id. Absent = the model is a positional argument. */
     modelArg: flagSchema.optional(),
     effortArg: effortArgSchema.optional(),
+    /**
+     * Fallback rungs when the selected model has no discovered list. Empty =
+     * only Standard (the CLI default). Independent of {@link effortArg}: that
+     * is how the token reaches argv; this is which tokens the editor offers.
+     */
+    effortLevels: z.array(effortLevelSchema).max(MAX_ARGS).default([]),
+    /**
+     * Extra local catalogue used only to attach per-model effort rungs to ids
+     * already discovered. Never contributes picker ids — Grok still lists
+     * models via `grok models` and merges `reasoning_efforts` from this file.
+     */
+    effortDiscovery: modelDiscoverySchema.optional(),
     versionArgs: argListSchema.default(['--version']),
     auth: providerAuthSchema.optional(),
     systemPromptDelivery: systemPromptDeliverySchema.default({ kind: 'pty' }),
