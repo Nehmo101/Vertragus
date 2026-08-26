@@ -8,6 +8,7 @@ import {
   parseProfiles,
   profileRoleIds,
   profileSchema,
+  QUESTION_MODES,
   ROLE_PROMPT_MAX_CHARS,
   rolePromptFor,
   roleTemplateSchema,
@@ -129,6 +130,25 @@ describe('profileSchema', () => {
     ).toBe(false)
   })
 
+  it('defaults questionMode to few, parses all three, and rejects garbage', () => {
+    // A profile written before this field — and every new one — keeps today's
+    // ask_user volume (genuine user decisions, no intake).
+    expect(QUESTION_MODES).toEqual(['none', 'few', 'thorough'])
+    expect(baseProfile().questionMode).toBe('few')
+    expect(createEmptyProfile().questionMode).toBe('few')
+    expect(baseProfile({ questionMode: 'none' }).questionMode).toBe('none')
+    expect(baseProfile({ questionMode: 'few' }).questionMode).toBe('few')
+    expect(baseProfile({ questionMode: 'thorough' }).questionMode).toBe('thorough')
+    expect(
+      profileSchema.safeParse({
+        id: 'p',
+        name: 'P',
+        orchestrator: { providerId: 'c' },
+        questionMode: 'all'
+      }).success
+    ).toBe(false)
+  })
+
   it('A3: every automation switch is off for a profile that never named one', () => {
     // The default is the doctrine: adopting an agent's work and pushing a
     // branch stay the user's decision until the user says otherwise — and a
@@ -174,6 +194,11 @@ describe('profileSchema', () => {
   it('carries the opt-out into a duplicate', () => {
     const copy = duplicateProfile(baseProfile({ autoSubmitTasks: false }))
     expect(copy.autoSubmitTasks).toBe(false)
+  })
+
+  it('carries questionMode none into a duplicate', () => {
+    const copy = duplicateProfile(baseProfile({ questionMode: 'none' }))
+    expect(copy.questionMode).toBe('none')
   })
 
   it('enforces the name bounds and rejects unknown fields', () => {

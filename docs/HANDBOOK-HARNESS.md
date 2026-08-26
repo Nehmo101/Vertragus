@@ -367,6 +367,13 @@ Orchestrator tool, blocking, ticket like `ask_orchestrator`.
 `user_question` on the workspace card. The prompt line "answer with the
 best-supported option" is dropped.
 
+Volume is a profile setting (`questionMode`: `none` / `few` /
+`thorough`), prompt-level only — the tool stays registered. Default
+`few` is today's behaviour (genuine user decisions). `none` still
+asks before a destructive action or a change of scope the goal did
+not already contain. `thorough` closes the brief first. Root only;
+leads are not briefed.
+
 Subagent questions: the same host path as H1 `answer_question`. User
 questions: resolving the `ask_user` waiter. Choice buttons when the
 question carries structured `choices` (or a parseable numbered/lettered/

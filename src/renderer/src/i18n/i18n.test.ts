@@ -81,6 +81,8 @@ const DYNAMIC_KEY_PREFIXES = [
   'settings.updateStatus.',
   // profileEditor/fields.tsx — indexed by EffortLevel
   'profileEditor.effortLevel.',
+  // profileEditor/fields.tsx — indexed by QuestionMode
+  'profileEditor.questionMode.',
   // profileEditor/model.ts — indexed by ModelDiscoveryResult['source']
   'profileEditor.modelsFrom.',
   // settings/SettingsApp.tsx — indexed by AppearanceSlider

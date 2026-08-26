@@ -372,6 +372,13 @@ Orchestrator-Tool, blockierend, Ticket wie `ask_orchestrator`.
 `user_question` auf der Workspace-Karte. Prompt-Zeile „answer with the
 best-supported option“ fällt.
 
+Das Volumen ist eine Profil-Einstellung (`questionMode`: `none` /
+`few` / `thorough`), nur Prompt-Ebene — das Tool bleibt registriert.
+Standard `few` ist das heutige Verhalten (echte User-Entscheidungen).
+`none` fragt trotzdem vor einer destruktiven Aktion oder einer
+Scope-Änderung, die das Ziel nicht schon enthält. `thorough` schließt
+zuerst das Briefing. Nur Root; Leads werden nicht briefed.
+
 Subagent-Fragen: derselbe Host-Pfad wie H1 `answer_question`.
 User-Fragen: Auflösen des `ask_user`-Waiters. Auswahl-Buttons, wenn die
 Frage strukturierte `choices` trägt (oder eine parsebare nummerierte /

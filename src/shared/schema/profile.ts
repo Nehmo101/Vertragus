@@ -46,6 +46,15 @@ export const MAX_EXTRA_MCP = 4
  */
 export const MAX_ROLE_PROMPTS = 32
 
+/**
+ * How many follow-up questions the root orchestrator asks the user via
+ * `ask_user`. Prompt-only: the tool stays registered. Default `few` is
+ * today's behaviour (genuine user decisions — scope / destructive / product).
+ */
+export const QUESTION_MODES = ['none', 'few', 'thorough'] as const
+export type QuestionMode = (typeof QUESTION_MODES)[number]
+export const questionModeSchema = z.enum(QUESTION_MODES)
+
 export const rolePromptEntrySchema = z
   .object({
     roleId: idSchema,
@@ -198,6 +207,12 @@ export const profileSchema = z
      * field so a human can redact it before it runs.
      */
     autoSubmitTasks: z.boolean().default(true),
+    /**
+     * How often the root orchestrator calls `ask_user`. Prompt-only — the
+     * tool stays registered. Default `few` so old profiles (and every new
+     * one) keep today's behaviour: genuine user decisions only, no intake.
+     */
+    questionMode: questionModeSchema.default('few'),
     /**
      * E4: wall-clock budget — the sum of agent-seconds a run may burn before
      * new starts are refused (`budget_warning` fires at 80% and at 100%).

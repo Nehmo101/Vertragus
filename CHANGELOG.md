@@ -12,6 +12,13 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **Per-profile orchestrator question volume.** Profiles now carry
+  `questionMode` (`none` / `few` / `thorough`, default `few`). The profile
+  editor has a picker after auto-submit. The root orchestrator prompt is
+  briefed accordingly — prompt-only, `ask_user` stays registered. `none`
+  still asks before a destructive action or a change of scope; `thorough`
+  closes the brief first (scout + four-line board brief). Leads are not
+  briefed; there is no remote-client picker.
 - **Choice buttons on agent and user questions.** `ask_user` and
   `ask_orchestrator` take optional `choices` (at most 28 short labels).
   The panel `?` badge and the phone answer form show one button per

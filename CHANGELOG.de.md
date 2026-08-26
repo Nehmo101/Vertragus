@@ -13,6 +13,14 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Orchestrator-Fragevolumen pro Profil.** Profile tragen jetzt
+  `questionMode` (`none` / `few` / `thorough`, Standard `few`). Der
+  Profil-Editor hat einen Picker nach Auto-Submit. Der Root-Orchestrator-
+  Prompt wird entsprechend briefed — nur Prompt-Ebene, `ask_user` bleibt
+  registriert. `none` fragt trotzdem vor einer destruktiven Aktion oder
+  einer Scope-Änderung; `thorough` schließt zuerst das Briefing (Scout +
+  vierzeiliges Board-Brief). Leads werden nicht briefed; es gibt keinen
+  Picker im Remote-Client.
 - **Auswahl-Buttons bei Agenten- und User-Fragen.** `ask_user` und
   `ask_orchestrator` nehmen optionale `choices` (höchstens 28 kurze
   Labels). Das `?`-Badge im Panel und das Antwortformular auf dem Handy

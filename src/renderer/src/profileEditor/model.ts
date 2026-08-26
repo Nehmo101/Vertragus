@@ -15,6 +15,7 @@ import {
   DEFAULT_PR_REMOTE,
   profileSchema,
   type Profile,
+  type QuestionMode,
   type RoleTemplate
 } from '@shared/schema/profile'
 import { LEAD_ROLE_ID, ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
@@ -49,6 +50,8 @@ export interface ProfileDraft {
   maxSubagents: string
   /** Press Enter for the agent after an assignment was typed in. */
   autoSubmitTasks: boolean
+  /** How often the root orchestrator asks the user via ask_user. */
+  questionMode: QuestionMode
   /** A3: end-of-work automation — merges without a click, and the auto-PR. */
   automation: {
     autoIntegrate: boolean
@@ -79,6 +82,7 @@ export function emptyDraft(defaultProviderId: string, id = createLocalId('profil
     slots: [],
     maxSubagents: '',
     autoSubmitTasks: true,
+    questionMode: 'few',
     automation: emptyAutomationDraft(),
     rolePrompts: initialRolePromptDraft()
   }
@@ -116,6 +120,7 @@ export function draftFromProfile(profile: Profile): ProfileDraft {
     })),
     maxSubagents: profile.maxSubagents === undefined ? '' : String(profile.maxSubagents),
     autoSubmitTasks: profile.autoSubmitTasks,
+    questionMode: profile.questionMode,
     automation: {
       autoIntegrate: profile.automation.autoIntegrate,
       autoPromote: profile.automation.autoPromote,
@@ -185,6 +190,7 @@ export function toProfileInput(draft: ProfileDraft): unknown {
       ? {}
       : { maxSubagents: optionalNumber(draft.maxSubagents) }),
     autoSubmitTasks: draft.autoSubmitTasks,
+    questionMode: draft.questionMode,
     automation: {
       autoIntegrate: draft.automation.autoIntegrate,
       autoPromote: draft.automation.autoPromote,
