@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   bootOverlayClickThrough,
   bootOverlayVisible,
+  bootStatusVisible,
   isTerminalBootPhase,
   TERMINAL_BOOT_PHASES
 } from './terminalBoot'
@@ -18,12 +19,30 @@ describe('terminal boot overlay', () => {
     ])
   })
 
-  it('shows the overlay for every phase and hides it when the host clears the phase', () => {
+  it('shows the full overlay only while waiting for a late MCP session', () => {
+    expect(bootOverlayVisible('waiting')).toBe(true)
     for (const phase of TERMINAL_BOOT_PHASES) {
-      expect(bootOverlayVisible(phase)).toBe(true)
+      if (phase === 'waiting') continue
+      expect(bootOverlayVisible(phase)).toBe(false)
     }
     expect(bootOverlayVisible(null)).toBe(false)
     expect(bootOverlayVisible(undefined)).toBe(false)
+  })
+
+  it('shows a compact titlebar status for live-xterm phases, not for waiting or a cleared boot', () => {
+    for (const phase of ['preparing', 'worktree', 'mcp', 'cli', 'handshake'] as const) {
+      expect(bootStatusVisible(phase)).toBe(true)
+      expect(bootOverlayVisible(phase)).toBe(false)
+    }
+    expect(bootStatusVisible('waiting')).toBe(false)
+    expect(bootStatusVisible(null)).toBe(false)
+    expect(bootStatusVisible(undefined)).toBe(false)
+  })
+
+  it('never shows overlay and titlebar status at the same time', () => {
+    for (const phase of [...TERMINAL_BOOT_PHASES, null, undefined]) {
+      expect(Boolean(bootOverlayVisible(phase) && bootStatusVisible(phase))).toBe(false)
+    }
   })
 
   it('lets clicks through only while waiting on a late MCP session', () => {

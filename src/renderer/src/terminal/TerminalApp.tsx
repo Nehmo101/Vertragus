@@ -19,6 +19,7 @@ import HoundLogo from '../panel/HoundLogo'
 import {
   bootOverlayClickThrough,
   bootOverlayVisible,
+  bootStatusVisible,
   isTerminalBootPhase,
   type TerminalBootPhase
 } from '@shared/terminalBoot'
@@ -427,6 +428,11 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
           }
         />
         <span className="cli-label">{metaLabel(t, activeLocale(i18n.language), meta, agentId, task)}</span>
+        {bootStatusVisible(boot) ? (
+          <span className="cli-boot-phase" role="status" aria-live="polite" aria-busy="true">
+            {t(`terminal.boot.${boot}`)}
+          </span>
+        ) : null}
         <button
           className="cli-minimize"
           onClick={minimize}
@@ -479,12 +485,11 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
         </div>
       ) : null}
       <div className="cli-terminal" ref={hostRef} />
-      {bootOverlayVisible(boot) && boot ? (
+      {bootOverlayVisible(boot) ? (
         <div
           className={`cli-boot${bootOverlayClickThrough(boot) ? ' is-waiting' : ''}`}
           role="status"
           aria-live="polite"
-          aria-busy={boot !== 'waiting'}
         >
           <div className="cli-boot-hound">
             <HoundLogo size={96} hero />

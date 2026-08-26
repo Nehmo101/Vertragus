@@ -136,7 +136,7 @@ und `ask-user`-Worker. Cursor hat keine per-Tool-Allowlist; die MCP-
 Identität scoped weiter, welche Vertragus-Tools existieren. Der Pi-Wrap
 überspringt diesen Dialekt.
 
-Stoppt die TUI trotzdem an einer Bestätigung, wird das Windhund-Overlay
+Stoppt die TUI trotzdem an einer Bestätigung, erscheint das Windhund-Overlay
 klickdurchlässig (`waiting`), damit du im Fenster auf Approve klicken
 kannst. Der erste Turn bleibt gehalten, bis die Vertragus-MCP-Session
 steht — absichtlich, damit `await_events` keine Tokens gegen fehlende

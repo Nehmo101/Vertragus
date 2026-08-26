@@ -44,9 +44,10 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   Spawn —, sodass MCP-Initialize mit dem CLI-Boot überlappt statt dahinter
   zu warten. Das erste Enter wird gehalten, bis die Vertragus-MCP-Session
   steht, damit ein Orchestrator, der noch nicht attached hat, keine Tokens
-  auf `await_events` verbrennt. Ein Windhund-Overlay auf dem offenen
-  Terminal meldet die Phase (`preparing` → `worktree` → `mcp` → `cli` →
-  `handshake`); fehlt MCP weiterhin, wird es klickdurchlässig (`waiting`),
+  auf `await_events` verbrennt. Während `preparing` → `worktree` → `mcp` →
+  `cli` → `handshake` ist das xterm live und eine kompakte Titlebar-Zeile
+  nennt die Phase. Das volle Windhund-Overlay erscheint nur, während auf
+  eine späte MCP-Session gewartet wird (`waiting`, klickdurchlässig),
   damit übrig gebliebene Cursor-Freigaben geklickt werden können. Cursor-
   Starts nutzen weiter `--approve-mcps` und schreiben zusätzlich
   `~/.cursor/projects/<slug>/mcp-approvals.json`, damit die TUI nicht an

@@ -146,6 +146,21 @@
   font-weight: 500;
 }
 
+/*
+ * Compact boot phase in the titlebar while xterm is live
+ * (preparing / worktree / mcp / cli / handshake). Waiting uses the overlay.
+ */
+.cli-boot-phase {
+  flex: 0 1 18em;
+  min-width: 0;
+  max-width: 22em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 11.5px var(--font-body);
+  color: var(--text-3);
+}
+
 .cli-minimize,
 .cli-maximize,
 .cli-close {
@@ -257,10 +272,11 @@
 }
 
 /*
- * Boot overlay — greyhound + phase text over the xterm surface while the
- * host creates the worktree, attaches MCP and waits for the session. The
- * title bar stays clickable (close / grow). `waiting` is click-through so a
- * leftover Cursor MCP confirmation in the TUI can still be answered.
+ * Boot overlay — greyhound + waiting copy over the xterm surface, only
+ * while MCP is still missing (`waiting`). The title bar stays clickable
+ * (close / grow). `waiting` is click-through so a leftover Cursor MCP
+ * confirmation in the TUI can still be answered. Other boot phases show
+ * live xterm plus a compact titlebar status instead.
  */
 .cli-boot {
   position: absolute;

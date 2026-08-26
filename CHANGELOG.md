@@ -40,10 +40,11 @@ No release has been tagged yet; everything lives under Unreleased.
   spawn — so MCP initialize overlaps CLI boot instead of waiting behind it.
   The first Enter is held until the Vertragus MCP session exists, so an
   orchestrator that has not attached yet does not burn tokens on
-  `await_events`. A greyhound overlay on the open terminal reports the
-  phase (`preparing` → `worktree` → `mcp` → `cli` → `handshake`); if MCP
-  is still missing it goes click-through (`waiting`) so leftover Cursor
-  approvals can be clicked.   Cursor launches still use `--approve-mcps` and
+  `await_events`. During `preparing` → `worktree` → `mcp` → `cli` →
+  `handshake` the xterm is live and a compact titlebar status names the
+  phase. The full greyhound overlay appears only while waiting for a late
+  MCP session (`waiting`, click-through) so leftover Cursor approvals can
+  be clicked.   Cursor launches still use `--approve-mcps` and
   also write `~/.cursor/projects/<slug>/mcp-approvals.json` so the TUI
   does not stop on every server. Extra MCP servers stay subagent-only.
   Every native Cursor launch is **Run Everything** (`--force --sandbox

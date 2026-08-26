@@ -44,9 +44,11 @@ slot caps and the profile-wide `maxSubagents`. The Play button folds out a
 **goal field** — the goal is typed into the orchestrator over the same
 keyboard handshake as any assignment, so what the card shows is what the
 orchestrator really received. **Playbooks** are one-click goal templates on
-that fold-out, never a pre-configured crew. The CLI window opens at once
-with a greyhound overlay while the host creates the worktree, attaches MCP
-and waits for the session; the first turn is submitted only once MCP is up,
+that fold-out, never a pre-configured crew. The CLI window opens at once and streams live xterm output while the host
+creates the worktree, attaches MCP and starts the CLI; a compact titlebar
+status names the phase. The full greyhound overlay appears only while
+waiting for a late MCP session (click-through, so leftover Cursor approvals
+remain clickable). The first turn is submitted only once MCP is up,
 so a start without a connected server does not burn tokens on `await_events`.
 The profile editor also takes an optional **system prompt per identity**
 (Orchestrator, Lead, Worker, Tester, …). A new profile starts with short

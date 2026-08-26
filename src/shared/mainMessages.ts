@@ -95,6 +95,11 @@ interface MainMessages {
   discoveryNoModels: string
   /** A provider CLI was killed after `timeoutMs` without answering. */
   discoveryTimeout: (timeoutMs: number) => string
+  /**
+   * Windows taskbar overlay description while a human question is open.
+   * Spoken as the overlay's accessible name; not an OS Notification toast.
+   */
+  panelAttentionOverlay: string
   /** OS-level window titles — set at window creation, shown by the OS chrome. */
   settingsWindowTitle: string
   profileEditorTitle: string
@@ -177,6 +182,7 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
       `nicht angemeldet — ${login ? `'${login}' ausführen` : 'bitte anmelden'} (${failure})`,
     discoveryNoModels: 'keine Modelle in der Antwort',
     discoveryTimeout: (timeoutMs) => `keine Antwort binnen ${timeoutMs} ms`,
+    panelAttentionOverlay: 'Offene Frage',
     settingsWindowTitle: 'Vertragus — Einstellungen',
     profileEditorTitle: 'Vertragus — Profil',
     providerEditorTitle: 'Vertragus — Provider',
@@ -248,6 +254,7 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
       `not logged in — ${login ? `run '${login}'` : 'please log in'} (${failure})`,
     discoveryNoModels: 'no models in the response',
     discoveryTimeout: (timeoutMs) => `no reply within ${timeoutMs} ms`,
+    panelAttentionOverlay: 'Open question',
     settingsWindowTitle: 'Vertragus — Settings',
     profileEditorTitle: 'Vertragus — Profile',
     providerEditorTitle: 'Vertragus — Provider',

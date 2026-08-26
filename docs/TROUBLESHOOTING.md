@@ -126,7 +126,7 @@ stop on tool calls or MCP initialize — orchestrators and `ask-user`
 workers included. Cursor has no per-tool allow-list; MCP identity still
 scopes which Vertragus tools exist. Pi wrap skips this dialect.
 
-If the TUI still stops on a confirmation, the greyhound overlay lifts to
+If the TUI still stops on a confirmation, the greyhound overlay appears
 click-through (`waiting`) so you can click Approve in the window. The first
 turn stays on hold until the Vertragus MCP session exists — that is
 deliberate, so `await_events` does not burn tokens against missing tools.

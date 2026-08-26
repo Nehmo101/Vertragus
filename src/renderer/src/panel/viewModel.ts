@@ -175,7 +175,7 @@ export function workspaceCanReplaceOrchestrator(
 }
 
 export function workspaceCardClass(
-  workspace: Pick<WorkspaceSummary, 'active' | 'agents'>
+  workspace: Pick<WorkspaceSummary, 'active' | 'agents' | 'userQuestion'>
 ): string {
   const parts = ['panel-card']
   if (workspace.active) parts.push('is-active')
@@ -184,23 +184,18 @@ export function workspaceCardClass(
 }
 
 /**
- * Soft pulse on the card when the ORCHESTRATOR is waiting on the user. A
- * waiting subagent owns the blink on its own row instead — the card stays a
- * normal active highlight so the eye goes to the right line.
+ * Soft pulse on the card when the human must answer a question: the
+ * orchestrator's `ask_user` ({@link WorkspaceSummary.userQuestion}), an
+ * orchestrator PTY ASK (`pendingQuestion` on the orchestrator row), or any
+ * agent's `pendingQuestion`. A waiting subagent ALSO blinks on its own row
+ * ({@link agentNeedsAttention}) — extra, not instead of the card. Blank
+ * text is ignored so a stale empty field cannot light the pulse.
  */
 export function workspaceNeedsAttention(
-  workspace: Pick<WorkspaceSummary, 'agents'>
+  workspace: Pick<WorkspaceSummary, 'agents' | 'userQuestion'>
 ): boolean {
-  if (
-    workspace.agents.some(
-      (agent) => agent.roleId !== ORCHESTRATOR_ROLE_ID && Boolean(agent.pendingQuestion?.trim())
-    )
-  ) {
-    return false
-  }
-  return workspace.agents.some(
-    (agent) => agent.roleId === ORCHESTRATOR_ROLE_ID && Boolean(agent.pendingQuestion?.trim())
-  )
+  if (workspace.userQuestion?.question.trim()) return true
+  return workspace.agents.some((agent) => Boolean(agent.pendingQuestion?.trim()))
 }
 
 /** Soft pulse on a subagent row that is parked on an open question. */

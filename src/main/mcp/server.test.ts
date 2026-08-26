@@ -295,6 +295,18 @@ describe('startMcpServer', () => {
     ).resolves.toEqual({ ok: true, agentId: 'agent-1', questionId: pending.questionId })
     await expect(waiter).resolves.toEqual({ state: 'answered', answer: 'Postgres.' })
     expect(handle.openQuestion('w-answer', 'agent-1')).toBeUndefined()
+    expect(handle.openQuestionCount()).toBe(0)
+  })
+
+  it('sums open questions across workspaces for native attention', () => {
+    const a = handle.registerWorkspace(context({ workspaceId: 'w-count-a' }))
+    const b = handle.registerWorkspace(context({ workspaceId: 'w-count-b' }))
+    expect(handle.openQuestionCount()).toBe(0)
+    a.runtime.questions.create('user', 'Ship it?')
+    b.runtime.questions.create('agent-1', 'which db?')
+    expect(handle.openQuestionCount()).toBe(2)
+    a.runtime.questions.clear()
+    expect(handle.openQuestionCount()).toBe(1)
   })
 
   it('F: serves the lead tool union on a lead URL and keeps the token domains apart', async () => {
