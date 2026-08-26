@@ -211,7 +211,8 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       }, () => undefined)
     }
     const onPaste = (event: ClipboardEvent): void => {
-      if (clipboardDataLooksLikeImage(event.clipboardData)) event.preventDefault()
+      if (!clipboardDataLooksLikeImage(event.clipboardData)) return
+      event.preventDefault()
       saveClipboard()
     }
     const onDragOver = (event: DragEvent): void => {

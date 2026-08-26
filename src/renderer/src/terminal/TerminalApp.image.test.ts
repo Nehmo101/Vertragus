@@ -9,6 +9,12 @@ describe('TerminalApp image paste/drop', () => {
     expect(source).toContain('bridge.image(source)')
     expect(source).toContain('bridge.input(attachmentText(relativePath))')
     expect(source).toContain("addEventListener('paste', onPaste, true)")
+    expect(source).toContain('if (!clipboardDataLooksLikeImage(event.clipboardData)) return')
+    const pasteFn = source.slice(source.indexOf('const onPaste'), source.indexOf('const onDragOver'))
+    expect(pasteFn).toContain('saveClipboard()')
+    expect(pasteFn.indexOf('if (!clipboardDataLooksLikeImage(event.clipboardData)) return')).toBeLessThan(
+      pasteFn.indexOf('saveClipboard()')
+    )
     expect(source).toContain("addEventListener('dragover'")
     expect(source).toContain("addEventListener('drop'")
     expect(source).toContain('event.preventDefault()')

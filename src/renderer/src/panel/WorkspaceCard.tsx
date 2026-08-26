@@ -410,7 +410,8 @@ function GoalRefill({
             onChange={(event) => setGoal(event.target.value)}
             onPaste={(event) => {
               if (!onSaveAttachment) return
-              if (clipboardDataLooksLikeImage(event.clipboardData)) event.preventDefault()
+              if (!clipboardDataLooksLikeImage(event.clipboardData)) return
+              event.preventDefault()
               void onSaveAttachment({ workspaceId }, 'clipboard').then((result) => {
                 if (result) insertSaved(result)
               })
@@ -511,7 +512,8 @@ function Composer({
         onChange={(event) => setText(event.target.value)}
         onPaste={(event) => {
           if (!onSaveAttachment) return
-          if (clipboardDataLooksLikeImage(event.clipboardData)) event.preventDefault()
+          if (!clipboardDataLooksLikeImage(event.clipboardData)) return
+          event.preventDefault()
           void onSaveAttachment(attachTarget, 'clipboard').then((result) => {
             if (result) insertSaved(result)
           })

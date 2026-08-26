@@ -10,6 +10,8 @@ describe('WorkspaceCard image attach wiring', () => {
     expect(source).toContain('onDragOver')
     expect(source).toContain("event.preventDefault()")
     expect(source).toContain('onSaveAttachment')
+    expect(source).toContain('if (!clipboardDataLooksLikeImage(event.clipboardData)) return')
+    expect(source.split('if (!clipboardDataLooksLikeImage(event.clipboardData)) return')).toHaveLength(3)
     const answerBlock = source.slice(source.indexOf('panel-answer-input'))
     const firstTextarea = answerBlock.slice(0, answerBlock.indexOf('/>'))
     expect(firstTextarea).not.toContain('onDrop')

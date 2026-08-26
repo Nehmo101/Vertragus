@@ -12,5 +12,6 @@ describe('ProfileRow image attach', () => {
     expect(source).toContain('profileId: profile.id')
     expect(source).toContain("setAttachmentIds([])")
     expect(source).toContain('panel.attachImagesHint')
+    expect(source).toContain('if (!clipboardDataLooksLikeImage(event.clipboardData)) return')
   })
 })
