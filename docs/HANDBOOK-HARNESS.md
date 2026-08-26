@@ -6,6 +6,9 @@ Ideas that come from the code — not from a generic agent roadmap.
 
 Copy-paste-ready agent prompts for all open tracks:
 [`PROMPT-MCP-HARNESS.md`](./PROMPT-MCP-HARNESS.md).
+Intake, Scout, and the run archive (spec):
+[`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md),
+[`PROMPT-INTAKE-ARCHIVE.md`](./PROMPT-INTAKE-ARCHIVE.md).
 
 **Status:** [PR #17](https://github.com/Nehmo101/Vertragus/pull/17) has
 **implemented** BigBoy A1–A3, Remote (B) and Harness C1/C2 (`inspect_agent`,
@@ -56,6 +59,7 @@ server.
 | E integrate / briefing / eval | **core implemented** (Track 6) — `integrate_branch` + gate warning + promote click, briefing + `repoNotes`, journal + resume (E3, briefing instead of re-spawn), budget wall clock, Janitor/Explorer, playbooks, extra MCP for workers (E6), loop eval (E5, `tests/integration/loopEval`) — Phase E complete |
 | F multi-orch (Lead, depth 1) | **implemented** (Track 5) — third identity `lead=`, own queues, `start_orchestrator`, fan-in of direct children only, reparent (`subtree_adopted`), caps host-side |
 | H nested workers / live steer / browser | **implemented** — workers may spawn one helper level; composer targeting on `user_message`; first-party `/browser` loopback (not a second MCP) |
+| I intake / Scout / run archive timeline | **spec only** — see [`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md) |
 
 ---
 

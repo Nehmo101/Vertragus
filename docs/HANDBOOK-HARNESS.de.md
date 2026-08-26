@@ -6,6 +6,9 @@ Ideen, die aus dem Code kommen — nicht aus einer generischen Agent-Roadmap.
 
 Copy-paste-fähige Agent-Prompts für alle offenen Tracks:
 [`PROMPT-MCP-HARNESS.md`](./PROMPT-MCP-HARNESS.md).
+Intake, Scout und das Lauf-Archiv (Spec):
+[`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md),
+[`PROMPT-INTAKE-ARCHIVE.md`](./PROMPT-INTAKE-ARCHIVE.md).
 
 **Stand:** [PR #17](https://github.com/Nehmo101/Vertragus/pull/17) hat BigBoy
 A1–A3, Remote (B) und Harness C1/C2 (`inspect_agent`, Host-Fakten auf
@@ -56,6 +59,7 @@ Remote-Server.
 | E integrate / briefing / eval | **Kern umgesetzt** (Track 6) — `integrate_branch` + Gate-Warnung + Promote-Klick, Briefing + `repoNotes`, Journal + Resume (E3, Briefing statt Re-Spawn), Budget-Wanduhr, Janitor/Explorer, Playbooks, Extra-MCP an Worker (E6), Loop-Eval (E5, `tests/integration/loopEval`) — Phase E vollständig |
 | F Multi-Orch (Lead, Tiefe 1) | **umgesetzt** (Track 5) — dritte Identität `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder, Reparent (`subtree_adopted`), Caps host-seitig |
 | H Nested Worker / Live-Steer / Browser | **umgesetzt** — Worker dürfen eine Helper-Ebene spawnen; Composer-Targeting auf `user_message`; First-Party `/browser`-Loopback (kein zweiter MCP) |
+| I Intake / Scout / Lauf-Archiv-Timeline | **nur Spec** — siehe [`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md) |
 
 ---
 
