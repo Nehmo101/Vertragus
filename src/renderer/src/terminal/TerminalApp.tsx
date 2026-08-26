@@ -325,7 +325,12 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
     const onWindowFocus = (): void => {
       if (disposed) return
       if (overlayVisibleRef.current) {
-        document.querySelector<HTMLTextAreaElement>('textarea.cli-question-input')?.focus()
+        // Same Windows trap as mount: textarea.focus() activates the window
+        // even after showInactive(). A spurious renderer focus must not yank
+        // the user out of another CLI.
+        if (shouldAutofocusOverlay(document.hasFocus())) {
+          document.querySelector<HTMLTextAreaElement>('textarea.cli-question-input')?.focus()
+        }
         return
       }
       if (shouldFocusTerminal(document.hasFocus())) term.focus()
