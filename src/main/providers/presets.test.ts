@@ -103,7 +103,7 @@ describe('claude preset', () => {
     expect(claude.yoloArgs).toEqual(['--dangerously-skip-permissions'])
     expect(claude.modelArg).toBe('--model')
     expect(claude.effortArg).toEqual({ style: 'flag', flag: '--effort' })
-    expect(claude.effortLevels).toEqual(['low', 'medium', 'high'])
+    expect(claude.effortLevels).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
     expect(claude.systemPromptDelivery).toEqual({
       kind: 'arg',
       flag: '--append-system-prompt'
