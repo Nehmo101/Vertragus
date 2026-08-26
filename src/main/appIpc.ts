@@ -550,6 +550,10 @@ export interface PanelSettings {
   appearance: Appearance
   /** When a window or zone is moved, neighbors shrink and fill the gap. */
   reflowNeighbors: boolean
+  /** Start the app minimized. App-wide, not a profile field. */
+  startMinimized: boolean
+  /** One CLI window per agent, or tabs in a shared window. */
+  cliWindowMode: AppSettings['ui']['cliWindowMode']
   /** WP-7: the first-run card was closed by hand — the panel honours it. */
   onboardingDismissed: boolean
   autostart: boolean
@@ -642,6 +646,8 @@ export const WRITABLE_SETTINGS = [
   'locale',
   'appearance',
   'reflowNeighbors',
+  'startMinimized',
+  'cliWindowMode',
   'voice',
   'agentPolicy',
   'piHarnessEnabled',
@@ -931,6 +937,8 @@ export function toPanelSettings(
     theme: value.ui.theme,
     appearance: value.ui.appearance,
     reflowNeighbors: value.ui.reflowNeighbors,
+    startMinimized: value.ui.startMinimized,
+    cliWindowMode: value.ui.cliWindowMode,
     onboardingDismissed: value.ui.onboardingDismissed,
     autostart: value.autostart,
     updateChannel: value.updateChannel,
@@ -1735,6 +1743,21 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
             throw new Error('settings:set rejected — reflowNeighbors expects a boolean')
           }
           const ui = { ...host.store.getSettings().ui, reflowNeighbors: body.value }
+          return panelSettings(host.store.setSetting('ui', ui))
+        }
+        case 'startMinimized': {
+          if (typeof body.value !== 'boolean') {
+            throw new Error('settings:set rejected — startMinimized expects a boolean')
+          }
+          const ui = { ...host.store.getSettings().ui, startMinimized: body.value }
+          return panelSettings(host.store.setSetting('ui', ui))
+        }
+        case 'cliWindowMode': {
+          if (body.value !== 'per-agent' && body.value !== 'tabs') {
+            throw new Error('settings:set rejected — cliWindowMode expects per-agent or tabs')
+          }
+          const cliWindowMode: AppSettings['ui']['cliWindowMode'] = body.value
+          const ui = { ...host.store.getSettings().ui, cliWindowMode }
           return panelSettings(host.store.setSetting('ui', ui))
         }
         default: {

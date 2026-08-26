@@ -406,6 +406,10 @@ export interface PanelSettings {
   appearance: Appearance
   /** When a window or zone is moved, neighbors shrink and fill the gap. */
   reflowNeighbors: boolean
+  /** Start the app minimized. App-wide, not a profile field. */
+  startMinimized: boolean
+  /** One CLI window per agent, or tabs in a shared window. */
+  cliWindowMode: 'per-agent' | 'tabs'
   /** WP-7: the first-run card was closed by hand — the panel honours it. */
   onboardingDismissed: boolean
   autostart: boolean
@@ -459,6 +463,8 @@ export type WritableSetting =
   | 'locale'
   | 'appearance'
   | 'reflowNeighbors'
+  | 'startMinimized'
+  | 'cliWindowMode'
   | 'voice'
   | 'agentPolicy'
   | 'piHarnessEnabled'
