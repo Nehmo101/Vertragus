@@ -393,7 +393,7 @@
     "snapToZones": "Reset to zones on hide",
     "snapToZonesHint": "Hide-all puts agent windows back in their role zone when hiding and showing. Off: they come back exactly where they were.",
     "startMinimized": "Start in the background",
-    "startMinimizedHint": "Vertragus starts hidden. The taskbar entry brings it back.",
+    "startMinimizedHint": "New agent CLI windows start minimized in the taskbar. The panel stays. Click the agent to restore.",
     "cliWindowMode": "CLI view",
     "cliWindowModePerAgent": "One window per agent",
     "cliWindowModeTabs": "Tabs",

@@ -500,7 +500,7 @@ export interface PanelSettings {
   reflowNeighbors: boolean
   /** Hide-all hide and restore snap CLI windows back to their role zones. */
   snapToZones: boolean
-  /** Start the app minimized. App-wide, not a profile field. */
+  /** New CLI windows start OS-minimized to the taskbar. The panel stays visible. */
   startMinimized: boolean
   /** One CLI window per agent, or tabs in a shared window. */
   cliWindowMode: 'per-agent' | 'tabs'

@@ -393,7 +393,7 @@
     "snapToZones": "Beim Ausblenden auf Zonen setzen",
     "snapToZonesHint": "„Alles ausblenden“ setzt Agent-Fenster beim Verstecken und Wiederzeigen auf ihre Rollen-Zone. Aus: sie kommen genau dort zurück, wo sie waren.",
     "startMinimized": "Im Background starten",
-    "startMinimizedHint": "Vertragus startet im Background. Der Taskleisten-Eintrag holt es zurück.",
+    "startMinimizedHint": "Neue Agent-CLI-Fenster starten minimiert in der Taskleiste. Das Panel bleibt sichtbar. Klick auf den Agenten holt das Fenster zurück.",
     "cliWindowMode": "CLI-Ansicht",
     "cliWindowModePerAgent": "Einzelfenster",
     "cliWindowModeTabs": "Tabs",
