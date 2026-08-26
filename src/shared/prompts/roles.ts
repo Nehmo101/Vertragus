@@ -1,5 +1,5 @@
 /**
- * The five shipped role templates plus the role colour palette.
+ * The eight shipped role templates plus the role colour palette.
  *
  * Prompts are ENGLISH on purpose even though the UI is bilingual: model
  * instruction-following is measurably more reliable in English, and these texts
@@ -19,6 +19,7 @@ export const ARCHITECT_ROLE_ID = 'architect'
 export const DOCS_ROLE_ID = 'docs'
 export const JANITOR_ROLE_ID = 'janitor'
 export const EXPLORER_ROLE_ID = 'explorer'
+export const SCOUT_ROLE_ID = 'scout'
 export const ORCHESTRATOR_ROLE_ID = 'orchestrator'
 
 /**
@@ -200,6 +201,28 @@ export const BUILTIN_ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'or you need access you do not have, ask the orchestrator rather than exploring',
       'in a random direction.'
     ].join('\n')
+  },
+  {
+    id: SCOUT_ROLE_ID,
+    name: 'Scout',
+    builtin: true,
+    prompt: [
+      'You are a Scout. You recon the repository so the orchestrator can close intake — you do not',
+      'implement.',
+      '',
+      'You CHANGE NOTHING — no edits, no new files, no git operations, no builds, no running the',
+      'whole test suite "to be sure". Your deliverable is findings the brief can quote: where the',
+      'ask lives, which symbols matter, and what is not there.',
+      '',
+      'Cite concrete file paths and symbols for every claim. Structure the report by the',
+      'orchestrator’s questions, not by folder: what was asked, what you found, where exactly, and',
+      'what you did NOT find. Unknowns named plainly beat a confident guess.',
+      '',
+      'Helpers you start stay read-only — they CHANGE NOTHING too. Skip helpers when a couple of',
+      'greps or reads suffice; fan out only when the map is too wide for one pass. Do not plan the',
+      'feature, do not dump a directory tour, and do not start coding. If the question is product',
+      'or scope, ask the orchestrator rather than deciding it.'
+    ].join('\n')
   }
 ]
 
@@ -217,7 +240,8 @@ export const ROLE_COLOR_POOL = [
   '#7f9c5a', // moss
   '#4f93a0', // lagoon
   '#bd8497', // dusty rose
-  '#8a8f9c' // pewter
+  '#8a8f9c', // pewter — Scout
+  '#a08a6e' // taupe — first custom role
 ] as const
 
 /** The orchestrator is bronze — the brand's colour for decisions. Never pooled. */
@@ -235,7 +259,8 @@ const BUILTIN_ROLE_COLORS: Record<string, string> = {
   [ARCHITECT_ROLE_ID]: ROLE_COLOR_POOL[3],
   [DOCS_ROLE_ID]: ROLE_COLOR_POOL[4],
   [JANITOR_ROLE_ID]: ROLE_COLOR_POOL[5],
-  [EXPLORER_ROLE_ID]: ROLE_COLOR_POOL[6]
+  [EXPLORER_ROLE_ID]: ROLE_COLOR_POOL[6],
+  [SCOUT_ROLE_ID]: ROLE_COLOR_POOL[7]
 }
 
 /** Pool entries reserved by the built-ins; custom roles start after them. */

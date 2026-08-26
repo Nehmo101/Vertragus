@@ -2,7 +2,7 @@ English | [Deutsch](PLAN-INTAKE-ARCHIVE.de.md)
 
 # Intake, Scout, and the run archive
 
-Stand: 26 August 2026. No program code in this change.
+Stand: 26 August 2026. Tracks I1–T2 are implemented in this change.
 
 Specifies three product edges that still sit on top of the existing
 loop: **intake before the team starts**, a **Scout** role for
@@ -36,10 +36,10 @@ Sources for the visual and factory ideas:
 
 | Piece | Status |
 | --- | --- |
-| Intake loop (ask until AC + DoD, or skip) | **spec** — prompt + `ask_user` copy; no new MCP tool |
-| Scout builtin role | **spec** — eighth shipped role, slot opt-in |
-| Archive of stopped runs | **spec** — journals already persist; panel has no door |
-| Timeline view | **spec** — projection over `events.jsonl`, not a second DB |
+| Intake loop (ask until AC + DoD, or skip) | **implemented** — prompt + `ask_user` copy; no new MCP tool |
+| Scout builtin role | **implemented** — eighth shipped role, slot opt-in |
+| Archive of stopped runs | **implemented** — journals already persist; profile fold-out + card button |
+| Timeline view | **implemented** — projection over `events.jsonl`, not a second DB |
 | SSSF Python ADW graphs | **refuse** — handbook non-goal (second orchestration) |
 | Token / dollar meters as host truth | **refuse** — wall clock is the budget; vendor-admitted usage only |
 

@@ -393,8 +393,14 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
   async function stopWorkspace(workspaceId: string, options?: StopOptions): Promise<boolean> {
     const workspace = workspaces.get(workspaceId)
     if (!workspace) return false
+    const run = runMetas.get(workspaceId)
+    // Crash vs user-stop must be decided from events already on disk BEFORE
+    // close() — close itself can push orchestrator_exited and would lie.
+    const crashed = (eventTaps.get(workspaceId)?.events ?? []).some(
+      (event) => event.type === 'orchestrator_exited'
+    )
+    const endReason = workspace.pendingRetroSummary ? 'retro' : crashed ? 'crash' : 'user_stop'
     workspaces.delete(workspaceId)
-    runMetas.delete(workspaceId)
     // A3: the user pressing Stop is the other "the work is done" — open the
     // pull request the profile asked for if record_retro never got around to
     // it. Before close(), because the event queue dies in there; at most one
@@ -405,6 +411,21 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     } catch (error) {
       console.warn('[automation] failed to open the run pull request:', error)
     }
+    if (run) {
+      const pullRequestUrl =
+        workspace.runPullRequest?.ok === true ? workspace.runPullRequest.url : undefined
+      try {
+        run.journal.writeMeta({
+          ...run.meta,
+          endedAt: Date.now(),
+          endReason,
+          ...(pullRequestUrl ? { pullRequestUrl } : {})
+        })
+      } catch (error) {
+        console.warn('[journal] failed to write run end meta:', error)
+      }
+    }
+    runMetas.delete(workspaceId)
     // Agents first (subagents, then the orchestrator), then the registration —
     // unregisterWorkspace closes the EventQueue, and a push after that throws.
     await workspace.close(options)

@@ -2,7 +2,7 @@ Deutsch | [English](PLAN-INTAKE-ARCHIVE.md)
 
 # Intake, Scout und das Lauf-Archiv
 
-Stand: 26. August 2026. Kein Programcode in dieser Änderung.
+Stand: 26. August 2026. Tracks I1–T2 sind in dieser Änderung umgesetzt.
 
 Spezifiziert drei Produktkanten, die noch auf der bestehenden Schleife
 sitzen: **Intake, bevor das Team startet**, eine **Scout**-Rolle für
@@ -36,10 +36,10 @@ Quellen für die visuellen und Factory-Ideen:
 
 | Stück | Stand |
 | --- | --- |
-| Intake-Schleife (fragen bis AC + DoD, oder überspringen) | **Spec** — Prompt + `ask_user`-Text; kein neues MCP-Tool |
-| Scout-Builtin-Rolle | **Spec** — achte mitgelieferte Rolle, Slot opt-in |
-| Archiv gestoppter Läufe | **Spec** — Journale persistieren schon; das Panel hat keine Tür |
-| Timeline-Ansicht | **Spec** — Projektion über `events.jsonl`, keine zweite DB |
+| Intake-Schleife (fragen bis AC + DoD, oder überspringen) | **umgesetzt** — Prompt + `ask_user`-Text; kein neues MCP-Tool |
+| Scout-Builtin-Rolle | **umgesetzt** — achte mitgelieferte Rolle, Slot opt-in |
+| Archiv gestoppter Läufe | **umgesetzt** — Journale persistieren schon; Profil-Klappe + Karten-Button |
+| Timeline-Ansicht | **umgesetzt** — Projektion über `events.jsonl`, keine zweite DB |
 | SSSF-Python-ADW-Graphen | **ablehnen** — Handbook-Non-Goal (zweite Orchestrierung) |
 | Token-/Dollar-Zähler als Host-Wahrheit | **ablehnen** — Wanduhr ist das Budget; nur vendor-zugestandene Nutzung |
 

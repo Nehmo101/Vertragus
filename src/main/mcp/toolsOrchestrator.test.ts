@@ -24,6 +24,16 @@ describe('orchestrator tool surface', () => {
 })
 
 describe('ask_user — D3', () => {
+  it('describes intake holes as user decisions and forbids guessing', () => {
+    const { tools } = setup()
+    const description = tools.get('ask_user')!.description ?? ''
+    expect(description).toMatch(/acceptance criteria/i)
+    expect(description).toMatch(/Definition of Done/)
+    expect(description).toMatch(/Guessing is forbidden/)
+    expect(description).toMatch(/Scout/)
+    expect(description).toMatch(/HEAD Read/)
+    expect(description).not.toMatch(/Only for decisions that are genuinely the/)
+  })
   it('parks a question for the human, pushes user_question once, and resumes by ticket', async () => {
     const { runtime, tools } = setup()
 
@@ -131,7 +141,13 @@ describe('start_agent', () => {
 
     const events = runtime.events.all()
     expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({ type: 'agent_started', agentId: 'agent-1', roleId: 'worker' })
+    expect(events[0]).toMatchObject({
+      type: 'agent_started',
+      agentId: 'agent-1',
+      roleId: 'worker',
+      taskSubject: 'Fix the parser'
+    })
+    expect(events[0]).not.toHaveProperty('parentId')
   })
 
   it('D4: appends the approval rule only under the ask-orchestrator tier', async () => {
@@ -1382,6 +1398,10 @@ describe('multi-orchestration — F', () => {
     expect(runtime.events.all().some((event) => event.type === 'agent_started' && event.agentId === helperId)).toBe(
       false
     )
+    const started = nest.events.all().find(
+      (event) => event.type === 'agent_started' && event.agentId === helperId
+    )
+    expect(started).toMatchObject({ parentId: 'worker-1', taskSubject: 'a' })
   })
 
   it('refuses start_agent when the caller cannot spawn helpers', async () => {

@@ -315,6 +315,7 @@ describe('createEmptyProfile', () => {
         'lead',
         'orchestrator',
         'reviewer',
+        'scout',
         'tester',
         'worker'
       ]
