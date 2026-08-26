@@ -37,10 +37,6 @@ Neighbouring tools and the gaps worth taking are mapped in
 [`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md); the
 parallel adoption plan is
 [`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md).
-Intake, Scout, and the run archive (timeline of stopped runs) are
-specified in
-[`docs/PLAN-INTAKE-ARCHIVE.md`](docs/PLAN-INTAKE-ARCHIVE.md)
-([prompt](docs/PROMPT-INTAKE-ARCHIVE.md)).
 
 ## How a run works
 

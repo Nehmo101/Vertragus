@@ -40,9 +40,6 @@ lohnen, stehen in
 [`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md); der
 parallele Umsetzungsplan in
 [`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md).
-Intake, Scout und das Lauf-Archiv (Timeline gestoppter Läufe) stehen in
-[`docs/PLAN-INTAKE-ARCHIVE.md`](docs/PLAN-INTAKE-ARCHIVE.md)
-([Prompt](docs/PROMPT-INTAKE-ARCHIVE.md)).
 
 ## Wie ein Lauf funktioniert
 

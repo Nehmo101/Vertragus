@@ -5,9 +5,6 @@ Deutsch | [English](PROMPT-MCP-HARNESS.md)
 > Copy-paste-fähiger Agent-Prompt. Primärquelle für Reihenfolge und
 > Non-Goals: [`HANDBOOK-HARNESS.md`](./HANDBOOK-HARNESS.md). Code-Anker
 > unten. **Nicht** A1–A3 / Remote-v1 / C1–C2 neu bauen — die liegen.
-> Intake, Scout und das Lauf-Archiv sind ein späteres Programm:
-> [`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md),
-> [`PROMPT-INTAKE-ARCHIVE.md`](./PROMPT-INTAKE-ARCHIVE.md).
 
 ---
 
