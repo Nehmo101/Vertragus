@@ -255,6 +255,7 @@ describe('app settings', () => {
         theme: 'dark',
         locale: 'de',
         appearance: DEFAULT_APPEARANCE,
+        cliSurface: 'session',
         reflowNeighbors: true,
         onboardingDismissed: false
       },
@@ -390,6 +391,7 @@ describe('app settings', () => {
       theme: 'dark',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
+      cliSurface: 'session',
       reflowNeighbors: true,
       onboardingDismissed: false,
       panelBounds: { edge: 'right', y: 320 }
@@ -398,6 +400,7 @@ describe('app settings', () => {
       theme: 'dark',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
+      cliSurface: 'session',
       reflowNeighbors: true,
       onboardingDismissed: false,
       panelBounds: { edge: 'right', y: 320 }
@@ -428,6 +431,7 @@ describe('app settings', () => {
       theme: 'light',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
+      cliSurface: 'session',
       reflowNeighbors: true,
       onboardingDismissed: false
     })
@@ -582,6 +586,7 @@ describe('adoptLegacyStore', () => {
       theme: 'light',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
+      cliSurface: 'session',
       reflowNeighbors: true,
       onboardingDismissed: false
     })

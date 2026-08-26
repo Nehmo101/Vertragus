@@ -32,6 +32,7 @@ import Store from 'electron-store'
 import { z } from 'zod'
 import { AGENT_POLICIES, type AgentPolicy } from '@shared/agentPolicy'
 import { normalizeAppearance } from '@shared/appearance'
+import { normalizeCliSurface } from '@shared/cliSurface'
 import {
   parseProfiles,
   profileSchema,
@@ -102,12 +103,25 @@ export const appearanceSchema = z.preprocess(
     .strict()
 )
 
+/**
+ * Session chrome vs vendor TUI. Preprocessed like appearance: an install from
+ * before the setting existed, or a junk value, reads as the session default
+ * instead of dropping the whole `ui` section.
+ */
+export const cliSurfaceSchema = z.preprocess(normalizeCliSurface, z.enum(['session', 'raw']))
+
 export const uiSettingsSchema = z
   .object({
     panelBounds: panelBoundsSchema.optional(),
     theme: z.enum(['dark', 'light']).default('dark'),
     locale: z.enum(['de', 'en']).default('de'),
     appearance: appearanceSchema,
+    /**
+     * How CLI windows paint: host session chrome (same view for every
+     * provider) or the vendor TUI. Default session — Cursor's own chrome is
+     * the reason the overlay exists.
+     */
+    cliSurface: cliSurfaceSchema,
     /** When a window or zone is moved, neighbors shrink and fill the gap. */
     reflowNeighbors: z.boolean().default(true),
     /**

@@ -8,6 +8,8 @@ import type { Appearance } from '@shared/appearance'
 import type { BindOption, RemoteClientInfo, RemoteStatus } from '@shared/remote/types'
 import type { BrowserExtensionInstallResult, BrowserExtensionStatus } from '@shared/browserExtension'
 import type { TerminalBootPhase } from '@shared/terminalBoot'
+import type { CliSession } from '@shared/cliSession'
+import type { CliSurface } from '@shared/cliSurface'
 
 /** Mirrors main/appIpc.PanelMcpServer — secrets never appear here. */
 export interface PanelMcpServer {
@@ -42,6 +44,9 @@ const CHANNELS = {
   exit: 'terminal:exit',
   task: 'terminal:task',
   boot: 'terminal:boot',
+  session: 'terminal:session',
+  followup: 'terminal:followup',
+  answer: 'terminal:answer',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -72,6 +77,10 @@ export interface TerminalAttachResult {
   task?: string
   /** Boot overlay phase at attach time; later changes arrive via onBoot. */
   boot?: TerminalBootPhase
+  /** Host session chrome at attach time; later changes arrive via onSession. */
+  session?: CliSession
+  /** Stored CLI surface at attach time; later flips arrive via onSettings. */
+  cliSurface?: CliSurface
 }
 
 export interface TerminalDataEvent {
@@ -89,6 +98,12 @@ export interface TerminalTaskEvent {
 export interface TerminalBootEvent {
   agentId: string
   boot: TerminalBootPhase | null
+}
+
+/** Host session snapshot for this window's agent. */
+export interface TerminalSessionEvent {
+  agentId: string
+  session?: CliSession
 }
 
 export interface TerminalExitEvent {
@@ -137,6 +152,23 @@ const terminal = {
       ipcRenderer.removeListener(CHANNELS.boot, handler)
     }
   },
+  onSession: (listener: (event: TerminalSessionEvent) => void): (() => void) => {
+    const handler = (_event: unknown, payload: TerminalSessionEvent): void => listener(payload)
+    ipcRenderer.on(CHANNELS.session, handler)
+    return () => {
+      ipcRenderer.removeListener(CHANNELS.session, handler)
+    }
+  },
+  /**
+   * Steer this agent over the host `user_message` path — never a PTY write.
+   * The main process derives the agent from the sender window.
+   */
+  followUp: (text: string): Promise<void> => ipcRenderer.invoke(CHANNELS.followup, { text }),
+  /**
+   * Answer this agent's open question over the same host path as the panel badge.
+   */
+  answer: (questionId: string, text: string): Promise<void> =>
+    ipcRenderer.invoke(CHANNELS.answer, { questionId, text }),
   /** Close this window only — the agent keeps running. */
   closeWindow: (): void => {
     ipcRenderer.send(CHANNELS.windowClose)
@@ -404,6 +436,11 @@ export interface PanelSettings {
   theme: 'dark' | 'light'
   /** Window opacity and glass transparency; see @shared/appearance. */
   appearance: Appearance
+  /**
+   * How CLI windows paint: host session chrome (same view for every provider)
+   * or the vendor TUI.
+   */
+  cliSurface: CliSurface
   /** When a window or zone is moved, neighbors shrink and fill the gap. */
   reflowNeighbors: boolean
   /** WP-7: the first-run card was closed by hand — the panel honours it. */
@@ -458,6 +495,7 @@ export type WritableSetting =
   | 'theme'
   | 'locale'
   | 'appearance'
+  | 'cliSurface'
   | 'reflowNeighbors'
   | 'voice'
   | 'agentPolicy'

@@ -51,6 +51,7 @@ import {
 } from '@shared/schema/mcpServer'
 import type { ProviderConfig } from '@shared/schema/provider'
 import { normalizeAppearance, type Appearance } from '@shared/appearance'
+import { DEFAULT_CLI_SURFACE, isCliSurface, type CliSurface } from '@shared/cliSurface'
 import { mainMessages, readLocale } from '@shared/mainMessages'
 import type { AppSettings, SettingsStore, VoiceSettings } from '@main/store/settings'
 import { effectiveAgentPolicy, settings } from '@main/store/settings'
@@ -548,6 +549,11 @@ export interface PanelSettings {
   theme: AppSettings['ui']['theme']
   /** Opacity and glass transparency; see shared/appearance.ts. */
   appearance: Appearance
+  /**
+   * How CLI windows paint: host session chrome (same view for every provider)
+   * or the vendor TUI.
+   */
+  cliSurface: CliSurface
   /** When a window or zone is moved, neighbors shrink and fill the gap. */
   reflowNeighbors: boolean
   /** WP-7: the first-run card was closed by hand — the panel honours it. */
@@ -641,6 +647,7 @@ export const WRITABLE_SETTINGS = [
   'theme',
   'locale',
   'appearance',
+  'cliSurface',
   'reflowNeighbors',
   'voice',
   'agentPolicy',
@@ -930,6 +937,7 @@ export function toPanelSettings(
     locale: value.ui.locale,
     theme: value.ui.theme,
     appearance: value.ui.appearance,
+    cliSurface: value.ui.cliSurface ?? DEFAULT_CLI_SURFACE,
     reflowNeighbors: value.ui.reflowNeighbors,
     onboardingDismissed: value.ui.onboardingDismissed,
     autostart: value.autostart,
@@ -1729,6 +1737,13 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
             if (message.startsWith('settings:set rejected')) throw error
             throw new Error(`settings:set rejected — ${message}`)
           }
+        }
+        case 'cliSurface': {
+          if (!isCliSurface(body.value)) {
+            throw new Error('settings:set rejected — cliSurface expects session or raw')
+          }
+          const ui = { ...host.store.getSettings().ui, cliSurface: body.value }
+          return panelSettings(host.store.setSetting('ui', ui))
         }
         case 'reflowNeighbors': {
           if (typeof body.value !== 'boolean') {

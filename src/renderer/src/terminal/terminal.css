@@ -146,6 +146,25 @@
   font-weight: 500;
 }
 
+.cli-surface {
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--bronze) 42%, var(--hairline));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bronze) 12%, transparent);
+  color: var(--bronze-bright);
+  font: 600 10px var(--font-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.cli-surface:hover {
+  background: color-mix(in srgb, var(--bronze) 22%, transparent);
+  color: var(--text);
+}
+
 .cli-minimize,
 .cli-maximize,
 .cli-close {
@@ -308,4 +327,276 @@
   50% {
     transform: translateX(16px) translateY(-8px);
   }
+}
+
+/*
+ * Session chrome — host truth over the vendor TUI. Same glass, role wash and
+ * bronze/verdigris grammar as the panel: this is a Vertragus window that
+ * happens to contain an agent, not a skinned Cursor/Claude terminal.
+ */
+.cli-session {
+  position: absolute;
+  top: 38px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px 14px 12px 16px;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  background:
+    linear-gradient(var(--role-ground-wash), var(--role-ground-wash)),
+    var(--glass-terminal-focused);
+  backdrop-filter: blur(8px) saturate(1.08);
+}
+
+.cli-session-watermark {
+  position: absolute;
+  right: -8px;
+  bottom: 72px;
+  opacity: 0.07;
+  pointer-events: none;
+  transform: rotate(-8deg);
+}
+
+.cli-session-rail {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 2px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--bronze) 22%, var(--hairline));
+}
+
+.cli-session-mark {
+  flex: 0 0 auto;
+  font: 400 13px var(--font-heading);
+  letter-spacing: 0.16em;
+  color: var(--text);
+}
+
+.cli-session-state {
+  flex: 0 0 auto;
+  padding: 1px 8px 2px;
+  border-radius: 999px;
+  font: 600 10px var(--font-body);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--verdigris-text);
+  background: color-mix(in srgb, var(--verdigris) 18%, transparent);
+}
+
+.cli-session-state.is-waiting,
+.cli-session-state.is-idle {
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+}
+
+.cli-session-state.is-stopped {
+  color: var(--text-3);
+  background: rgba(var(--ink-rgb), 0.06);
+}
+
+.cli-session-branch {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 11px var(--font-mono);
+  color: var(--bronze-bright);
+}
+
+.cli-session-task {
+  margin: 10px 2px 8px;
+  font: 500 13.5px/1.45 var(--font-body);
+  color: var(--text);
+}
+
+.cli-session-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--ink-rgb), 0.18) transparent;
+}
+
+.cli-session-empty {
+  margin: auto 12px;
+  text-align: center;
+}
+
+.cli-session-empty-kicker {
+  margin: 0 0 6px;
+  font: 400 11px var(--font-heading);
+  letter-spacing: 0.14em;
+  color: var(--bronze-bright);
+}
+
+.cli-session-empty-copy {
+  margin: 0;
+  font: 500 12.5px/1.45 var(--font-body);
+  color: var(--text-2);
+}
+
+.cli-session-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--hairline);
+  background: rgba(var(--graphite-rgb), 0.22);
+}
+
+.cli-session-row.is-message,
+.cli-session-row.is-user-question {
+  border-color: color-mix(in srgb, var(--bronze) 28%, var(--hairline));
+  background: color-mix(in srgb, var(--bronze) 8%, transparent);
+}
+
+.cli-session-row.is-progress,
+.cli-session-row.is-started {
+  border-color: color-mix(in srgb, var(--verdigris) 28%, var(--hairline));
+}
+
+.cli-session-row.is-done {
+  border-color: color-mix(in srgb, var(--verdigris-bright) 32%, var(--hairline));
+}
+
+.cli-session-kind {
+  font: 600 9.5px var(--font-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.cli-session-row.is-message .cli-session-kind,
+.cli-session-row.is-user-question .cli-session-kind {
+  color: var(--bronze-bright);
+}
+
+.cli-session-row.is-progress .cli-session-kind,
+.cli-session-row.is-started .cli-session-kind,
+.cli-session-row.is-done .cli-session-kind {
+  color: var(--verdigris-text);
+}
+
+.cli-session-row-text {
+  margin: 0;
+  font: 400 12.5px/1.45 var(--font-body);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cli-session-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-chip);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--hairline));
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+
+.cli-session-ask.is-user {
+  border-color: color-mix(in srgb, var(--bronze) 44%, var(--hairline));
+  background: color-mix(in srgb, var(--bronze) 10%, transparent);
+}
+
+.cli-session-ask-label {
+  margin: 0;
+  font: 600 10px var(--font-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--warn-text);
+}
+
+.cli-session-ask.is-user .cli-session-ask-label {
+  color: var(--bronze-bright);
+}
+
+.cli-session-ask-text {
+  margin: 0;
+  font: 500 13px/1.4 var(--font-body);
+  color: var(--text);
+}
+
+.cli-session-composer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+}
+
+.cli-session-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--hairline);
+  background: var(--glass-input);
+  color: var(--text);
+  font: 400 12.5px/1.4 var(--font-body);
+  resize: none;
+  outline: none;
+}
+
+.cli-session-input:focus-visible {
+  border-color: color-mix(in srgb, var(--bronze) 55%, var(--hairline));
+}
+
+.cli-session-send {
+  padding: 4px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--bronze-deep);
+  background: linear-gradient(180deg, var(--bronze-bright), var(--bronze));
+  color: var(--on-bronze);
+  font: 600 11.5px var(--font-body);
+  cursor: pointer;
+}
+
+.cli-session-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.cli-session-error {
+  margin: 6px 0 0;
+  font: 500 11.5px var(--font-body);
+  color: var(--err-text);
+}
+
+.cli-raw-banner {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font: 500 11.5px var(--font-body);
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.cli-raw-banner button {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--bronze) 40%, var(--hairline));
+  background: transparent;
+  color: var(--bronze-bright);
+  font: 600 10.5px var(--font-body);
+  cursor: pointer;
 }

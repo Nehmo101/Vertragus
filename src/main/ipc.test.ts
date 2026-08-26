@@ -15,6 +15,7 @@ vi.mock('./windows/cliWindow', () => ({
 import {
   createTerminalIpc,
   setTerminalInputSink,
+  setTerminalSessionActions,
   TERMINAL_CHANNELS,
   TERMINAL_COALESCE_MS,
   type AgentMeta,
@@ -23,6 +24,7 @@ import {
   type TerminalAttachResult
 } from './ipc'
 import type { PtyAgentLike, PtyExitInfo } from './agents/PtyAgent'
+import type { CliSession } from '@shared/cliSession'
 
 type Listener = (event: { sender: { id: number } }, ...args: never[]) => unknown
 
@@ -147,7 +149,8 @@ beforeEach(() => {
       maximized.add(agentId)
       return true
     },
-    isWindowMaximized: (agentId) => maximized.has(agentId)
+    isWindowMaximized: (agentId) => maximized.has(agentId),
+    cliSurface: () => 'session'
   })
   ptyA = new FakePty()
   ptyB = new FakePty()
@@ -157,6 +160,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setTerminalInputSink(undefined)
+  setTerminalSessionActions(undefined)
   registry.dispose()
   vi.useRealTimers()
 })
@@ -179,6 +183,8 @@ describe('terminal:attach', () => {
     expect(result.rows).toBe(30)
     expect(result.meta).toEqual(meta('agent-a'))
     expect(result.exit).toBeNull()
+    expect(result.cliSurface).toBe('session')
+    expect(result.session).toBeUndefined()
   })
 
   it('reports an exit that happened before the window attached', () => {
@@ -524,6 +530,138 @@ describe('terminal:boot', () => {
     registry.setAgentBoot('agent-a', 'cli')
     registry.registerAgent({ pty: new FakePty(), meta: meta('agent-a') })
     expect(attach(10).boot).toBe('cli')
+  })
+})
+
+const SESSION: CliSession = {
+  workspaceId: 'ws1',
+  state: 'working',
+  kind: 'agent',
+  branch: 'vertragus/limbo/caronte',
+  log: [{ kind: 'progress', text: 'rewriting lexer', ts: 1 }]
+}
+
+describe('terminal:session', () => {
+  it('rides on the attach result once a snapshot is set', () => {
+    expect(attach(10).session).toBeUndefined()
+    registry.setAgentSession('agent-a', SESSION)
+    expect(attach(10).session).toEqual(SESSION)
+    expect(attach(20).session).toBeUndefined()
+  })
+
+  it('pushes a change to the attached window and dedupes repeats', () => {
+    attach(10)
+    registry.setAgentSession('agent-a', SESSION)
+    registry.setAgentSession('agent-a', SESSION)
+
+    expect(sent).toEqual([
+      {
+        agentId: 'agent-a',
+        channel: TERMINAL_CHANNELS.session,
+        payload: { agentId: 'agent-a', session: SESSION }
+      }
+    ])
+  })
+
+  it('stays quiet for a detached window — the next attach carries the snapshot', () => {
+    registry.setAgentSession('agent-a', SESSION)
+    expect(sent).toHaveLength(0)
+    expect(attach(10).session).toEqual(SESSION)
+  })
+
+  it('clears the chrome when the host sends undefined', () => {
+    attach(10)
+    registry.setAgentSession('agent-a', SESSION)
+    registry.setAgentSession('agent-a', undefined)
+
+    expect(sent[1]).toEqual({
+      agentId: 'agent-a',
+      channel: TERMINAL_CHANNELS.session,
+      payload: { agentId: 'agent-a' }
+    })
+    expect(attach(10).session).toBeUndefined()
+  })
+
+  it('ignores unknown agents and survives a re-registration', () => {
+    expect(() => registry.setAgentSession('ghost', SESSION)).not.toThrow()
+    registry.setAgentSession('agent-a', SESSION)
+    registry.registerAgent({ pty: new FakePty(), meta: meta('agent-a') })
+    expect(attach(10).session).toEqual(SESSION)
+  })
+})
+
+describe('terminal:followup and terminal:answer', () => {
+  it('routes a follow-up through the host path and never writes the PTY', async () => {
+    const seen: Array<[string, string]> = []
+    setTerminalSessionActions({
+      followUp: async (agentId, text) => {
+        seen.push([agentId, text])
+      },
+      answer: async () => undefined
+    })
+
+    await ipc.invoke(TERMINAL_CHANNELS.followup, 10, { text: '  ship it  ' })
+
+    expect(seen).toEqual([['agent-a', 'ship it']])
+    expect(ptyA.written).toEqual([])
+    expect(ptyB.written).toEqual([])
+  })
+
+  it('routes an answer for the sender agent and never writes the PTY', async () => {
+    const seen: Array<[string, string, string]> = []
+    setTerminalSessionActions({
+      followUp: async () => undefined,
+      answer: async (agentId, questionId, text) => {
+        seen.push([agentId, questionId, text])
+      }
+    })
+
+    await ipc.invoke(TERMINAL_CHANNELS.answer, 10, { questionId: 'q1', text: ' yes ' })
+
+    expect(seen).toEqual([['agent-a', 'q1', 'yes']])
+    expect(ptyA.written).toEqual([])
+  })
+
+  it('rejects a window that is not a CLI window', async () => {
+    setTerminalSessionActions({
+      followUp: async () => undefined,
+      answer: async () => undefined
+    })
+    await expect(
+      ipc.invoke(TERMINAL_CHANNELS.followup, PANEL_WEBCONTENTS_ID, { text: 'nope' })
+    ).rejects.toThrow(/not a CLI window/)
+    await expect(
+      ipc.invoke(TERMINAL_CHANNELS.answer, PANEL_WEBCONTENTS_ID, {
+        questionId: 'q1',
+        text: 'nope'
+      })
+    ).rejects.toThrow(/not a CLI window/)
+    expect(ptyA.written).toEqual([])
+  })
+
+  it('rejects missing text, a missing question id, and unwired actions', async () => {
+    setTerminalSessionActions({
+      followUp: async () => undefined,
+      answer: async () => undefined
+    })
+    await expect(ipc.invoke(TERMINAL_CHANNELS.followup, 10, { text: '' })).rejects.toThrow(
+      /missing text/
+    )
+    await expect(ipc.invoke(TERMINAL_CHANNELS.followup, 10, {})).rejects.toThrow(/missing text/)
+    await expect(
+      ipc.invoke(TERMINAL_CHANNELS.answer, 10, { questionId: '', text: 'yes' })
+    ).rejects.toThrow(/missing question id/)
+    await expect(
+      ipc.invoke(TERMINAL_CHANNELS.answer, 10, { questionId: 'q1', text: '  ' })
+    ).rejects.toThrow(/missing answer text/)
+    setTerminalSessionActions(undefined)
+    await expect(ipc.invoke(TERMINAL_CHANNELS.followup, 10, { text: 'later' })).rejects.toThrow(
+      /session actions are not wired/
+    )
+    await expect(
+      ipc.invoke(TERMINAL_CHANNELS.answer, 10, { questionId: 'q1', text: 'later' })
+    ).rejects.toThrow(/session actions are not wired/)
+    expect(ptyA.written).toEqual([])
   })
 })
 

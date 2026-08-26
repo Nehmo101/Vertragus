@@ -18,6 +18,9 @@
  */
 import { ipcMain } from 'electron'
 import type { TerminalBootPhase } from '@shared/terminalBoot'
+import type { CliSession } from '@shared/cliSession'
+import { sessionsEqual } from '@shared/cliSession'
+import { DEFAULT_CLI_SURFACE, type CliSurface } from '@shared/cliSurface'
 import type { PtyAgentLike, PtyExitInfo } from './agents/PtyAgent'
 import { getSettings } from './store/settings'
 import {
@@ -37,6 +40,9 @@ export const TERMINAL_CHANNELS = {
   exit: 'terminal:exit',
   task: 'terminal:task',
   boot: 'terminal:boot',
+  session: 'terminal:session',
+  followup: 'terminal:followup',
+  answer: 'terminal:answer',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -90,6 +96,14 @@ export interface TerminalAttachResult {
    * Later changes arrive over {@link TERMINAL_CHANNELS.boot}.
    */
   boot?: TerminalBootPhase
+  /**
+   * Host session chrome at attach time. Absent on a PTY that is not part of a
+   * workspace (the VERTRAGUS_DEV_SPAWN smoke). Later changes arrive over
+   * {@link TERMINAL_CHANNELS.session}.
+   */
+  session?: CliSession
+  /** Stored CLI surface; CLI windows cannot query settings:get. */
+  cliSurface?: CliSurface
 }
 
 /** Push payload of {@link TERMINAL_CHANNELS.task} — a new current-task note. */
@@ -102,6 +116,12 @@ export interface TerminalTaskEvent {
 export interface TerminalBootEvent {
   agentId: string
   boot: TerminalBootPhase | null
+}
+
+/** Push payload of {@link TERMINAL_CHANNELS.session} — host chrome snapshot. */
+export interface TerminalSessionEvent {
+  agentId: string
+  session?: CliSession
 }
 
 export interface TerminalDataEvent {
@@ -136,6 +156,11 @@ export interface AgentRegistry {
    * its next attach.
    */
   setAgentBoot(agentId: string, phase: TerminalBootPhase | null): void
+  /**
+   * Push the host session snapshot the CLI window paints instead of the vendor
+   * TUI. Unknown agents are no-ops; a detached window picks it up on attach.
+   */
+  setAgentSession(agentId: string, session: CliSession | undefined): void
   /** Window gone — stop pushing until it attaches again. */
   markDetached(agentId: string): void
   /**
@@ -213,6 +238,8 @@ export interface TerminalIpcHost {
   /** UI language for attach results; CLI windows cannot query settings. */
   locale?(): string
   theme?(): 'dark' | 'light'
+  /** Stored CLI surface at attach time — see {@link locale}. */
+  cliSurface?(): CliSurface
 }
 
 interface AgentRecord {
@@ -225,6 +252,8 @@ interface AgentRecord {
   task: string | undefined
   /** Boot overlay phase; rides on attach and is pushed on change. */
   boot: TerminalBootPhase | null
+  /** Host session chrome; rides on attach and is pushed on change. */
+  session: CliSession | undefined
   unsubscribe: (() => void)[]
 }
 
@@ -246,6 +275,22 @@ let terminalInputSink: TerminalInputSink | undefined
 
 export function setTerminalInputSink(sink: TerminalInputSink | undefined): void {
   terminalInputSink = sink
+}
+
+/**
+ * Follow-up / answer from the session chrome. Same late-bind as the input sink:
+ * ipc.ts must not import WorkspaceManager. The host path is the panel's
+ * `postUserMessage` / `answerQuestion` — never a PTY write.
+ */
+export interface TerminalSessionActions {
+  followUp(agentId: string, text: string): Promise<void>
+  answer(agentId: string, questionId: string, text: string): Promise<void>
+}
+
+let terminalSessionActions: TerminalSessionActions | undefined
+
+export function setTerminalSessionActions(actions: TerminalSessionActions | undefined): void {
+  terminalSessionActions = actions
 }
 
 export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
@@ -316,8 +361,10 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       maximized: host.isWindowMaximized(agentId),
       ...(record.task !== undefined ? { task: record.task } : {}),
       ...(record.boot ? { boot: record.boot } : {}),
+      ...(record.session ? { session: record.session } : {}),
       ...(host.locale ? { locale: host.locale() } : {}),
-      ...(host.theme ? { theme: host.theme() } : {})
+      ...(host.theme ? { theme: host.theme() } : {}),
+      ...(host.cliSurface ? { cliSurface: host.cliSurface() } : {})
     }
   }) as IpcListener)
 
@@ -385,6 +432,36 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
     return host.toggleMaximizeWindow(agentId)
   }) as IpcListener)
 
+  host.ipcMain.handle(TERMINAL_CHANNELS.followup, (async (
+    event: { sender: { id: number } },
+    payload?: { text?: unknown }
+  ): Promise<void> => {
+    const record = resolveRecord(event)
+    if (!record) throw new Error('terminal:followup rejected — sender is not a CLI window')
+    const text = typeof payload?.text === 'string' ? payload.text.trim() : ''
+    if (!text) throw new Error('terminal:followup rejected — missing text')
+    if (!terminalSessionActions) {
+      throw new Error('terminal:followup rejected — session actions are not wired')
+    }
+    await terminalSessionActions.followUp(record.entry.meta.agentId, text)
+  }) as IpcListener)
+
+  host.ipcMain.handle(TERMINAL_CHANNELS.answer, (async (
+    event: { sender: { id: number } },
+    payload?: { questionId?: unknown; text?: unknown }
+  ): Promise<void> => {
+    const record = resolveRecord(event)
+    if (!record) throw new Error('terminal:answer rejected — sender is not a CLI window')
+    const questionId = typeof payload?.questionId === 'string' ? payload.questionId.trim() : ''
+    const text = typeof payload?.text === 'string' ? payload.text.trim() : ''
+    if (!questionId) throw new Error('terminal:answer rejected — missing question id')
+    if (!text) throw new Error('terminal:answer rejected — missing answer text')
+    if (!terminalSessionActions) {
+      throw new Error('terminal:answer rejected — session actions are not wired')
+    }
+    await terminalSessionActions.answer(record.entry.meta.agentId, questionId, text)
+  }) as IpcListener)
+
   const detach = (record: AgentRecord): void => {
     for (const off of record.unsubscribe) off()
     record.unsubscribe = []
@@ -410,6 +487,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
         // semantics as the rest of the record.
         task: previous?.task,
         boot: previous?.boot ?? null,
+        session: previous?.session,
         unsubscribe: []
       }
       agents.set(agentId, record)
@@ -464,6 +542,18 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       }
       const payload: TerminalBootEvent = { agentId, boot: phase }
       host.send(agentId, TERMINAL_CHANNELS.boot, payload)
+    },
+    setAgentSession(agentId, session) {
+      const record = agents.get(agentId)
+      if (!record || sessionsEqual(record.session, session)) return
+      record.session = session
+      if (!record.attached) return
+      if (host.hasWindow && !host.hasWindow(agentId)) {
+        record.attached = false
+        return
+      }
+      const payload: TerminalSessionEvent = { agentId, ...(session ? { session } : {}) }
+      host.send(agentId, TERMINAL_CHANNELS.session, payload)
     },
     markDetached(agentId: string): void {
       const record = agents.get(agentId)
@@ -530,9 +620,8 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       agents.clear()
       for (const channel of Object.values(TERMINAL_CHANNELS)) {
         host.ipcMain.removeAllListeners(channel)
+        host.ipcMain.removeHandler(channel)
       }
-      host.ipcMain.removeHandler(TERMINAL_CHANNELS.attach)
-      host.ipcMain.removeHandler(TERMINAL_CHANNELS.windowMaximize)
     }
   }
 }
@@ -555,7 +644,8 @@ export function registerTerminalIpc(): AgentRegistry {
     toggleMaximizeWindow: (agentId) => toggleCliWindowMaximized(agentId),
     isWindowMaximized: (agentId) => isCliWindowMaximized(agentId),
     locale: () => getSettings().ui.locale,
-    theme: () => getSettings().ui.theme
+    theme: () => getSettings().ui.theme,
+    cliSurface: () => getSettings().ui.cliSurface ?? DEFAULT_CLI_SURFACE
   })
   return registry
 }
