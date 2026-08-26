@@ -11,7 +11,7 @@
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { questionChoicesInputSchema } from '@shared/questionChoices'
+import { parseNewAskChoices, questionChoicesToolFieldSchema } from '@shared/questionChoices'
 import { AGENT_DONE_STATUSES, type JsonValue } from '@shared/schema/events'
 import { RESULT_MAX_CHARS, validateResult } from '@shared/schema/resultSchema'
 import {
@@ -182,11 +182,9 @@ export function registerSubagentTools(
           .min(1)
           .max(4_000)
           .describe('The prompt only — do not dump numbered options into this string'),
-        choices: questionChoicesInputSchema
-          .optional()
-          .describe(
-            'Short labels for a decision (typically 2–8, at most 28). The human taps one to answer. Omit for open-ended questions.'
-          ),
+        choices: questionChoicesToolFieldSchema.describe(
+          'Short labels for a decision (typically 2–8, at most 28, each ≤ 200 chars). The human taps one to answer. Omit for open-ended questions.'
+        ),
         ticket: z
           .string()
           .min(1)
@@ -206,6 +204,7 @@ export function registerSubagentTools(
       )
 
       if (ticket) {
+        // Ignore leftover/empty/invalid `choices` — they must not block resume.
         const resumed = await runtime.questions.waitForAnswer(ticket, agentId, timeoutMs)
         if (resumed.state === 'answered') return toolJson({ answer: resumed.answer, ticket })
         if (resumed.state === 'timeout') return toolJson({ answer: null, ticket, note: TICKET_NOTE })
@@ -226,10 +225,11 @@ export function registerSubagentTools(
       // A second open question would give the orchestrator two things to answer
       // for one blocked agent; reuse the open one instead.
       const alreadyOpen = runtime.questions.openForAgent(agentId)
+      const newChoices = alreadyOpen ? undefined : parseNewAskChoices(choices)
       const pending =
         alreadyOpen ??
         runtime.questions.create(agentId, question, {
-          ...(choices && choices.length > 0 ? { choices } : {})
+          ...(newChoices ? { choices: newChoices } : {})
         })
       if (!alreadyOpen) {
         // F: questions climb exactly ONE level — the event goes to the

@@ -8,7 +8,7 @@
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { questionChoicesInputSchema } from '@shared/questionChoices'
+import { parseNewAskChoices, questionChoicesToolFieldSchema } from '@shared/questionChoices'
 import { buildHandoffBlock, buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
 import { successionRequestSchema } from '@shared/schema/handoff'
 import { searchRuns } from '@main/workspace/searchRuns'
@@ -923,11 +923,9 @@ export function registerOrchestratorTools(
           .min(1)
           .max(4_000)
           .describe('The prompt only — do not dump numbered options into this string'),
-        choices: questionChoicesInputSchema
-          .optional()
-          .describe(
-            'Short labels for a decision (typically 2–8, at most 28). The human taps one to answer. Omit for open-ended questions.'
-          ),
+        choices: questionChoicesToolFieldSchema.describe(
+          'Short labels for a decision (typically 2–8, at most 28, each ≤ 200 chars). The human taps one to answer. Omit for open-ended questions.'
+        ),
         ticket: z
           .string()
           .min(1)
@@ -951,6 +949,7 @@ export function registerOrchestratorTools(
         'you may keep handling agent events.'
 
       if (ticket) {
+        // Ignore leftover/empty/invalid `choices` — they must not block resume.
         const resumed = await runtime.questions.waitForAnswer(
           ticket,
           USER_QUESTION_AGENT_ID,
@@ -975,10 +974,11 @@ export function registerOrchestratorTools(
       // One open user question at a time — a second one would give the human
       // two blocking prompts for one orchestrator.
       const alreadyOpen = runtime.questions.openForAgent(USER_QUESTION_AGENT_ID)
+      const newChoices = alreadyOpen ? undefined : parseNewAskChoices(choices)
       const pending =
         alreadyOpen ??
         runtime.questions.create(USER_QUESTION_AGENT_ID, question, {
-          ...(choices && choices.length > 0 ? { choices } : {})
+          ...(newChoices ? { choices: newChoices } : {})
         })
       if (!alreadyOpen) {
         // Quiet: the badge/remote signal for the PANEL — the asker itself is
