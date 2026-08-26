@@ -3,12 +3,13 @@ import { useTranslation } from 'react-i18next'
 import type { Profile } from '@shared/schema/profile'
 import type { VertragusAppApi } from '../../../preload'
 import {
+  ATTACHMENT_MAX_FILES,
+  applyAttachmentSave,
   clearIdsWhenGoalEmpty,
   clipboardDataLooksLikeImage,
-  collectDroppedImages,
-  droppedImageSource,
+  droppedImageSources,
   insertAttachmentText,
-  trackStagingId,
+  pasteImageSources,
   type AttachmentSaveResult,
   type AttachmentSource
 } from '../lib/imageAttach'
@@ -75,49 +76,59 @@ export function ProfileRow({
   /** True while the goal field is folded out under the row (H2). */
   const [goalOpen, setGoalOpen] = useState(false)
   const [goal, setGoal] = useState('')
-  const [attachmentIds, setAttachmentIds] = useState<string[]>([])
+  const attachmentIdsRef = useRef<string[]>([])
   const goalRef = useRef<HTMLTextAreaElement>(null)
   const start = t('panel.startWorkspace', { profile: profile.name })
   const edit = t('panel.editProfile', { profile: profile.name })
 
+  const replaceIds = (ids: string[]): void => {
+    attachmentIdsRef.current = ids
+  }
+
   const startNow = (): void => {
-    onStart(profile.id, goal.trim() || undefined, attachmentIds.length ? attachmentIds : undefined)
+    const ids = attachmentIdsRef.current
+    onStart(profile.id, goal.trim() || undefined, ids.length ? ids : undefined)
     setGoal('')
-    setAttachmentIds([])
+    replaceIds([])
     setGoalOpen(false)
   }
 
   const insertSaved = (result: AttachmentSaveResult): void => {
-    setAttachmentIds((ids) => trackStagingId(ids, result.stagingId))
+    const applied = applyAttachmentSave(attachmentIdsRef.current, result)
+    if (!applied) return
+    replaceIds(applied.ids)
     setGoal((current) => {
       const el = goalRef.current
       const startAt = el?.selectionStart ?? current.length
       const endAt = el?.selectionEnd ?? current.length
-      const next = insertAttachmentText(current, result.relativePath, startAt, endAt)
+      const next = insertAttachmentText(current, applied.relativePath, startAt, endAt)
       queueMicrotask(() => el?.setSelectionRange(next.caret, next.caret))
       return next.value
     })
+  }
+
+  const saveSources = (sources: AttachmentSource[]): void => {
+    if (!onSaveAttachment) return
+    void (async () => {
+      for (const source of sources) {
+        if (attachmentIdsRef.current.length >= ATTACHMENT_MAX_FILES) break
+        const result = await onSaveAttachment({ profileId: profile.id }, source)
+        if (result) insertSaved(result)
+      }
+    })()
   }
 
   const onGoalPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     if (!onSaveAttachment) return
     if (!clipboardDataLooksLikeImage(event.clipboardData)) return
     event.preventDefault()
-    void onSaveAttachment({ profileId: profile.id }, 'clipboard').then((result) => {
-      if (!result) return
-      insertSaved(result)
-    })
+    void pasteImageSources(event.clipboardData).then(saveSources)
   }
 
   const onGoalDrop = (event: React.DragEvent<HTMLTextAreaElement>): void => {
     event.preventDefault()
     if (!onSaveAttachment) return
-    void (async () => {
-      for (const file of collectDroppedImages(event.dataTransfer.files)) {
-        const result = await onSaveAttachment({ profileId: profile.id }, await droppedImageSource(file))
-        if (result) insertSaved(result)
-      }
-    })()
+    void droppedImageSources(event.dataTransfer.files).then(saveSources)
   }
   const filter = t('panel.filterProfileWorkspaces', { profile: profile.name })
   const cleanup = t('panel.cleanupWorktrees', { profile: profile.name })
@@ -194,7 +205,7 @@ export function ProfileRow({
                   title={playbook.goal}
                   onClick={() => {
                     setGoal(playbook.goal)
-                    setAttachmentIds([])
+                    replaceIds([])
                   }}
                 >
                   {playbook.name}
@@ -213,7 +224,7 @@ export function ProfileRow({
             onChange={(event) => {
               const next = event.target.value
               setGoal(next)
-              setAttachmentIds((ids) => clearIdsWhenGoalEmpty(next, ids))
+              replaceIds(clearIdsWhenGoalEmpty(next, attachmentIdsRef.current))
             }}
             onPaste={onGoalPaste}
             onDragOver={(event) => event.preventDefault()}
@@ -226,7 +237,7 @@ export function ProfileRow({
               if (event.key === 'Escape') {
                 setGoalOpen(false)
                 setGoal('')
-                setAttachmentIds([])
+                replaceIds([])
               }
             }}
           />
@@ -243,7 +254,7 @@ export function ProfileRow({
               onClick={() => {
                 onResume(profile.id)
                 setGoal('')
-                setAttachmentIds([])
+                replaceIds([])
                 setGoalOpen(false)
               }}
             >

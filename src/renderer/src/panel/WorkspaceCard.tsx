@@ -3,9 +3,9 @@ import { useTranslation } from 'react-i18next'
 import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
 import {
   clipboardDataLooksLikeImage,
-  collectDroppedImages,
-  droppedImageSource,
+  droppedImageSources,
   insertAttachmentText,
+  pasteImageSources,
   type AttachmentSaveResult,
   type AttachmentSource
 } from '../lib/imageAttach'
@@ -343,20 +343,20 @@ function GoalRefill({
               if (!onSaveAttachment) return
               if (!clipboardDataLooksLikeImage(event.clipboardData)) return
               event.preventDefault()
-              void onSaveAttachment({ workspaceId }, 'clipboard').then((result) => {
-                if (result) insertSaved(result)
-              })
+              void (async () => {
+                for (const source of await pasteImageSources(event.clipboardData)) {
+                  const result = await onSaveAttachment({ workspaceId }, source)
+                  if (result) insertSaved(result)
+                }
+              })()
             }}
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => {
               event.preventDefault()
               if (!onSaveAttachment) return
               void (async () => {
-                for (const file of collectDroppedImages(event.dataTransfer.files)) {
-                  const result = await onSaveAttachment(
-                    { workspaceId },
-                    await droppedImageSource(file)
-                  )
+                for (const source of await droppedImageSources(event.dataTransfer.files)) {
+                  const result = await onSaveAttachment({ workspaceId }, source)
                   if (result) insertSaved(result)
                 }
               })()
@@ -445,17 +445,20 @@ function Composer({
           if (!onSaveAttachment) return
           if (!clipboardDataLooksLikeImage(event.clipboardData)) return
           event.preventDefault()
-          void onSaveAttachment(attachTarget, 'clipboard').then((result) => {
-            if (result) insertSaved(result)
-          })
+          void (async () => {
+            for (const source of await pasteImageSources(event.clipboardData)) {
+              const result = await onSaveAttachment(attachTarget, source)
+              if (result) insertSaved(result)
+            }
+          })()
         }}
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
           event.preventDefault()
           if (!onSaveAttachment) return
           void (async () => {
-            for (const file of collectDroppedImages(event.dataTransfer.files)) {
-              const result = await onSaveAttachment(attachTarget, await droppedImageSource(file))
+            for (const source of await droppedImageSources(event.dataTransfer.files)) {
+              const result = await onSaveAttachment(attachTarget, source)
               if (result) insertSaved(result)
             }
           })()
