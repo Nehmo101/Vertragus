@@ -23,9 +23,11 @@ import {
   registerTerminalIpc,
   setTerminalImageSaver,
   setTerminalInputSink,
-  setTerminalSessionActions
+  setTerminalSessionActions,
+  setTerminalQuestionSource
 } from './ipc'
 import { cliChromeForWorkspace, workspaceOwningAgent } from './workspace/cliSessionFeed'
+import { cliQuestionContext } from './terminalQuestion'
 import {
   assertImageBytes,
   bytesFromAbsPath,
@@ -483,7 +485,9 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
 /**
  * Feed every agent's current task note and host session snapshot into the
  * terminal registry, so the CLI window's hover card and session chrome follow
- * the same change feed as the panel. `setAgentTask` / `setAgentSession` dedupe.
+ * the same change feed as the panel. `setAgentTask` / `setAgentSession` /
+ * `refreshQuestions` dedupe, so a burst of unrelated events costs nothing
+ * and never focuses a CLI window.
  */
 function armTerminalChromeFeed(manager: WorkspaceManager, mcp: McpServerHandle): void {
   const registry = getAgentRegistry()
@@ -494,6 +498,7 @@ function armTerminalChromeFeed(manager: WorkspaceManager, mcp: McpServerHandle):
         registry.setAgentSession(row.agentId, row.session)
       }
     }
+    registry.refreshQuestions()
   }
   manager.onChange(push)
 }
@@ -701,6 +706,11 @@ app.whenReady().then(async () => {
     const manager = appManager
     setTerminalInputSink((agentId, data) => {
       manager.noteOrchestratorGoal(agentId, data)
+    })
+    setTerminalQuestionSource({
+      contextFor: (senderAgentId) => cliQuestionContext(senderAgentId, directory.list()),
+      answer: (workspaceId, agentId, questionId, text) =>
+        directory.answerQuestion(workspaceId, agentId, questionId, text)
     })
     setTerminalSessionActions({
       followUp: async (agentId, text) => {

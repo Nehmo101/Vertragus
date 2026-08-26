@@ -70,15 +70,22 @@ the terminal, just over Tailscale.
 
 ### H1 — "answering questions = terminal attach + typing" does not hold for MCP
 
-`ask_orchestrator` parks in `PendingQuestions`. The answer only comes
-through `send_to_agent{questionId}` (the orchestrator's MCP tool). Typing
-into the *subagent* TUI does not release the waiter. Typing into the
-*orchestrator* TUI while `await_events` is parked starts, depending on the
-CLI, a second turn — two brains, one process.
+`ask_orchestrator` parks in `PendingQuestions`. The answer comes through
+the one host path (`answerAgentQuestion`): the orchestrator's
+`send_to_agent{questionId}`, the panel badge, the phone `answer_question`
+command, and the CLI overlay (`terminal:answerQuestion`). The overlay is a
+first-class answer surface on the asking agent's CLI (and on that
+workspace's orchestrator CLI for `ask_user` plus child questions). Overlay
+keystrokes do not go to the PTY. Showing it must not `BrowserWindow.focus`
+/ `show()` the CLI.
 
-Subagent badges in `WorkspaceSummary` are the right display. To *answer*,
-the gateway needs **one** extra command that takes the same path as the MCP
-tool:
+Typing into the *subagent* TUI still does not release the waiter. Typing
+into the *orchestrator* TUI while `await_events` is parked starts,
+depending on the CLI, a second turn — two brains, one process.
+
+Subagent badges in `WorkspaceSummary` are the right display for the panel.
+To *answer* from the phone, the gateway needs **one** extra command that
+takes the same path as the MCP tool:
 
 ```
 answer_question { workspaceId, agentId, questionId, text }
@@ -87,7 +94,8 @@ answer_question { workspaceId, agentId, questionId, text }
 That is not new orchestration. That is the allow-list one line longer, and
 the panel can use the same host path (badge → text field). Without this
 line, the phone cannot answer MCP questions — only CLI permission dialogs,
-which really do live in the TUI.
+which really do live in the TUI. Escape on the CLI overlay hides it
+without answering; the panel badge remains.
 
 Sentinel ASK is the exception that almost belongs in the TUI
 (`deliverAnswer` types into the PTY). Still, the answer should go through

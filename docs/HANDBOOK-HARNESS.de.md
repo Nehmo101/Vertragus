@@ -70,15 +70,22 @@ Terminal, nur eben über Tailscale.
 
 ### H1 — „Fragen beantworten = Terminal attach + tippen“ gilt nicht für MCP
 
-`ask_orchestrator` parkt in `PendingQuestions`. Die Antwort kommt nur
-über `send_to_agent{questionId}` (MCP-Tool des Orchestrators). Tippen in
-die *Subagent*-TUI löst den Waiter nicht. Tippen in die *Orchestrator*-TUI
-während `await_events` hängt, startet je nach CLI einen zweiten Turn —
-zwei Hirne, ein Prozess.
+`ask_orchestrator` parkt in `PendingQuestions`. Die Antwort kommt über
+den einen Host-Pfad (`answerAgentQuestion`): `send_to_agent{questionId}`
+des Orchestrators, das Panel-Badge, das Handy-Kommando `answer_question`
+und das CLI-Overlay (`terminal:answerQuestion`). Das Overlay ist eine
+erstklassige Antwortfläche auf der CLI des fragenden Agenten (und auf der
+Orchestrator-CLI dieses Workspace für `ask_user` plus Kinderfragen).
+Tasten im Overlay gehen nicht in die PTY. Es darf die CLI nicht mit
+`BrowserWindow.focus` / `show()` nach vorne holen.
 
-Subagent-Badges in `WorkspaceSummary` sind die richtige Anzeige. Zum
-*Beantworten* braucht das Gateway **einen** Extra-Befehl, der denselben
-Pfad wie das MCP-Tool geht:
+Tippen in die *Subagent*-TUI löst den Waiter weiterhin nicht. Tippen in
+die *Orchestrator*-TUI während `await_events` hängt, startet je nach CLI
+einen zweiten Turn — zwei Hirne, ein Prozess.
+
+Subagent-Badges in `WorkspaceSummary` sind die richtige Anzeige für das
+Panel. Zum *Beantworten* vom Handy braucht das Gateway **einen**
+Extra-Befehl, der denselben Pfad wie das MCP-Tool geht:
 
 ```
 answer_question { workspaceId, agentId, questionId, text }
@@ -87,7 +94,8 @@ answer_question { workspaceId, agentId, questionId, text }
 Das ist keine neue Orchestrierung. Das ist die Allow-List um eine Zeile
 länger, und das Panel kann denselben Host-Pfad nutzen (Badge → Textfeld).
 Ohne diese Zeile kann das Handy MCP-Fragen nicht beantworten — nur
-CLI-Permission-Dialoge, die wirklich in der TUI leben.
+CLI-Permission-Dialoge, die wirklich in der TUI leben. Escape auf dem
+CLI-Overlay blendet es aus, ohne zu antworten; das Panel-Badge bleibt.
 
 Sentinel-ASK ist die Ausnahme, die fast in die TUI gehört (`deliverAnswer`
 tippt in die PTY). Trotzdem sollte die Antwort über dieselbe Registry

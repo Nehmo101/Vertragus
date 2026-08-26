@@ -17,6 +17,7 @@ import {
   setTerminalImageSaver,
   setTerminalInputSink,
   setTerminalSessionActions,
+  setTerminalQuestionSource,
   TERMINAL_CHANNELS,
   TERMINAL_COALESCE_MS,
   type AgentMeta,
@@ -26,6 +27,11 @@ import {
 } from './ipc'
 import type { PtyAgentLike, PtyExitInfo } from './agents/PtyAgent'
 import type { CliSession } from '@shared/cliSession'
+import {
+  cliQuestionContext,
+  type CliQuestionWorkspace,
+  type TerminalQuestionSource
+} from './terminalQuestion'
 
 type Listener = (event: { sender: { id: number } }, ...args: never[]) => unknown
 
@@ -163,6 +169,7 @@ afterEach(() => {
   setTerminalInputSink(undefined)
   setTerminalSessionActions(undefined)
   setTerminalImageSaver(undefined)
+  setTerminalQuestionSource(undefined)
   registry.dispose()
   vi.useRealTimers()
 })
@@ -762,9 +769,247 @@ describe('preload channel parity', () => {
     for (const channel of Object.values(TERMINAL_CHANNELS)) {
       expect(source).toContain(`'${channel}'`)
     }
-    const preloadChannels = [...source.matchAll(/'(terminal:[a-z]+|window:[a-z]+)'/g)].map(
+    const preloadChannels = [...source.matchAll(/'(terminal:[a-zA-Z]+|window:[a-z]+)'/g)].map(
       (match) => match[1]
     )
     expect(new Set(preloadChannels)).toEqual(new Set(Object.values(TERMINAL_CHANNELS)))
+    expect(preloadChannels).toContain('terminal:question')
+    expect(preloadChannels).toContain('terminal:answerQuestion')
+  })
+
+  it('wires the late-bound source from panel list() and does not focus the CLI on a question', () => {
+    const source = readFileSync(join(__dirname, 'index.ts'), 'utf8')
+    expect(source).toContain('setTerminalQuestionSource')
+    expect(source).toContain('cliQuestionContext(senderAgentId, directory.list())')
+    expect(source).toContain('directory.answerQuestion')
+    expect(source).toContain('registry.refreshQuestions()')
+    const feed = source.slice(source.indexOf('function armTerminalChromeFeed'))
+    const push = feed.slice(0, feed.indexOf('manager.onChange'))
+    expect(push).not.toMatch(/focusCliWindow|\.show\(|\.focus\(/)
+  })
+})
+
+function questionWorkspace(overrides: Partial<CliQuestionWorkspace> = {}): CliQuestionWorkspace {
+  return {
+    workspaceId: 'ws-1',
+    agents: [
+      { agentId: 'agent-a', name: 'Caronte', roleId: 'orchestrator' },
+      {
+        agentId: 'agent-b',
+        name: 'Colombina',
+        roleId: 'worker',
+        pendingQuestion: 'Use bcrypt?',
+        pendingQuestionId: 'q-b'
+      }
+    ],
+    userQuestion: { questionId: 'q-u', question: 'Ship it?' },
+    ...overrides
+  }
+}
+
+function questionSource(
+  workspaces: CliQuestionWorkspace[],
+  answer: TerminalQuestionSource['answer'] = vi.fn(async () => undefined)
+): TerminalQuestionSource {
+  return {
+    contextFor: (senderAgentId) => cliQuestionContext(senderAgentId, workspaces),
+    answer
+  }
+}
+
+async function answerQuestion(
+  webContentsId: number,
+  payload: { agentId?: string; questionId?: string; text?: string }
+): Promise<unknown> {
+  return ipc.invoke(TERMINAL_CHANNELS.answerQuestion, webContentsId, payload)
+}
+
+describe('terminal:question attach payload', () => {
+  it('rides on attach from the late-bound source so a late window is lossless', () => {
+    setTerminalQuestionSource(questionSource([questionWorkspace()]))
+    expect(attach(10).question).toEqual({
+      questionId: 'q-u',
+      question: 'Ship it?',
+      agentId: 'user'
+    })
+    expect(attach(20).question).toEqual({
+      questionId: 'q-b',
+      question: 'Use bcrypt?',
+      agentId: 'agent-b',
+      fromName: 'Colombina'
+    })
+  })
+
+  it('omits the field when the source has nothing for this window', () => {
+    expect(attach(10).question).toBeUndefined()
+  })
+})
+
+describe('terminal:answerQuestion', () => {
+  it('answers from a CLI sender through the same host path as the panel badge', async () => {
+    const answer = vi.fn(async () => undefined)
+    setTerminalQuestionSource(questionSource([questionWorkspace()], answer))
+
+    await expect(
+      answerQuestion(10, { agentId: 'user', questionId: 'q-u', text: ' Yes. ' })
+    ).resolves.toBeUndefined()
+    expect(answer).toHaveBeenCalledWith('ws-1', 'user', 'q-u', 'Yes.')
+
+    await expect(
+      answerQuestion(20, { agentId: 'agent-b', questionId: 'q-b', text: 'bcrypt' })
+    ).resolves.toBeUndefined()
+    expect(answer).toHaveBeenCalledWith('ws-1', 'agent-b', 'q-b', 'bcrypt')
+  })
+
+  it('lets the orchestrator answer a child question in the same workspace', async () => {
+    const answer = vi.fn(async () => undefined)
+    setTerminalQuestionSource(questionSource([questionWorkspace()], answer))
+    await answerQuestion(10, { agentId: 'agent-b', questionId: 'q-b', text: 'bcrypt' })
+    expect(answer).toHaveBeenCalledWith('ws-1', 'agent-b', 'q-b', 'bcrypt')
+  })
+
+  it('rejects a sender that is not a CLI window', async () => {
+    setTerminalQuestionSource(questionSource([questionWorkspace()]))
+    await expect(
+      answerQuestion(PANEL_WEBCONTENTS_ID, { agentId: 'user', questionId: 'q-u', text: 'x' })
+    ).rejects.toThrow(/not a CLI window/)
+  })
+
+  it('rejects a worker answering a sibling or ask_user', async () => {
+    const answer = vi.fn(async () => undefined)
+    setTerminalQuestionSource(
+      questionSource(
+        [
+          questionWorkspace({
+            agents: [
+              { agentId: 'agent-a', name: 'Caronte', roleId: 'orchestrator' },
+              {
+                agentId: 'agent-b',
+                name: 'Colombina',
+                roleId: 'worker',
+                pendingQuestion: 'Use bcrypt?',
+                pendingQuestionId: 'q-b'
+              },
+              {
+                agentId: 'agent-c',
+                name: 'Malacoda',
+                roleId: 'worker',
+                pendingQuestion: 'Rebase?',
+                pendingQuestionId: 'q-c'
+              }
+            ]
+          })
+        ],
+        answer
+      )
+    )
+    await expect(
+      answerQuestion(20, { agentId: 'agent-c', questionId: 'q-c', text: 'no' })
+    ).rejects.toThrow(/may not answer/)
+    await expect(
+      answerQuestion(20, { agentId: 'user', questionId: 'q-u', text: 'no' })
+    ).rejects.toThrow(/may not answer/)
+    expect(answer).not.toHaveBeenCalled()
+  })
+
+  it('rejects an unknown question and a question from a foreign workspace', async () => {
+    const answer = vi.fn(async () => undefined)
+    setTerminalQuestionSource(
+      questionSource(
+        [
+          questionWorkspace(),
+          {
+            workspaceId: 'ws-2',
+            agents: [
+              {
+                agentId: 'agent-x',
+                name: 'Other',
+                roleId: 'worker',
+                pendingQuestion: 'Foreign?',
+                pendingQuestionId: 'q-x'
+              }
+            ]
+          }
+        ],
+        answer
+      )
+    )
+    await expect(
+      answerQuestion(10, { agentId: 'user', questionId: 'ghost', text: 'x' })
+    ).rejects.toThrow(/unknown question/)
+    await expect(
+      answerQuestion(10, { agentId: 'agent-x', questionId: 'q-x', text: 'x' })
+    ).rejects.toThrow(/unknown question/)
+    expect(answer).not.toHaveBeenCalled()
+  })
+
+  it('rejects missing fields', async () => {
+    setTerminalQuestionSource(questionSource([questionWorkspace()]))
+    await expect(answerQuestion(10, { questionId: 'q-u', text: 'x' })).rejects.toThrow(
+      /missing agent id/
+    )
+    await expect(answerQuestion(10, { agentId: 'user', text: 'x' })).rejects.toThrow(
+      /missing question id/
+    )
+    await expect(
+      answerQuestion(10, { agentId: 'user', questionId: 'q-u', text: '  ' })
+    ).rejects.toThrow(/missing answer text/)
+  })
+})
+
+describe('terminal:question push on mutate', () => {
+  it('pushes the current inbox to the attached window and dedupes repeats', () => {
+    attach(10)
+    setTerminalQuestionSource(questionSource([questionWorkspace()]))
+    registry.refreshQuestions()
+    registry.refreshQuestions()
+
+    expect(sent).toEqual([
+      {
+        agentId: 'agent-a',
+        channel: TERMINAL_CHANNELS.question,
+        payload: {
+          agentId: 'agent-a',
+          question: { questionId: 'q-u', question: 'Ship it?', agentId: 'user' }
+        }
+      }
+    ])
+  })
+
+  it('pushes null when the inbox clears, and stays quiet for a detached window', () => {
+    setTerminalQuestionSource(questionSource([questionWorkspace()]))
+    registry.refreshQuestions()
+    expect(sent).toHaveLength(0)
+    expect(attach(10).question?.questionId).toBe('q-u')
+
+    attach(10)
+    sent.length = 0
+    setTerminalQuestionSource(
+      questionSource([
+        questionWorkspace({
+          userQuestion: undefined,
+          agents: [
+            { agentId: 'agent-a', name: 'Caronte', roleId: 'orchestrator' },
+            { agentId: 'agent-b', name: 'Colombina', roleId: 'worker' }
+          ]
+        })
+      ])
+    )
+    registry.refreshQuestions()
+    expect(sent).toEqual([
+      {
+        agentId: 'agent-a',
+        channel: TERMINAL_CHANNELS.question,
+        payload: { agentId: 'agent-a', question: null }
+      }
+    ])
+  })
+
+  it('does not BrowserWindow.focus the CLI — the send helper is the only hop', () => {
+    attach(10)
+    setTerminalQuestionSource(questionSource([questionWorkspace()]))
+    registry.refreshQuestions()
+    expect(sent.every((event) => event.channel === TERMINAL_CHANNELS.question)).toBe(true)
+    expect(closed).toEqual([])
   })
 })

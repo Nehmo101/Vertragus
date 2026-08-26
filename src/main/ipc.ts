@@ -24,6 +24,13 @@ import { DEFAULT_CLI_SURFACE, type CliSurface } from '@shared/cliSurface'
 import type { PtyAgentLike, PtyExitInfo } from './agents/PtyAgent'
 import { getSettings } from './store/settings'
 import {
+  authorizeCliAnswer,
+  inboxForCliWindow,
+  sameQuestionInbox,
+  type TerminalQuestionInbox,
+  type TerminalQuestionSource
+} from './terminalQuestion'
+import {
   closeCliWindow,
   getCliWindow,
   isCliWindowMaximized,
@@ -31,6 +38,8 @@ import {
   minimizeCliWindow,
   toggleCliWindowMaximized
 } from './windows/cliWindow'
+
+export type { TerminalQuestionInbox, TerminalQuestionSource } from './terminalQuestion'
 
 export const TERMINAL_CHANNELS = {
   attach: 'terminal:attach',
@@ -44,6 +53,8 @@ export const TERMINAL_CHANNELS = {
   followup: 'terminal:followup',
   answer: 'terminal:answer',
   image: 'terminal:image',
+  question: 'terminal:question',
+  answerQuestion: 'terminal:answerQuestion',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -103,6 +114,11 @@ export interface TerminalAttachResult {
    * {@link TERMINAL_CHANNELS.session}.
    */
   session?: CliSession
+  /**
+   * Open MCP question this window may answer, at attach time. Absent when
+   * none. Later changes arrive over {@link TERMINAL_CHANNELS.question}.
+   */
+  question?: TerminalQuestionInbox
   /** Stored CLI surface; CLI windows cannot query settings:get. */
   cliSurface?: CliSurface
 }
@@ -123,6 +139,12 @@ export interface TerminalBootEvent {
 export interface TerminalSessionEvent {
   agentId: string
   session?: CliSession
+}
+
+/** Push payload of {@link TERMINAL_CHANNELS.question} — `null` hides the overlay. */
+export interface TerminalQuestionEvent {
+  agentId: string
+  question: TerminalQuestionInbox | null
 }
 
 export interface TerminalDataEvent {
@@ -162,6 +184,11 @@ export interface AgentRegistry {
    * TUI. Unknown agents are no-ops; a detached window picks it up on attach.
    */
   setAgentSession(agentId: string, session: CliSession | undefined): void
+  /**
+   * Re-read the late-bound question source for every registered agent and
+   * push attached windows whose inbox changed. Does not focus a CLI window.
+   */
+  refreshQuestions(): void
   /** Window gone — stop pushing until it attaches again. */
   markDetached(agentId: string): void
   /**
@@ -255,6 +282,8 @@ interface AgentRecord {
   boot: TerminalBootPhase | null
   /** Host session chrome; rides on attach and is pushed on change. */
   session: CliSession | undefined
+  /** Inbox for this window; rides on attach and is pushed on change. */
+  question: TerminalQuestionInbox | null
   unsubscribe: (() => void)[]
 }
 
@@ -276,6 +305,24 @@ let terminalInputSink: TerminalInputSink | undefined
 
 export function setTerminalInputSink(sink: TerminalInputSink | undefined): void {
   terminalInputSink = sink
+}
+
+/**
+ * Late-bound MCP-question source. `registerTerminalIpc()` runs before
+ * WorkspaceManager exists; ipc.ts must not import the manager. A missing
+ * source means attach carries no inbox and `terminal:answerQuestion` refuses.
+ */
+let terminalQuestionSource: TerminalQuestionSource | undefined
+
+export function setTerminalQuestionSource(source: TerminalQuestionSource | undefined): void {
+  terminalQuestionSource = source
+}
+
+function inboxFromSource(agentId: string): TerminalQuestionInbox | null {
+  if (!terminalQuestionSource) return null
+  const ctx = terminalQuestionSource.contextFor(agentId)
+  if (!ctx) return null
+  return inboxForCliWindow(ctx)
 }
 
 /**
@@ -395,6 +442,8 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
     }
     record.pending = ''
     record.attached = true
+    const question = inboxFromSource(agentId)
+    record.question = question
     return {
       snapshot: record.entry.pty.snapshot(),
       cols: record.entry.pty.cols,
@@ -405,6 +454,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       ...(record.task !== undefined ? { task: record.task } : {}),
       ...(record.boot ? { boot: record.boot } : {}),
       ...(record.session ? { session: record.session } : {}),
+      ...(question ? { question } : {}),
       ...(host.locale ? { locale: host.locale() } : {}),
       ...(host.theme ? { theme: host.theme() } : {}),
       ...(host.cliSurface ? { cliSurface: host.cliSurface() } : {})
@@ -437,6 +487,47 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
     const source = parseTerminalImageSource(payload)
     // Ignore any agentId the renderer might smuggle — sender-bound only.
     return terminalImageSaver(record.entry.meta.agentId, source)
+  }) as IpcListener)
+
+  host.ipcMain.handle(TERMINAL_CHANNELS.answerQuestion, ((
+    event: { sender: { id: number } },
+    payload?: { agentId?: string; questionId?: string; text?: string }
+  ): Promise<void> => {
+    const senderAgentId = host.senderAgentId(event.sender.id)
+    if (!senderAgentId) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — sender is not a CLI window'))
+    }
+    const agentId = typeof payload?.agentId === 'string' ? payload.agentId : ''
+    const questionId = typeof payload?.questionId === 'string' ? payload.questionId : ''
+    const text = typeof payload?.text === 'string' ? payload.text : ''
+    if (!agentId) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — missing agent id'))
+    }
+    if (!questionId) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — missing question id'))
+    }
+    if (!text.trim()) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — missing answer text'))
+    }
+    if (!terminalQuestionSource) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — no question source'))
+    }
+    const ctx = terminalQuestionSource.contextFor(senderAgentId)
+    if (!ctx) {
+      return Promise.reject(
+        new Error('terminal:answerQuestion rejected — sender is not in a workspace')
+      )
+    }
+    const refusal = authorizeCliAnswer(ctx, { agentId, questionId })
+    if (refusal === 'unknown_question') {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — unknown question'))
+    }
+    if (refusal) {
+      return Promise.reject(
+        new Error('terminal:answerQuestion rejected — sender may not answer this question')
+      )
+    }
+    return terminalQuestionSource.answer(ctx.workspaceId, agentId, questionId, text.trim())
   }) as IpcListener)
 
   host.ipcMain.on(TERMINAL_CHANNELS.resize, ((
@@ -543,6 +634,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
         task: previous?.task,
         boot: previous?.boot ?? null,
         session: previous?.session,
+        question: previous?.question ?? null,
         unsubscribe: []
       }
       agents.set(agentId, record)
@@ -609,6 +701,21 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       }
       const payload: TerminalSessionEvent = { agentId, ...(session ? { session } : {}) }
       host.send(agentId, TERMINAL_CHANNELS.session, payload)
+    },
+    refreshQuestions(): void {
+      for (const record of agents.values()) {
+        const agentId = record.entry.meta.agentId
+        const next = inboxFromSource(agentId)
+        if (sameQuestionInbox(record.question, next)) continue
+        record.question = next
+        if (!record.attached) continue
+        if (host.hasWindow && !host.hasWindow(agentId)) {
+          record.attached = false
+          continue
+        }
+        const payload: TerminalQuestionEvent = { agentId, question: next }
+        host.send(agentId, TERMINAL_CHANNELS.question, payload)
+      }
     },
     markDetached(agentId: string): void {
       const record = agents.get(agentId)

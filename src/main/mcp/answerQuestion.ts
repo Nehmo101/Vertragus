@@ -1,7 +1,8 @@
 /**
  * The ONE host path that answers an agent question — shared by the
  * orchestrator's MCP tool (`send_to_agent{questionId}`), the panel's question
- * badge and the remote gateway's `answer_question` command (H1).
+ * badge, the remote gateway's `answer_question` command, and the CLI overlay
+ * (`terminal:answerQuestion`) (H1).
  *
  * All three callers go through {@link answerAgentQuestion} against the same
  * {@link PendingQuestions} registry, so there is exactly one truth about which
