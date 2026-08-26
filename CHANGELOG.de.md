@@ -193,6 +193,16 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   Bug-Report-Issue-Template, das nach Betriebssystem, Vertragus-Version und
   Provider-CLI-Version fragt.
 
+### Removed
+
+- **Pi-Wrap.** Spawn-Overlay, Lockfile `@earendil-works/pi-coding-agent`
+  und `pi-mcp-adapter`, Settings-Schalter `piHarnessEnabled`, Pi-Play-
+  Smoke und die Pi-only-Dependabot-Datei. Play startet die native CLI
+  des Slots. Host-Gewinne bleiben nativ (Session-Chrome, First-Turn-Hold,
+  D4-Policy, Cursor Run Everything, Sentinel-Ollama). Guard:
+  `scripts/piExitGuard.test.ts`. Plan:
+  [`docs/PLAN-PI-EXIT.md`](docs/PLAN-PI-EXIT.md).
+
 ### Fixed
 
 - **Start-mit-Ziel unter Cursor/Ollama schickte zwei Turns.** Provider, die

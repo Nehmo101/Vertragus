@@ -42,9 +42,8 @@ parallele Umsetzungsplan in
 [`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md).
 Intake, Scout und das Lauf-Archiv (Timeline gestoppter Läufe) stehen in
 [`docs/PLAN-INTAKE-ARCHIVE.md`](docs/PLAN-INTAKE-ARCHIVE.md)
-([Prompt](docs/PROMPT-INTAKE-ARCHIVE.md)). Der Pi-Wrap geht
-(Host-Gewinne bleiben nativ):
-[`docs/PLAN-PI-EXIT.md`](docs/PLAN-PI-EXIT.md).
+([Prompt](docs/PROMPT-INTAKE-ARCHIVE.md)). Play startet die
+native CLI jedes Slots — es gibt kein Spawn-Overlay.
 
 ## Wie ein Lauf funktioniert
 
@@ -217,16 +216,6 @@ gemergte Projekt-Datei im Worktree des Agenten (Kimi, Cursor, Grok —
 token-tragende Dateien bleiben aus der Git-Historie des Nutzers heraus).
 Orchestratoren und Leads laufen auf einer strikten Tool-Allow-List; Worker
 laufen unbeschränkt — ihre Disziplin ist der Contract, kein Tool-Käfig.
-
-**Pi ist kein siebter Provider.** Ein Settings-Schalter (standardmäßig aus)
-kann den Spawn wrappen, sodass der Prozess die Lockfile-`pi`-CLI ist,
-während die Slots weiter Claude, Cursor, Codex, Kimi, Grok oder Ollama
-heißen: das Preset wird auf Pis `--provider` gemappt, das Modell des Slots
-auf `--model`. MCP hängt über `.pi/mcp.json` und den gepinnten
-`pi-mcp-adapter`. Cursors nächstes Pi-Backend ist `github-copilot`; Ollama
-hat kein Pi-Backend, daher nur `--model`. Wirkt beim nächsten Play.
-Dependabot erlaubt nur diese zwei Pakete (kein Automerge); PATH-`pi` ist
-der Fallback, wenn das Paket fehlt.
 
 Ein Slot kann **zusätzliche MCP-Server** deklarieren
 (`extraMcp: [{name, url}]`), die seine Agenten zusätzlich zu Vertragus

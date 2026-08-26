@@ -1014,16 +1014,6 @@ describe('startOrchestrator', () => {
     expect(workspace.orchestratorTaskText).toBeUndefined()
   })
 
-  it('puts a Claude start-goal on argv when the Pi wrap is on', async () => {
-    const { workspace, spawns, prompts } = harness({ deps: { piHarness: true } })
-    await workspace.startOrchestrator({ initialPrompt: '  Fix the login bug  ' })
-    expect(spawns[0]!.input.harness).toBe('pi')
-    expect(spawns[0]!.input.initialPrompt).toBe('Fix the login bug')
-    expect(spawns[0]!.input.provider.id).toBe('claude')
-    expect(workspace.goalText).toBe('Fix the login bug')
-    expect(prompts).toEqual([])
-  })
-
   it('folds a PTY system-prompt and the start-goal into one seed (Cursor / Ollama)', async () => {
     const { workspace, prompts, seedOptions, spawns } = harness({
       profile: testProfile({ orchestrator: { providerId: 'cursor' } }),
@@ -2005,20 +1995,6 @@ describe('sentinel reporting (mcp: none / Ollama)', () => {
     )
   })
 
-  it('reports Ollama slots over MCP when the Pi wrap is on', async () => {
-    const { workspace } = harness({
-      profile: ollamaProfile(),
-      ptySystemPrompt: true,
-      deps: { piHarness: true }
-    })
-    expect(workspace.reportingMode('worker')).toBe('mcp')
-    expect(workspace.reportingMode('reviewer')).toBe('mcp')
-    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
-    expect(workspace.listAgents().find((row) => row.agentId === started.agentId)?.reporting).toBe(
-      'mcp'
-    )
-  })
-
   it('pushes agent_done from a DONE sentinel and confirms the exit', async () => {
     const { workspace, spawns } = harness({ profile: ollamaProfile(), ptySystemPrompt: true })
     const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
@@ -2639,7 +2615,6 @@ describe('beginLead — F', () => {
     expect(launch.systemPrompt).toContain('LEAD orchestrator')
     expect(launch.systemPrompt).toContain('payments')
     expect(launch.systemPrompt).toContain('budget is 2 agents')
-    expect(launch.harness).toBeUndefined()
     // Darker bronze, and the task seeded through the normal handshake.
     expect(windows.opened.at(-1)).toMatchObject({ agentId: lead.agentId })
     expect(prompts.at(-1)).toBe('Own the payments rework.')
@@ -2674,25 +2649,6 @@ describe('beginLead — F', () => {
     // Both worker seats (maxCount 2) are still free.
     await workspace.startAgent({ role: 'worker', task: 't' })
     await workspace.startAgent({ role: 'worker', task: 't' })
-  })
-})
-
-describe('Pi harness wrap', () => {
-  it('passes harness: pi on orchestrator, lead and worker; the slot stays Claude', async () => {
-    const wrapOff = harness()
-    await wrapOff.workspace.startOrchestrator()
-    expect(wrapOff.spawns[0]!.input.harness).toBeUndefined()
-
-    const { workspace, spawns } = harness({ deps: { piHarness: true } })
-    await workspace.startOrchestrator()
-    await workspace.startAgent({ role: 'worker', task: 'x' })
-    await workspace.startLead({ area: 'payments', task: 'Own it.' })
-
-    expect(spawns).toHaveLength(3)
-    expect(spawns.map((entry) => entry.input.harness)).toEqual(['pi', 'pi', 'pi'])
-    expect(spawns.map((entry) => entry.input.kind)).toEqual(['orchestrator', 'subagent', 'lead'])
-    expect(spawns.every((entry) => entry.input.provider.id === 'claude')).toBe(true)
-    expect(spawns.every((entry) => entry.input.provider.command === 'claude')).toBe(true)
   })
 })
 

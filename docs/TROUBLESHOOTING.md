@@ -126,7 +126,7 @@ trust). Every native Cursor launch is **Run Everything** (`--force
 `approvalMode: unrestricted`) so Auto-review and the sandbox do not still
 stop on tool calls or MCP initialize — orchestrators and `ask-user`
 workers included. Cursor has no per-tool allow-list; MCP identity still
-scopes which Vertragus tools exist. Pi wrap skips this dialect.
+scopes which Vertragus tools exist.
 
 If the TUI still stops on a confirmation, the greyhound overlay lifts to
 click-through (`waiting`) so you can click Approve in the window. Session
@@ -164,47 +164,6 @@ What to do:
 - If Smart App Control is already off and a normal terminal still dies, this
   is a Cursor CLI bug. Open it with them; attaching the orchestrator window
   dump is enough.
-
-## Pi wrap window is blank on Windows
-
-Play with **Run agents through Pi** on starts a process, then the agent
-window stays empty and the child exits 0 within a few seconds.
-
-ConPTY cannot attach stdio to `electron.exe` (WINDOWS subsystem). The wrap
-therefore runs PATH `node` against the bundled CJS entry, not Electron-as-node.
-POSIX still uses Electron-as-node.
-
-What to do:
-
-- Install [Node.js](https://nodejs.org/) so `node` is on PATH, then Play
-  again. Confirm outside the panel: `node -v` in a normal terminal.
-- Pi still needs **its own** provider keys (`~/.pi/agent` or
-  `ANTHROPIC_API_KEY` / the mapped backend). A Claude Code login is a
-  different store; the TUI may show "No API key found" even when MCP
-  attached.
-- Confirm the wrap outside your real settings: `node scripts/pi-play-smoke.mjs`
-  boots Electron with isolated userData and a throwaway repo. It must print
-  `ok` (TUI + MCP). It does not use `~/.pi` or provider API keys.
-
-## Pi MCP never attaches
-
-The wrap writes `.pi/mcp.json` with **direct** tools (`await_events` on
-Pi's tool list, not behind the adapter's `mcp()` proxy),
-`lifecycle: "lazy-keep-alive"` (eager load-time connect is torn down on
-`session_start`), a 600 s `requestTimeoutMs`, and
-`MCP_DIRECT_TOOLS=vertragus` so the first turn waits for those tools.
-
-What to do:
-
-- Windows: Node.js must be on PATH (`node -v`). Electron-as-node is a blank
-  window; the wrap will refuse to start if resolve landed on `electron.exe`.
-- The TUI line `MCP: Failed to connect to vertragus` is a hard fail — the
-  loopback MCP server was not reachable at the URL in `.pi/mcp.json`.
-- `servers connected (N tools)` or the status bar `1 server enabled (1
-  connected)` plus `direct tools refreshed (+N)` means initialize
-  succeeded and Vertragus tools are on Pi's tool list. If the
-  orchestrator still never calls `await_events`, open an issue with that
-  snapshot.
 
 ## Something else
 

@@ -46,7 +46,7 @@ independent.
 | Hot file | Why it serializes |
 | --- | --- |
 | `src/main/workspace/Workspace.ts` | Lifecycle, summary, succession, inspect, PR, budget |
-| `src/main/agents/spawn.ts` | Argv, env, MCP attach, yolo flags. Pi wrap exit ([`PLAN-PI-EXIT.md`](PLAN-PI-EXIT.md)) owns this file until it lands. |
+| `src/main/agents/spawn.ts` | Argv, env, MCP attach, yolo flags. |
 | `src/shared/schema/events.ts` | Discriminated union + exhaustive test list |
 | `src/shared/schema/profile.ts` | Automation, caps, any per-profile setting |
 
@@ -73,8 +73,8 @@ those files, not rewrite them, until the owning PR has landed.
 
 - Two preset PRs that both edit `presets.ts` (lane P is a queue).
 - Anything that wraps spawn (`W3` port env, then `S1` sandbox).
-- Pi wrap exit ([`PLAN-PI-EXIT.md`](PLAN-PI-EXIT.md)) before W3 / S1 / P2
-  (`spawn.ts`, Pi block of `attach.ts`, `electron-builder.yml`).
+- W3 / S1 / P2 serialize on `spawn.ts` now that the Pi wrap exit has
+  landed ([`PLAN-PI-EXIT.md`](PLAN-PI-EXIT.md)).
 - C7 M1–M3 (one state machine). M2 (panel picker) can overlap M3
   *prep* but must not land before M1.
 - Event-kind additions: land in the PR that **first produces** the

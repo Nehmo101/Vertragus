@@ -47,25 +47,6 @@
  * - `<cwd>/.grok/agents/vertragus-orchestrator.md` — Grok orchestrator agent
  *   (tool allowlist + `disallowedTools: Agent`). Subagents do not get this file
  *   as their session agent.
- * - `<cwd>/.pi/mcp.json` — Pi harness wrap MCP attachment (merged). Written
- *   INSTEAD of the native dialect files when the wrap is on. The slot's
- *   provider (Claude / Cursor / …) stays; only the process is the lockfile
- *   `pi` CLI (Electron as Node on POSIX, PATH `node` on Windows, or PATH
- *   `pi` if the package is missing). Vertragus is lazy-keep-alive +
- *   first-class `directTools` with a 600 s request timeout; the `mcp` proxy
- *   stays as fallback for extras.
- * - `<cwd>/.pi/APPEND_SYSTEM.md` — Pi wrap role / orchestrator prompt. No
- *   token; `--append-system-prompt` gets the absolute path so argv stays
- *   one-line. Removed when the launch has no prompt, so a stale file cannot
- *   be auto-discovered after `--approve`.
- * - `<configDir>/vertragus-mcp/pi-cli-entry.cjs` — bundled-CLI only.
- *   The *script* argv (not a Node `-r` in front of `dist/cli.js`: Pi's
- *   `-r` is `--resume`). Polyfills stdin/stdout/stderr `.isTTY` then
- *   imports the lockfile CLI; without it Pi picks print mode and
- *   `process.exit(1)` on the first goal when it has no provider key.
- *   POSIX runs this under Electron-as-node. Windows runs PATH `node`
- *   instead: ConPTY cannot attach stdio to `electron.exe` (WINDOWS
- *   subsystem) and the agent window stays blank.
  *
  *   These project-file dialects are the only artefacts a Vertragus launch writes
  *   into user territory. Since every agent owns its worktree they can no longer
@@ -91,21 +72,8 @@ import {
   writeGrokOrchestratorAgentFile,
   writeGrokProjectMcpConfig,
   writeKimiAgentFile,
-  writeKimiProjectMcpConfig,
-  writePiHarnessAppendSystemPrompt,
-  piMcpRequestTimeoutMs,
-  writePiHarnessMcpConfig
+  writeKimiProjectMcpConfig
 } from '@main/mcp/attach'
-import {
-  buildPiHarnessArgv,
-  PI_HARNESS_COMMAND,
-  isWindowsElectronBinary,
-  piHarnessEnv,
-  piInterpreterCommand,
-  resolvePiHarnessCli,
-  writePiCliEntry
-} from './piHarness'
-import { mainMessages } from '@shared/mainMessages'
 import type { ExtraMcpServer } from '@shared/schema/mcpServer'
 import type { ExtraMcpServer as SlotExtraMcpServer } from '@shared/schema/profile'
 import {
@@ -125,20 +93,6 @@ import {
 import { ensureKimiWorkspaceTrust } from './kimiTrust'
 import { PtyAgent, type PtyAgentLike, type PtySpawnOptions } from './PtyAgent'
 import { resolveLaunch, type ResolveLaunchOptions } from './resolveCommand'
-
-/**
- * UI locale for the Windows-node error. Lazy like resolveCommand's
- * `storedLocale`: the settings store pulls Electron, and spawn tests must
- * stay importable without an Electron runtime.
- */
-async function spawnLocale(): Promise<string | undefined> {
-  try {
-    const { getSettings } = await import('@main/store/settings')
-    return getSettings().ui.locale
-  } catch {
-    return undefined
-  }
-}
 
 /**
  * Orchestrator and subagent differ in exactly two places: yolo and allowlist.
@@ -194,15 +148,6 @@ export interface AgentLaunchInput {
    * built-in Vertragus server.
    */
   extraMcpServers?: readonly ExtraMcpServer[]
-  /**
-   * Overlay, not a provider. `'pi'` starts the lockfile Pi CLI (Electron as
-   * Node on POSIX, PATH `node` on Windows, or PATH `pi` if the package is
-   * missing) with the slot's preset mapped onto `--provider` and the slot's
-   * model onto `--model`. Native CLI args, yolo flags and native MCP attach
-   * are skipped. Absent = current behavior (spawn `claude` / `cursor-agent`
-   * / …).
-   */
-  harness?: 'pi'
   /** Platform override for testing the Windows resolution off-Windows. */
   platform?: NodeJS.Platform
 }
@@ -358,23 +303,8 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
  * Grok orchestrator: `GROK_SUBAGENTS=0` / `GROK_WORKFLOWS=0` plus the project
  * agent name. Subagent and lead launches must not get this — native spawn is
  * how a Grok worker works.
- *
- * Pi wrap: POSIX sets `ELECTRON_RUN_AS_NODE=1` so Electron's binary runs a
- * CJS entry that polyfills TTY then imports `dist/cli.js` (see
- * {@link writePiCliEntry}). Windows omits that env and runs PATH `node`
- * (ConPTY + `electron.exe` is a blank window). Every wrap sets
- * `MCP_DIRECT_TOOLS=vertragus` so session_start waits for first-class tools
- * (eager load-time connect is torn down on session_start; the wrap uses
- * lazy-keep-alive instead). Wrap-on Grok must not inherit the native cage env.
  */
-export function buildAgentEnv(
-  input: AgentLaunchInput,
-  deps: Pick<LaunchDeps, 'resolvePiCli'> = {}
-): Record<string, string> | undefined {
-  if (input.harness === 'pi') {
-    const cli = (deps.resolvePiCli ?? resolvePiHarnessCli)()
-    return piHarnessEnv(cli, input.platform ?? process.platform)
-  }
+export function buildAgentEnv(input: AgentLaunchInput): Record<string, string> | undefined {
   if (input.kind === 'orchestrator' && input.provider.mcp.kind === 'grok-project') {
     return grokOrchestratorEnv()
   }
@@ -419,34 +349,6 @@ export function buildSystemPromptArgs(input: AgentLaunchInput): AgentArgv {
  * declares it).
  */
 export function buildAgentArgv(input: AgentLaunchInput): AgentArgv {
-  if (input.harness === 'pi') {
-    // Overlay replaces the native argv entirely. `provider.args` (Ollama's
-    // `run --nowordwrap`) would break Pi if it leaked through. Extras still
-    // reach SUBAGENTS only — same rule as the native dialects.
-    const extras =
-      input.kind === 'subagent'
-        ? [...(input.extraMcpServers ?? []), ...(input.extraMcp ?? [])]
-        : []
-    writePiHarnessMcpConfig(
-      input.mcpUrl,
-      input.cwd,
-      extras,
-      piMcpRequestTimeoutMs(input.provider.mcpToolTimeoutSec)
-    )
-    const appendSystemPromptFile = writePiHarnessAppendSystemPrompt(
-      input.cwd,
-      input.systemPrompt
-    )
-    return {
-      argv: buildPiHarnessArgv({
-        presetId: input.provider.presetId,
-        model: input.model,
-        effort: input.effort,
-        appendSystemPromptFile,
-        initialPrompt: input.initialPrompt
-      })
-    }
-  }
   const { provider } = input
   const argv = [...provider.args]
   argv.push(...buildModelArgs(provider, input.model))
@@ -458,7 +360,7 @@ export function buildAgentArgv(input: AgentLaunchInput): AgentArgv {
   // `--force`; Run Everything also needs the sandbox off. Applied for every
   // native Cursor launch (orchestrator and lead included) so MCP and tool
   // calls are not still gated. Stored yoloArgs that are still just `--yolo`
-  // still land in that mode. Pi wrap never reaches this branch.
+  // still land in that mode.
   if (cursorUsesProjectDialect(provider)) applyCursorRunEverything(argv)
   argv.push(...buildMcpArgs(input))
   const prompt = buildSystemPromptArgs(input)
@@ -473,11 +375,6 @@ export interface LaunchDeps {
     args: string[],
     options?: ResolveLaunchOptions
   ) => Promise<{ file: string; args: string[] }>
-  /**
-   * Test seam for the bundled Pi CLI. Production calls
-   * {@link resolvePiHarnessCli}. Returning undefined falls back to PATH `pi`.
-   */
-  resolvePiCli?: () => string | undefined
 }
 
 /** True when any argument would be mangled by a cmd.exe/PowerShell wrapper. */
@@ -495,19 +392,12 @@ export async function buildAgentLaunch(
 ): Promise<ResolvedLaunch> {
   const { argv, ptySystemPrompt } = buildAgentArgv(input)
   const resolve = deps.resolve ?? resolveLaunch
-  const command = input.harness === 'pi' ? PI_HARNESS_COMMAND : input.provider.command
-  const piCli = input.harness === 'pi' ? (deps.resolvePiCli ?? resolvePiHarnessCli)() : undefined
-  const platform = input.platform ?? process.platform
-  const resolveCommand = piCli ? piInterpreterCommand(platform) : command
-  const resolveArgs = piCli ? [writePiCliEntry(input.configDir, piCli), ...argv] : argv
-  const resolved = await resolve(resolveCommand, resolveArgs, {
+  const command = input.provider.command
+  const resolved = await resolve(command, argv, {
     requireFaithfulArgs: needsFaithfulArgs(argv),
     ...(input.platform ? { platform: input.platform } : {})
   })
-  if (piCli && platform === 'win32' && isWindowsElectronBinary(resolved.file)) {
-    throw new Error(mainMessages(await spawnLocale()).piNeedsNodeOnWindows)
-  }
-  const env = buildAgentEnv(input, deps)
+  const env = buildAgentEnv(input)
   return {
     file: resolved.file,
     args: resolved.args,
@@ -596,7 +486,7 @@ export async function spawnAgent(
   deps: SpawnAgentDeps = {}
 ): Promise<SpawnedAgent> {
   const launch = await buildAgentLaunch(input, deps)
-  const preaccept = input.harness === 'pi' ? undefined : trustPreacceptanceFor(input.provider)
+  const preaccept = trustPreacceptanceFor(input.provider)
   if (preaccept) {
     const ensureTrust = deps.ensureTrust ?? preaccept
     try {
@@ -608,8 +498,7 @@ export async function spawnAgent(
   // Cursor: `--approve-mcps` is on argv (see buildMcpArgs). The approvals
   // file is the belt that stops the TUI asking for every extra / leftover
   // project server. Only when we actually write `.cursor/mcp.json`.
-  // Pi wrap never writes that file.
-  if (input.harness !== 'pi' && input.provider.mcp.kind === 'cursor-project') {
+  if (input.provider.mcp.kind === 'cursor-project') {
     const approve = deps.ensureCursorApprovals ?? ensureCursorMcpApprovals
     try {
       approve(launch.cwd)
@@ -619,7 +508,7 @@ export async function spawnAgent(
   }
   // Run Everything project file matches the argv belt (`cursorUsesProjectDialect`):
   // shipped Cursor, cursor-project MCP, or a custom `cursor-agent` command.
-  if (input.harness !== 'pi' && cursorUsesProjectDialect(input.provider)) {
+  if (cursorUsesProjectDialect(input.provider)) {
     const runMode = deps.ensureCursorRunMode ?? ensureCursorRunEverythingConfig
     try {
       runMode(launch.cwd)

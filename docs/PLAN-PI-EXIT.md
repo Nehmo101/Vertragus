@@ -2,7 +2,7 @@ English | [Deutsch](PLAN-PI-EXIT.de.md)
 
 # Pi wrap exit
 
-Stand: 26 August 2026. No program code in this change.
+Stand: 26 August 2026. Implemented (X1–X4).
 
 The wrap leaves. The **host wins** it made obvious stay, as native
 Vertragus paths — not as a bundled coding agent.

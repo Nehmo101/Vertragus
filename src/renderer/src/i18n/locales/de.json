@@ -379,8 +379,6 @@
     "cliSurfaceSession": "Session — eine Vertragus-Ansicht für jede CLI",
     "cliSurfaceRaw": "Native CLI — das TUI des Anbieters",
     "cliSurfaceHint": "Session zeichnet Status, Branch, Fragen und Follow-ups aus Host-Events — Cursor-, Claude- und Codex-Fenster sehen gleich aus. Die native CLI ist ein Klick in der Titelleiste (für Berechtigungsdialoge). Warten-auf-MCP zeigt weiter das rohe TUI, damit übrig gebliebene Cursor-Freigaben klickbar bleiben.",
-    "piHarness": "Agenten über Pi starten",
-    "piHarnessHint": "Standardmäßig aus. An: Die Slots bleiben Claude, Cursor, Codex, Kimi, Grok oder Ollama — nur der Prozess ist die mitgelieferte Pi-CLI, mit dem Modell des Slots und einem gemappten Pi-Backend. Native CLIs werden nicht gestartet. Wirkt beim nächsten Play. PATH-pi ist der Fallback, wenn das Paket fehlt. Cursor wird auf github-copilot gemappt; Ollama hat kein Pi-Backend, daher nur --model. Pi hat keine Berechtigungsabfragen, native Yolo-Flags werden nicht durchgereicht. Unter Windows braucht der Wrap Node.js auf dem PATH (ConPTY kann electron.exe nicht hosten); POSIX startet Electron als Node.",
     "hotkey": "Hotkey „Alles ausblenden“",
     "hotkeyHint": "Electron-Format: Modifier mit + verbinden, z. B. Control+Alt+V. Wirkt sofort nach dem Speichern.",
     "hotkeyPlaceholder": "Control+Alt+V",
@@ -460,7 +458,7 @@
     },
     "mcp": {
       "title": "MCP-Server",
-      "hint": "Zusätzliche Server gelten nur für Subagenten, nicht für den Orchestrator. Änderungen wirken beim nächsten Agentenstart. Umgebungs- und Header-Werte liegen unverschlüsselt in vertragus-v2.json — leere Felder behalten ein gespeichertes Geheimnis. Gilt für Claude, Codex, Kimi und Cursor — nicht für Ollama. Mit dem Pi-Wrap werden Extras bei jedem Slot angebunden, auch Ollama. Header reisen bei Claude, Kimi und Cursor mit; Codex-HTTP-Server bekommen nur die Url.",
+      "hint": "Zusätzliche Server gelten nur für Subagenten, nicht für den Orchestrator. Änderungen wirken beim nächsten Agentenstart. Umgebungs- und Header-Werte liegen unverschlüsselt in vertragus-v2.json — leere Felder behalten ein gespeichertes Geheimnis. Gilt für Claude, Codex, Kimi und Cursor — nicht für Ollama. Header reisen bei Claude, Kimi und Cursor mit; Codex-HTTP-Server bekommen nur die Url.",
       "add": "+ MCP-Server hinzufügen",
       "empty": "Noch kein zusätzlicher MCP-Server.",
       "transport": "Transport",

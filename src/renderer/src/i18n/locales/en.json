@@ -379,8 +379,6 @@
     "cliSurfaceSession": "Session — one Vertragus view for every CLI",
     "cliSurfaceRaw": "Native CLI — the provider’s own TUI",
     "cliSurfaceHint": "Session paints status, branch, questions and follow-ups from host events, so Cursor, Claude and Codex windows look the same. Native CLI is one click in the title bar (needed for permission prompts). Waiting-for-MCP still shows the raw TUI so leftover Cursor approvals can be clicked.",
-    "piHarness": "Run agents through Pi",
-    "piHarnessHint": "Off by default. On: the roster still says Claude, Cursor, Codex, Kimi, Grok or Ollama — only the process is the bundled Pi CLI, with the slot's model and a mapped Pi backend. Native CLIs are not spawned. Takes effect on the next Play. PATH pi is the fallback if the package is missing. Cursor maps to github-copilot; Ollama has no Pi backend, so only --model is passed. Pi has no permission prompts, so native yolo flags are not forwarded. On Windows the wrap needs Node.js on PATH (ConPTY cannot host electron.exe); POSIX runs Electron as Node.",
     "hotkey": "“Hide everything” hotkey",
     "hotkeyHint": "Electron format: join modifiers with +, e.g. Control+Alt+V. Takes effect right after saving.",
     "hotkeyPlaceholder": "Control+Alt+V",
@@ -460,7 +458,7 @@
     },
     "mcp": {
       "title": "MCP servers",
-      "hint": "Extra servers attach to subagents only, not the orchestrator. Changes apply the next time an agent starts. Environment and header values stay in plaintext in vertragus-v2.json — empty fields keep a stored secret. Applies to Claude, Codex, Kimi and Cursor — not Ollama. With the Pi wrap on, extras attach for every slot including Ollama. Headers travel with Claude, Kimi and Cursor; Codex HTTP extras are URL-only.",
+      "hint": "Extra servers attach to subagents only, not the orchestrator. Changes apply the next time an agent starts. Environment and header values stay in plaintext in vertragus-v2.json — empty fields keep a stored secret. Applies to Claude, Codex, Kimi and Cursor — not Ollama. Headers travel with Claude, Kimi and Cursor; Codex HTTP extras are URL-only.",
       "add": "+ Add MCP server",
       "empty": "No extra MCP servers yet.",
       "transport": "Transport",

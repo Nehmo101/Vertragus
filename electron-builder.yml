@@ -28,19 +28,6 @@ asarUnpack:
   # node-pty ships a native binding and a helper .exe; both must be real files
   # on disk, not asar entries, or spawning an agent fails at runtime.
   - '**/node_modules/@lydell/node-pty*/**'
-  # Pi harness wrap: the CLI (@earendil-works), optional clipboard native
-  # (@mariozechner), photon WASM/native, the MCP adapter, and the adapter's
-  # keyring binding must load from real files. JS-only trees would run from
-  # asar; native/WASM next to them would not. typebox and jiti are unscoped
-  # deps of the CLI: the extension loader require.resolve()s them from
-  # unpacked loader.js, and if they stay in asar `-e` fails → process.exit(1).
-  - '**/node_modules/@earendil-works/**'
-  - '**/node_modules/@mariozechner/**'
-  - '**/node_modules/@silvia-odwyer/photon-node/**'
-  - '**/node_modules/pi-mcp-adapter/**'
-  - '**/node_modules/@napi-rs/**'
-  - '**/node_modules/typebox/**'
-  - '**/node_modules/jiti/**'
 
 win:
   icon: build/icon.ico
@@ -85,20 +72,14 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   # Prebuilt native addons land in both universal temp apps as identical
-  # Mach-O files: per-arch optional packages (@lydell/node-pty, Pi clipboard,
-  # @napi-rs/keyring) and unscoped trees that ship every arch in one folder
-  # (koffi via pi-tui). @electron/universal refuses to skip lipo unless the
-  # path matches this pattern. A scoped brace list is not enough — koffi has
-  # no @scope. `**/node_modules/**` covers every addon and still excludes
-  # Electron's own helpers. scripts/piHarnessPin.test.ts pins the glob.
-  x64ArchFiles: '**/node_modules/**'
-  # The Pi CLI/adapter trees must be unpacked (spawned as Node via
-  # ELECTRON_RUN_AS_NODE, so asar is opaque). @electron/universal then
-  # rebuilds the unpack list as one brace glob of absolute paths; that
-  # string exceeds minimatch 3's 64 KiB limit (`pattern is too long`).
-  # Merging ASARs is unnecessary here: JS inside asar is arch-identical,
-  # natives live in asar.unpacked and are handled by x64ArchFiles above.
-  mergeASARs: false
+  # Mach-O files. The remaining unpacked addon is @lydell/node-pty (per-arch
+  # optional packages). @electron/universal refuses to skip lipo unless the
+  # path matches this pattern. scripts/piExitGuard.test.ts pins the glob.
+  x64ArchFiles: '**/node_modules/@lydell/node-pty*/**'
+  # JS inside asar is arch-identical; natives live in asar.unpacked and are
+  # handled by x64ArchFiles above. The Pi unpack trees that overflowed
+  # minimatch brace globs are gone, so ASARs can merge again.
+  mergeASARs: true
   target:
     - target: dmg
       arch:

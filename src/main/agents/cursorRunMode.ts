@@ -10,8 +10,8 @@
  * Argv is the session override. The project `.cursor/cli.json` is the same
  * belt as `mcp-approvals.json`: some TUI builds still read the persisted
  * mode and ignore `--force`. Applied to orchestrator, lead, and worker —
- * Auto-review otherwise still blocks MCP initialize. Pi wrap never writes
- * this file. Fail-soft: a cwd we cannot write does not block spawn.
+ * Auto-review otherwise still blocks MCP initialize. Fail-soft: a cwd we
+ * cannot write does not block spawn.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'

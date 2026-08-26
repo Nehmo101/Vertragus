@@ -178,6 +178,16 @@ No release has been tagged yet; everything lives under Unreleased.
 - A pull-request template carrying the release tables, and a bug-report issue
   template that asks for OS, Vertragus version and provider CLI version.
 
+### Removed
+
+- **Pi wrap.** Spawn overlay, lockfile `@earendil-works/pi-coding-agent`
+  and `pi-mcp-adapter`, settings toggle `piHarnessEnabled`, Pi Play
+  smoke, and the Pi-only Dependabot file. Play starts the slot's native
+  CLI. Host wins stay native (session chrome, first-turn hold, D4
+  policy, Cursor Run Everything, sentinel Ollama). Guard:
+  `scripts/piExitGuard.test.ts`. Plan:
+  [`docs/PLAN-PI-EXIT.md`](docs/PLAN-PI-EXIT.md).
+
 ### Fixed
 
 - **Start-with-goal on Cursor/Ollama submitted two turns.** Providers that

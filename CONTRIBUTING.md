@@ -16,10 +16,7 @@ corepack pnpm run ci       # lint + typecheck (node & web) + tests + both builds
 runs the coverage ratchet (`pnpm run test:coverage`; thresholds in
 `vitest.config.ts` sit just below the measured status quo, so coverage can
 only move up) and a panel smoke test that boots the real Electron app
-(`scripts/panel-smoke.mjs`). CI also runs a Pi Play smoke
-(`scripts/pi-play-smoke.mjs`) that starts a workspace through the Pi wrap
-with isolated userData and checks the orchestrator PTY for a TUI plus
-Vertragus MCP — no provider keys. A packaging job proves the installers still
+(`scripts/panel-smoke.mjs`). A packaging job proves the installers still
 build; nothing is published from CI.
 
 Useful pieces: `pnpm run typecheck:node` / `typecheck:web` for one project,

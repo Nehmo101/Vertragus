@@ -432,11 +432,6 @@ export interface PanelSettings {
   yoloMaster: boolean
   /** D4: the effective subagent tier — mirrors main/appIpc. */
   agentPolicy: AgentPolicy
-  /**
-   * Spawn overlay: run agent processes through Pi. Not a seventh provider —
-   * the roster still names Claude / Cursor / Codex / Kimi / Grok / Ollama.
-   */
-  piHarnessEnabled: boolean
   hideAllHotkey: string
   locale: 'de' | 'en'
   theme: 'dark' | 'light'
@@ -505,7 +500,6 @@ export type WritableSetting =
   | 'reflowNeighbors'
   | 'voice'
   | 'agentPolicy'
-  | 'piHarnessEnabled'
   | 'onboardingDismissed'
   | 'mcpServers'
 
