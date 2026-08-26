@@ -24,6 +24,17 @@ describe('orchestrator tool surface', () => {
 })
 
 describe('ask_user — D3', () => {
+  it('defers ask volume to the system-prompt question-mode block', () => {
+    const { tools } = setup()
+    const description = tools.get('ask_user')!.description ?? ''
+    expect(description).toMatch(/ask the HUMAN/i)
+    expect(description).toMatch(/question-mode block/i)
+    expect(description).toContain('ticket')
+    expect(description).toContain('unchanged question')
+    expect(description).not.toMatch(/product choices/i)
+    expect(description).not.toMatch(/Never guess the user/i)
+  })
+
   it('parks a question for the human, pushes user_question once, and resumes by ticket', async () => {
     const { runtime, tools } = setup()
 
