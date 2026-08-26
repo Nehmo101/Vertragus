@@ -390,6 +390,8 @@ describe('startWorkspace', () => {
     expect(consumed).toEqual([['stg-1']])
     expect(spawns).toHaveLength(1)
     expect(running.workspace.goalText).toBe('see .vertragus/attachments/screenshot-aa.png')
+    expect(copied[0]!.dest).not.toBe(testProfile().repoPath)
+    expect(copied[0]!.dest).toBe(running.orchestrator.worktreePath)
   })
 
   it('a bare start stays a bare start — no goal, no seed, no crash', async () => {

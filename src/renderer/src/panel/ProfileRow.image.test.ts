@@ -17,5 +17,9 @@ describe('ProfileRow image attach', () => {
     expect(source).toContain('applyAttachmentSave')
     expect(source).toContain('ATTACHMENT_MAX_FILES')
     expect(source).not.toContain("onSaveAttachment({ profileId: profile.id }, 'clipboard')")
+    const pasteFn = source.slice(source.indexOf('const onGoalPaste'), source.indexOf('const onGoalDrop'))
+    expect(pasteFn.indexOf('if (!clipboardDataLooksLikeImage(event.clipboardData)) return')).toBeLessThan(
+      pasteFn.indexOf('pasteImageSources(event.clipboardData)')
+    )
   })
 })
