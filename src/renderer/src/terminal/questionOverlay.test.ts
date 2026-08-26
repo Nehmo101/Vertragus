@@ -1,11 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { shouldFocusTerminal } from './windowFocus'
 import {
   canSubmitAnswer,
   isUserQuestion,
   overlayKeyAction,
   overlayShows,
+  shouldAutofocusOverlay,
   shouldForwardKeyToPty,
   USER_QUESTION_AGENT_ID
 } from './questionOverlay'
@@ -75,6 +77,28 @@ describe('keys must not reach the PTY', () => {
     expect(css).toContain('.cli-question-form')
     const overlay = css.slice(css.indexOf('.cli-question'))
     expect(overlay).toContain('-webkit-app-region: no-drag')
+  })
+})
+
+describe('overlay autofocus must not steal OS focus', () => {
+  it('autofocuses only when this window already has the OS keyboard', () => {
+    expect(shouldAutofocusOverlay(true)).toBe(true)
+    expect(shouldAutofocusOverlay(false)).toBe(false)
+    expect(shouldAutofocusOverlay(true)).toBe(shouldFocusTerminal(true))
+    expect(shouldAutofocusOverlay(false)).toBe(shouldFocusTerminal(false))
+  })
+
+  it('gates QuestionOverlay mount-focus and still moves in on window focus', () => {
+    const source = readFileSync(join(__dirname, 'TerminalApp.tsx'), 'utf8')
+    expect(source).toContain('shouldAutofocusOverlay(document.hasFocus())')
+    expect(source).not.toMatch(
+      /useEffect\(\(\) => \{\s*inputRef\.current\?\.focus\(\)\s*\}, \[\]\)/
+    )
+    expect(source).toContain("addEventListener('focus', onWindowFocus)")
+    expect(source).toContain('textarea.cli-question-input')
+    // Self-check: a regex that no longer sees the unconditional mount focus
+    // would green the pin above for the wrong reason.
+    expect(source).toContain('inputRef.current?.focus()')
   })
 })
 
