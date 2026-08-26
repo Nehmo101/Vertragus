@@ -259,6 +259,7 @@ describe('grok preset', () => {
     expect(grok.yoloArgs).toEqual(['--always-approve'])
     expect(grok.modelArg).toBe('--model')
     expect(grok.effortArg).toEqual({ style: 'flag', flag: '--effort' })
+    expect(grok.effortLevels).toEqual(['low', 'medium', 'high', 'xhigh'])
     expect(grok.systemPromptDelivery).toEqual({
       kind: 'arg',
       flag: '--append-system-prompt'
@@ -269,7 +270,7 @@ describe('grok preset', () => {
 
   it('reads the line-based model list of the CLI', () => {
     expect(grok.modelDiscovery).toEqual({ kind: 'cli', args: ['models'], parse: 'lines' })
-    expect(grok.effortLevels).toEqual([])
+    expect(grok.effortLevels).toEqual(['low', 'medium', 'high', 'xhigh'])
     expect(grok.effortDiscovery).toEqual({
       kind: 'file',
       path: '~/.grok/models_cache.json',
