@@ -36,7 +36,11 @@ is the code-grounded map of the harness core; serial root succession
 Neighbouring tools and the gaps worth taking are mapped in
 [`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md); the
 parallel adoption plan is
-[`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md). The Pi wrap is
+[`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md).
+Intake, Scout, and the run archive (timeline of stopped runs) are
+specified in
+[`docs/PLAN-INTAKE-ARCHIVE.md`](docs/PLAN-INTAKE-ARCHIVE.md)
+([prompt](docs/PROMPT-INTAKE-ARCHIVE.md)). The Pi wrap is
 leaving (host wins stay native):
 [`docs/PLAN-PI-EXIT.md`](docs/PLAN-PI-EXIT.md).
 
@@ -60,7 +64,10 @@ English starter texts (who reads the report, same language as the goal,
 distilled handoff); you can edit, clear or restore them. Each extra is
 appended to the host-generated or shipped role prompt, so you can steer
 language, tone and how the agent reports back without replacing the loop
-or the reporting contract.
+or the reporting contract. **Export** writes that blueprint to a JSON file
+(slots, playbooks, automation, extra MCP, custom roles, system prompts —
+not screen **zones**, which are machine-local). **Import** on the panel
+adds it as a new profile; existing ones are never overwritten.
 
 Everything the orchestrator can do goes through its MCP tools — there is no
 second path:

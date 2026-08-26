@@ -6,6 +6,9 @@ Ideas that come from the code — not from a generic agent roadmap.
 
 Copy-paste-ready agent prompts for all open tracks:
 [`PROMPT-MCP-HARNESS.md`](./PROMPT-MCP-HARNESS.md).
+Intake, Scout, and the run archive:
+[`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md),
+[`PROMPT-INTAKE-ARCHIVE.md`](./PROMPT-INTAKE-ARCHIVE.md).
 
 **Status:** [PR #17](https://github.com/Nehmo101/Vertragus/pull/17) has
 **implemented** BigBoy A1–A3, Remote (B) and Harness C1/C2 (`inspect_agent`,
@@ -56,6 +59,7 @@ server.
 | E integrate / briefing / eval | **core implemented** (Track 6) — `integrate_branch` + gate warning + promote click, briefing + `repoNotes`, journal + resume (E3, briefing instead of re-spawn), budget wall clock, Janitor/Explorer, playbooks, extra MCP for workers (E6), loop eval (E5, `tests/integration/loopEval`) — Phase E complete |
 | F multi-orch (Lead, depth 1) | **implemented** (Track 5) — third identity `lead=`, own queues, `start_orchestrator`, fan-in of direct children only, reparent (`subtree_adopted`), caps host-side |
 | H nested workers / live steer / browser | **implemented** — workers may spawn one helper level; composer targeting on `user_message`; first-party `/browser` loopback (not a second MCP) |
+| I intake / Scout / run archive timeline | **implemented** — intake loop (prompt + `ask_user`), Scout builtin, `parentId` on `agent_started`, archive fold-out + timeline over the journal. See [`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md) |
 
 ---
 
@@ -456,7 +460,7 @@ the store preserves `extraMcp` across editor saves (like zones),
 configuration happens via profile JSON.
 
 Playbook = goal template, not a pre-started team. Extra MCP only to
-workers (`mcp/attach.ts` knows the dialects). Templates Janitor/Explorer,
+workers (`mcp/attach.ts` knows the dialects). Templates Janitor/Explorer/Scout,
 no new mechanics. A third-party browser MCP still attaches via extra MCP;
 the first-party Chromium extension is Phase H (`browser_*` on the worker
 identity, same listener).
@@ -932,6 +936,26 @@ successor seed alike. It never replaces those, so a user cannot erase
 own template prompt (what the role *does*); the profile field is how
 that role *speaks* in this project.
 
+## Profile export and import
+
+A profile is a blueprint that belongs on more than one machine. The
+editor's **Export** writes a versioned JSON envelope
+(`shared/schema/profileBundle.ts`, kind `vertragus.profile`) with the
+stored profile minus **zones** and with the custom role templates the
+slots actually use. Per-identity `rolePrompts` travel; shipped Worker /
+Tester / … templates and the reserved orchestrator / lead identities
+stay in code. Extra MCP on a slot, playbooks and the automation block
+travel too. Screen zones do not — they are rectangles on this machine's
+displays.
+
+**Import** (panel) always creates a **new** profile: fresh profile id,
+fresh slot ids, original name when it is free (`UWE (imported)` on a
+clash). Existing profiles are never overwritten. A custom role id that
+already exists is reused when name and prompt match, and remapped onto a
+new id otherwise, so importing cannot replace a role the destination
+already uses. The path comes from a native file dialog; the renderer
+never names a filesystem path.
+
 ## Appendix: code anchors
 
 | Topic | Where | Status |
@@ -957,4 +981,5 @@ that role *speaks* in this project.
 | Chromium `/browser` bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
 | Pi harness wrap | `agents/piHarness.ts`, `spawn.ts` overlay (until X2) | **exit** — [`PLAN-PI-EXIT.md`](./PLAN-PI-EXIT.md) |
 | Per-identity extra system prompt | `schema/profile.ts` `rolePrompts`, `prompts/rolePrompt.ts`, profile editor | **this** |
+| Profile export / import | `schema/profileBundle.ts`, `profiles:export` / `profiles:import`, profile editor + panel | **this** |
 | Unified CLI session chrome | `cliSurface.ts`, `cliSession.ts`, `cliSessionFeed.ts`, `terminal/SessionPane.tsx` | **this** |

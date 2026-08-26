@@ -47,6 +47,47 @@ import {
 } from './types'
 import { EventQueue } from './eventQueue'
 
+/** First line of an assignment, capped to the event schema's taskSubject max. */
+const TASK_SUBJECT_MAX = 200
+
+function taskSubjectOf(task: string): string | undefined {
+  const line = task.split('\n').find((row) => row.trim())?.trim()
+  if (!line) return undefined
+  return line.length <= TASK_SUBJECT_MAX ? line : line.slice(0, TASK_SUBJECT_MAX)
+}
+
+function agentStartedEvent(
+  started: StartingAgent,
+  runtime: WorkspaceRuntime,
+  task: string
+): {
+  type: 'agent_started'
+  agentId: string
+  name: string
+  roleId: string
+  providerId?: string
+  model?: string
+  worktreePath?: string
+  branch?: string
+  parentId?: string
+  taskSubject?: string
+} {
+  const parentId = runtime.parentOf.get(started.agentId)
+  const taskSubject = taskSubjectOf(task)
+  return {
+    type: 'agent_started',
+    agentId: started.agentId,
+    name: started.name,
+    roleId: started.role,
+    providerId: started.providerId,
+    model: started.model,
+    worktreePath: started.worktreePath,
+    branch: started.branch,
+    ...(parentId ? { parentId } : {}),
+    ...(taskSubject ? { taskSubject } : {})
+  }
+}
+
 /**
  * Bare names of every orchestrator tool. The launch allowlist and the invariant
  * test derive from this list — a tool registered but missing here would be
@@ -661,16 +702,7 @@ export function registerOrchestratorTools(
           // was adopted and the event belongs to the root now.
           const queue = queueForAgent(runtime, started.agentId)
           if (queue.isClosed) return
-          queue.push({
-            type: 'agent_started',
-            agentId: started.agentId,
-            name: started.name,
-            roleId: started.role,
-            providerId: started.providerId,
-            model: started.model,
-            worktreePath: started.worktreePath,
-            branch: started.branch
-          })
+          queue.push(agentStartedEvent(started, runtime, task))
         },
         (error: unknown) => {
           // The workspace may have closed mid-start (stop button, quit) —
@@ -910,11 +942,15 @@ export function registerOrchestratorTools(
     'ask_user',
     {
       description:
-        'Ask the HUMAN a question and wait for the answer — for decisions that are genuinely the ' +
-        'user’s (scope changes, destructive actions, product choices), never for things an agent or ' +
-        'you can decide. Blocks until the user answers in the panel or on their phone. If it returns ' +
-        'answer: null, call it again with the returned ticket and the unchanged question. Never guess ' +
-        'the user’s decision and never continue without it.',
+        'Ask the HUMAN a question and wait for the answer. Use this for holes in acceptance criteria ' +
+        'and Definition of Done (observable happy path, non-goals, named verify command, review/docs/PR ' +
+        'expectations), and for scope changes, destructive actions and product choices. Code facts are ' +
+        'Scout (when that role is available) or a HEAD Read — do not ask the user what the repository ' +
+        'already answers. Do not ask which model to pick or whether to use MCP tools. Guessing is ' +
+        'forbidden: never invent a product or scope decision. Batch several holes into one numbered ' +
+        'question; do not drip tickets. Blocks until the user answers in the panel or on their phone. ' +
+        'If it returns answer: null, call it again with the returned ticket and the unchanged question. ' +
+        'Never continue without the answer.',
       inputSchema: {
         question: z
           .string()
@@ -1193,16 +1229,7 @@ export function registerOrchestratorTools(
       started.ready.then(
         () => {
           if (ctx.events.isClosed) return
-          ctx.events.push({
-            type: 'agent_started',
-            agentId: started.agentId,
-            name: started.name,
-            roleId: started.role,
-            providerId: started.providerId,
-            model: started.model,
-            worktreePath: started.worktreePath,
-            branch: started.branch
-          })
+          ctx.events.push(agentStartedEvent(started, runtime, task))
         },
         (error: unknown) => {
           // The reservation is gone; so is the lead — adopt would-be children

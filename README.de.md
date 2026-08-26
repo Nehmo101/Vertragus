@@ -39,7 +39,10 @@ beschrieben. Benachbarte Tools und die Lücken, die sich zu schließen
 lohnen, stehen in
 [`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md); der
 parallele Umsetzungsplan in
-[`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md). Der Pi-Wrap geht
+[`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md).
+Intake, Scout und das Lauf-Archiv (Timeline gestoppter Läufe) stehen in
+[`docs/PLAN-INTAKE-ARCHIVE.md`](docs/PLAN-INTAKE-ARCHIVE.md)
+([Prompt](docs/PROMPT-INTAKE-ARCHIVE.md)). Der Pi-Wrap geht
 (Host-Gewinne bleiben nativ):
 [`docs/PLAN-PI-EXIT.md`](docs/PLAN-PI-EXIT.md).
 
@@ -67,7 +70,11 @@ gleiche Sprache wie das Ziel, destillierte Übergabe); du kannst sie
 ändern, leeren oder wiederherstellen. Jeder Extra-Prompt wird an den
 Host-generierten bzw. mitgelieferten Rollen-Prompt angehängt, sodass du
 Sprache, Ton und die Art der Rückmeldung steuern kannst, ohne die
-Schleife oder den Reporting-Contract zu ersetzen.
+Schleife oder den Reporting-Contract zu ersetzen. **Export** schreibt
+diesen Bauplan in eine JSON-Datei (Slots, Playbooks, Automatisierung,
+extra MCP, eigene Rollen, System-Prompts — keine Bildschirm-**Zonen**,
+die an diese Maschine gebunden sind). **Import** im Panel legt daraus
+ein neues Profil an; bestehende werden nie überschrieben.
 
 Alles, was der Orchestrator kann, läuft über seine MCP-Tools — es gibt
 keinen zweiten Pfad:

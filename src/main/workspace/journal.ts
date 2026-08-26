@@ -17,6 +17,7 @@ import { appendFile, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { AgentEvent } from '@shared/schema/events'
+import { RUN_END_REASONS } from '@shared/schema/runArchive'
 import { VERTRAGUS_DIR } from '@main/agents/worktree'
 
 /** Identity of one run, written once at start. Everything else is events. */
@@ -28,7 +29,13 @@ export const runMetaSchema = z
     goal: z.string().max(20_000).optional(),
     startedAt: z.number().finite(),
     /** Set when this run itself was started as a resume of an older run. */
-    resumedFrom: z.string().min(1).optional()
+    resumedFrom: z.string().min(1).optional(),
+    /** Wall-clock end; absent while the run is still live, and on pre-A1 journals. */
+    endedAt: z.number().finite().optional(),
+    /** Why the live card went away. Absent on live and pre-A1 journals. */
+    endReason: z.enum(RUN_END_REASONS).optional(),
+    /** Copied from the run's `pull_request` event; never re-opens a PR. */
+    pullRequestUrl: z.string().max(500).optional()
   })
   .strict()
 export type RunMeta = z.infer<typeof runMetaSchema>

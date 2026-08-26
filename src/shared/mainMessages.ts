@@ -123,6 +123,22 @@ interface MainMessages {
   cliNeverReadyArea: (name: string, provider: string) => string
   /** Quoted PTY tail appended to a generic seed failure. */
   cliOutputExcerpt: (excerpt: string) => string
+  /** Native save-dialog title for a profile export. */
+  profileExportTitle: string
+  /** Native open-dialog title for a profile import. */
+  profileImportTitle: string
+  /** File-type filter label shared by both dialogs. */
+  profileFileFilter: string
+  /** Name suffix when an imported profile's name is already taken. */
+  profileImportedWord: string
+  /** Picked file is not a Vertragus profile (bad JSON or foreign envelope). */
+  profileImportInvalid: string
+  /** Picked file is larger than the portable-profile cap. */
+  profileImportTooLarge: string
+  /** Picked file could not be read. */
+  profileImportUnreadable: (reason: string) => string
+  /** Save path could not be written. */
+  profileExportFailed: (reason: string) => string
 }
 
 const MESSAGES: Record<MainLocale, MainMessages> = {
@@ -196,7 +212,15 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
       `${name} (${provider}) wurde nicht bereit — die CLI hat ihre Aufgabe nicht angenommen.`,
     cliNeverReadyArea: (name, provider) =>
       `${name} (${provider}) wurde nicht bereit — die CLI hat ihren Bereich nicht angenommen.`,
-    cliOutputExcerpt: (excerpt) => `CLI-Ausgabe:\n${excerpt}`
+    cliOutputExcerpt: (excerpt) => `CLI-Ausgabe:\n${excerpt}`,
+    profileExportTitle: 'Profil exportieren',
+    profileImportTitle: 'Profil importieren',
+    profileFileFilter: 'Vertragus-Profil',
+    profileImportedWord: 'importiert',
+    profileImportInvalid: 'Import abgelehnt — die Datei ist kein Vertragus-Profil.',
+    profileImportTooLarge: 'Import abgelehnt — die Datei ist zu groß.',
+    profileImportUnreadable: (reason) => `Import abgelehnt — Datei nicht lesbar (${reason}).`,
+    profileExportFailed: (reason) => `Export abgelehnt — ${reason}`
   },
   en: {
     stubNotWired: 'The workspace manager is not wired up yet.',
@@ -266,7 +290,15 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
       `${name} (${provider}) never became ready — the CLI did not accept its task.`,
     cliNeverReadyArea: (name, provider) =>
       `${name} (${provider}) never became ready — the CLI did not accept its area.`,
-    cliOutputExcerpt: (excerpt) => `CLI output:\n${excerpt}`
+    cliOutputExcerpt: (excerpt) => `CLI output:\n${excerpt}`,
+    profileExportTitle: 'Export profile',
+    profileImportTitle: 'Import profile',
+    profileFileFilter: 'Vertragus profile',
+    profileImportedWord: 'imported',
+    profileImportInvalid: 'Import rejected — the file is not a Vertragus profile.',
+    profileImportTooLarge: 'Import rejected — the file is too large.',
+    profileImportUnreadable: (reason) => `Import rejected — the file could not be read (${reason}).`,
+    profileExportFailed: (reason) => `Export rejected — ${reason}`
   }
 }
 

@@ -59,6 +59,8 @@ export function PanelApp(): React.JSX.Element {
   const [cleanupProfileId, setCleanupProfileId] = useState<string | null>(null)
   /** Profile whose retro view is unfolded; same one-at-a-time rule. */
   const [retroProfileId, setRetroProfileId] = useState<string | null>(null)
+  /** Profile whose run archive is unfolded. */
+  const [archiveProfileId, setArchiveProfileId] = useState<string | null>(null)
 
   /**
    * Hover, measured in the main process. The whole panel is a drag region, and
@@ -157,19 +159,36 @@ export function PanelApp(): React.JSX.Element {
                   onToggleRetro={(profileId) =>
                     setRetroProfileId((current) => (current === profileId ? null : profileId))
                   }
+                  archiveOpen={archiveProfileId === profile.id}
+                  onToggleArchive={(profileId) =>
+                    setArchiveProfileId((current) => (current === profileId ? null : profileId))
+                  }
+                  liveWorkspaceIds={workspaces
+                    .filter((workspace) => workspace.profileId === profile.id)
+                    .map((workspace) => workspace.workspaceId)}
                   bridge={panel.bridge}
                 />
               ))}
             </ul>
           )}
-          <button
-            type="button"
-            className="panel-new"
-            title={t('panel.newProfileTitle')}
-            onClick={() => panel.editProfile(undefined)}
-          >
-            {t('panel.newProfile')}
-          </button>
+          <div className="panel-profile-actions">
+            <button
+              type="button"
+              className="panel-new"
+              title={t('panel.newProfileTitle')}
+              onClick={() => panel.editProfile(undefined)}
+            >
+              {t('panel.newProfile')}
+            </button>
+            <button
+              type="button"
+              className="panel-new"
+              title={t('panel.importProfileTitle')}
+              onClick={() => panel.importProfile()}
+            >
+              {t('panel.importProfile')}
+            </button>
+          </div>
         </section>
 
         <section className="panel-section">
@@ -221,6 +240,7 @@ export function PanelApp(): React.JSX.Element {
                   onUserMessage={panel.sendUserMessage}
                   onPromoteAgent={panel.promoteAgent}
                   onOpenRunFolder={panel.openRunFolder}
+                  bridge={panel.bridge}
                 />
               ))}
             </div>

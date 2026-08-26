@@ -14,7 +14,7 @@ interface Props {
  * Extra system prompt per identity — Orchestrator, Lead, and every role.
  *
  * Folded by default so the sheet stays a slot editor first. New profiles
- * arrive with starter text (badge "set"); the fold stays closed so nine
+ * arrive with starter text (badge "set"); the fold stays closed so ten
  * open textareas do not bury the slots. The shipped role / loop prompt
  * still applies underneath.
  */

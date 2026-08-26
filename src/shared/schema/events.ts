@@ -72,7 +72,14 @@ const agentStartedPayload = z.object({
   model: z.string().min(1).optional(),
   worktreePath: z.string().min(1).optional(),
   /** The agent's own branch — what `start_agent{baseBranch}` chains from. */
-  branch: z.string().min(1).optional()
+  branch: z.string().min(1).optional(),
+  /**
+   * Direct parent in the live tree (lead for a worker, worker for a helper).
+   * Absent on root children and on every journal written before A1.
+   */
+  parentId: z.string().min(1).max(200).optional(),
+  /** First line of the assignment, capped — lane label when the role name is not enough. */
+  taskSubject: z.string().min(1).max(200).optional()
 })
 
 /**

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { join } from 'node:path'
 import type { AgentEvent } from '@shared/schema/events'
-import { createRunJournal, runDir, runsDir } from './journal'
+import { createRunJournal, runDir, runMetaSchema, runsDir } from './journal'
 
 const event = (seq: number): AgentEvent =>
   ({ type: 'agent_progress', agentId: 'a1', name: 'Caronte', roleId: 'worker', note: 'x', seq, ts: 1 }) as AgentEvent
@@ -50,6 +50,29 @@ describe('createRunJournal — E3 (write-only half)', () => {
     expect(writes).toHaveLength(1)
     expect(writes[0]!.path).toBe(join('/repo', '.vertragus', 'runs', 'ws-1', 'meta.json'))
     expect(JSON.parse(writes[0]!.data)).toMatchObject({ profileId: 'p1', goal: 'fix the bug' })
+    expect(JSON.parse(writes[0]!.data)).not.toHaveProperty('endedAt')
+  })
+
+  it('A1: optional end fields parse on new metas and stay absent on old ones', () => {
+    expect(
+      runMetaSchema.parse({
+        workspaceId: 'ws-1',
+        profileId: 'p1',
+        workspaceName: 'Inferno I',
+        startedAt: 1,
+        endedAt: 2,
+        endReason: 'user_stop',
+        pullRequestUrl: 'https://github.com/o/r/pull/1'
+      })
+    ).toMatchObject({ endReason: 'user_stop' })
+    expect(
+      runMetaSchema.parse({
+        workspaceId: 'ws-1',
+        profileId: 'p1',
+        workspaceName: 'Inferno I',
+        startedAt: 1
+      })
+    ).not.toHaveProperty('endedAt')
   })
 
   it('warns once and goes quiet after a write failure — never throws into the loop', async () => {

@@ -52,6 +52,27 @@ export function GearIcon({ size = 13 }: IconProps): React.JSX.Element {
   )
 }
 
+/** The profile row's "archived runs" mark — a clock, because Stop already used the square. */
+export function ClockIcon({ size = 13 }: IconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="12" cy="12" r="8.2" />
+      <path d="M12 7.5v4.7l3.2 1.8" />
+    </svg>
+  )
+}
+
 /** The panel footer's voice assistant mark. */
 export function MicIcon({ size = 14 }: IconProps): React.JSX.Element {
   return (

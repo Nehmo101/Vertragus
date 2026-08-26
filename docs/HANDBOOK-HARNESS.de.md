@@ -6,6 +6,9 @@ Ideen, die aus dem Code kommen — nicht aus einer generischen Agent-Roadmap.
 
 Copy-paste-fähige Agent-Prompts für alle offenen Tracks:
 [`PROMPT-MCP-HARNESS.md`](./PROMPT-MCP-HARNESS.md).
+Intake, Scout und das Lauf-Archiv:
+[`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md),
+[`PROMPT-INTAKE-ARCHIVE.md`](./PROMPT-INTAKE-ARCHIVE.md).
 
 **Stand:** [PR #17](https://github.com/Nehmo101/Vertragus/pull/17) hat BigBoy
 A1–A3, Remote (B) und Harness C1/C2 (`inspect_agent`, Host-Fakten auf
@@ -56,6 +59,7 @@ Remote-Server.
 | E integrate / briefing / eval | **Kern umgesetzt** (Track 6) — `integrate_branch` + Gate-Warnung + Promote-Klick, Briefing + `repoNotes`, Journal + Resume (E3, Briefing statt Re-Spawn), Budget-Wanduhr, Janitor/Explorer, Playbooks, Extra-MCP an Worker (E6), Loop-Eval (E5, `tests/integration/loopEval`) — Phase E vollständig |
 | F Multi-Orch (Lead, Tiefe 1) | **umgesetzt** (Track 5) — dritte Identität `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder, Reparent (`subtree_adopted`), Caps host-seitig |
 | H Nested Worker / Live-Steer / Browser | **umgesetzt** — Worker dürfen eine Helper-Ebene spawnen; Composer-Targeting auf `user_message`; First-Party `/browser`-Loopback (kein zweiter MCP) |
+| I Intake / Scout / Lauf-Archiv-Timeline | **umgesetzt** — Intake-Schleife (Prompt + `ask_user`), Scout-Builtin, `parentId` auf `agent_started`, Archiv-Klappe + Timeline über das Journal. Siehe [`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md) |
 
 ---
 
@@ -463,7 +467,7 @@ Formular-Feld: der Store bewahrt `extraMcp` über Editor-Saves (wie
 Zones), konfiguriert wird per Profil-JSON.
 
 Playbook = Goal-Template, kein vorstartetes Team. Extra-MCP nur an
-Worker (`mcp/attach.ts` kennt die Dialekte). Templates Janitor/Explorer,
+Worker (`mcp/attach.ts` kennt die Dialekte). Templates Janitor/Explorer/Scout,
 keine neuen Mechaniken. Ein Drittanbieter-Browser-MCP hängt weiter über
 Extra-MCP; die First-Party Chromium-Erweiterung ist Phase H (`browser_*`
 auf der Worker-Identität, derselbe Listener).
@@ -948,6 +952,26 @@ und dem Successor-Seed. Es ersetzt nichts davon, sodass niemand
 Rollen behalten ihren Template-Prompt (was die Rolle *tut*); das
 Profil-Feld ist, wie diese Rolle in diesem Projekt *spricht*.
 
+## Profil-Export und -Import
+
+Ein Profil ist ein Bauplan, der auf mehr als einer Maschine leben soll.
+**Export** im Editor schreibt eine versionierte JSON-Hülle
+(`shared/schema/profileBundle.ts`, Kind `vertragus.profile`) mit dem
+gespeicherten Profil ohne **Zonen** und mit den Custom-Rollen-Templates,
+die die Slots wirklich nutzen. Die Extra-`rolePrompts` pro Identität
+reisen mit; mitgelieferte Worker-/Tester-/…-Templates und die reservierten
+Identitäten Orchestrator / Lead bleiben im Code. Extra-MCP am Slot,
+Playbooks und der Automatisierungsblock reisen ebenfalls. Bildschirmzonen
+nicht — das sind Rechtecke auf den Displays dieser Maschine.
+
+**Import** (Panel) legt immer ein **neues** Profil an: frische Profil-Id,
+frische Slot-Ids, Originalname wenn frei (`UWE (importiert)` bei Kollision).
+Bestehende Profile werden nie überschrieben. Eine Custom-Rollen-Id, die
+schon existiert, wird wiederverwendet, wenn Name und Prompt passen, sonst
+auf eine neue Id umgebogen, sodass ein Import keine Rolle ersetzt, die das
+Ziel schon nutzt. Der Pfad kommt aus einem nativen Dateidialog; der
+Renderer nennt nie einen Dateisystempfad.
+
 ## Anhang: Code-Anker
 
 | Thema | Wo | Stand |
@@ -973,4 +997,5 @@ Profil-Feld ist, wie diese Rolle in diesem Projekt *spricht*.
 | Chromium-`/browser`-Bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
 | Pi-Harness-Wrap | `agents/piHarness.ts`, `spawn.ts`-Overlay (bis X2) | **exit** — [`PLAN-PI-EXIT.md`](./PLAN-PI-EXIT.md) |
 | Extra-System-Prompt pro Identität | `schema/profile.ts` `rolePrompts`, `prompts/rolePrompt.ts`, Profil-Editor | **this** |
+| Profil-Export / -Import | `schema/profileBundle.ts`, `profiles:export` / `profiles:import`, Profil-Editor + Panel | **this** |
 | Einheitliches CLI-Session-Chrome | `cliSurface.ts`, `cliSession.ts`, `cliSessionFeed.ts`, `terminal/SessionPane.tsx` | **this** |

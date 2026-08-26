@@ -6,7 +6,7 @@
  * orchestrator tools, and the TUI stays interactive (DECSET 2004).
  */
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -50,6 +50,44 @@ function piLiveEnv(cwd: string, extra: Record<string, string> = {}): NodeJS.Proc
     [PI_MCP_DIRECT_TOOLS_ENV]: PI_MCP_DIRECT_TOOLS_VALUE,
     ...extra
   }
+}
+
+/**
+ * Vite resolves bare specifiers from the importer path. The hoisted symlink
+ * `node_modules/pi-mcp-adapter` does not see `@modelcontextprotocol/client`
+ * (it lives next to the realpath in `.pnpm`). Import the adapter sources
+ * from disk so linux/macos CI match Windows quality.
+ */
+function adapterSourceHref(file: string): string {
+  const adapterRoot = PI_MCP_ADAPTER_EXTENSION
+  if (adapterRoot.startsWith('npm:')) {
+    throw new Error(`adapter is not the lockfile copy: ${adapterRoot}`)
+  }
+  return pathToFileURL(join(realpathSync(adapterRoot), file)).href
+}
+
+type AdapterManagerCtor = new (cwd: string) => {
+  connect: (
+    name: string,
+    definition: Record<string, unknown>
+  ) => Promise<{
+    client: {
+      callTool: (
+        params: { name: string; arguments: Record<string, unknown> },
+        options?: { timeout?: number }
+      ) => Promise<{ isError?: boolean }>
+    }
+    tools: Array<{ name: string }>
+  }>
+  getRequestOptions: (name: string) => { timeout?: number } | undefined
+  closeAll: () => Promise<void>
+}
+
+async function loadAdapterManager(): Promise<AdapterManagerCtor> {
+  const { McpServerManager } = (await import(adapterSourceHref('server-manager.ts'))) as {
+    McpServerManager: AdapterManagerCtor
+  }
+  return McpServerManager
 }
 
 const PI_WRAP_ARGV = [
@@ -324,34 +362,19 @@ describe('Pi wrap × live Vertragus MCP', () => {
     TEST_MS
   )
 
+  it('imports McpServerManager from the lockfile adapter realpath', async () => {
+    expect(PI_MCP_ADAPTER_EXTENSION.startsWith('npm:'), PI_MCP_ADAPTER_EXTENSION).toBe(false)
+    const Manager = await loadAdapterManager()
+    expect(typeof Manager).toBe('function')
+  })
+
   it(
     'holds await_events past 60s through the adapter manager and wrap timeout',
     async () => {
       handle = await startMcpServer()
       const runtime = fakeRuntime({ awaitTimeout: { defaultSec: 65, maxSec: 65 } })
       const registered = handle.registerWorkspace(runtime.ctx)
-      const adapterRoot = PI_MCP_ADAPTER_EXTENSION
-      expect(adapterRoot.startsWith('npm:'), adapterRoot).toBe(false)
-      const { McpServerManager } = (await import(
-        pathToFileURL(join(adapterRoot, 'server-manager.ts')).href
-      )) as {
-        McpServerManager: new (cwd: string) => {
-          connect: (
-            name: string,
-            definition: Record<string, unknown>
-          ) => Promise<{
-            client: {
-              callTool: (
-                params: { name: string; arguments: Record<string, unknown> },
-                options?: { timeout?: number }
-              ) => Promise<{ isError?: boolean }>
-            }
-            tools: Array<{ name: string }>
-          }>
-          getRequestOptions: (name: string) => { timeout?: number } | undefined
-          closeAll: () => Promise<void>
-        }
-      }
+      const McpServerManager = await loadAdapterManager()
       const cwd = mkdtempSync(join(tmpdir(), 'vertragus-pi-mgr-'))
       const manager = new McpServerManager(cwd)
       const entry = piVertragusServerEntry(registered.orchestratorUrl)
