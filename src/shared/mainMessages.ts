@@ -100,6 +100,7 @@ interface MainMessages {
   profileEditorTitle: string
   providerEditorTitle: string
   zoneOverlayTitle: string
+  timelineWindowTitle: string
   /**
    * Voice assistant: the mic is on but no xAI key is stored. Said in the
    * panel's voice badge, so it names the two places a key can come from.
@@ -181,6 +182,7 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     profileEditorTitle: 'Vertragus — Profil',
     providerEditorTitle: 'Vertragus — Provider',
     zoneOverlayTitle: 'Vertragus — Zonen',
+    timelineWindowTitle: 'Vertragus — Übersicht',
     voiceMissingApiKey: 'Kein xAI-API-Key. Unter Einstellungen eintragen oder XAI_API_KEY setzen.',
     voiceMissingOpenaiApiKey:
       'Kein OpenAI-API-Key. Unter Einstellungen eintragen oder OPENAI_API_KEY setzen.',
@@ -252,6 +254,7 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     profileEditorTitle: 'Vertragus — Profile',
     providerEditorTitle: 'Vertragus — Provider',
     zoneOverlayTitle: 'Vertragus — Zones',
+    timelineWindowTitle: 'Vertragus — Timeline',
     voiceMissingApiKey: 'No xAI API key. Set it under Settings or XAI_API_KEY.',
     voiceMissingOpenaiApiKey: 'No OpenAI API key. Set it under Settings or OPENAI_API_KEY.',
     cliBlockedByAppControl: (name, provider, blockedPath) =>

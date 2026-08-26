@@ -51,6 +51,8 @@ describe('mainMessages', () => {
     expect(mainMessages('de').settingsWindowTitle).toBe('Vertragus — Einstellungen')
     expect(mainMessages('en').settingsWindowTitle).toBe('Vertragus — Settings')
     expect(mainMessages('en').zoneOverlayTitle).toBe('Vertragus — Zones')
+    expect(mainMessages('de').timelineWindowTitle).toBe('Vertragus — Übersicht')
+    expect(mainMessages('en').timelineWindowTitle).toBe('Vertragus — Timeline')
   })
 
   it('names the blocked native addon in the Application Control seed failure', () => {

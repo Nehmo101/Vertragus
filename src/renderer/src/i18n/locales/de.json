@@ -128,7 +128,35 @@
     "onboardingCopied": "Kopiert",
     "onboardingNewProfile": "+ Erstes Profil anlegen",
     "onboardingProfileHint": "Repository wählen, Rest kann bleiben wie er ist. Als Orchestrator ist die erste startbare CLI vorbelegt.",
-    "onboardingRunHint": "Danach ▶ neben dem Profil drücken. Im Feld daneben steht das Ziel für den Orchestrator — leer heißt: er wartet auf Ansage."  },
+    "onboardingRunHint": "Danach ▶ neben dem Profil drücken. Im Feld daneben steht das Ziel für den Orchestrator — leer heißt: er wartet auf Ansage."
+  },
+  "timeline": {
+    "title": "Übersicht",
+    "close": "Übersicht schließen — der Workspace läuft weiter",
+    "eventsLabel": "Journal",
+    "eventsEmpty": "Noch keine Ereignisse.",
+    "event": {
+      "agent_started": "{{name}} gestartet",
+      "agent_start_failed": "{{name}} konnte nicht starten",
+      "agent_done": "{{name}} fertig",
+      "agent_question": "{{name}} hat eine Frage",
+      "agent_progress": "{{name}} hat Fortschritt gemeldet",
+      "agent_exited": "{{name}} beendet",
+      "agent_stopped": "{{name}} gestoppt",
+      "orchestrator_exited": "Orchestrator beendet",
+      "orchestrator_idle": "Orchestrator still",
+      "orchestrator_handoff_started": "Orchestrator-Übergabe gestartet",
+      "orchestrator_started": "Nachfolger-Orchestrator gestartet",
+      "orchestrator_handoff_failed": "Orchestrator-Übergabe fehlgeschlagen",
+      "user_message": "Du hast eine Nachricht geschickt",
+      "user_question": "Frage an dich",
+      "subtree_adopted": "Teilbaum übernommen",
+      "integrate_ok": "{{name}} Merge erfolgreich",
+      "integrate_conflict": "{{name}} Merge-Konflikt",
+      "pull_request": "Pull Request",
+      "budget_warning": "Laufzeitbudget-Warnung"
+    }
+  },
   "profileEditor": {
     "title": "Profil bearbeiten",
     "titleNew": "Neues Profil",

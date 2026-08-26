@@ -9,6 +9,7 @@ import { resolveLaunch } from './agents/resolveCommand'
 import {
   agentCurrentTaskFields,
   APP_CHANNELS,
+  capTimelineEvents,
   createStubWorkspaceDirectory,
   PANEL_TASKS_MAX,
   registerAppIpc,
@@ -37,6 +38,7 @@ import {
   onCliWindowClosed
 } from './windows/cliWindow'
 import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
+import { focusTimelineWindow } from './windows/timelineWindow'
 import {
   forgetHideAll,
   hideAllHotkeyStatus,
@@ -73,6 +75,7 @@ import {
   buildResumeBriefing,
   latestRun,
   markSuccessionConsumed,
+  readRunEvents,
   readRunTasks,
   readSuccessionPackage,
   successionSuperseded
@@ -408,16 +411,29 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         ...(workspace.orchestrator ? [workspace.orchestrator.agentId] : []),
         ...workspace.listAgents().map((agent) => agent.agentId)
       ]
-      if (agentIds.length === 0) return
       // Workspace click replaced hide-all's snapshot: forget it so the next
       // toggle hides what is visible instead of restoring foreign windows.
       forgetHideAll()
-      focusWorkspaceAgents(agentIds, {
-        windows: cliFocusTargets,
-        beforeRestore: suppressMoveTracking
-      })
-      // After show: restore can fire move events that wreck bounds (Windows).
-      layoutCliWindows(agentIds)
+      if (agentIds.length > 0) {
+        focusWorkspaceAgents(agentIds, {
+          windows: cliFocusTargets,
+          beforeRestore: suppressMoveTracking
+        })
+        // After show: restore can fire move events that wreck bounds (Windows).
+        layoutCliWindows(agentIds)
+      }
+      // Overview sheet: show this workspace's timeline, hide the others.
+      // Never minimize — hide() only. A user-closed sheet is reopened here.
+      focusTimelineWindow(workspaceId)
+    },
+    async readTimelineEvents(workspaceId) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) return []
+      const events = (await readRunEvents(workspace.repoPath, workspaceId)) ?? []
+      return capTimelineEvents(events)
+    },
+    onTimelineEvent(workspaceId, listener) {
+      return manager.onTimelineEvent(workspaceId, listener)
     },
     listStaleWorktrees: (profileId) => cleanup.listStale(profileId),
     removeWorktree: (profileId, worktreePath) => cleanup.remove(profileId, worktreePath),

@@ -128,7 +128,35 @@
     "onboardingCopied": "Copied",
     "onboardingNewProfile": "+ Create the first profile",
     "onboardingProfileHint": "Pick a repository; the rest can stay as it is. The orchestrator is preset to the first CLI that can start.",
-    "onboardingRunHint": "Then press ▶ next to the profile. The field beside it carries the goal for the orchestrator — empty means it waits for word."  },
+    "onboardingRunHint": "Then press ▶ next to the profile. The field beside it carries the goal for the orchestrator — empty means it waits for word."
+  },
+  "timeline": {
+    "title": "Overview",
+    "close": "Close overview — the workspace keeps running",
+    "eventsLabel": "Journal",
+    "eventsEmpty": "No events yet.",
+    "event": {
+      "agent_started": "{{name}} started",
+      "agent_start_failed": "{{name}} failed to start",
+      "agent_done": "{{name}} finished",
+      "agent_question": "{{name}} asked a question",
+      "agent_progress": "{{name}} reported progress",
+      "agent_exited": "{{name}} exited",
+      "agent_stopped": "{{name}} stopped",
+      "orchestrator_exited": "Orchestrator exited",
+      "orchestrator_idle": "Orchestrator silent",
+      "orchestrator_handoff_started": "Orchestrator handover started",
+      "orchestrator_started": "Successor orchestrator started",
+      "orchestrator_handoff_failed": "Orchestrator handover failed",
+      "user_message": "You sent a message",
+      "user_question": "Question for you",
+      "subtree_adopted": "Subtree adopted",
+      "integrate_ok": "{{name}} merge succeeded",
+      "integrate_conflict": "{{name}} merge conflicted",
+      "pull_request": "Pull request",
+      "budget_warning": "Runtime budget warning"
+    }
+  },
   "profileEditor": {
     "title": "Edit profile",
     "titleNew": "New profile",

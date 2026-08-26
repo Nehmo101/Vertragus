@@ -19,6 +19,7 @@ import { app } from 'electron'
 import { getAgentRegistry } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { closeCliWindow, createCliWindow } from './windows/cliWindow'
+import { closeTimelineWindow, openTimelineWindow } from './windows/timelineWindow'
 import { setReflowNeighborsGetter } from './windows/placement'
 import { enabledExtraMcpServers } from '@shared/schema/mcpServer'
 import {
@@ -74,7 +75,7 @@ export function buildDevProfile(repoPath: string): Profile {
  */
 export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManager {
   setReflowNeighborsGetter(() => getSettings().ui.reflowNeighbors)
-  return createWorkspaceManager({
+  const manager = createWorkspaceManager({
     mcp,
     registry: getAgentRegistry(),
     windows: {
@@ -106,6 +107,26 @@ export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManage
     // S4: the task board next to it — the run's plan as host state.
     taskBoard: (repoPath, workspaceId) => createTaskBoard(repoPath, workspaceId)
   })
+  return {
+    ...manager,
+    async startWorkspace(profile, options) {
+      const running = await manager.startWorkspace(profile, options)
+      // After the workspace is listed (startWorkspace notifies on register).
+      // Not a CLI window — never opened minimized to the taskbar.
+      openTimelineWindow(running.workspace.workspaceId)
+      return running
+    },
+    async stopWorkspace(workspaceId, options) {
+      const result = await manager.stopWorkspace(workspaceId, options)
+      closeTimelineWindow(workspaceId)
+      return result
+    },
+    async stopAll(options) {
+      const ids = manager.list().map((workspace) => workspace.workspaceId)
+      await manager.stopAll(options)
+      for (const id of ids) closeTimelineWindow(id)
+    }
+  }
 }
 
 export interface DevRunHandle {

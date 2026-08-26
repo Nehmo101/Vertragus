@@ -86,7 +86,9 @@ const DYNAMIC_KEY_PREFIXES = [
   // settings/SettingsApp.tsx — indexed by AppearanceSlider
   'settings.glassSlider.',
   // terminal/TerminalApp.tsx — indexed by TerminalBootPhase
-  'terminal.boot.'
+  'terminal.boot.',
+  // timeline/formatEvent.ts — indexed by AgentEventType
+  'timeline.event.'
 ]
 
 /** `panel.agentCount_one` / `_other` are one key to a caller: `panel.agentCount`. */
