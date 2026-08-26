@@ -14,6 +14,7 @@ vi.mock('./windows/cliWindow', () => ({
 
 import {
   createTerminalIpc,
+  setTerminalImageSaver,
   setTerminalInputSink,
   TERMINAL_CHANNELS,
   TERMINAL_COALESCE_MS,
@@ -157,6 +158,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setTerminalInputSink(undefined)
+  setTerminalImageSaver(undefined)
   registry.dispose()
   vi.useRealTimers()
 })
@@ -198,6 +200,41 @@ describe('terminal:attach', () => {
   it('rejects a window whose agent is not registered', () => {
     registry.removeAgent('agent-a')
     expect(() => attach(10)).toThrow(/unknown agent/)
+  })
+})
+
+describe('terminal:image', () => {
+  it('is sender-bound, never writes bytes to the PTY, and ignores a smuggled agentId', async () => {
+    const calls: Array<{ agentId: string; source: unknown }> = []
+    setTerminalImageSaver(async (agentId, source) => {
+      calls.push({ agentId, source })
+      return { relativePath: '.vertragus/attachments/shot.png' }
+    })
+    const result = await ipc.invoke(TERMINAL_CHANNELS.image, 10, {
+      source: 'clipboard',
+      agentId: 'agent-b'
+    })
+    expect(result).toEqual({ relativePath: '.vertragus/attachments/shot.png' })
+    expect(calls).toEqual([{ agentId: 'agent-a', source: 'clipboard' }])
+    expect(ptyA.written).toEqual([])
+    expect(ptyB.written).toEqual([])
+  })
+
+  it('rejects a panel sender', async () => {
+    setTerminalImageSaver(async () => ({ relativePath: 'x' }))
+    await expect(
+      Promise.resolve(ipc.invoke(TERMINAL_CHANNELS.image, PANEL_WEBCONTENTS_ID, { source: 'clipboard' }))
+    ).rejects.toThrow(/not a CLI window/)
+  })
+
+  it('rejects when the saver is not wired, and rejects a bad source', async () => {
+    await expect(Promise.resolve(ipc.invoke(TERMINAL_CHANNELS.image, 10, { source: 'clipboard' }))).rejects.toThrow(
+      /not wired/
+    )
+    setTerminalImageSaver(async () => ({ relativePath: 'x' }))
+    await expect(Promise.resolve(ipc.invoke(TERMINAL_CHANNELS.image, 10, { source: 1 }))).rejects.toThrow(
+      /invalid source/
+    )
   })
 })
 

@@ -28,7 +28,7 @@
  * correct renderer CAN provoke belongs in the locale table like everything
  * else — see the stub refusal below.
  */
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain } from 'electron'
 import { profileRoleIds, type Profile, type RoleTemplate } from '@shared/schema/profile'
 import {
   zoneSchema,
@@ -100,6 +100,19 @@ import {
   type ZoneOverlaySender
 } from '@main/windows/zoneOverlay'
 import type { MinimalIpcMain } from './ipc'
+import {
+  ATTACHMENT_ERROR,
+  ATTACHMENT_MAX_FILES,
+  assertImageBytes,
+  bytesFromAbsPath,
+  bytesFromClipboard,
+  coerceBytes,
+  createStagingStore,
+  localizedAttachmentError,
+  stagingDirFor,
+  writeAttachment,
+  type StagingStore
+} from './attachments'
 
 export const APP_CHANNELS = {
   profilesList: 'profiles:list',
@@ -144,6 +157,12 @@ export const APP_CHANNELS = {
    * the app runs on and nowhere else.
    */
   workspacesOpenRunFolder: 'workspaces:openRunFolder',
+  /**
+   * Save one image into staging (pre-start `{profileId}`) or a live agent's
+   * worktree (`{workspaceId, agentId?}`). Clipboard is read in main — the
+   * renderer sends no bytes for Ctrl+V. Returns `{relativePath, stagingId?}`.
+   */
+  attachmentsSave: 'attachments:save',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
@@ -375,7 +394,16 @@ export interface WorkspaceDirectory {
    * own runtime object needs no adapter lambda here. `goal` (H2) is seeded
    * into the orchestrator once it is up; absent = classic bare Play.
    */
-  start(profileId: string, goal?: string): void | Promise<unknown>
+  start(
+    profileId: string,
+    goal?: string,
+    attachmentIds?: readonly string[]
+  ): void | Promise<unknown>
+  /**
+   * Live worktree cwd of an agent. `agentId` omitted = orchestrator. Absent
+   * when the workspace or agent is unknown — never `profile.repoPath`.
+   */
+  worktreePathOf(workspaceId: string, agentId?: string): string | undefined
   /**
    * H2 refill: the goal for a run that was started without one. Rejects with a
    * readable message when the workspace is unknown, already carries a goal, or
@@ -484,6 +512,7 @@ export function createStubWorkspaceDirectory(
   return {
     list: () => [],
     start: refuse,
+    worktreePathOf: () => undefined,
     assignGoal: async () => refuse(),
     resume: refuse,
     stop: refuse,
@@ -904,6 +933,13 @@ export interface AppIpcHost {
    * Production wires this in `index.ts` after the WorkspaceDirectory exists.
    */
   voice?: AppVoicePort
+  /**
+   * Pre-start image staging. Production points at `userData/attachment-staging`.
+   * Tests inject a temp dir so they never touch Electron's userData.
+   */
+  stagingStore?: StagingStore
+  /** OS clipboard image. Empty nativeImage is a no-op (text paste still works). */
+  readClipboardImage?: () => { isEmpty(): boolean; toPNG(): Uint8Array | Buffer } | null
 }
 
 export interface AppIpc {
@@ -1203,6 +1239,73 @@ export function mergeVoicePatch(current: VoiceSettings, patch: unknown): VoiceSe
 
 export { asInt16Pcm }
 
+const STAGING_ID_RE = /^[a-z0-9._-]+$/i
+
+function parseAttachmentIds(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const ids = value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0 && entry.length < 80 && STAGING_ID_RE.test(entry))
+    .slice(0, ATTACHMENT_MAX_FILES)
+  return ids.length > 0 ? ids : undefined
+}
+
+async function bytesFromPanelSource(
+  source: unknown,
+  readClipboard: AppIpcHost['readClipboardImage']
+): Promise<Uint8Array | null> {
+  if (source === 'clipboard') {
+    return bytesFromClipboard(readClipboard?.() ?? null)
+  }
+  if (typeof source !== 'object' || source === null) {
+    throw new Error('attachments:save rejected — invalid source')
+  }
+  const body = source as { absPath?: unknown; bytes?: unknown; mime?: unknown }
+  if (typeof body.absPath === 'string') return bytesFromAbsPath(body.absPath)
+  if ('bytes' in body) {
+    const bytes = coerceBytes(body.bytes)
+    if (!bytes) throw new Error('attachments:save rejected — invalid source')
+    assertImageBytes(bytes)
+    return bytes
+  }
+  throw new Error('attachments:save rejected — invalid source')
+}
+
+async function savePanelAttachment(
+  host: AppIpcHost,
+  payload: unknown
+): Promise<{ relativePath: string; stagingId?: string } | null> {
+  const body = (payload ?? {}) as {
+    profileId?: unknown
+    workspaceId?: unknown
+    agentId?: unknown
+    source?: unknown
+  }
+  const bytes = await bytesFromPanelSource(body.source, host.readClipboardImage)
+  if (!bytes) return null
+  if (typeof body.profileId === 'string' && body.profileId) {
+    const profile = host.store.getProfiles().find((entry) => entry.id === body.profileId)
+    if (!profile) {
+      throw new Error(mainMessages(host.store.getSettings().ui.locale).unknownProfile(body.profileId))
+    }
+    const store =
+      host.stagingStore ??
+      createStagingStore({ dir: stagingDirFor(app.getPath('userData')) })
+    const saved = await store.save(bytes)
+    return { relativePath: saved.relativePath, stagingId: saved.stagingId }
+  }
+  if (typeof body.workspaceId === 'string' && body.workspaceId) {
+    const known = host.directory.list().some((entry) => entry.workspaceId === body.workspaceId)
+    if (!known) throw new Error('attachments:save rejected — unknown workspace')
+    const agentId = typeof body.agentId === 'string' && body.agentId ? body.agentId : undefined
+    const cwd = host.directory.worktreePathOf(body.workspaceId, agentId)
+    if (!cwd) throw new Error(ATTACHMENT_ERROR.worktreeMissing)
+    return writeAttachment(cwd, bytes)
+  }
+  throw new Error('attachments:save rejected — missing target')
+}
+
 export function createAppIpc(host: AppIpcHost): AppIpc {
   const now = host.now ?? (() => Date.now())
   let healthCache: { at: number; health: ProviderHealth[] } | undefined
@@ -1420,13 +1523,30 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     const body =
       typeof payload === 'string'
         ? { profileId: payload }
-        : ((payload ?? {}) as { profileId?: string; goal?: unknown })
+        : ((payload ?? {}) as { profileId?: string; goal?: unknown; attachmentIds?: unknown })
     if (!body.profileId) throw new Error('workspaces:start rejected — missing profile id')
     // Goal is optional (back-compat bare Play); anything non-string or blank
     // is treated as absent rather than refused — an empty field is not an error.
     const goal = typeof body.goal === 'string' && body.goal.trim() ? body.goal.trim() : undefined
-    await (goal ? host.directory.start(body.profileId, goal) : host.directory.start(body.profileId))
+    // Ids only — never bytes. Cap matches the per-event file cap.
+    const attachmentIds = parseAttachmentIds(body.attachmentIds)
+    if (attachmentIds) {
+      await host.directory.start(body.profileId, goal, attachmentIds)
+    } else if (goal) {
+      await host.directory.start(body.profileId, goal)
+    } else {
+      await host.directory.start(body.profileId)
+    }
     emitWorkspaces()
+  })
+
+  handle(APP_CHANNELS.attachmentsSave, requirePanel, async (_event, payload) => {
+    const locale = host.store.getSettings().ui.locale
+    try {
+      return await savePanelAttachment(host, payload)
+    } catch (error) {
+      throw localizedAttachmentError(error, locale)
+    }
   })
 
   // H2 refill: unlike the start goal above, THIS one is the whole point of the
@@ -2081,6 +2201,8 @@ export function registerAppIpc(
   instance = createAppIpc({
     ipcMain: ipcMain as unknown as MinimalIpcMain,
     store,
+    stagingStore: createStagingStore({ dir: stagingDirFor(app.getPath('userData')) }),
+    readClipboardImage: () => clipboard.readImage(),
     directory:
       directory ??
       createStubWorkspaceDirectory(() => settings().getSettings().ui.locale, bootError),

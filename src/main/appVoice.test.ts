@@ -107,7 +107,8 @@ function stubDirectory(): WorkspaceDirectory & {
     closeAgentWindow: vi.fn(),
     focusWorkspace: vi.fn(),
     listStaleWorktrees: async () => [],
-    removeWorktree: async () => []
+    removeWorktree: async () => [],
+    worktreePathOf: () => undefined
   }
 }
 

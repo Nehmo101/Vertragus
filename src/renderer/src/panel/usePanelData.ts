@@ -38,7 +38,11 @@ export interface PanelData {
   error: string | null
   dismissError(): void
   /** Start a workspace; a non-empty goal is seeded into the orchestrator (H2). */
-  startWorkspace(profileId: string, goal?: string): void
+  startWorkspace(profileId: string, goal?: string, attachmentIds?: string[]): void
+  saveAttachment(
+    target: { profileId: string } | { workspaceId: string; agentId?: string },
+    source: 'clipboard' | { absPath: string } | { bytes: Uint8Array; mime?: string }
+  ): Promise<{ relativePath: string; stagingId?: string } | null>
   /**
    * H2 refill: hand a bare-started run its goal now. The card offers this only
    * while the run has none — a goal is the orchestrator's first user turn.
@@ -159,11 +163,18 @@ export function usePanelData(): PanelData {
     update,
     error,
     dismissError: () => setError(null),
-    startWorkspace: (profileId, goal) =>
+    startWorkspace: (profileId, goal, attachmentIds) =>
       run(async (api) => {
-        await api.startWorkspace(profileId, goal)
+        await api.startWorkspace(profileId, goal, attachmentIds)
         setWorkspaces(await api.listWorkspaces())
       }),
+    saveAttachment: (target, source) => {
+      if (!bridge) return Promise.resolve(null)
+      return bridge.saveAttachment(target, source).catch((cause) => {
+        fail(cause)
+        return null
+      })
+    },
     assignGoal: (workspaceId, goal) =>
       run(async (api) => {
         await api.assignWorkspaceGoal(workspaceId, goal)

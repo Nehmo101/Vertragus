@@ -1,6 +1,6 @@
 import { homedir, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, safeStorage, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, clipboard, safeStorage, ipcMain, shell } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { mainMessages, readLocale } from '@shared/mainMessages'
 import { allRoleTemplates, roleColor } from '@shared/prompts/roles'
@@ -18,7 +18,20 @@ import {
 } from './appIpc'
 import { createAppVoice, installDefaultVoicePermissions, type AppVoice } from './appVoice'
 import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
-import { getAgentRegistry, registerTerminalIpc, setTerminalInputSink } from './ipc'
+import {
+  getAgentRegistry,
+  registerTerminalIpc,
+  setTerminalImageSaver,
+  setTerminalInputSink
+} from './ipc'
+import {
+  assertImageBytes,
+  bytesFromAbsPath,
+  bytesFromClipboard,
+  coerceBytes,
+  localizedAttachmentError,
+  writeAttachment
+} from './attachments'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import {
   getProfile,
@@ -94,6 +107,25 @@ applyIsolatedUserData()
  */
 function armScreenshotHook(win: Electron.BrowserWindow, envVar: string, delayMs = 1_500): void {
   armWindowCapture(win, envVar, envVar, delayMs)
+}
+
+function worktreePathForAgent(manager: WorkspaceManager, agentId: string): string | undefined {
+  for (const workspace of manager.list()) {
+    const path = workspace.worktreePathOf(agentId)
+    if (path) return path
+  }
+  return undefined
+}
+
+async function bytesFromTerminalSource(
+  source: 'clipboard' | { absPath: string } | { bytes: Uint8Array; mime?: string }
+): Promise<Uint8Array | null> {
+  if (source === 'clipboard') return bytesFromClipboard(clipboard.readImage())
+  if ('absPath' in source) return bytesFromAbsPath(source.absPath)
+  const bytes = coerceBytes(source.bytes)
+  if (!bytes) return null
+  assertImageBytes(bytes)
+  return bytes
 }
 
 /** Adapter: WorkspaceManager → the view the panel draws. */
@@ -225,13 +257,23 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           ]
         }
       }),
-    start(profileId, goal) {
+    async start(profileId, goal, attachmentIds) {
       const profile = getProfile(profileId)
+      const locale = readLocale(() => getSettings().ui.locale)
       if (!profile) {
-        const locale = readLocale(() => getSettings().ui.locale)
         throw new Error(mainMessages(locale).unknownProfile(profileId))
       }
-      return manager.startWorkspace(profile, goal ? { goal } : undefined)
+      try {
+        return await manager.startWorkspace(profile, {
+          ...(goal ? { goal } : {}),
+          ...(attachmentIds?.length ? { attachmentIds } : {})
+        })
+      } catch (error) {
+        throw localizedAttachmentError(error, locale)
+      }
+    },
+    worktreePathOf(workspaceId, agentId) {
+      return manager.worktreePathOf(workspaceId, agentId)
     },
     async assignGoal(workspaceId, goal) {
       try {
@@ -634,6 +676,18 @@ app.whenReady().then(async () => {
     const manager = appManager
     setTerminalInputSink((agentId, data) => {
       manager.noteOrchestratorGoal(agentId, data)
+    })
+    setTerminalImageSaver(async (agentId, source) => {
+      const locale = readLocale(() => getSettings().ui.locale)
+      try {
+        const bytes = await bytesFromTerminalSource(source)
+        if (!bytes) return null
+        const cwd = worktreePathForAgent(manager, agentId)
+        if (!cwd) throw localizedAttachmentError(new Error('attachment_worktree_missing'), locale)
+        return await writeAttachment(cwd, bytes)
+      } catch (error) {
+        throw localizedAttachmentError(error, locale)
+      }
     })
     const broadcastSettings = (channel: string, payload: unknown): void => {
       for (const { window } of listSettingsWindows()) {

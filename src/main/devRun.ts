@@ -16,6 +16,7 @@
  * windows and the real settings store. M3's Play button reuses it unchanged.
  */
 import { app } from 'electron'
+import { createStagingStore, stagingDirFor } from './attachments'
 import { getAgentRegistry } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { closeCliWindow, createCliWindow } from './windows/cliWindow'
@@ -74,7 +75,10 @@ export function buildDevProfile(repoPath: string): Profile {
  */
 export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManager {
   setReflowNeighborsGetter(() => getSettings().ui.reflowNeighbors)
+  const staging = createStagingStore({ dir: stagingDirFor(app.getPath('userData')) })
   return createWorkspaceManager({
+    materializeAttachments: (ids, dest) => staging.copyTo(ids, dest),
+    consumeAttachments: (ids) => staging.consume(ids),
     mcp,
     registry: getAgentRegistry(),
     windows: {

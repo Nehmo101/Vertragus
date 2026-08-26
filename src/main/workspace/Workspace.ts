@@ -337,6 +337,11 @@ export interface WorkspaceDeps {
    * nothing on disk means nothing to rename after the cutover.
    */
   writeSuccession?: (pkg: OrchestratorHandoffPackage) => void
+  /**
+   * Copy pre-start staged images into this orchestrator worktree. Called after
+   * `createWorktreeFor` and before spawn / assignGoal. Absent = no-op (tests).
+   */
+  materializeAttachments?: (ids: readonly string[], worktreePath: string) => Promise<void>
 }
 
 /** The slice of the retro sink a single workspace consumes (Electron-free). */
@@ -700,6 +705,18 @@ export class Workspace implements AgentHost {
   /** True while a successor is being spawned to replace the live root. */
   successionInProgress(): boolean {
     return this.succession !== undefined
+  }
+
+  /**
+   * Worktree cwd of this agent, or the orchestrator's when `agentId` is omitted.
+   * Never the profile checkout.
+   */
+  worktreePathOf(agentId?: string): string | undefined {
+    if (!agentId) return this.orchestratorRecord?.worktreePath
+    if (this.orchestratorRecord?.agentId === agentId) return this.orchestratorRecord.worktreePath
+    const live = this.agents.get(agentId)
+    if (live) return live.worktreePath
+    return this.pendingStarts.get(agentId)?.worktreePath
   }
 
   /** The orchestrator, once started. Never part of {@link listAgents}. */
@@ -1647,7 +1664,10 @@ export class Workspace implements AgentHost {
    * working directory (Kimi's `.kimi-code/mcp.json`), and two orchestrators
    * sharing the main checkout would overwrite each other's.
    */
-  async startOrchestrator(options?: { initialPrompt?: string }): Promise<StartedAgent> {
+  async startOrchestrator(options?: {
+    initialPrompt?: string
+    attachmentIds?: readonly string[]
+  }): Promise<StartedAgent> {
     this.assertOpen()
     if (this.succession) {
       throw new Error('A successor orchestrator is already starting.')
@@ -1660,7 +1680,8 @@ export class Workspace implements AgentHost {
       agentId,
       name,
       mcpUrl: this.requireMcp().orchestratorUrl,
-      ...(initialPrompt ? { initialPrompt } : {})
+      ...(initialPrompt ? { initialPrompt } : {}),
+      ...(options?.attachmentIds?.length ? { attachmentIds: options.attachmentIds } : {})
     })
     this.orchestratorRecord = record
     // C5: the idle clock starts at boot — an orchestrator that never makes
@@ -1818,6 +1839,7 @@ export class Workspace implements AgentHost {
     name: string
     mcpUrl: string
     initialPrompt?: string
+    attachmentIds?: readonly string[]
     /** Pre-built prompt (succession). Cold start collects it after the window opens. */
     systemPrompt?: string
   }): Promise<AgentRecord> {
@@ -1843,6 +1865,9 @@ export class Workspace implements AgentHost {
       const worktree = await this.createWorktreeFor(input.agentId, input.name)
       record.worktreePath = worktree.path
       record.branch = worktree.branch
+      if (input.attachmentIds?.length) {
+        await this.deps.materializeAttachments?.(input.attachmentIds, worktree.path)
+      }
       this.setBoot(record, 'mcp')
       const argvInitialPrompt = this.deps.piHarness
         ? input.initialPrompt?.trim() || undefined

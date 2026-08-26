@@ -37,6 +37,7 @@ export const TERMINAL_CHANNELS = {
   exit: 'terminal:exit',
   task: 'terminal:task',
   boot: 'terminal:boot',
+  image: 'terminal:image',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -248,6 +249,48 @@ export function setTerminalInputSink(sink: TerminalInputSink | undefined): void 
   terminalInputSink = sink
 }
 
+/**
+ * Save a pasted/dropped image into THIS window's agent worktree. Late-bound
+ * like the input sink: registerTerminalIpc runs before WorkspaceManager exists.
+ * The renderer cannot pick an agentId — the sender window is the only address.
+ */
+export type TerminalImageSource =
+  | 'clipboard'
+  | { absPath: string }
+  | { bytes: Uint8Array; mime?: string }
+
+export type TerminalImageSaver = (
+  agentId: string,
+  source: TerminalImageSource
+) => Promise<{ relativePath: string } | null>
+
+let terminalImageSaver: TerminalImageSaver | undefined
+
+export function setTerminalImageSaver(saver: TerminalImageSaver | undefined): void {
+  terminalImageSaver = saver
+}
+
+function parseTerminalImageSource(payload: unknown): TerminalImageSource {
+  const source =
+    payload && typeof payload === 'object' && 'source' in payload
+      ? (payload as { source: unknown }).source
+      : payload
+  if (source === 'clipboard' || source === undefined || source === null) return 'clipboard'
+  if (typeof source !== 'object') throw new Error('terminal:image rejected — invalid source')
+  const body = source as { absPath?: unknown; bytes?: unknown; mime?: unknown }
+  if (typeof body.absPath === 'string' && body.absPath) return { absPath: body.absPath }
+  if (body.bytes instanceof Uint8Array) {
+    return {
+      bytes: body.bytes,
+      ...(typeof body.mime === 'string' ? { mime: body.mime } : {})
+    }
+  }
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(body.bytes)) {
+    return { bytes: body.bytes, ...(typeof body.mime === 'string' ? { mime: body.mime } : {}) }
+  }
+  throw new Error('terminal:image rejected — invalid source')
+}
+
 export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
   const coalesceMs = host.coalesceMs ?? TERMINAL_COALESCE_MS
   const agents = new Map<string, AgentRecord>()
@@ -335,6 +378,18 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
     const record = resolveRecord(event)
     if (!record || typeof data !== 'string' || !data) return
     writeUserInput(record, data)
+  }) as IpcListener)
+
+  host.ipcMain.handle(TERMINAL_CHANNELS.image, (async (
+    event: { sender: { id: number } },
+    payload?: unknown
+  ): Promise<{ relativePath: string } | null> => {
+    const record = resolveRecord(event)
+    if (!record) throw new Error('terminal:image rejected — sender is not a CLI window')
+    if (!terminalImageSaver) throw new Error('terminal:image rejected — not wired')
+    const source = parseTerminalImageSource(payload)
+    // Ignore any agentId the renderer might smuggle — sender-bound only.
+    return terminalImageSaver(record.entry.meta.agentId, source)
   }) as IpcListener)
 
   host.ipcMain.on(TERMINAL_CHANNELS.resize, ((
@@ -533,6 +588,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       }
       host.ipcMain.removeHandler(TERMINAL_CHANNELS.attach)
       host.ipcMain.removeHandler(TERMINAL_CHANNELS.windowMaximize)
+      host.ipcMain.removeHandler(TERMINAL_CHANNELS.image)
     }
   }
 }

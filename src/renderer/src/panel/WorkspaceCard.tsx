@@ -1,6 +1,14 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
+import {
+  clipboardDataLooksLikeImage,
+  collectDroppedImages,
+  droppedImageSource,
+  insertAttachmentText,
+  type AttachmentSaveResult,
+  type AttachmentSource
+} from '../lib/imageAttach'
 import { activeLocale } from '../i18n'
 import { LoreTip } from '../lore/LoreTip'
 import { ChevronIcon, CloseIcon, FolderIcon, StopIcon } from './icons'
@@ -167,6 +175,11 @@ interface Props {
   onPromoteAgent(workspaceId: string, agentId: string): void
   /** Reveal this run's artefact folder in the OS file manager (desktop only). */
   onOpenRunFolder(workspaceId: string): void
+  /** Live image save into the target agent's worktree. */
+  onSaveAttachment?(
+    target: { profileId: string } | { workspaceId: string; agentId?: string },
+    source: AttachmentSource
+  ): Promise<AttachmentSaveResult | null>
 }
 
 /**
@@ -276,20 +289,33 @@ function TaskBoardSection({ workspace }: { workspace: WorkspaceSummary }): React
 function GoalRefill({
   workspaceId,
   hint,
-  onAssign
+  onAssign,
+  onSaveAttachment
 }: {
   workspaceId: string
   hint: string
   onAssign(workspaceId: string, goal: string): void
+  onSaveAttachment?: Props['onSaveAttachment']
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [goal, setGoal] = useState('')
+  const goalRef = useRef<HTMLTextAreaElement>(null)
   const submit = (): void => {
     if (!goal.trim()) return
     onAssign(workspaceId, goal.trim())
     setGoal('')
     setOpen(false)
+  }
+  const insertSaved = (result: AttachmentSaveResult): void => {
+    setGoal((current) => {
+      const el = goalRef.current
+      const startAt = el?.selectionStart ?? current.length
+      const endAt = el?.selectionEnd ?? current.length
+      const next = insertAttachmentText(current, result.relativePath, startAt, endAt)
+      queueMicrotask(() => el?.setSelectionRange(next.caret, next.caret))
+      return next.value
+    })
   }
   return (
     <div className="panel-card-refill">
@@ -305,12 +331,35 @@ function GoalRefill({
       {open ? (
         <div className="panel-goal-late">
           <textarea
+            ref={goalRef}
             className="panel-goal-input"
             rows={2}
             placeholder={t('panel.goalPlaceholder')}
+            title={t('panel.attachImagesHint')}
             value={goal}
             autoFocus
             onChange={(event) => setGoal(event.target.value)}
+            onPaste={(event) => {
+              if (!onSaveAttachment) return
+              if (clipboardDataLooksLikeImage(event.clipboardData)) event.preventDefault()
+              void onSaveAttachment({ workspaceId }, 'clipboard').then((result) => {
+                if (result) insertSaved(result)
+              })
+            }}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault()
+              if (!onSaveAttachment) return
+              void (async () => {
+                for (const file of collectDroppedImages(event.dataTransfer.files)) {
+                  const result = await onSaveAttachment(
+                    { workspaceId },
+                    await droppedImageSource(file)
+                  )
+                  if (result) insertSaved(result)
+                }
+              })()
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
@@ -337,20 +386,34 @@ function GoalRefill({
 function Composer({
   workspaceId,
   agents,
-  onSend
+  onSend,
+  onSaveAttachment
 }: {
   workspaceId: string
   agents: WorkspaceAgentSummary[]
   onSend(workspaceId: string, text: string, targetAgentId?: string): void
+  onSaveAttachment?: Props['onSaveAttachment']
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [text, setText] = useState('')
   const [target, setTarget] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
   const submit = (): void => {
     if (!text.trim()) return
     onSend(workspaceId, text.trim(), target || undefined)
     setText('')
   }
+  const insertSaved = (result: AttachmentSaveResult): void => {
+    setText((current) => {
+      const el = inputRef.current
+      const startAt = el?.selectionStart ?? current.length
+      const endAt = el?.selectionEnd ?? current.length
+      const next = insertAttachmentText(current, result.relativePath, startAt, endAt)
+      queueMicrotask(() => el?.setSelectionRange(next.caret, next.caret))
+      return next.value
+    })
+  }
+  const attachTarget = { workspaceId, ...(target ? { agentId: target } : {}) }
   const targets = agents.filter((agent) => agent.roleId !== 'orchestrator')
   return (
     <div className="panel-composer">
@@ -370,11 +433,31 @@ function Composer({
         </select>
       ) : null}
       <input
+        ref={inputRef}
         className="panel-answer-input"
         type="text"
         placeholder={t('panel.composerPlaceholder')}
+        title={t('panel.attachImagesHint')}
         value={text}
         onChange={(event) => setText(event.target.value)}
+        onPaste={(event) => {
+          if (!onSaveAttachment) return
+          if (clipboardDataLooksLikeImage(event.clipboardData)) event.preventDefault()
+          void onSaveAttachment(attachTarget, 'clipboard').then((result) => {
+            if (result) insertSaved(result)
+          })
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault()
+          if (!onSaveAttachment) return
+          void (async () => {
+            for (const file of collectDroppedImages(event.dataTransfer.files)) {
+              const result = await onSaveAttachment(attachTarget, await droppedImageSource(file))
+              if (result) insertSaved(result)
+            }
+          })()
+        }}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
             event.preventDefault()
@@ -436,7 +519,8 @@ export function WorkspaceCard({
   onAnswerQuestion,
   onUserMessage,
   onPromoteAgent,
-  onOpenRunFolder
+  onOpenRunFolder,
+  onSaveAttachment
 }: Props): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const stop = t('panel.stopWorkspace', { workspace: workspace.name })
@@ -513,6 +597,7 @@ export function WorkspaceCard({
             workspaceId={workspace.workspaceId}
             hint={goalLine}
             onAssign={onAssignGoal}
+            onSaveAttachment={onSaveAttachment}
           />
         )
       ) : null}
@@ -575,6 +660,7 @@ export function WorkspaceCard({
               workspaceId={workspace.workspaceId}
               agents={workspace.agents}
               onSend={onUserMessage}
+              onSaveAttachment={onSaveAttachment}
             />
           ) : null}
         </>

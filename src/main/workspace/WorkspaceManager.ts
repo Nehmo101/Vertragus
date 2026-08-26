@@ -73,6 +73,11 @@ export interface WorkspaceManagerDeps
    * `.vertragus/runs/<id>/tasks.json`.
    */
   taskBoard?: (repoPath: string, workspaceId: string) => TaskBoard
+  /**
+   * Drop pre-start staging after the orchestrator worktree exists and spawn
+   * succeeded. Copy itself is {@link WorkspaceDeps.materializeAttachments}.
+   */
+  consumeAttachments?: (ids: readonly string[]) => Promise<void>
 }
 
 export interface RunningWorkspace {
@@ -100,6 +105,11 @@ export interface StartWorkspaceOptions {
    * the card shows "no goal" until someone types one into the TUI.
    */
   goal?: string
+  /**
+   * Staging ids from a pre-start paste/drop. Copied into the orchestrator
+   * worktree after createWorktree and before spawn/assignGoal. Never bytes.
+   */
+  attachmentIds?: readonly string[]
   /**
    * E3: this start resumes an earlier run. The briefing (built by
    * `resume.buildResumeBriefing` from the old run's journal) lands in the new
@@ -140,6 +150,8 @@ export interface WorkspaceManager {
   stopWorkspace(workspaceId: string, options?: StopOptions): Promise<boolean>
   stopAll(options?: StopOptions): Promise<void>
   get(workspaceId: string): Workspace | undefined
+  /** Live worktree cwd; `agentId` omitted = orchestrator. Never profile.repoPath. */
+  worktreePathOf(workspaceId: string, agentId?: string): string | undefined
   list(): Workspace[]
   /** Workspaces of one profile, for the panel's per-profile grouping. */
   listForProfile(profileId: string): Workspace[]
@@ -334,9 +346,12 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
 
     try {
       const goal = options?.goal?.trim()
-      const orchestrator = await workspace.startOrchestrator(
-        goal ? { initialPrompt: goal } : undefined
-      )
+      const attachmentIds = options?.attachmentIds?.filter((id) => id.trim()) ?? []
+      const orchestrator = await workspace.startOrchestrator({
+        ...(goal ? { initialPrompt: goal } : {}),
+        ...(attachmentIds.length ? { attachmentIds } : {})
+      })
+      if (attachmentIds.length) await deps.consumeAttachments?.(attachmentIds)
       notifyChange()
       // Providers that take a first user prompt at spawn already have the goal
       // (goalText is set) — do not type a second copy into the TUI. Everyone
@@ -427,6 +442,10 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
 
     async stopAll(options?: StopOptions): Promise<void> {
       for (const workspaceId of [...workspaces.keys()]) await stopWorkspace(workspaceId, options)
+    },
+
+    worktreePathOf(workspaceId: string, agentId?: string): string | undefined {
+      return workspaces.get(workspaceId)?.worktreePathOf(agentId)
     },
 
     get: (workspaceId) => workspaces.get(workspaceId),

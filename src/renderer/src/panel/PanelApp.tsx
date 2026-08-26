@@ -147,6 +147,7 @@ export function PanelApp(): React.JSX.Element {
                     if (workspaceId) panel.focusWorkspace(workspaceId)
                   }}
                   onStart={panel.startWorkspace}
+                  onSaveAttachment={panel.saveAttachment}
                   onResume={panel.resumeWorkspace}
                   onEdit={panel.editProfile}
                   cleanupOpen={cleanupProfileId === profile.id}
@@ -221,6 +222,7 @@ export function PanelApp(): React.JSX.Element {
                   onUserMessage={panel.sendUserMessage}
                   onPromoteAgent={panel.promoteAgent}
                   onOpenRunFolder={panel.openRunFolder}
+                  onSaveAttachment={panel.saveAttachment}
                 />
               ))}
             </div>

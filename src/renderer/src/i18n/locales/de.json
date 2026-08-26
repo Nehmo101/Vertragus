@@ -64,6 +64,7 @@
     "voiceInputMissing": "Gewähltes Mikrofon ist weg — Systemstandard wird verwendet.",
     "voiceOutputMissing": "Gewählter Lautsprecher ist weg — Systemstandard wird verwendet.",
     "goalPlaceholder": "Ziel für den Orchestrator … (leer = ohne Ziel starten)",
+    "attachImagesHint": "Bilder einfügen oder ablegen. Sie landen im Agent-Worktree; der Pfad wird als Text eingesetzt.",
     "startWithGoal": "Mit Ziel starten",
     "startWithoutGoal": "Ohne Ziel starten",
     "resumeRun": "Letzten Lauf fortsetzen",

@@ -22,6 +22,12 @@ import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
 import { shouldFocusTerminal, trackWindowFocus } from './windowFocus'
 import { XTERM_THEME } from './xtermTheme'
+import {
+  attachmentText,
+  clipboardDataLooksLikeImage,
+  collectDroppedImages,
+  droppedImageSource
+} from '../lib/imageAttach'
 
 /**
  * WebGL is feature-detected exactly once per renderer process: a machine
@@ -183,6 +189,37 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
     term.open(host)
     loadRenderer(term)
 
+    const typePath = (relativePath: string): void => {
+      bridge.input(attachmentText(relativePath))
+    }
+    const saveClipboard = (): void => {
+      void bridge.image('clipboard').then((result) => {
+        if (result) typePath(result.relativePath)
+      }, () => undefined)
+    }
+    const onPaste = (event: ClipboardEvent): void => {
+      if (clipboardDataLooksLikeImage(event.clipboardData)) event.preventDefault()
+      saveClipboard()
+    }
+    const onDragOver = (event: DragEvent): void => {
+      event.preventDefault()
+    }
+    const onDrop = (event: DragEvent): void => {
+      event.preventDefault()
+      const files = event.dataTransfer?.files
+      if (!files) return
+      void (async () => {
+        for (const file of collectDroppedImages(files)) {
+          const source = await droppedImageSource(file)
+          const result = await bridge.image(source)
+          if (result) typePath(result.relativePath)
+        }
+      })()
+    }
+    host.addEventListener('paste', onPaste, true)
+    host.addEventListener('dragover', onDragOver)
+    host.addEventListener('drop', onDrop)
+
     const applyFit = (): void => {
       try {
         fit.fit()
@@ -246,6 +283,9 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
 
     return () => {
       disposed = true
+      host.removeEventListener('paste', onPaste, true)
+      host.removeEventListener('dragover', onDragOver)
+      host.removeEventListener('drop', onDrop)
       window.removeEventListener('focus', onWindowFocus)
       observer.disconnect()
       offData()
