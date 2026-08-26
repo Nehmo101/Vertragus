@@ -14,7 +14,7 @@ function wordCount(text: string): number {
 }
 
 describe('BUILTIN_ROLE_TEMPLATES', () => {
-  it('ships exactly the seven documented roles with unique ids', () => {
+  it('ships exactly the eight documented roles with unique ids', () => {
     expect(BUILTIN_ROLE_TEMPLATES.map((template) => template.id)).toEqual([
       'worker',
       'reviewer',
@@ -22,7 +22,8 @@ describe('BUILTIN_ROLE_TEMPLATES', () => {
       'architect',
       'docs',
       'janitor',
-      'explorer'
+      'explorer',
+      'scout'
     ])
   })
 
@@ -51,7 +52,7 @@ describe('BUILTIN_ROLE_TEMPLATES', () => {
   })
 
   it('forbids the read-only roles from editing anything', () => {
-    for (const id of ['reviewer', 'architect', 'explorer']) {
+    for (const id of ['reviewer', 'architect', 'explorer', 'scout']) {
       expect(builtinRoleTemplate(id)!.prompt).toMatch(/CHANGE NOTHING/)
     }
   })
@@ -79,17 +80,17 @@ describe('roleColor', () => {
   })
 
   it('assigns custom roles from the pool without colliding with Worker', () => {
-    // Seven built-ins reserve pool[0..6]; custom roles start at pool[7].
-    expect(roleColor('security-auditor', 0)).toBe(ROLE_COLOR_POOL[7])
-    expect(roleColor('custom', -3)).toBe(ROLE_COLOR_POOL[7])
+    // Eight built-ins reserve pool[0..7]; custom roles start at pool[8].
+    expect(roleColor('security-auditor', 0)).toBe(ROLE_COLOR_POOL[8])
+    expect(roleColor('custom', -3)).toBe(ROLE_COLOR_POOL[8])
     // Wrapping is fine; a collision with the built-in block only happens after
     // the pool is exhausted.
     expect(roleColor('security-auditor', 1)).toBe(ROLE_COLOR_POOL[0])
     expect(roleColor('custom', 3)).toBe(ROLE_COLOR_POOL[2])
   })
 
-  it('offers eight muted hex tones (no neon on glass)', () => {
-    expect(ROLE_COLOR_POOL).toHaveLength(8)
+  it('offers nine muted hex tones (no neon on glass)', () => {
+    expect(ROLE_COLOR_POOL).toHaveLength(9)
     for (const color of [...ROLE_COLOR_POOL, ORCHESTRATOR_COLOR]) {
       expect(color).toMatch(/^#[0-9a-f]{6}$/)
       const [r, g, b] = [1, 3, 5].map((offset) => parseInt(color.slice(offset, offset + 2), 16))

@@ -315,6 +315,7 @@ describe('createEmptyProfile', () => {
         'lead',
         'orchestrator',
         'reviewer',
+        'scout',
         'tester',
         'worker'
       ]
@@ -347,6 +348,24 @@ describe('duplicateProfile', () => {
 
   it('uses the caller-supplied word so the UI can localize it', () => {
     expect(duplicateProfile(baseProfile(), [], { copyWord: 'Kopie' }).name).toBe('Vertragus (Kopie)')
+  })
+
+  it('keepName reuses the original when it is free and still suffixes on a clash', () => {
+    const source = baseProfile()
+    expect(duplicateProfile(source, [], { keepName: true, copyWord: 'imported' }).name).toBe(
+      'Vertragus'
+    )
+    expect(
+      duplicateProfile(source, [source], { keepName: true, copyWord: 'imported' }).name
+    ).toBe('Vertragus (imported)')
+  })
+
+  it('omitZones drops the layout so a portable copy cannot pin windows', () => {
+    const source = baseProfile({
+      zones: { zones: [{ roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 0.5 } }] }
+    })
+    expect(duplicateProfile(source).zones?.zones).toHaveLength(1)
+    expect(duplicateProfile(source, [], { omitZones: true }).zones).toBeUndefined()
   })
 })
 

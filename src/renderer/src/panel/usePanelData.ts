@@ -62,6 +62,7 @@ export interface PanelData {
   closeAgentWindow(agentId: string): void
   /** Bring this workspace's CLI windows forward; minimize the others. */
   focusWorkspace(workspaceId: string): void
+  importProfile(): void
   /**
    * Open the profile editor. `providerId` (WP-7) preselects the orchestrator
    * of a NEW profile — the first-run card passes the CLI that answered.
@@ -199,6 +200,7 @@ export function usePanelData(): PanelData {
     focusWorkspace: (workspaceId) => run((api) => api.focusWorkspace(workspaceId)),
     editProfile: (profileId, providerId) =>
       run((api) => api.openProfileEditor(profileId, providerId)),
+    importProfile: () => run((api) => api.importProfile()),
     dismissOnboarding: () =>
       run(async (api) => {
         setSettings(await api.setSetting('onboardingDismissed', true))

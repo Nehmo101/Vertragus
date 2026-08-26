@@ -12,4 +12,11 @@ describe('WorkspaceCard goal visibility', () => {
     expect(expandedBody).toBeGreaterThan(-1)
     expect(goalMarkup).toBeLessThan(expandedBody)
   })
+
+  it('offers a timeline control next to the run-folder button', () => {
+    const source = readFileSync(join(__dirname, 'WorkspaceCard.tsx'), 'utf8')
+    expect(source).toContain('panel.timelineToggle')
+    expect(source).toContain('<ClockIcon')
+    expect(source).toContain('<RunTimeline')
+  })
 })

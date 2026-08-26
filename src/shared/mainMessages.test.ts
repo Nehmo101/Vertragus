@@ -53,6 +53,14 @@ describe('mainMessages', () => {
     expect(mainMessages('en').zoneOverlayTitle).toBe('Vertragus — Zones')
   })
 
+  it('names profile import/export dialogs and refusals in both languages', () => {
+    expect(mainMessages('de').profileExportTitle).toBe('Profil exportieren')
+    expect(mainMessages('en').profileImportTitle).toBe('Import profile')
+    expect(mainMessages('en').profileImportedWord).toBe('imported')
+    expect(mainMessages('de').profileImportInvalid).toMatch(/kein Vertragus-Profil/)
+    expect(mainMessages('en').profileImportTooLarge).toMatch(/too large/)
+  })
+
   it('names the blocked native addon in the Application Control seed failure', () => {
     const path = 'C:\\Users\\t\\file_service.win32-x64-msvc.node'
     expect(mainMessages('en').cliBlockedByAppControl('Stazio', 'Cursor Agent', path)).toContain(path)

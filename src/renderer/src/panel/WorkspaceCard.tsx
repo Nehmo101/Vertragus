@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
+import type { VertragusAppApi, WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
 import { activeLocale } from '../i18n'
 import { LoreTip } from '../lore/LoreTip'
-import { ChevronIcon, CloseIcon, FolderIcon, StopIcon } from './icons'
+import { ChevronIcon, ClockIcon, CloseIcon, FolderIcon, StopIcon } from './icons'
 import {
   agentCanCloseWindow,
   agentCountLabel,
@@ -22,6 +22,7 @@ import {
   workspaceSuccessionLabel,
   workspaceTooltip
 } from './viewModel'
+import { RunTimeline } from './RunTimeline'
 
 interface AgentProps {
   agent: WorkspaceAgentSummary
@@ -167,6 +168,8 @@ interface Props {
   onPromoteAgent(workspaceId: string, agentId: string): void
   /** Reveal this run's artefact folder in the OS file manager (desktop only). */
   onOpenRunFolder(workspaceId: string): void
+  /** Journal timeline; absent when preload never loaded. */
+  bridge?: VertragusAppApi
 }
 
 /**
@@ -436,13 +439,16 @@ export function WorkspaceCard({
   onAnswerQuestion,
   onUserMessage,
   onPromoteAgent,
-  onOpenRunFolder
+  onOpenRunFolder,
+  bridge
 }: Props): React.JSX.Element {
   const { t, i18n } = useTranslation()
+  const [timelineOpen, setTimelineOpen] = useState(false)
   const stop = t('panel.stopWorkspace', { workspace: workspace.name })
   const succession = workspaceSuccessionLabel(t, workspace)
   const replace = t('panel.replaceOrchestrator', { workspace: workspace.name })
   const runFolder = t('panel.openRunFolder')
+  const timeline = t('panel.timelineToggle', { workspace: workspace.name })
   const toggle = expanded
     ? t('panel.collapseWorkspace', { workspace: workspace.name })
     : t('panel.expandWorkspace', { workspace: workspace.name })
@@ -481,6 +487,16 @@ export function WorkspaceCard({
         </button>
         {/* Next to stop because it is the other thing you do to a whole run —
             and unlike stop it stays useful once the run is over. */}
+        <button
+          type="button"
+          className={`panel-icon-button panel-run-folder${timelineOpen ? ' is-active' : ''}`}
+          title={timeline}
+          aria-label={timeline}
+          aria-expanded={timelineOpen}
+          onClick={() => setTimelineOpen((current) => !current)}
+        >
+          <ClockIcon size={11} />
+        </button>
         <button
           type="button"
           className="panel-icon-button panel-run-folder"
@@ -578,6 +594,14 @@ export function WorkspaceCard({
             />
           ) : null}
         </>
+      ) : null}
+      {timelineOpen && bridge ? (
+        <RunTimeline
+          profileId={workspace.profileId}
+          workspaceId={workspace.workspaceId}
+          live={workspace.active}
+          bridge={bridge}
+        />
       ) : null}
     </article>
   )

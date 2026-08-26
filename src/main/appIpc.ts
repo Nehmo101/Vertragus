@@ -28,8 +28,18 @@
  * correct renderer CAN provoke belongs in the locale table like everything
  * else — see the stub refusal below.
  */
+import { readFileSync, statSync, writeFileSync } from 'node:fs'
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { profileRoleIds, type Profile, type RoleTemplate } from '@shared/schema/profile'
+import {
+  PROFILE_BUNDLE_MAX_BYTES,
+  ensureJsonExtension,
+  importProfileFromBundle,
+  packProfileBundle,
+  parseProfileBundleText,
+  serializeProfileBundle,
+  suggestedProfileFilename
+} from '@shared/schema/profileBundle'
 import {
   zoneSchema,
   zoneLayoutSchema,
@@ -101,11 +111,18 @@ import {
   type ZoneOverlaySender
 } from '@main/windows/zoneOverlay'
 import type { MinimalIpcMain } from './ipc'
+import { listRuns, readRun } from '@main/workspace/listRuns'
 
 export const APP_CHANNELS = {
   profilesList: 'profiles:list',
   profilesSave: 'profiles:save',
   profilesDelete: 'profiles:delete',
+  /**
+   * Write one stored profile to a JSON file the user picks (no zones).
+   * Import is the inverse — a new profile, never an overwrite.
+   */
+  profilesExport: 'profiles:export',
+  profilesImport: 'profiles:import',
   rolesList: 'roles:list',
   rolesSave: 'roles:save',
   providersList: 'providers:list',
@@ -152,6 +169,12 @@ export const APP_CHANNELS = {
   retroDeleteLearning: 'retro:deleteLearning',
   retroRepoNotes: 'retro:repoNotes',
   retroDeleteRepoNote: 'retro:deleteRepoNote',
+  /**
+   * Archive of this profile's journals (live + stopped). Panel-only; the
+   * timeline is a read of files the host already writes.
+   */
+  runsList: 'runs:list',
+  runsGet: 'runs:get',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
@@ -826,6 +849,23 @@ export interface AppIpcHost {
   checkProviderAuth(configs: readonly ProviderConfig[]): Promise<ProviderAuthStatus[]>
   pickDirectory(webContentsId: number, defaultPath?: string): Promise<string | null>
   /**
+   * Native save dialog for a profile export. `defaultPath` is a filename
+   * suggestion, not a directory. Null when the user cancelled.
+   */
+  pickSaveFile(
+    webContentsId: number,
+    options: { defaultPath: string; title: string; filterName: string }
+  ): Promise<string | null>
+  /** Native open dialog for a profile import. Null when cancelled. */
+  pickOpenFile(
+    webContentsId: number,
+    options: { title: string; filterName: string }
+  ): Promise<string | null>
+  writeTextFile(path: string, text: string): void
+  readTextFile(path: string): string
+  /** Byte length on disk, used to refuse a dump before reading it. */
+  fileSize(path: string): number
+  /**
    * `providerId` (WP-7) preselects the orchestrator of a NEW profile — the
    * first-run card knows which CLI actually answered its health probe, and
    * dropping the user into a form defaulted to a provider that is not
@@ -1311,6 +1351,71 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     return profiles
   })
 
+  const localeMessages = (): ReturnType<typeof mainMessages> =>
+    mainMessages(readLocale(() => host.store.getSettings().ui.locale))
+
+  const asThrownReason = (cause: unknown): string =>
+    cause instanceof Error ? cause.message : String(cause)
+
+  handle(APP_CHANNELS.profilesExport, requireAppWindow, async (event, payload) => {
+    const id =
+      typeof payload === 'string' ? payload : (payload as { profileId?: string } | undefined)?.profileId
+    if (!id) throw new Error('profiles:export rejected — missing profile id')
+    const messages = localeMessages()
+    const profile = host.store.getProfiles().find((entry) => entry.id === id)
+    if (!profile) throw new Error(messages.unknownProfile(id))
+    const target = await host.pickSaveFile(event.sender.id, {
+      defaultPath: suggestedProfileFilename(profile.name),
+      title: messages.profileExportTitle,
+      filterName: messages.profileFileFilter
+    })
+    if (!target) return null
+    const path = ensureJsonExtension(target)
+    try {
+      host.writeTextFile(
+        path,
+        serializeProfileBundle(packProfileBundle(profile, host.store.getRoleTemplates()))
+      )
+    } catch (cause) {
+      throw new Error(messages.profileExportFailed(asThrownReason(cause)))
+    }
+    return { path }
+  })
+
+  handle(APP_CHANNELS.profilesImport, requireAppWindow, async (event) => {
+    const messages = localeMessages()
+    const picked = await host.pickOpenFile(event.sender.id, {
+      title: messages.profileImportTitle,
+      filterName: messages.profileFileFilter
+    })
+    if (!picked) return null
+    let bytes: number
+    try {
+      bytes = host.fileSize(picked)
+    } catch (cause) {
+      throw new Error(messages.profileImportUnreadable(asThrownReason(cause)))
+    }
+    if (bytes > PROFILE_BUNDLE_MAX_BYTES) throw new Error(messages.profileImportTooLarge)
+    let text: string
+    try {
+      text = host.readTextFile(picked)
+    } catch (cause) {
+      throw new Error(messages.profileImportUnreadable(asThrownReason(cause)))
+    }
+    const parsed = parseProfileBundleText(text)
+    if (!parsed.ok) throw new Error(messages.profileImportInvalid)
+    const { profile, roleTemplates } = importProfileFromBundle(
+      parsed.bundle,
+      host.store.getProfiles(),
+      host.store.getRoleTemplates(),
+      { importedWord: messages.profileImportedWord }
+    )
+    for (const template of roleTemplates) host.store.saveRoleTemplate(template)
+    const profiles = host.store.saveProfile(profile)
+    emitProfiles(profiles)
+    return profiles
+  })
+
   // --- roles -------------------------------------------------------------
 
   handle(APP_CHANNELS.rolesList, requireAppWindow, () => host.store.getRoleTemplates())
@@ -1601,6 +1706,32 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     const id = typeof payload === 'string' ? payload : (payload as { id?: string })?.id
     if (!id) throw new Error('retro:deleteRepoNote rejected — missing note id')
     return host.store.deleteRepoNote(id)
+  })
+
+  // --- run archive (panel-only; no remote verb) --------------------------
+
+  handle(APP_CHANNELS.runsList, requirePanel, async (_event, payload) => {
+    const profileId =
+      typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
+    if (!profileId) throw new Error('runs:list rejected — missing profile id')
+    const profile = host.store.getProfiles().find((entry) => entry.id === profileId)
+    if (!profile) throw new Error(`runs:list rejected — unknown profile ${profileId}`)
+    if (!profile.repoPath.trim()) return []
+    return listRuns(profile.repoPath, profileId)
+  })
+
+  handle(APP_CHANNELS.runsGet, requirePanel, async (_event, payload) => {
+    const body = (payload ?? {}) as { profileId?: string; workspaceId?: string }
+    if (!body.profileId) throw new Error('runs:get rejected — missing profile id')
+    if (!body.workspaceId) throw new Error('runs:get rejected — missing workspace id')
+    const profile = host.store.getProfiles().find((entry) => entry.id === body.profileId)
+    if (!profile) throw new Error(`runs:get rejected — unknown profile ${body.profileId}`)
+    if (!profile.repoPath.trim()) {
+      throw new Error('runs:get rejected — profile has no repository path')
+    }
+    const view = await readRun(profile.repoPath, body.profileId, body.workspaceId)
+    if (!view) throw new Error(`runs:get rejected — unknown run ${body.workspaceId}`)
+    return view
   })
 
   // --- settings & windows ------------------------------------------------
@@ -2109,6 +2240,43 @@ export function registerAppIpc(
         ? await dialog.showOpenDialog(owner, options)
         : await dialog.showOpenDialog(options)
       return result.canceled ? null : (result.filePaths[0] ?? null)
+    },
+    async pickSaveFile(webContentsId, options) {
+      const owner = BrowserWindow.getAllWindows().find(
+        (candidate) => candidate.webContents.id === webContentsId
+      )
+      const dialogOptions: Electron.SaveDialogOptions = {
+        title: options.title,
+        defaultPath: options.defaultPath,
+        filters: [{ name: options.filterName, extensions: ['json'] }]
+      }
+      const result = owner
+        ? await dialog.showSaveDialog(owner, dialogOptions)
+        : await dialog.showSaveDialog(dialogOptions)
+      return result.canceled ? null : (result.filePath ?? null)
+    },
+    async pickOpenFile(webContentsId, options) {
+      const owner = BrowserWindow.getAllWindows().find(
+        (candidate) => candidate.webContents.id === webContentsId
+      )
+      const dialogOptions: Electron.OpenDialogOptions = {
+        title: options.title,
+        properties: ['openFile'],
+        filters: [{ name: options.filterName, extensions: ['json'] }]
+      }
+      const result = owner
+        ? await dialog.showOpenDialog(owner, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions)
+      return result.canceled ? null : (result.filePaths[0] ?? null)
+    },
+    writeTextFile(path, text) {
+      writeFileSync(path, text, 'utf8')
+    },
+    readTextFile(path) {
+      return readFileSync(path, 'utf8')
+    },
+    fileSize(path) {
+      return statSync(path).size
     },
     openProfileEditor: (profileId, providerId) => {
       openProfileEditorWindow(profileId, providerId)
