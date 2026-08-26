@@ -13,11 +13,13 @@ Deutsch | [English](README.md)
 
 Vertragus ist ein kleines Always-on-top-Glaspanel. Du definierst **Profile** —
 einen Repo-Pfad, eine Orchestrator-CLI (Claude, Codex, Kimi, Cursor, Grok
-Build, …) und einen Satz Subagenten-Rollen — und drückst Play. Der
-Orchestrator öffnet sich in einem eigenen transluzenten Terminalfenster und
-startet **sichtbare** Subagenten-Fenster nach Bedarf. Agenten und Orchestrator
-sprechen über einen schlanken In-App-MCP-Server mit echt blockierender
-Kommunikation: kein Polling, keine verhungernden Worker.
+Build, …) und einen Satz Subagenten-Rollen — und drückst Play. Das öffnet ein
+Timeline-Fenster für den Workspace und die transluzente CLI des
+Orchestrators; Subagenten starten nach Bedarf als eigene Fenster oder als
+Tabs in einem CLI-Fenster pro Workspace. Die Einstellungen können diese
+CLI-Fenster minimiert in der Taskleiste starten; das Panel bleibt sichtbar.
+Agenten und Orchestrator sprechen über einen schlanken In-App-MCP-Server mit
+echt blockierender Kommunikation: kein Polling, keine verhungernden Worker.
 
 Der Name ist *vertragus*, das antike gallisch-lateinische Wort für einen
 Windhund. Agenten sind nach der Göttlichen Komödie benannt — Orchestratoren
@@ -48,7 +50,11 @@ wirklich braucht, begrenzt durch die Slot-Caps und das profilweite
 über denselben Tastatur-Handshake in den Orchestrator getippt wie jede
 Assignment, sodass das, was die Karte zeigt, das ist, was der Orchestrator
 wirklich bekommen hat. **Playbooks** sind Ein-Klick-Zielvorlagen auf diesem
-Fold-out, nie eine vorkonfigurierte Crew. Das CLI-Fenster öffnet sofort
+Fold-out, nie eine vorkonfigurierte Crew. Play und Resume öffnen außerdem
+ein **Timeline**-Fenster für diesen Workspace: Übersicht (Agenten, Board,
+Ziel) plus ein Journal. Das Panel bleibt sichtbar. Das Timeline-Fenster zu
+schließen ist nur Ansicht; ein Klick auf die Workspace-Karte öffnet es
+wieder; den Workspace zu stoppen schließt es. Das CLI-Fenster öffnet sofort
 mit einem Windhund-Overlay, während der Host den Worktree anlegt, MCP
 anbindet und auf die Session wartet; der erste Turn geht erst raus, wenn
 MCP steht, damit ein Start ohne verbundene Session keine Tokens auf
@@ -227,10 +233,20 @@ unter **Einstellungen → Browser-Erweiterung**. How-to:
 ## Desktop-Feinheiten
 
 Transluzente, theme-bewusste Fenster mit einstellbarem Glas; Fensterfarben je
-Rolle, passend zu den Status-Punkten des Panels; **Zonen** je Profil, die
-Rollen-Fenster an Bildschirmregionen pinnen; ein globaler
-Alles-ausblenden-Hotkey; Autostart und ein Self-Updater mit
-Stable/Main-Kanalwahl; deutsche und englische UI.
+Rolle, passend zu den Status-Punkten des Panels; ein **Timeline**-Fenster je
+laufendem Workspace (Übersicht plus Journal). Die Einstellung **Im
+Background starten** (`ui.startMinimized`, standardmäßig aus) startet neue
+Agent-CLI-Fenster minimiert in der Taskleiste — das Panel bleibt
+sichtbar, ein Klick auf den Agenten holt das Fenster zurück, und ein
+Umschalten der Einstellung schreibt bereits offene Fenster nicht um. Die
+Einstellung **CLI-Ansicht** (`ui.cliWindowMode`) ist standardmäßig ein
+Fenster pro Agent, wo **Zonen** je Profil Rollen-Fenster an
+Bildschirmregionen pinnen; **Tabs** ist ein CLI-Fenster pro Workspace mit
+Orchestrator und Subagenten als Tabs — Zonen und Tiling je Agent greifen
+nicht. Die Änderung gilt beim nächsten Play. Ein globaler
+Alles-ausblenden-Hotkey blendet CLI-, Timeline- und Editor-Fenster aus
+(`hide()`, nie `minimize()`) und nie das Panel; Autostart und ein
+Self-Updater mit Stable/Main-Kanalwahl; deutsche und englische UI.
 
 ## Fernzugriff (Tailscale)
 

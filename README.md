@@ -13,10 +13,12 @@ English | [Deutsch](README.de.md)
 
 Vertragus is a small always-on-top glass panel. You define **profiles** — a
 repo path, an orchestrator CLI (Claude, Codex, Kimi, Cursor, Grok Build, …) and a set of
-subagent roles — and press play. The orchestrator opens in its own translucent
-terminal window, and starts **visible** subagent windows on demand. Agents and
-orchestrator talk over a slim in-app MCP server with true blocking
-communication: no polling, no starving workers.
+subagent roles — and press play. That opens a Timeline window for the
+workspace and the orchestrator's translucent CLI; subagents start on demand
+as their own windows, or as tabs in one CLI window per workspace. Settings
+can start those CLI windows minimized in the taskbar; the panel stays
+visible. Agents and orchestrator talk over a slim in-app MCP server with
+true blocking communication: no polling, no starving workers.
 
 The name is *vertragus*, the ancient Gaulish-Latin word for a greyhound.
 Agents are named after the Divine Comedy — orchestrators get guides
@@ -44,10 +46,14 @@ slot caps and the profile-wide `maxSubagents`. The Play button folds out a
 **goal field** — the goal is typed into the orchestrator over the same
 keyboard handshake as any assignment, so what the card shows is what the
 orchestrator really received. **Playbooks** are one-click goal templates on
-that fold-out, never a pre-configured crew. The CLI window opens at once
-with a greyhound overlay while the host creates the worktree, attaches MCP
-and waits for the session; the first turn is submitted only once MCP is up,
-so a start without a connected server does not burn tokens on `await_events`.
+that fold-out, never a pre-configured crew. Play and resume also open a
+**Timeline** window for that workspace: overview (agents, board, goal) plus
+a journal. The panel stays visible. Closing the Timeline is view-only;
+clicking the workspace card reopens it; stopping the workspace closes it.
+The CLI window opens at once with a greyhound overlay while the host creates
+the worktree, attaches MCP and waits for the session; the first turn is
+submitted only once MCP is up, so a start without a connected server does
+not burn tokens on `await_events`.
 The profile editor also takes an optional **system prompt per identity**
 (Orchestrator, Lead, Worker, Tester, …). A new profile starts with short
 English starter texts (who reads the report, same language as the goal,
@@ -207,9 +213,19 @@ skip. Load it from **Settings → Browser extension**. How-to:
 ## Desktop niceties
 
 Translucent, theme-aware windows with adjustable glass; per-role window
-colours that match the panel's status dots; per-profile **zones** that pin
-role windows to screen regions; a global hide-all hotkey; autostart and a
-self-updater with a stable/main channel switch; German and English UI.
+colours that match the panel's status dots; a **Timeline** window per
+running workspace (overview plus journal). Settings **Start in the
+background** (`ui.startMinimized`, off by default) starts new agent CLI
+windows OS-minimized in the taskbar — the panel stays visible, clicking an
+agent restores that window, and flipping the pref does not rewrite
+already-open windows. Settings **CLI view** (`ui.cliWindowMode`) defaults
+to one window per agent, where per-profile **zones** pin role windows to
+screen regions; **Tabs** is one CLI window per workspace with orchestrator
+and subagents as tabs — zones and per-agent tiling do not apply. That
+change takes effect on the next Play. A global hide-all hotkey hides CLI,
+Timeline and editor windows (`hide()`, never `minimize()`) and never the
+panel; autostart and a self-updater with a stable/main channel switch;
+German and English UI.
 
 ## Remote access (Tailscale)
 
