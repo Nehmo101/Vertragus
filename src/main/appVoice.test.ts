@@ -18,7 +18,8 @@ vi.mock('@main/providers/health', () => ({ checkAllProviders: vi.fn() }))
 vi.mock('@main/providers/authStatus', () => ({ checkAllProviderAuth: vi.fn() }))
 vi.mock('@main/windows/cliWindow', () => ({
   focusCliWindow: vi.fn(),
-  listCliWindows: vi.fn(() => [])
+  listCliWindows: vi.fn(() => []),
+  listCliTabWebContents: vi.fn(() => [])
 }))
 vi.mock('@main/windows/panel', () => ({
   getPanelWindow: vi.fn(() => null),
@@ -42,6 +43,13 @@ vi.mock('@main/windows/settingsWindow', () => ({
   closeSettingsWindow: vi.fn(),
   getSettingsWindow: vi.fn(() => null)
 }))
+vi.mock('@main/windows/timelineWindow', () => ({
+  isTimelineWindowSender: vi.fn(() => null),
+  openTimelineWindow: vi.fn(),
+  closeTimelineWindow: vi.fn(),
+  getTimelineWindow: vi.fn(() => null),
+  listTimelineWindows: vi.fn(() => [])
+}))
 vi.mock('@main/updater', () => ({
   appUpdater: vi.fn(() => ({
     state: vi.fn(),
@@ -56,7 +64,9 @@ vi.mock('@main/windows/zoneOverlay', () => ({
   closeZoneOverlayWindows: vi.fn(),
   isZoneOverlaySender: vi.fn(() => null),
   listZoneOverlayWindows: vi.fn(() => []),
-  zoneOverlayDisplayIds: vi.fn(() => [])
+  zoneOverlayDisplayIds: vi.fn(() => []),
+  selectZoneOverlayDisplay: vi.fn(() => false),
+  listZoneDisplays: vi.fn(() => [])
 }))
 vi.mock('@main/windows/hideAll', () => ({
   toggleHideAll: vi.fn(),
