@@ -199,6 +199,8 @@ const APP = {
   profilesList: 'profiles:list',
   profilesSave: 'profiles:save',
   profilesDelete: 'profiles:delete',
+  profilesExport: 'profiles:export',
+  profilesImport: 'profiles:import',
   rolesList: 'roles:list',
   rolesSave: 'roles:save',
   providersList: 'providers:list',
@@ -571,6 +573,18 @@ const app = {
   saveProfile: (profile: Profile): Promise<Profile[]> =>
     ipcRenderer.invoke(APP.profilesSave, profile),
   deleteProfile: (id: string): Promise<Profile[]> => ipcRenderer.invoke(APP.profilesDelete, { id }),
+  /**
+   * Write this stored profile to a JSON file the user picks. Zones stay on
+   * this machine; system prompts, slots, playbooks, automation, extra MCP
+   * and the custom roles it uses travel. Null when the save dialog is cancelled.
+   */
+  exportProfile: (profileId: string): Promise<{ path: string } | null> =>
+    ipcRenderer.invoke(APP.profilesExport, { profileId }),
+  /**
+   * Add a profile from a JSON file. Always a new row — existing profiles are
+   * never overwritten. Null when the open dialog is cancelled.
+   */
+  importProfile: (): Promise<Profile[] | null> => ipcRenderer.invoke(APP.profilesImport),
   listRoles: (): Promise<RoleTemplate[]> => ipcRenderer.invoke(APP.rolesList),
   saveRole: (template: RoleTemplate): Promise<RoleTemplate[]> =>
     ipcRenderer.invoke(APP.rolesSave, template),

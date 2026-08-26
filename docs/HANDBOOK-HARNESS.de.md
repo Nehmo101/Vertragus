@@ -1005,6 +1005,26 @@ und dem Successor-Seed. Es ersetzt nichts davon, sodass niemand
 Rollen behalten ihren Template-Prompt (was die Rolle *tut*); das
 Profil-Feld ist, wie diese Rolle in diesem Projekt *spricht*.
 
+## Profil-Export und -Import
+
+Ein Profil ist ein Bauplan, der auf mehr als einer Maschine leben soll.
+**Export** im Editor schreibt eine versionierte JSON-Hülle
+(`shared/schema/profileBundle.ts`, Kind `vertragus.profile`) mit dem
+gespeicherten Profil ohne **Zonen** und mit den Custom-Rollen-Templates,
+die die Slots wirklich nutzen. Die Extra-`rolePrompts` pro Identität
+reisen mit; mitgelieferte Worker-/Tester-/…-Templates und die reservierten
+Identitäten Orchestrator / Lead bleiben im Code. Extra-MCP am Slot,
+Playbooks und der Automatisierungsblock reisen ebenfalls. Bildschirmzonen
+nicht — das sind Rechtecke auf den Displays dieser Maschine.
+
+**Import** (Panel) legt immer ein **neues** Profil an: frische Profil-Id,
+frische Slot-Ids, Originalname wenn frei (`UWE (importiert)` bei Kollision).
+Bestehende Profile werden nie überschrieben. Eine Custom-Rollen-Id, die
+schon existiert, wird wiederverwendet, wenn Name und Prompt passen, sonst
+auf eine neue Id umgebogen, sodass ein Import keine Rolle ersetzt, die das
+Ziel schon nutzt. Der Pfad kommt aus einem nativen Dateidialog; der
+Renderer nennt nie einen Dateisystempfad.
+
 ## Anhang: Code-Anker
 
 | Thema | Wo | Stand |
@@ -1030,4 +1050,5 @@ Profil-Feld ist, wie diese Rolle in diesem Projekt *spricht*.
 | Chromium-`/browser`-Bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
 | Pi-Harness-Wrap (kein siebter Provider) | `agents/piHarness.ts`, `spawn.ts`-Overlay, `.pi/mcp.json`, Setting `piHarnessEnabled`, Lockfile-Pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |
 | Extra-System-Prompt pro Identität | `schema/profile.ts` `rolePrompts`, `prompts/rolePrompt.ts`, Profil-Editor | **this** |
+| Profil-Export / -Import | `schema/profileBundle.ts`, `profiles:export` / `profiles:import`, Profil-Editor + Panel | **this** |
 | Einheitliches CLI-Session-Chrome | `cliSurface.ts`, `cliSession.ts`, `cliSessionFeed.ts`, `terminal/SessionPane.tsx` | **this** |

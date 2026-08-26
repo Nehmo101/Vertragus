@@ -287,6 +287,15 @@ export function ProfileEditorApp({
             {t('profileEditor.deleteProfile')}
           </button>
         )}
+        <button
+          type="button"
+          className="pe-ghost"
+          title={editor.isNew ? t('profileEditor.exportNewHint') : t('profileEditor.exportProfileTitle')}
+          disabled={editor.isNew || !profileId}
+          onClick={editor.exportSaved}
+        >
+          {t('profileEditor.exportProfile')}
+        </button>
         {/* Zones are drawn on the real screens, so this only opens the overlay
             session — it saves nothing here. A profile that does not exist yet
             has nothing to attach a layout to. */}

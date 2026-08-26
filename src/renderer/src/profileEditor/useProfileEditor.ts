@@ -44,6 +44,7 @@ export interface ProfileEditorState {
   save(): void
   cancel(): void
   remove(): void
+  exportSaved(): void
   pickFolder(): void
   /** Re-run discovery for one provider, ignoring what was already fetched. */
   reloadModels(providerId: string): void
@@ -234,6 +235,14 @@ export function useProfileEditor(
     )
   }, [bridge, draft, isNew, t])
 
+  const exportSaved = useCallback(() => {
+    if (!bridge || !draft || isNew) return
+    bridge.exportProfile(draft.id).then(
+      () => undefined,
+      (cause) => setErrors({ form: errorText(cause) })
+    )
+  }, [bridge, draft, isNew])
+
   const pickFolder = useCallback(() => {
     if (!bridge || !draft) return
     bridge.pickDirectory(draft.repoPath || undefined).then(
@@ -280,6 +289,7 @@ export function useProfileEditor(
     save,
     cancel,
     remove,
+    exportSaved,
     pickFolder,
     reloadModels,
     saveCustomRole

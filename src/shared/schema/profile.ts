@@ -298,6 +298,17 @@ export interface DuplicateProfileOptions {
   /** Word appended to the copy's name; the UI passes its localized term. */
   copyWord?: string
   id?: string
+  /**
+   * Keep the source name when nothing already uses it. Duplicate-in-place still
+   * suffixes (the source itself occupies the name); import uses this so a
+   * unique "UWE" stays "UWE" instead of becoming "UWE (imported)".
+   */
+  keepName?: boolean
+  /**
+   * Drop the zone layout. Portable copies must not carry screen geometry —
+   * displays and work areas belong to one machine.
+   */
+  omitZones?: boolean
 }
 
 /**
@@ -320,10 +331,12 @@ export function duplicateProfile(
   }
 
   const takenNames = new Set(
-    [source, ...existing].map((profile) => profile.name.trim().toLowerCase())
+    (options.keepName ? existing : [source, ...existing]).map((profile) =>
+      profile.name.trim().toLowerCase()
+    )
   )
   const base = source.name.trim()
-  let name = `${base} (${copyWord})`
+  let name = options.keepName && !takenNames.has(base.toLowerCase()) ? base : `${base} (${copyWord})`
   let nameSuffix = 2
   while (takenNames.has(name.toLowerCase())) {
     name = `${base} (${copyWord} ${nameSuffix})`
@@ -331,6 +344,7 @@ export function duplicateProfile(
   }
 
   const clone = structuredClone(source)
+  if (options.omitZones) delete clone.zones
   return profileSchema.parse({
     ...clone,
     id,

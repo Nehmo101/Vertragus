@@ -696,6 +696,17 @@
   background: var(--warn);
 }
 
+.panel-profile-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.panel-profile-actions .panel-new {
+  margin-top: 0;
+}
+
 .panel-new {
   margin-top: 3px;
   padding: 6px 8px;

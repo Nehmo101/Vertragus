@@ -982,6 +982,26 @@ successor seed alike. It never replaces those, so a user cannot erase
 own template prompt (what the role *does*); the profile field is how
 that role *speaks* in this project.
 
+## Profile export and import
+
+A profile is a blueprint that belongs on more than one machine. The
+editor's **Export** writes a versioned JSON envelope
+(`shared/schema/profileBundle.ts`, kind `vertragus.profile`) with the
+stored profile minus **zones** and with the custom role templates the
+slots actually use. Per-identity `rolePrompts` travel; shipped Worker /
+Tester / … templates and the reserved orchestrator / lead identities
+stay in code. Extra MCP on a slot, playbooks and the automation block
+travel too. Screen zones do not — they are rectangles on this machine's
+displays.
+
+**Import** (panel) always creates a **new** profile: fresh profile id,
+fresh slot ids, original name when it is free (`UWE (imported)` on a
+clash). Existing profiles are never overwritten. A custom role id that
+already exists is reused when name and prompt match, and remapped onto a
+new id otherwise, so importing cannot replace a role the destination
+already uses. The path comes from a native file dialog; the renderer
+never names a filesystem path.
+
 ## Appendix: code anchors
 
 | Topic | Where | Status |
@@ -1007,4 +1027,5 @@ that role *speaks* in this project.
 | Chromium `/browser` bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
 | Pi harness wrap (not a seventh provider) | `agents/piHarness.ts`, `spawn.ts` overlay, `.pi/mcp.json`, settings `piHarnessEnabled`, lockfile pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |
 | Per-identity extra system prompt | `schema/profile.ts` `rolePrompts`, `prompts/rolePrompt.ts`, profile editor | **this** |
+| Profile export / import | `schema/profileBundle.ts`, `profiles:export` / `profiles:import`, profile editor + panel | **this** |
 | Unified CLI session chrome | `cliSurface.ts`, `cliSession.ts`, `cliSessionFeed.ts`, `terminal/SessionPane.tsx` | **this** |
