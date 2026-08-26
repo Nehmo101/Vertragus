@@ -258,6 +258,8 @@ describe('app settings', () => {
         cliSurface: 'session',
         reflowNeighbors: true,
         snapToZones: true,
+        startMinimized: false,
+        cliWindowMode: 'per-agent',
         onboardingDismissed: false
       },
       remote: { enabled: false, bindAddress: '', port: 9482 },
@@ -285,6 +287,38 @@ describe('app settings', () => {
     expect(settings.getSettings().ui.reflowNeighbors).toBe(true)
     expect(settings.getSettings().ui.snapToZones).toBe(true)
     expect(settings.getSettings().hideAllHotkey).toBe('Control+Shift+H')
+  })
+
+  it('defaults startMinimized to false and cliWindowMode to per-agent when ui is missing', () => {
+    const { store: settings } = store({ hideAllHotkey: 'Control+Shift+H' })
+    expect(settings.getSettings().ui.startMinimized).toBe(false)
+    expect(settings.getSettings().ui.cliWindowMode).toBe('per-agent')
+    expect(settings.getSettings().hideAllHotkey).toBe('Control+Shift+H')
+  })
+
+  it('round-trips startMinimized and cliWindowMode through ui', () => {
+    const { store: settings, backend } = store()
+    settings.setSetting('ui', {
+      ...settings.getSettings().ui,
+      startMinimized: true,
+      cliWindowMode: 'tabs'
+    })
+    expect(settings.getSettings().ui.startMinimized).toBe(true)
+    expect(settings.getSettings().ui.cliWindowMode).toBe('tabs')
+    expect(backend.data.ui).toMatchObject({ startMinimized: true, cliWindowMode: 'tabs' })
+    expect(settings.getSettings().ui.theme).toBe('dark')
+  })
+
+  it('rejects an invented cliWindowMode on write', () => {
+    const { store: settings } = store()
+    expect(() =>
+      settings.setSetting('ui', {
+        ...settings.getSettings().ui,
+        // @ts-expect-error — the schema is the gate
+        cliWindowMode: 'windows'
+      })
+    ).toThrow()
+    expect(settings.getSettings().ui.cliWindowMode).toBe('per-agent')
   })
 
   it('keeps the voice assistant off until the user turns it on', () => {
@@ -386,6 +420,8 @@ describe('app settings', () => {
       cliSurface: 'session',
       reflowNeighbors: true,
       snapToZones: true,
+      startMinimized: false,
+      cliWindowMode: 'per-agent',
       onboardingDismissed: false,
       panelBounds: { edge: 'right', y: 320 }
     })
@@ -396,6 +432,8 @@ describe('app settings', () => {
       cliSurface: 'session',
       reflowNeighbors: true,
       snapToZones: true,
+      startMinimized: false,
+      cliWindowMode: 'per-agent',
       onboardingDismissed: false,
       panelBounds: { edge: 'right', y: 320 }
     })
@@ -428,6 +466,8 @@ describe('app settings', () => {
       cliSurface: 'session',
       reflowNeighbors: true,
       snapToZones: true,
+      startMinimized: false,
+      cliWindowMode: 'per-agent',
       onboardingDismissed: false
     })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid settings section'))
@@ -584,6 +624,8 @@ describe('adoptLegacyStore', () => {
       cliSurface: 'session',
       reflowNeighbors: true,
       snapToZones: true,
+      startMinimized: false,
+      cliWindowMode: 'per-agent',
       onboardingDismissed: false
     })
     expect(adopted.mcpServers).toBeUndefined()

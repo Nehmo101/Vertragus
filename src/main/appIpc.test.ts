@@ -189,6 +189,8 @@ const SETTINGS: AppSettings = {
     cliSurface: 'session',
     reflowNeighbors: true,
     snapToZones: true,
+    startMinimized: false,
+    cliWindowMode: 'per-agent',
     onboardingDismissed: false
   },
   remote: { enabled: false, bindAddress: '', port: 9482 },
@@ -1627,6 +1629,8 @@ describe('settings and windows', () => {
       cliSurface: 'session',
       reflowNeighbors: true,
       snapToZones: true,
+      startMinimized: false,
+      cliWindowMode: 'per-agent',
       voiceEnabled: false,
       voiceWakePhrase: 'Hey Vertragus',
       voiceVoiceId: 'eve',
@@ -1870,6 +1874,8 @@ describe('settings:set', () => {
       'cliSurface',
       'reflowNeighbors',
       'snapToZones',
+      'startMinimized',
+      'cliWindowMode',
       'voice',
       'agentPolicy',
       'onboardingDismissed',
@@ -2352,6 +2358,8 @@ describe('settings:set', () => {
       cliSurface: 'session',
       reflowNeighbors: true,
       snapToZones: true,
+      startMinimized: false,
+      cliWindowMode: 'per-agent',
       onboardingDismissed: false
     })
   })
@@ -2424,6 +2432,48 @@ describe('settings:set', () => {
       h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'snapToZones', value: 'ja' })
     ).rejects.toThrow(/expects a boolean/)
     expect(h.store.settings.ui.snapToZones).toBe(true)
+  })
+
+  it('patches startMinimized into ui and rejects a non-boolean', async () => {
+    const on = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'startMinimized',
+      value: true
+    })) as PanelSettings
+    expect(on.startMinimized).toBe(true)
+    expect(h.store.settings.ui.startMinimized).toBe(true)
+    expect(h.store.settings.ui.theme).toBe('dark')
+
+    const off = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'startMinimized',
+      value: false
+    })) as PanelSettings
+    expect(off.startMinimized).toBe(false)
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'startMinimized', value: 'ja' })
+    ).rejects.toThrow(/expects a boolean/)
+    expect(h.store.settings.ui.startMinimized).toBe(false)
+  })
+
+  it('patches cliWindowMode into ui and rejects an invented mode', async () => {
+    const tabs = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'cliWindowMode',
+      value: 'tabs'
+    })) as PanelSettings
+    expect(tabs.cliWindowMode).toBe('tabs')
+    expect(h.store.settings.ui.cliWindowMode).toBe('tabs')
+    expect(h.store.settings.ui.theme).toBe('dark')
+
+    const perAgent = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'cliWindowMode',
+      value: 'per-agent'
+    })) as PanelSettings
+    expect(perAgent.cliWindowMode).toBe('per-agent')
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'cliWindowMode', value: 'windows' })
+    ).rejects.toThrow(/expects per-agent or tabs/)
+    expect(h.store.settings.ui.cliWindowMode).toBe('per-agent')
   })
 
   it('lets the panel close the first-run card for good (WP-7)', async () => {

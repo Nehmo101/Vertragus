@@ -500,6 +500,10 @@ export interface PanelSettings {
   reflowNeighbors: boolean
   /** Hide-all hide and restore snap CLI windows back to their role zones. */
   snapToZones: boolean
+  /** Start the app minimized. App-wide, not a profile field. */
+  startMinimized: boolean
+  /** One CLI window per agent, or tabs in a shared window. */
+  cliWindowMode: 'per-agent' | 'tabs'
   /** WP-7: the first-run card was closed by hand — the panel honours it. */
   onboardingDismissed: boolean
   autostart: boolean
@@ -555,6 +559,8 @@ export type WritableSetting =
   | 'cliSurface'
   | 'reflowNeighbors'
   | 'snapToZones'
+  | 'startMinimized'
+  | 'cliWindowMode'
   | 'voice'
   | 'agentPolicy'
   | 'onboardingDismissed'
