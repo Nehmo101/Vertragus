@@ -35,7 +35,9 @@ Das Handbuch [`docs/HANDBOOK-HARNESS.md`](docs/HANDBOOK-HARNESS.md)
 ist die code-verankerte Karte des Harness-Kerns; serielle Root-Succession
 (frischer Kontext, gleiches Team) ist in
 [`docs/ORCHESTRATOR-SUCCESSION.md`](docs/ORCHESTRATOR-SUCCESSION.md)
-beschrieben.
+beschrieben. Benachbarte Tools und die Lücken, die sich zu schließen
+lohnen, stehen in
+[`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md).
 
 ## Wie ein Lauf funktioniert
 
