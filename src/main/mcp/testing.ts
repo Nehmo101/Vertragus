@@ -142,6 +142,10 @@ export class FakeAgentHost implements AgentHost {
     return this.pullRequest
   }
 
+  async finishRunAutomation(options: { summary?: string } = {}): Promise<RunPullRequest | undefined> {
+    return this.openRunPullRequest(options)
+  }
+
   askTimeoutMsFor(agentId: string): number | undefined {
     return this.askWindows.get(agentId)
   }

@@ -932,18 +932,25 @@ beide schieben die bestehenden Events `integrate_ok` /
 `integrate_conflict` (neues optionales Feld
 `target: worktree | checkout`), und keines wirft je in den Melde-Pfad:
 `report_done` und das Sentinel-Done übergeben an
-`Workspace.adoptOnDone` und sind fertig. Absichtlich eng: nur ein
-`success`, nie der eigene Branch des Orchestrators, und nur Agenten, die
-in die Root-Queue melden — die Worker eines Leads sind Sache des Leads.
+`Workspace.adoptOnDone` und sind fertig. Die Übernahme pro Kind
+überspringt den Orchestrator weiterhin bei `report_done` (nur ein
+`success`, nur Agenten, die in die Root-Queue melden — die Worker eines
+Leads sind Sache des Leads). Am Ende des Laufs übernimmt `autoPromote`
+zusätzlich den Orchestrator-Branch ins Checkout, nach `autoPr` — damit
+der Pull Request den Branch noch als voraus sieht.
+`Workspace.finishRunAutomation` ist der eine Host-Pfad: `record_retro`
+und Stop rufen ihn beide auf, höchstens einmal.
 
 ### A3.2 Auto-PR
 
 `autoPr` öffnet den Pull Request des Laufs, wenn die Arbeit fertig ist:
 bei `record_retro` (dem eigenen Abschlussaufruf des Orchestrators, der die
 URL in seiner Antwort zurückbekommt) oder wenn der Nutzer den Workspace
-stoppt — was zuerst kommt, höchstens einmal pro Lauf. Head ist der
-Integrations-Branch des Laufs (der des Orchestrators, sonst der des
-Checkouts, wenn dieser vorn liegt), Base ist `prBaseBranch` oder der
+stoppt — was zuerst kommt, höchstens einmal pro Lauf. Es läuft vor dem
+Auto-Promote am Laufende, damit der Orchestrator-Branch dem Checkout noch
+voraus ist. Head ist der Integrations-Branch des Laufs (der des
+Orchestrators, sonst der des Checkouts, wenn dieser vorn liegt), Base ist
+`prBaseBranch` oder der
 Branch, auf dem das Checkout steht. `agents/pullRequest.ts` pusht mit
 `git push -u` (nie `--force`) und öffnet den PR mit `gh`; ein fehlendes
 oder ausgeloggtes `gh` ist kein gescheiterter Lauf, sondern ein
@@ -1010,7 +1017,7 @@ Renderer nennt nie einen Dateisystempfad.
 | MCP-Fragen vom Handy/Panel | `answer_question` Gateway-Verb + `workspaces:answerQuestion`, ein Pfad in `mcp/answerQuestion.ts` | **Track 0** |
 | Worker „nie committen” + Host-Snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, Handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` „Cursor hat kein agent_done“ | veraltet (`none` = Ollama) | ignorieren |
-| Automatisierung: Übernahme ohne Klick, Pull Request des Laufs | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest`, `agents/pullRequest.ts` | **A3** |
+| Automatisierung: Übernahme ohne Klick, Pull Request des Laufs | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest` / `finishRunAutomation`, `agents/pullRequest.ts` | **A3** |
 | Worker-Helper (eine Extra-Ebene) | `types.ts` `canSpawnHelpers` / `ensureNest` / `MAX_HELPERS_PER_WORKER` | **Phase H** |
 | Live-`user_message`-Targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium-`/browser`-Bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |

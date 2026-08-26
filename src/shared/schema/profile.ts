@@ -129,9 +129,10 @@ export const automationSchema = z
     autoIntegrate: z.boolean().default(false),
     /**
      * Merge every cleanly reported agent branch into the REPOSITORY's own
-     * checkout — the panel's Promote button, without the click. This is the
-     * "merge the branch in the panel to get the fix" step automated; a dirty
-     * checkout still refuses (never overwrite the user's own work).
+     * checkout — the panel's Promote button, without the click. At the end of
+     * the run (`record_retro` or Stop) this also adopts the orchestrator's own
+     * branch, even if no subagent ran. A dirty checkout still refuses (never
+     * overwrite the user's own work).
      */
     autoPromote: z.boolean().default(false),
     /**

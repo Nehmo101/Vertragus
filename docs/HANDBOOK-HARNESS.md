@@ -918,16 +918,22 @@ including its refusal on a dirty checkout. Both run through
 existing `integrate_ok` / `integrate_conflict` events (new optional field
 `target: worktree | checkout`), and neither ever throws into the report
 path: `report_done` and the sentinel done hand over to
-`Workspace.adoptOnDone` and are done with it. Narrow on purpose: only a
-`success`, never the orchestrator's own branch, and only agents that report
-to the root queue — a lead's workers are the lead's business.
+`Workspace.adoptOnDone` and are done with it. Per-child adoption still
+skips the orchestrator on `report_done` (only a `success`, only agents
+that report to the root queue — a lead's workers are the lead's
+business). At the end of the run `autoPromote` also adopts the
+orchestrator branch into checkout, after `autoPr` — so the pull request
+still sees the branch as ahead. `Workspace.finishRunAutomation` is the
+one host path: `record_retro` and Stop both call it, at most once.
 
 ### A3.2 auto-PR
 
 `autoPr` opens the run's pull request when the work is done: at
 `record_retro` (the orchestrator's own end-of-run call, which gets the URL
 back in its answer) or when the user stops the workspace — whichever comes
-first, at most once per run. Head is the run's own integration branch (the
+first, at most once per run. It runs before end-of-run autoPromote, so the
+orchestrator branch is still ahead of checkout. Head is the run's own
+integration branch (the
 orchestrator's, else the checkout's when that is the one ahead), base is
 `prBaseBranch` or the branch the checkout is on. `agents/pullRequest.ts`
 pushes with `git push -u` (never `--force`) and opens the PR with `gh`; a
@@ -994,7 +1000,7 @@ never names a filesystem path.
 | MCP questions from phone/panel | `answer_question` gateway verb + `workspaces:answerQuestion`, one path in `mcp/answerQuestion.ts` | **Track 0** |
 | Worker "never commit" + host snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` "cursor has no agent_done" | outdated (`none` = Ollama) | ignore |
-| Automation: adoption without a click, run pull request | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest`, `agents/pullRequest.ts` | **A3** |
+| Automation: adoption without a click, run pull request | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest` / `finishRunAutomation`, `agents/pullRequest.ts` | **A3** |
 | Worker helpers (one extra level) | `types.ts` `canSpawnHelpers` / `ensureNest` / `MAX_HELPERS_PER_WORKER` | **Phase H** |
 | Live `user_message` targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium `/browser` bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |

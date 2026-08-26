@@ -193,6 +193,17 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/Definition of Done/)
   })
 
+  it('A3: autoPromote briefing says the host merges YOUR branch at end of run, even with no subagent', () => {
+    const prompt = buildOrchestratorSystemPrompt({
+      ...base,
+      automation: { autoIntegrate: false, autoPromote: true, autoPr: false }
+    })
+    expect(prompt).toContain('YOUR own branch is merged into the checkout at record_retro')
+    expect(prompt).toContain('even if no subagent ran')
+    expect(prompt).toContain('Never start an agent to merge or to open a pull request')
+    expect(prompt).not.toContain('A pull request for this run is opened by the host')
+  })
+
   it('is plain English with no German left in it', () => {
     for (const questionMode of [undefined, 'none', 'few', 'thorough'] as const) {
       const prompt = buildOrchestratorSystemPrompt(

@@ -240,7 +240,7 @@
     "autoIntegrate": "Fertige Branches in den Orchestrator mergen",
     "autoIntegrateHint": "Jeder Agenten-Branch, der sauber als Erfolg gemeldet wurde, wird sofort in den Worktree des Orchestrators gemergt. Ein Konflikt bricht ab und wird gemeldet — überschrieben wird nichts.",
     "autoPromote": "Fertige Branches ins Checkout übernehmen",
-    "autoPromoteHint": "Der Merge-Knopf des Panels ohne den Klick: Ein fertiger Agenten-Branch landet im Checkout des Repositories. Wird abgelehnt, solange dort uncommittete Änderungen liegen.",
+    "autoPromoteHint": "Der Merge-Knopf des Panels ohne den Klick: Ein fertiger Agenten-Branch landet im Checkout des Repositories. Am Ende des Laufs wird auch der Orchestrator-Branch übernommen — auch ohne Subagent. Wird abgelehnt, solange dort uncommittete Änderungen liegen.",
     "autoPr": "Pull Request automatisch erstellen",
     "autoPrHint": "Am Ende des Laufs wird der Branch des Orchestrators gepusht und ein Pull Request geöffnet. Braucht die GitHub-CLI (gh), eingeloggt; sonst meldet Vertragus den fertigen Compare-Link.",
     "prBaseBranch": "Ziel-Branch des Pull Requests",

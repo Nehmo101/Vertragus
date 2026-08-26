@@ -76,7 +76,7 @@ function renderAutomation(automation: AutomationBriefing | undefined): string[] 
   }
   if (automation.autoPromote) {
     lines.push(
-      '- Every branch a subagent reports as a clean success is also merged into the repository’s own checkout by the host. The user asked for that: never tell them to merge the branch in the panel, and never treat a promote as your decision.'
+      '- Every branch a subagent reports as a clean success is also merged into the repository’s own checkout by the host. YOUR own branch is merged into the checkout at record_retro or when the user stops the workspace, even if no subagent ran. Never start an agent to merge or to open a pull request. The user asked for that: never tell them to merge the branch in the panel, and never treat a promote as your decision.'
     )
   }
   if (automation.autoPr) {
