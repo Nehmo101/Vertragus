@@ -5,14 +5,15 @@
  * Panel and phone both import this helper so the two surfaces cannot drift:
  * structured `choices` win; otherwise a consecutive list of at least two
  * numbered, lettered, or bulleted lines is extracted and the prompt is the
- * text before that list. Unstructured paragraphs are left alone.
+ * text before and after that list (the list lines themselves are stripped).
+ * Unstructured paragraphs are left alone.
  */
 import { z } from 'zod'
 
 export const QUESTION_CHOICE_MAX = 28
-export const QUESTION_CHOICE_MAX_CHARS = 1_200
+export const QUESTION_CHOICE_MAX_CHARS = 200
 
-/** MCP tool input: trimmed, unique, 1–28 labels, each ≤ 1200 chars. */
+/** MCP tool input: trimmed, unique, 1–28 labels, each ≤ 200 chars. */
 export const questionChoicesInputSchema = z
   .array(z.string().trim().min(1).max(QUESTION_CHOICE_MAX_CHARS))
   .min(1)
@@ -21,13 +22,27 @@ export const questionChoicesInputSchema = z
     message: 'choices must be unique after trim'
   })
 
+/**
+ * Loose wire field for ask_user / ask_orchestrator. Empty `[]` (a common
+ * encoding of "omitted") is accepted. Strict uniqueness/length is applied
+ * only when opening a new question — see {@link parseNewAskChoices} — so a
+ * ticket resume is never blocked by leftover or regenerated `choices`.
+ */
+export const questionChoicesToolFieldSchema = z.array(z.string()).optional()
+
+/** Strict labels for a NEW question. Empty/absent → omitted. Throws on invalid. */
+export function parseNewAskChoices(raw: string[] | undefined): string[] | undefined {
+  if (!raw || raw.length === 0) return undefined
+  return questionChoicesInputSchema.parse(raw)
+}
+
 /** Event / handoff / wire field: already-normalized labels. */
 export const questionChoicesFieldSchema = z
   .array(z.string().min(1).max(QUESTION_CHOICE_MAX_CHARS))
   .max(QUESTION_CHOICE_MAX)
 
 export interface QuestionChoicesDisplay {
-  /** Text shown as the prompt — the list is stripped when it was parsed. */
+  /** Text shown as the prompt — parsed list lines are stripped, surrounding text stays. */
   prompt: string
   /** Button labels; empty means the question stays text-only. */
   choices: string[]
@@ -74,6 +89,12 @@ const NUMBERED = /^\s*(\d+)[.)]\s+(\S.*)$/
 const LETTERED = /^\s*([A-Za-z])[.)]\s+(\S.*)$/
 const BULLET = /^\s*[-*+•]\s+(\S.*)$/
 
+interface ParsedRun {
+  choices: string[]
+  /** Index of the first line after the consecutive list. */
+  end: number
+}
+
 function parseChoiceList(question: string): QuestionChoicesDisplay | undefined {
   const lines = question.split(/\r?\n/)
   for (let start = 0; start < lines.length; start++) {
@@ -90,12 +111,15 @@ function parseChoiceList(question: string): QuestionChoicesDisplay | undefined {
 function displayFrom(
   lines: readonly string[],
   start: number,
-  choices: string[]
+  run: ParsedRun
 ): QuestionChoicesDisplay {
-  return { prompt: lines.slice(0, start).join('\n').trim(), choices }
+  return {
+    prompt: [...lines.slice(0, start), ...lines.slice(run.end)].join('\n').trim(),
+    choices: run.choices
+  }
 }
 
-function takeNumbered(lines: readonly string[], start: number): string[] | undefined {
+function takeNumbered(lines: readonly string[], start: number): ParsedRun | undefined {
   const labels: string[] = []
   let expected = 1
   for (let i = start; i < lines.length; i++) {
@@ -108,12 +132,11 @@ function takeNumbered(lines: readonly string[], start: number): string[] | undef
     if (!label) break
     labels.push(label)
     expected += 1
-    if (labels.length >= QUESTION_CHOICE_MAX) break
   }
-  return uniqueAtLeastTwo(labels)
+  return parsedRun(labels, start)
 }
 
-function takeLettered(lines: readonly string[], start: number): string[] | undefined {
+function takeLettered(lines: readonly string[], start: number): ParsedRun | undefined {
   const first = LETTERED.exec(lines[start] ?? '')
   if (!first) return undefined
   const firstLetter = first[1]!
@@ -131,12 +154,11 @@ function takeLettered(lines: readonly string[], start: number): string[] | undef
     const label = capLabel(match[2]!)
     if (!label) break
     labels.push(label)
-    if (labels.length >= QUESTION_CHOICE_MAX) break
   }
-  return uniqueAtLeastTwo(labels)
+  return parsedRun(labels, start)
 }
 
-function takeBullets(lines: readonly string[], start: number): string[] | undefined {
+function takeBullets(lines: readonly string[], start: number): ParsedRun | undefined {
   const labels: string[] = []
   for (let i = start; i < lines.length; i++) {
     const line = lines[i]!
@@ -146,9 +168,14 @@ function takeBullets(lines: readonly string[], start: number): string[] | undefi
     const label = capLabel(match[1]!)
     if (!label) break
     labels.push(label)
-    if (labels.length >= QUESTION_CHOICE_MAX) break
   }
-  return uniqueAtLeastTwo(labels)
+  return parsedRun(labels, start)
+}
+
+function parsedRun(labels: readonly string[], start: number): ParsedRun | undefined {
+  const unique = uniqueAtLeastTwo(labels)
+  if (!unique) return undefined
+  return { choices: unique, end: start + labels.length }
 }
 
 function capLabel(raw: string): string {

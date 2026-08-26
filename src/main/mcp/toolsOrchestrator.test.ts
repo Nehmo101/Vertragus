@@ -132,6 +132,30 @@ describe('ask_user — D3', () => {
     expect((await resumed).json).toMatchObject({ answer: 'Ship it', ticket })
   })
 
+  it('resumes with ticket + empty choices and still waits for the answer', async () => {
+    const { runtime, tools } = setup()
+    runtime.ctx.askTimeoutMs = 10
+    const first = await callTool(tools, 'ask_user', {
+      question: 'Ship it?',
+      choices: ['Yes', 'No']
+    })
+    const ticket = String(first.json.ticket)
+    expect(first.json.answer).toBeNull()
+    expect(runtime.questions.openForAgent('user')?.choices).toEqual(['Yes', 'No'])
+
+    runtime.ctx.askTimeoutMs = 5_000
+    const resumed = callTool(tools, 'ask_user', {
+      question: 'Ship it?',
+      choices: [],
+      ticket
+    })
+    await vi.waitFor(() => {
+      expect(runtime.questions.openForAgent('user')?.questionId).toBe(ticket)
+    })
+    runtime.questions.answer(ticket, 'Yes')
+    expect((await resumed).json).toMatchObject({ answer: 'Yes', ticket })
+  })
+
   it('rejects duplicate or oversized choices', async () => {
     const { tools } = setup()
     await expect(

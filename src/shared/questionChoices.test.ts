@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   QUESTION_CHOICE_MAX,
   QUESTION_CHOICE_MAX_CHARS,
+  parseNewAskChoices,
   questionChoicesDisplay,
   questionChoicesFieldSchema,
   questionChoicesInputSchema,
+  questionChoicesToolFieldSchema,
   sanitizeQuestionChoices
 } from './questionChoices'
 
@@ -23,6 +25,19 @@ describe('questionChoicesInputSchema', () => {
       questionChoicesInputSchema.parse(Array.from({ length: QUESTION_CHOICE_MAX + 1 }, (_, i) => `c${i}`))
     ).toThrow()
     expect(() => questionChoicesInputSchema.parse(['x'.repeat(QUESTION_CHOICE_MAX_CHARS + 1)])).toThrow()
+  })
+})
+
+describe('questionChoicesToolFieldSchema / parseNewAskChoices', () => {
+  it('accepts an empty array as omitted on the wire, then drops it on create', () => {
+    expect(questionChoicesToolFieldSchema.parse([])).toEqual([])
+    expect(questionChoicesToolFieldSchema.parse(undefined)).toBeUndefined()
+    expect(parseNewAskChoices([])).toBeUndefined()
+    expect(parseNewAskChoices(undefined)).toBeUndefined()
+  })
+
+  it('still rejects invalid labels when opening a new question', () => {
+    expect(() => parseNewAskChoices(['Yes', 'Yes'])).toThrow(/unique/i)
   })
 })
 
@@ -138,11 +153,24 @@ describe('questionChoicesDisplay — parse fallback', () => {
     expect(questionChoicesDisplay(wrapped)).toEqual({ prompt: wrapped, choices: [] })
   })
 
-  it('drops trailing text after a parsed list from the prompt', () => {
+  it('keeps post-list text in the prompt and strips only the list lines', () => {
     expect(
       questionChoicesDisplay('Which?\n1. Merge\n2. Rebase\n\nPlease pick soon.')
     ).toEqual({
-      prompt: 'Which?',
+      prompt: 'Which?\n\nPlease pick soon.',
+      choices: ['Merge', 'Rebase']
+    })
+    expect(
+      questionChoicesDisplay('I ran:\n1. pnpm install\n2. pnpm test\n\nWhat next?')
+    ).toEqual({
+      prompt: 'I ran:\n\nWhat next?',
+      choices: ['pnpm install', 'pnpm test']
+    })
+  })
+
+  it('leaves an empty prompt when the question is only a list', () => {
+    expect(questionChoicesDisplay('1. Merge\n2. Rebase')).toEqual({
+      prompt: '',
       choices: ['Merge', 'Rebase']
     })
   })
@@ -160,10 +188,14 @@ describe('questionChoicesDisplay — parse fallback', () => {
 })
 
 describe('sanitizeQuestionChoices', () => {
-  it('drops blanks, uniques, and caps count', () => {
+  it('drops blanks, uniques, and caps count and label length', () => {
     expect(sanitizeQuestionChoices(['  a  ', '', 'a', 'b'])).toEqual(['a', 'b'])
     expect(
       sanitizeQuestionChoices(Array.from({ length: 40 }, (_, i) => `c${i}`))
     ).toHaveLength(QUESTION_CHOICE_MAX)
+    expect(QUESTION_CHOICE_MAX_CHARS).toBe(200)
+    expect(sanitizeQuestionChoices(['x'.repeat(QUESTION_CHOICE_MAX_CHARS + 10)])).toEqual([
+      'x'.repeat(QUESTION_CHOICE_MAX_CHARS)
+    ])
   })
 })

@@ -351,6 +351,26 @@ describe('ask_orchestrator', () => {
     expect(questionEvents(runtime.events.all())).toHaveLength(1)
   })
 
+  it('resumes with ticket + empty choices and still waits for the answer', async () => {
+    const { runtime, tools, agentId } = await setup(20)
+    const first = await callTool(tools, 'ask_orchestrator', {
+      question: 'which db?',
+      choices: ['Postgres', 'SQLite']
+    })
+    const ticket = String(first.json.ticket)
+    expect(first.json.answer).toBeNull()
+    expect(runtime.questions.openForAgent(agentId)?.choices).toEqual(['Postgres', 'SQLite'])
+
+    const resumed = callTool(tools, 'ask_orchestrator', {
+      question: 'which db?',
+      choices: [],
+      ticket
+    })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    runtime.questions.answer(ticket, 'Postgres')
+    expect((await resumed).json).toMatchObject({ answer: 'Postgres', ticket })
+  })
+
   it('rejects duplicate choices', async () => {
     const { tools } = await setup(20)
     await expect(
