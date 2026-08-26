@@ -18,7 +18,13 @@ import {
 } from './appIpc'
 import { createAppVoice, installDefaultVoicePermissions, type AppVoice } from './appVoice'
 import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
-import { getAgentRegistry, registerTerminalIpc, setTerminalInputSink } from './ipc'
+import {
+  getAgentRegistry,
+  registerTerminalIpc,
+  setTerminalInputSink,
+  setTerminalQuestionSource
+} from './ipc'
+import { cliQuestionContext } from './terminalQuestion'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import {
   getProfile,
@@ -438,9 +444,11 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
 
 /**
  * Feed every agent's current task note into the terminal registry, so the CLI
- * window's title-bar hover card can show what its agent is working on. Runs on
- * the same change feed as the panel; `setAgentTask` dedupes, so a burst of
- * unrelated events costs nothing.
+ * window's title-bar hover card can show what its agent is working on. Also
+ * re-reads the MCP-question inbox (H1 overlay) — `questions.onMutate` already
+ * drives {@link WorkspaceManager.onChange}. `setAgentTask` / `refreshQuestions`
+ * dedupe, so a burst of unrelated events costs nothing and never focuses a
+ * CLI window.
  */
 function armTerminalTaskFeed(manager: WorkspaceManager, mcp: McpServerHandle): void {
   const registry = getAgentRegistry()
@@ -454,6 +462,9 @@ function armTerminalTaskFeed(manager: WorkspaceManager, mcp: McpServerHandle): v
         registry.setAgentTask(agent.agentId, mcp.agentTask(ws.workspaceId, agent.agentId))
       }
     }
+    // questions.onMutate already drives notifyChange; re-read the inbox
+    // (ask_user first, else oldest child) without focusing a CLI window.
+    registry.refreshQuestions()
   }
   manager.onChange(push)
 }
@@ -634,6 +645,13 @@ app.whenReady().then(async () => {
     const manager = appManager
     setTerminalInputSink((agentId, data) => {
       manager.noteOrchestratorGoal(agentId, data)
+    })
+    // Late-bound: same list() that paints panel badges. Answer is the
+    // directory method the panel badge uses (answerAgentQuestion).
+    setTerminalQuestionSource({
+      contextFor: (senderAgentId) => cliQuestionContext(senderAgentId, directory.list()),
+      answer: (workspaceId, agentId, questionId, text) =>
+        directory.answerQuestion(workspaceId, agentId, questionId, text)
     })
     const broadcastSettings = (channel: string, payload: unknown): void => {
       for (const { window } of listSettingsWindows()) {

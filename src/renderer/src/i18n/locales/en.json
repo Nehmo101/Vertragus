@@ -534,6 +534,9 @@
     "closeWindow": "Close window",
     "searchPlaceholder": "Search … (Enter: next, Shift+Enter: previous)",
     "searchClose": "Close search",
+    "userQuestion": "Question for you: {{question}}",
+    "answerPlaceholder": "Answer …",
+    "answerSend": "Answer",
     "boot": {
       "preparing": "Preparing the run …",
       "worktree": "Creating the worktree …",

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { answerAgentQuestion } from './answerQuestion'
 import { PendingQuestions } from './pendingQuestions'
 
-describe('answerAgentQuestion — the one host path behind tool, panel and gateway (H1)', () => {
+describe('answerAgentQuestion — the one host path behind tool, panel, gateway and CLI overlay (H1)', () => {
   it('wakes a parked ask_orchestrator waiter — the gateway path resolves the same registry', async () => {
     const questions = new PendingQuestions()
     const pending = questions.create('agent-1', 'Which hash algorithm?')
