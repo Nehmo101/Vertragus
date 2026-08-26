@@ -17,8 +17,10 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   [`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md) ordnet
   benachbarte CLI-Orchestratoren, Sandbox-Workspaces, Vendor-Harnesses
   und Cloud-Agenten gegen die Handbuch-Doktrin — was sie liefern, was
-  Vertragus schon hat, und welche Lücken sich zu schließen lohnen. Kein
-  Code in dieser Änderung.
+  Vertragus schon hat, und welche Lücken sich zu schließen lohnen. Der
+  parallele Umsetzungsplan steht in
+  [`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md). Kein Code in
+  dieser Änderung.
 - **Pi-Wrap-MCP als erstklassige Tools.** Der Community-Adapter defaultet
   auf einen lazy `mcp()`-Proxy, sodass ein Wrap, der nur
   `{ url, lifecycle: "eager" }` schrieb, connecten konnte, ohne

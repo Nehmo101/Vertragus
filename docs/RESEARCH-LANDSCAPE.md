@@ -542,8 +542,9 @@ hand. Extra MCP on *workers* is the existing escape hatch.
 
 ## Suggested order (no code in this change)
 
-If a later change implements any of this, keep it single-topic and
-inside the loop:
+The parallel adoption plan — waves, file ownership, PR-sized tracks —
+is [`PLAN-LANDSCAPE.md`](PLAN-LANDSCAPE.md). If a later change
+implements any of this, keep it single-topic and inside the loop:
 
 1. **Review surface** — panel/phone diff from host git, comments as
    `user_message`. Unblocks (5) and A/B.

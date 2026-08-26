@@ -563,8 +563,10 @@ Notluke.
 
 ## Vorgeschlagene Reihenfolge (kein Code in dieser Änderung)
 
-Wenn eine spätere Änderung etwas davon umsetzt, single-topic halten
-und in der Schleife bleiben:
+Der parallele Umsetzungsplan — Wellen, Datei-Besitz, PR-große Tracks —
+steht in [`PLAN-LANDSCAPE.md`](PLAN-LANDSCAPE.md). Wenn eine spätere
+Änderung etwas davon umsetzt, single-topic halten und in der Schleife
+bleiben:
 
 1. **Review-Oberfläche** — Panel/Phone-Diff aus Host-Git, Kommentare als
    `user_message`. Entblockt (5) und A/B.

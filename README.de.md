@@ -37,7 +37,9 @@ ist die code-verankerte Karte des Harness-Kerns; serielle Root-Succession
 [`docs/ORCHESTRATOR-SUCCESSION.md`](docs/ORCHESTRATOR-SUCCESSION.md)
 beschrieben. Benachbarte Tools und die Lücken, die sich zu schließen
 lohnen, stehen in
-[`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md).
+[`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md); der
+parallele Umsetzungsplan in
+[`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md).
 
 ## Wie ein Lauf funktioniert
 
