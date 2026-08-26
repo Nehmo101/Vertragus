@@ -39,7 +39,9 @@ beschrieben. Benachbarte Tools und die Lücken, die sich zu schließen
 lohnen, stehen in
 [`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md); der
 parallele Umsetzungsplan in
-[`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md).
+[`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md). Der Pi-Wrap geht
+(Host-Gewinne bleiben nativ):
+[`docs/PLAN-PI-EXIT.md`](docs/PLAN-PI-EXIT.md).
 
 ## Wie ein Lauf funktioniert
 

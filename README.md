@@ -36,7 +36,9 @@ is the code-grounded map of the harness core; serial root succession
 Neighbouring tools and the gaps worth taking are mapped in
 [`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md); the
 parallel adoption plan is
-[`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md).
+[`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md). The Pi wrap is
+leaving (host wins stay native):
+[`docs/PLAN-PI-EXIT.md`](docs/PLAN-PI-EXIT.md).
 
 ## How a run works
 
