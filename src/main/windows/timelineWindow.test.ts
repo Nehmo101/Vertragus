@@ -217,6 +217,23 @@ describe('focusTimelineWindow', () => {
     timelineWindow.focusTimelineWindow('ws-1')
     expect(mine.minimized).toBe(false)
   })
+
+  it('restores a taskbar-minimized sheet then showInactive+focus; foreign still hide()', () => {
+    const mine = timelineWindow.openTimelineWindow('ws-1') as unknown as FakeBrowserWindow
+    const other = timelineWindow.openTimelineWindow('ws-2') as unknown as FakeBrowserWindow
+    mine.shown = true
+    mine.minimized = true
+    other.shown = true
+    other.minimized = true
+    mine.calls.length = 0
+    other.calls.length = 0
+
+    timelineWindow.focusTimelineWindow('ws-1')
+
+    expect(mine.minimized).toBe(false)
+    expect(mine.calls).toEqual(['restore', 'showInactive', 'focus'])
+    expect(other.calls).toEqual(['hide'])
+  })
 })
 
 describe('the module contract', () => {

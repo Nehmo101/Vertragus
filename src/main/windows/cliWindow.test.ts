@@ -15,6 +15,40 @@ const settingsUi = vi.hoisted(() => ({
   cliWindowMode: 'per-agent' as 'per-agent' | 'tabs'
 }))
 
+/** Toggle so the skipTaskbar child fallback can run without WebContentsView. */
+const electronFlags = vi.hoisted(() => ({ webContentsView: true }))
+
+type IpcListener = (event: { sender: { id: number } }, ...args: unknown[]) => unknown
+
+const fakeIpcMain = vi.hoisted(() => {
+  const handlers = new Map<string, IpcListener>()
+  const listeners = new Map<string, IpcListener>()
+  return {
+    handlers,
+    listeners,
+    handle: (channel: string, listener: IpcListener): void => {
+      handlers.set(channel, listener)
+    },
+    on: (channel: string, listener: IpcListener): void => {
+      listeners.set(channel, listener)
+    },
+    removeHandler: (channel: string): void => {
+      handlers.delete(channel)
+    },
+    removeAllListeners: (channel?: string): void => {
+      if (channel) listeners.delete(channel)
+      else listeners.clear()
+    },
+    emit(channel: string, event: { sender: { id: number } }, ...args: unknown[]): void {
+      listeners.get(channel)?.(event, ...args)
+    },
+    reset(): void {
+      handlers.clear()
+      listeners.clear()
+    }
+  }
+})
+
 class FakeWebContentsView {
   static instances: FakeWebContentsView[] = []
   readonly webContents = {
@@ -147,8 +181,16 @@ const META = { title: 'Caronte', roleColor: '#2f7d6d' } as const
 
 vi.mock('electron', () => ({
   BrowserWindow: FakeBrowserWindow,
-  WebContentsView: FakeWebContentsView,
-  ipcMain: { handle: vi.fn(), on: vi.fn(), removeHandler: vi.fn(), removeAllListeners: vi.fn() }
+  get WebContentsView() {
+    return electronFlags.webContentsView ? FakeWebContentsView : undefined
+  },
+  ipcMain: fakeIpcMain,
+  // Stub only — freeze tests pass placement.workspaceId; tiling is in
+  // cliWindow.placement.test.ts.
+  screen: {
+    getPrimaryDisplay: () => ({ id: 1, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }),
+    getAllDisplays: () => [{ id: 1, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }]
+  }
 }))
 vi.mock('@main/store/settings', () => ({
   getSettings: () => ({ ui: settingsUi })
@@ -208,6 +250,8 @@ beforeEach(async () => {
   FakeWebContentsView.instances = []
   listeners.clear()
   panelControl.current = null
+  electronFlags.webContentsView = true
+  fakeIpcMain.reset()
   settingsUi.startMinimized = false
   settingsUi.cliWindowMode = 'per-agent'
   nextWebContentsId = 1
@@ -582,6 +626,106 @@ describe('tabs mode', () => {
     for (const channel of Object.values(cli.CLI_TAB_CHANNELS)) {
       expect(source).toContain(`'${channel}'`)
     }
+  })
+
+  it('selects via cliTabs:select from chrome and ignores a foreign agentId', () => {
+    const chrome = fake(cli.createCliWindow('orch', TAB))
+    cli.createCliWindow('worker', TAB_B)
+    const first = FakeWebContentsView.instances[0]!
+    const second = FakeWebContentsView.instances[1]!
+    expect(first.visible).toBe(true)
+    expect(second.visible).toBe(false)
+
+    cli.registerCliTabIpc()
+    fakeIpcMain.emit(
+      cli.CLI_TAB_CHANNELS.select,
+      { sender: { id: chrome.webContents.id } },
+      'worker'
+    )
+    expect(first.visible).toBe(false)
+    expect(second.visible).toBe(true)
+
+    fakeIpcMain.emit(
+      cli.CLI_TAB_CHANNELS.select,
+      { sender: { id: chrome.webContents.id } },
+      'foreign'
+    )
+    expect(first.visible).toBe(false)
+    expect(second.visible).toBe(true)
+  })
+})
+
+describe('cliWindowMode freeze', () => {
+  it('keeps two BrowserWindows after a later tabs pref for the same workspace', () => {
+    // Bounds skip planFor so freeze is not a tiling test.
+    const bounds = { x: 0, y: 0, width: 760, height: 480 }
+    const first = fake(
+      cli.createCliWindow('orch', {
+        title: 'Caronte',
+        roleColor: '#2f7d6d',
+        bounds,
+        placement: { roleId: 'orchestrator', workspaceId: 'ws-1' }
+      })
+    )
+    settingsUi.cliWindowMode = 'tabs'
+    const second = fake(
+      cli.createCliWindow('worker', {
+        title: 'Arlecchino',
+        roleColor: '#8c4a3a',
+        bounds,
+        placement: { roleId: 'worker', workspaceId: 'ws-1' }
+      })
+    )
+
+    expect(FakeBrowserWindow.instances).toHaveLength(2)
+    expect(second).not.toBe(first)
+    expect(cli.workspaceCliWindowMode('ws-1')).toBe('per-agent')
+    expect(FakeWebContentsView.instances).toHaveLength(0)
+  })
+})
+
+describe('tabs fallback without WebContentsView', () => {
+  beforeEach(async () => {
+    electronFlags.webContentsView = false
+    vi.resetModules()
+    FakeBrowserWindow.instances = []
+    FakeWebContentsView.instances = []
+    listeners.clear()
+    fakeIpcMain.reset()
+    nextWebContentsId = 1
+    settingsUi.startMinimized = false
+    settingsUi.cliWindowMode = 'tabs'
+    cli = await import('./cliWindow')
+  })
+
+  it('opens skipTaskbar children parented to chrome and maps each child 1:1', () => {
+    const chrome = fake(
+      cli.createCliWindow('orch', {
+        title: 'Caronte',
+        roleColor: '#2f7d6d',
+        cliWindowMode: 'tabs',
+        placement: { roleId: 'orchestrator', workspaceId: 'ws-1' }
+      })
+    )
+    cli.createCliWindow('worker', {
+      title: 'Arlecchino',
+      roleColor: '#8c4a3a',
+      cliWindowMode: 'tabs',
+      placement: { roleId: 'worker', workspaceId: 'ws-1' }
+    })
+
+    expect(FakeWebContentsView.instances).toHaveLength(0)
+    expect(FakeBrowserWindow.instances).toHaveLength(3)
+    const childA = FakeBrowserWindow.instances[1]!
+    const childB = FakeBrowserWindow.instances[2]!
+    expect(childA.options.skipTaskbar).toBe(true)
+    expect(childB.options.skipTaskbar).toBe(true)
+    expect(childA.options.parent).toBe(chrome)
+    expect(childB.options.parent).toBe(chrome)
+    expect(cli.isCliWindowSender(childA.webContents.id)).toBe('orch')
+    expect(cli.isCliWindowSender(childB.webContents.id)).toBe('worker')
+    expect(cli.isCliWindowSender(chrome.webContents.id)).toBeNull()
+    expect(cli.isWorkspaceChromeSender(chrome.webContents.id)).toBe('ws-1')
   })
 })
 

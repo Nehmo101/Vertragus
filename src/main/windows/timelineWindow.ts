@@ -104,8 +104,9 @@ export function openTimelineWindow(workspaceId: string): BrowserWindow {
 
 /**
  * Focus-workspace: hide every other timeline (`hide()`, never minimize), then
- * `showInactive` this one and steal focus once. A closed sheet is reopened —
- * clicking the workspace card is how a view-only close comes back.
+ * restore if the sheet is taskbar-minimized, `showInactive` this one and steal
+ * focus once. A closed sheet is reopened — clicking the workspace card is how
+ * a view-only close comes back.
  */
 export function focusTimelineWindow(workspaceId: string): void {
   for (const { workspaceId: otherId, window } of listTimelineWindows()) {
@@ -118,6 +119,8 @@ export function focusTimelineWindow(workspaceId: string): void {
     openTimelineWindow(workspaceId)
     return
   }
+  // Taskbar-minimized on Windows stays minimized through showInactive alone.
+  if (existing.isMinimized()) existing.restore()
   existing.showInactive()
   existing.focus()
 }
