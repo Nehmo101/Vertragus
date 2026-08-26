@@ -550,7 +550,7 @@ export interface PanelSettings {
   appearance: Appearance
   /** When a window or zone is moved, neighbors shrink and fill the gap. */
   reflowNeighbors: boolean
-  /** Start the app minimized. App-wide, not a profile field. */
+  /** New CLI windows start OS-minimized to the taskbar. The panel stays visible. */
   startMinimized: boolean
   /** One CLI window per agent, or tabs in a shared window. */
   cliWindowMode: AppSettings['ui']['cliWindowMode']

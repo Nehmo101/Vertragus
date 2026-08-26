@@ -111,9 +111,9 @@ export const uiSettingsSchema = z
     /** When a window or zone is moved, neighbors shrink and fill the gap. */
     reflowNeighbors: z.boolean().default(true),
     /**
-     * Start the app minimized. App-wide window behavior, not a profile field.
-     * Default false so an install from before this key existed keeps today's
-     * visible launch.
+     * New CLI windows start OS-minimized to the taskbar. The panel stays
+     * visible. App-wide window behavior, not a profile field. Default false
+     * keeps today's visible launch.
      */
     startMinimized: z.boolean().default(false),
     /**
