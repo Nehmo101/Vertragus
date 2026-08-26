@@ -87,7 +87,15 @@ vi.mock('./base', () => ({
 
 let panelBounds: Bounds | null = null
 vi.mock('./panel', () => ({
-  getPanelWindow: () => (panelBounds ? { getBounds: () => panelBounds } : null)
+  getPanelWindow: () =>
+    panelBounds
+      ? {
+          getBounds: () => panelBounds,
+          isDestroyed: () => false,
+          isFocused: () => false,
+          focus: () => {}
+        }
+      : null
 }))
 
 type CliModule = typeof import('./cliWindow')
