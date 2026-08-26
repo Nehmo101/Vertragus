@@ -817,12 +817,14 @@ describe('readOutput', () => {
 })
 
 describe('image attachments at orchestrator start', () => {
-  it('materializes staged files after createWorktree and before spawn', async () => {
+  it('materializes staged files after createWorktree and before spawn/seed', async () => {
     const order: string[] = []
     const seen: Array<{ ids: readonly string[]; dest: string }> = []
     const trees = fakeWorktrees()
-    const spawner = fakeSpawn()
+    const spawner = fakeSpawn({ ptySystemPrompt: true })
+    const profile = testProfile()
     const { workspace } = harness({
+      profile,
       deps: {
         createWorktree: async (repoPath, agentId, branchName, options) => {
           order.push('worktree')
@@ -835,15 +837,22 @@ describe('image attachments at orchestrator start', () => {
         spawn: (async (input, spawnDeps) => {
           order.push('spawn')
           return spawner.spawn(input, spawnDeps)
-        }) as unknown as WorkspaceDeps['spawn']
+        }) as unknown as WorkspaceDeps['spawn'],
+        seed: async (write, _snapshot, prompt) => {
+          order.push('seed')
+          write(prompt)
+          return true
+        }
       }
     })
     const started = await workspace.startOrchestrator({
       initialPrompt: 'see this',
       attachmentIds: ['stg-1']
     })
-    expect(order).toEqual(['worktree', 'materialize', 'spawn'])
+    expect(order).toEqual(['worktree', 'materialize', 'spawn', 'seed'])
     expect(seen).toEqual([{ ids: ['stg-1'], dest: started.worktreePath }])
+    expect(started.worktreePath).not.toBe(profile.repoPath)
+    expect(seen[0]!.dest).not.toBe(profile.repoPath)
   })
 })
 

@@ -35,6 +35,7 @@ describe('isImageFile', () => {
     expect(isImageFile({ name: 'a.PNG', type: '' })).toBe(true)
     expect(isImageFile({ name: 'a.jpg', type: 'image/jpeg' })).toBe(true)
     expect(isImageFile({ name: 'notes.txt', type: 'text/plain' })).toBe(false)
+    expect(isImageFile({ name: 'notes.pdf', type: 'application/pdf' })).toBe(false)
     expect(isImageFile({ name: 'x.webp', type: 'image/webp' })).toBe(true)
   })
 })
