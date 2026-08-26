@@ -3,6 +3,7 @@ import { ProfileEditorApp } from './profileEditor/ProfileEditorApp'
 import { ProviderEditorApp } from './providerEditor/ProviderEditorApp'
 import { SettingsApp } from './settings/SettingsApp'
 import { TerminalApp } from './terminal/TerminalApp'
+import { TimelineApp } from './timeline/TimelineApp'
 import { ZonesApp } from './zones/ZonesApp'
 
 const PROFILE_EDITOR_ROUTE = '/profile-editor'
@@ -13,12 +14,15 @@ const ZONES_ROUTE = '/zones/'
  * Route dispatch by window hash. Every Vertragus window loads the same bundle
  * and picks its surface from the route: /panel, /agent/<id>,
  * /profile-editor[/<id>], /provider-editor[/<id>], /settings,
- * /zones/<displayId>?profile=<id>.
+ * /timeline/<workspaceId>, /zones/<displayId>?profile=<id>.
  */
 export function App(): React.JSX.Element {
   const route = window.location.hash.replace(/^#/, '') || '/panel'
   if (route.startsWith('/agent/')) {
     return <TerminalApp agentId={decodeURIComponent(route.slice('/agent/'.length))} />
+  }
+  if (route.startsWith('/timeline/')) {
+    return <TimelineApp workspaceId={decodeURIComponent(route.slice('/timeline/'.length))} />
   }
   if (route.startsWith('/settings')) return <SettingsApp />
   if (route.startsWith(ZONES_ROUTE)) {

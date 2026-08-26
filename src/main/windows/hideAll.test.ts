@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -20,8 +22,10 @@ vi.mock('./cliWindow', () => ({ listCliWindows: vi.fn(() => []) }))
 vi.mock('./profileEditor', () => ({ listProfileEditorWindows: () => [] }))
 vi.mock('./providerEditor', () => ({ listProviderEditorWindows: () => [] }))
 vi.mock('./settingsWindow', () => ({ listSettingsWindows: () => [] }))
+vi.mock('./timelineWindow', () => ({ listTimelineWindows: vi.fn(() => []) }))
 
 import { listCliWindows } from './cliWindow'
+import { listTimelineWindows } from './timelineWindow'
 import {
   createHideAllController,
   forgetHideAll,
@@ -96,6 +100,7 @@ beforeEach(() => {
   register.mockImplementation(() => true)
   resetHideAllForTesting()
   vi.mocked(listCliWindows).mockReturnValue([])
+  vi.mocked(listTimelineWindows).mockReturnValue([])
 })
 
 describe('toggle', () => {
@@ -224,6 +229,26 @@ describe('toggle', () => {
     expect(log).toEqual(['hide:a'])
     expect(windows.b!.visible).toBe(false)
     expect(log).not.toContain('show:b')
+  })
+})
+
+describe('timeline membership', () => {
+  it('hides timeline windows from the production target list', () => {
+    const { log, windows } = harness(['w1'])
+    vi.mocked(listTimelineWindows).mockReturnValue([
+      { workspaceId: 'w1', window: windows.w1 as never }
+    ])
+
+    expect(toggleHideAll()).toBe('hidden')
+    expect(log).toEqual(['hide:w1'])
+    expect(windows.w1!.visible).toBe(false)
+  })
+
+  it('names them timeline:<workspaceId> and never minimize()/restore()', () => {
+    const source = readFileSync(join(__dirname, 'hideAll.ts'), 'utf8')
+    expect(source).toMatch(/listTimelineWindows/)
+    expect(source).toMatch(/timeline:\$\{workspaceId\}/)
+    expect(source).toMatch(/never `minimize\(\)` \/ `restore\(\)`/)
   })
 })
 

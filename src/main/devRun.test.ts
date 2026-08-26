@@ -12,6 +12,10 @@ vi.mock('./windows/cliWindow', () => ({
   getCliWindow: vi.fn(() => null),
   isCliWindowSender: vi.fn(() => null)
 }))
+vi.mock('./windows/timelineWindow', () => ({
+  openTimelineWindow: vi.fn(),
+  closeTimelineWindow: vi.fn()
+}))
 
 import { buildDevProfile, DEV_RUN_ENV, maybeStartDevWorkspace } from './devRun'
 import { profileRoleIds, slotLimitFor } from '@shared/schema/profile'
@@ -29,6 +33,12 @@ describe('createAppWorkspaceManager', () => {
   it('hands the stored UI locale to workspace seed-failure errors', () => {
     const source = readFileSync(join(__dirname, 'devRun.ts'), 'utf8')
     expect(source).toMatch(/locale:\s*\(\)\s*=>\s*getSettings\(\)\.ui\.locale/)
+  })
+
+  it('opens a timeline after startWorkspace and closes it on stop', () => {
+    const source = readFileSync(join(__dirname, 'devRun.ts'), 'utf8')
+    expect(source).toMatch(/openTimelineWindow\(running\.workspace\.workspaceId\)/)
+    expect(source).toMatch(/closeTimelineWindow\(workspaceId\)/)
   })
 })
 
