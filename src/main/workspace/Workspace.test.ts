@@ -3201,6 +3201,47 @@ describe('automation', () => {
     expect(merges(calls)[0]!.args).toContain(orch.branch)
   })
 
+  it('serializes overlapping wrap-ups so a second caller cannot promote during the PR', async () => {
+    const order: string[] = []
+    let releaseOpen!: (outcome: { ok: true; url: string; created: boolean }) => void
+    const openHeld = new Promise<{ ok: true; url: string; created: boolean }>((resolve) => {
+      releaseOpen = resolve
+    })
+    const openPullRequest = vi.fn().mockImplementation(async (input: { head: string }) => {
+      order.push(`pr:${input.head}`)
+      return openHeld
+    })
+    const { git, calls } = automationGit()
+    const sequencedGit: typeof git = async (args, cwd) => {
+      if (args.includes('merge')) order.push(`merge:${cwd}`)
+      return git(args, cwd)
+    }
+    const { workspace } = harness({
+      profile: automationProfile({ autoPr: true, autoPromote: true }),
+      deps: { worktreeDeps: { git: sequencedGit }, openPullRequest }
+    })
+    const orch = await workspace.startOrchestrator()
+
+    const first = workspace.finishRunAutomation({ summary: 'Done.' })
+    const second = workspace.finishRunAutomation({ summary: 'Again.' })
+    await vi.waitFor(() => {
+      expect(openPullRequest).toHaveBeenCalledTimes(1)
+    })
+    expect(merges(calls)).toEqual([])
+
+    releaseOpen({ ok: true, url: 'https://github.com/o/r/pull/9', created: true })
+    const [fromFirst, fromSecond] = await Promise.all([first, second])
+
+    expect(fromFirst).toEqual(fromSecond)
+    expect(openPullRequest).toHaveBeenCalledTimes(1)
+    expect(openPullRequest.mock.calls[0]![0]).toMatchObject({ head: orch.branch })
+    expect(order[0]).toBe(`pr:${orch.branch}`)
+    expect(order).toContain('merge:/repo')
+    expect(order.indexOf(`pr:${orch.branch}`)).toBeLessThan(order.indexOf('merge:/repo'))
+    expect(merges(calls)).toHaveLength(1)
+    expect(merges(calls)[0]!.args).toContain(orch.branch)
+  })
+
   it('still skips the orchestrator on per-child adoptOnDone', async () => {
     const { git, calls } = automationGit()
     const { workspace } = harness({
