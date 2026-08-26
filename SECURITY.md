@@ -31,10 +31,14 @@ yourself about what each one actually guarantees:
 | `ask-user` | off | **hard** — the CLI's own permission prompt blocks in the agent's terminal | Safest, but needs you at the desktop; unattended runs stall. Remote v1 deliberately does not relay these CLI prompts to a phone. |
 | `ask-orchestrator` | skip-permissions on | **soft** — the task contract requires `ask_orchestrator` approval before risky actions | Keeps runs unattended, and the orchestrator can escalate to you via `ask_user`. But it is prompt-level only: a misbehaving or manipulated agent can ignore the rule. Treat it as guidance for honest agents, not as a sandbox. |
 
-Orchestrators and leads never get yolo flags under any tier — they operate
-through an MCP tool allow-list instead. The panel footer's yolo switch is
-the coarse control: on = `yolo`, off = `ask-user`; the three-way picker
-lives in the settings window, and both write the same stored truth.
+Orchestrators and leads never get provider yolo flags (`--dangerously-skip-*`
+and friends) under any tier — they operate through an MCP tool allow-list
+instead. Cursor is the exception: every native Cursor launch uses **Run
+Everything** (`--force --sandbox disabled`) because Auto-review otherwise
+still blocks MCP, and Cursor has no per-tool allow-list. The panel footer's
+yolo switch is the coarse control: on = `yolo`, off = `ask-user`; the
+three-way picker lives in the settings window, and both write the same
+stored truth. Cursor Run Everything still applies when that switch is off.
 
 There is no sandbox. `ask-orchestrator` is a contract rule, not
 confinement; agents also need network access (MCP, vendor APIs) by design.

@@ -61,9 +61,13 @@ import {
   toKimiMcpConfig,
   toPiMcpConfig,
   PI_APPEND_SYSTEM_FILE,
+  PI_MCP_ADAPTER_SETTINGS,
   PI_MCP_FILE,
-  PI_MCP_LIFECYCLE_EAGER,
+  PI_MCP_LIFECYCLE,
+  PI_MCP_REQUEST_TIMEOUT_MS,
   PI_PROJECT_DIR,
+  piMcpRequestTimeoutMs,
+  piVertragusServerEntry,
   WORKTREE_SECRET_FILES,
   tomlString,
   usableExtraMcp,
@@ -447,12 +451,10 @@ describe('cursor attach', () => {
 })
 
 describe('pi harness attach', () => {
-  it('installs .pi/mcp.json in the WORKING directory with a bare url and eager lifecycle', () => {
+  it('installs .pi/mcp.json in the WORKING directory with direct tools and a 600s timeout', () => {
     const path = writePiHarnessMcpConfig(URL, workspaceDir)
     expect(path).toBe(join(workspaceDir, PI_PROJECT_DIR, PI_MCP_FILE))
-    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
-      mcpServers: { vertragus: { url: URL, lifecycle: PI_MCP_LIFECYCLE_EAGER } }
-    })
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(toPiMcpConfig(null, URL))
     // Same JSON key as Cursor; a wrap must never mutate Cursor's project file.
     expect(existsSync(join(workspaceDir, CURSOR_PROJECT_DIR, CURSOR_MCP_FILE))).toBe(false)
   })
@@ -472,13 +474,18 @@ describe('pi harness attach', () => {
     )
 
     const path = writePiHarnessMcpConfig(URL, workspaceDir)
-    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
-      mcpServers: {
-        'user-server': { url: 'http://127.0.0.1:9/user' },
-        vertragus: { url: URL, lifecycle: PI_MCP_LIFECYCLE_EAGER }
-      },
-      extraTopLevel: true
-    })
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(
+      toPiMcpConfig(
+        {
+          mcpServers: {
+            'user-server': { url: 'http://127.0.0.1:9/user' },
+            vertragus: { url: 'http://127.0.0.1:1/stale' }
+          },
+          extraTopLevel: true
+        },
+        URL
+      )
+    )
   })
 
   it('replaces a corrupt existing file instead of guessing', () => {
@@ -487,9 +494,7 @@ describe('pi harness attach', () => {
     writeFileSync(join(dir, PI_MCP_FILE), '{not-json')
 
     const path = writePiHarnessMcpConfig(URL, workspaceDir)
-    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
-      mcpServers: { vertragus: { url: URL, lifecycle: PI_MCP_LIFECYCLE_EAGER } }
-    })
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(toPiMcpConfig(null, URL))
   })
 
   it('replaces a non-object JSON file the same way (fail-closed)', () => {
@@ -497,19 +502,21 @@ describe('pi harness attach', () => {
     writePiHarnessMcpConfig(URL, workspaceDir)
     writeFileSync(join(dir, PI_MCP_FILE), JSON.stringify(['garbage']))
 
-    expect(JSON.parse(readFileSync(writePiHarnessMcpConfig(URL, workspaceDir), 'utf8'))).toEqual({
-      mcpServers: { vertragus: { url: URL, lifecycle: PI_MCP_LIFECYCLE_EAGER } }
-    })
+    expect(JSON.parse(readFileSync(writePiHarnessMcpConfig(URL, workspaceDir), 'utf8'))).toEqual(
+      toPiMcpConfig(null, URL)
+    )
   })
 
   it('builds the merge from an absent existing object', () => {
     expect(toPiMcpConfig(null, URL)).toEqual({
-      mcpServers: { vertragus: { url: URL, lifecycle: PI_MCP_LIFECYCLE_EAGER } }
+      settings: { ...PI_MCP_ADAPTER_SETTINGS },
+      mcpServers: { vertragus: piVertragusServerEntry(URL) }
     })
     expect(toPiMcpConfig({ mcpServers: { other: { url: 'x' } } }, URL)).toEqual({
+      settings: { ...PI_MCP_ADAPTER_SETTINGS },
       mcpServers: {
         other: { url: 'x' },
-        vertragus: { url: URL, lifecycle: PI_MCP_LIFECYCLE_EAGER }
+        vertragus: piVertragusServerEntry(URL)
       }
     })
   })
@@ -520,10 +527,60 @@ describe('pi harness attach', () => {
     expect(() => assertWrittenPiMcpConfig(path)).toThrow(/Invalid Vertragus Pi MCP config/)
   })
 
-  it('rejects a project config that lost eager lifecycle', () => {
+  it('rejects a project config that lost lazy-keep-alive lifecycle', () => {
     const path = writePiHarnessMcpConfig(URL, workspaceDir)
     writeFileSync(path, JSON.stringify({ mcpServers: { vertragus: { url: URL } } }))
     expect(() => assertWrittenPiMcpConfig(path)).toThrow(/Invalid Vertragus Pi MCP config/)
+  })
+
+  it('rejects a project config that lost directTools', () => {
+    const path = writePiHarnessMcpConfig(URL, workspaceDir)
+    writeFileSync(
+      path,
+      JSON.stringify({
+        settings: { ...PI_MCP_ADAPTER_SETTINGS },
+        mcpServers: { vertragus: { url: URL, lifecycle: PI_MCP_LIFECYCLE } }
+      })
+    )
+    expect(() => assertWrittenPiMcpConfig(path)).toThrow(/Invalid Vertragus Pi MCP config/)
+  })
+
+  it('keeps foreign adapter settings while forcing direct-tool flags', () => {
+    expect(
+      toPiMcpConfig({ settings: { hostConfigDiscovery: 'off', extra: 1 } }, URL).settings
+    ).toEqual({
+      hostConfigDiscovery: 'off',
+      extra: 1,
+      ...PI_MCP_ADAPTER_SETTINGS
+    })
+  })
+
+  it('does not use eager lifecycle — that handshake is torn down on session_start', () => {
+    const entry = piVertragusServerEntry(URL)
+    expect(entry.lifecycle).toBe(PI_MCP_LIFECYCLE)
+    expect(entry.lifecycle).not.toBe('eager')
+    expect(entry.requestTimeoutMs).toBe(PI_MCP_REQUEST_TIMEOUT_MS)
+    expect(entry.idleTimeout).toBe(0)
+  })
+
+  it('maps provider timeout seconds onto the wrap, defaulting to 600s', () => {
+    expect(piMcpRequestTimeoutMs(undefined)).toBe(600_000)
+    expect(piMcpRequestTimeoutMs(90)).toBe(90_000)
+    expect(piMcpRequestTimeoutMs(0)).toBe(600_000)
+    const path = writePiHarnessMcpConfig(URL, workspaceDir, undefined, 90_000)
+    const written = JSON.parse(readFileSync(path, 'utf8')) as {
+      settings: { requestTimeoutMs: number; disableProxyTool: boolean }
+      mcpServers: { vertragus: { requestTimeoutMs: number } }
+    }
+    expect(written.settings.requestTimeoutMs).toBe(90_000)
+    expect(written.settings.disableProxyTool).toBe(false)
+    expect(written.mcpServers.vertragus.requestTimeoutMs).toBe(90_000)
+  })
+
+  it('turns off a leftover disableProxyTool so extras keep the mcp proxy', () => {
+    expect(
+      toPiMcpConfig({ settings: { disableProxyTool: true } }, URL).settings.disableProxyTool
+    ).toBe(false)
   })
 
   it('writes APPEND_SYSTEM.md and removes it when the prompt is empty', () => {
@@ -540,6 +597,7 @@ describe('pi harness attach', () => {
     expect(WORKTREE_SECRET_FILES).not.toContain('.pi/APPEND_SYSTEM.md')
     expect(WORKTREE_SECRET_FILES).toEqual([
       '.cursor/mcp.json',
+      '.cursor/cli.json',
       '.kimi-code/mcp.json',
       '.grok/config.toml',
       '.pi/mcp.json'
@@ -760,7 +818,7 @@ describe('E6 extra MCP servers', () => {
     const existing = { mcpServers: { theirs: { url: 'http://example.test/mcp' } } }
     expect(toPiMcpConfig(existing, URL, EXTRA).mcpServers).toEqual({
       theirs: { url: 'http://example.test/mcp' },
-      vertragus: { url: URL, lifecycle: 'eager' },
+      vertragus: piVertragusServerEntry(URL),
       browser: { url: 'http://127.0.0.1:9200/mcp' }
     })
   })

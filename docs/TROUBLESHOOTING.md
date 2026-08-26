@@ -121,12 +121,12 @@ all — that is a platform limit, not a setting.
 Vertragus launches Cursor with `--approve-mcps` and also writes
 `~/.cursor/projects/<slug>/mcp-approvals.json` for every server in that
 worktree's `.cursor/mcp.json` (the same state-file trick as Claude/Kimi
-trust). Orchestrators never get `--force` / `--yolo`. When the subagent
-policy is yolo, Cursor workers additionally launch in **Run Everything**
-(`--force --sandbox disabled` and a project `.cursor/cli.json` with
+trust). Every native Cursor launch is **Run Everything** (`--force
+--sandbox disabled` and a project `.cursor/cli.json` with
 `approvalMode: unrestricted`) so Auto-review and the sandbox do not still
-stop on tool calls. `ask-user` and orchestrator launches never get that
-mode.
+stop on tool calls or MCP initialize — orchestrators and `ask-user`
+workers included. Cursor has no per-tool allow-list; MCP identity still
+scopes which Vertragus tools exist. Pi wrap skips this dialect.
 
 If the TUI still stops on a confirmation, the greyhound overlay lifts to
 click-through (`waiting`) so you can click Approve in the window. Session
@@ -185,6 +185,26 @@ What to do:
 - Confirm the wrap outside your real settings: `node scripts/pi-play-smoke.mjs`
   boots Electron with isolated userData and a throwaway repo. It must print
   `ok` (TUI + MCP). It does not use `~/.pi` or provider API keys.
+
+## Pi MCP never attaches
+
+The wrap writes `.pi/mcp.json` with **direct** tools (`await_events` on
+Pi's tool list, not behind the adapter's `mcp()` proxy),
+`lifecycle: "lazy-keep-alive"` (eager load-time connect is torn down on
+`session_start`), a 600 s `requestTimeoutMs`, and
+`MCP_DIRECT_TOOLS=vertragus` so the first turn waits for those tools.
+
+What to do:
+
+- Windows: Node.js must be on PATH (`node -v`). Electron-as-node is a blank
+  window; the wrap will refuse to start if resolve landed on `electron.exe`.
+- The TUI line `MCP: Failed to connect to vertragus` is a hard fail — the
+  loopback MCP server was not reachable at the URL in `.pi/mcp.json`.
+- `servers connected (N tools)` or the status bar `1 server enabled (1
+  connected)` plus `direct tools refreshed (+N)` means initialize
+  succeeded and Vertragus tools are on Pi's tool list. If the
+  orchestrator still never calls `await_events`, open an issue with that
+  snapshot.
 
 ## Something else
 

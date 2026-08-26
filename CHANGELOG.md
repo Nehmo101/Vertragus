@@ -12,6 +12,19 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **Pi wrap MCP as first-class tools.** The community adapter's default is a
+  lazy `mcp()` proxy, so a wrap that only wrote `{ url, lifecycle: "eager" }`
+  could connect without ever exposing `await_events`. `.pi/mcp.json` now
+  sets `directTools: true`, `toolPrefix: "none"`, `auth: false`,
+  `httpTransport: "streamable-http"`, `requestTimeoutMs` (default 600 s,
+  matching Claude's MCP tool window), `idleTimeout: 0`, and
+  `lifecycle: "lazy-keep-alive"`
+  so the adapter does not connect at load and then tear that handshake
+  down on `session_start`. The `mcp` proxy stays registered so extras and a
+  cold metadata cache still have a fallback. Spawn sets
+  `MCP_DIRECT_TOOLS=vertragus` so session_start waits for those tools.
+- **Pi Play smoke.** CI boots the real Electron app with isolated
+  userData, the Pi wrap on, and a throwaway git repo (`scripts/pi-play-smoke.mjs`).
 - **Unified CLI session chrome.** Agent windows default to one Vertragus
   overlay (status, short branch, host event log, questions, follow-up)
   instead of each vendor TUI. Native CLI is a title-bar peek; waiting
@@ -38,12 +51,12 @@ No release has been tagged yet; everything lives under Unreleased.
   `await_events`. A greyhound overlay on the open terminal reports the
   phase (`preparing` → `worktree` → `mcp` → `cli` → `handshake`); if MCP
   is still missing it goes click-through (`waiting`) so leftover Cursor
-  approvals can be clicked. Cursor launches still use `--approve-mcps` and
+  approvals can be clicked.   Cursor launches still use `--approve-mcps` and
   also write `~/.cursor/projects/<slug>/mcp-approvals.json` so the TUI
   does not stop on every server. Extra MCP servers stay subagent-only.
-  Cursor yolo subagents launch in **Run Everything** (`--force --sandbox
-  disabled` plus `.cursor/cli.json`) so Auto-review does not still prompt;
-  orchestrators still never get those flags.
+  Every native Cursor launch is **Run Everything** (`--force --sandbox
+  disabled` plus `.cursor/cli.json`) so Auto-review cannot still prompt,
+  including orchestrators and `ask-user` workers.
 - **Phase H — nested workers, live steering, first-party Chromium
   extension.** MCP workers may spawn one helper level (cap 3; helpers
   cannot nest; lead-starts-lead stays forbidden). Helper events stay in

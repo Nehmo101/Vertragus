@@ -312,16 +312,17 @@ export async function mergeBranchIntoWorktree(
 }
 
 /**
- * Put the MCP config files the attach dialects write into agent worktrees on
- * the repository's `.git/info/exclude`.
+ * Put the host-written project files the attach dialects leave in agent
+ * worktrees on the repository's `.git/info/exclude`.
  *
  * Linked worktrees share that file, so one entry covers every agent checkout:
- * the files carry the agent's tokenised MCP URL, and an agent running
- * `git add -A` in its own worktree must not be able to commit its token into
- * the user's history. Exclude (not `.gitignore`) on purpose — it never touches
- * the user's own tracked files, and a `.cursor/mcp.json` the user tracks
- * deliberately keeps showing its diff. Skipped when `<repo>/.git` is not a
- * directory (the repo is itself a linked worktree); idempotent otherwise.
+ * MCP files carry the agent's tokenised URL, `.cursor/cli.json` is the
+ * unrestricted Run Everything config, and an agent running `git add -A` in
+ * its own worktree must not be able to commit them into the user's history.
+ * Exclude (not `.gitignore`) on purpose — it never touches the user's own
+ * tracked files, and a `.cursor/mcp.json` the user tracks deliberately keeps
+ * showing its diff. Skipped when `<repo>/.git` is not a directory (the repo
+ * is itself a linked worktree); idempotent otherwise.
  */
 async function ensureSecretExcludes(repoPath: string): Promise<void> {
   const gitDir = join(repoPath, '.git')
@@ -346,7 +347,7 @@ async function ensureSecretExcludes(repoPath: string): Promise<void> {
   const separator = current === '' || current.endsWith('\n') ? '' : '\n'
   await appendFile(
     excludePath,
-    `${separator}# Vertragus: agent MCP config files carry per-agent tokens - never commit them.\n${missing.join('\n')}\n`
+    `${separator}# Vertragus: host-written agent project files (MCP tokens, Cursor Run Everything) — never commit them.\n${missing.join('\n')}\n`
   )
 }
 

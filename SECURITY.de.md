@@ -34,11 +34,15 @@ ehrlich mit dir, was jede davon wirklich garantiert:
 | `ask-user` | aus | **hart** — der Permission-Prompt der CLI selbst blockiert im Terminal des Agenten | Am sichersten, braucht dich aber am Desktop; unbeaufsichtigte Läufe bleiben stehen. Remote v1 leitet diese CLI-Prompts bewusst nicht aufs Handy weiter. |
 | `ask-orchestrator` | skip-permissions an | **weich** — der Task-Contract verlangt `ask_orchestrator`-Freigabe vor riskanten Aktionen | Hält Läufe unbeaufsichtigt, und der Orchestrator kann via `ask_user` an dich eskalieren. Aber es ist nur Prompt-Ebene: Ein fehlverhaltender oder manipulierter Agent kann die Regel ignorieren. Behandle es als Leitplanke für ehrliche Agenten, nicht als Sandbox. |
 
-Orchestratoren und Leads bekommen unter keiner Stufe Yolo-Flags — sie
-operieren stattdessen über eine MCP-Tool-Allow-List. Der Yolo-Schalter im
-Panel-Footer ist die grobe Steuerung: an = `yolo`, aus = `ask-user`; der
-Dreifach-Picker lebt im Einstellungsfenster, und beide schreiben dieselbe
-gespeicherte Wahrheit.
+Orchestratoren und Leads bekommen unter keiner Stufe Provider-Yolo-Flags
+(`--dangerously-skip-*` und Freunde) — sie operieren stattdessen über eine
+MCP-Tool-Allow-List. Cursor ist die Ausnahme: jeder native Cursor-Start
+nutzt **Run Everything** (`--force --sandbox disabled`), weil Auto-review
+sonst MCP blockiert und Cursor keine per-Tool-Allowlist hat. Der
+Yolo-Schalter im Panel-Footer ist die grobe Steuerung: an = `yolo`, aus =
+`ask-user`; der Dreifach-Picker lebt im Einstellungsfenster, und beide
+schreiben dieselbe gespeicherte Wahrheit. Cursor Run Everything gilt auch,
+wenn dieser Schalter aus ist.
 
 Es gibt keine Sandbox. `ask-orchestrator` ist eine Contract-Regel, kein
 Einschluss; Agenten brauchen zudem per Design Netzwerkzugriff (MCP,

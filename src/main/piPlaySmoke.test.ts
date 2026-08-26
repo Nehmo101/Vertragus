@@ -11,7 +11,10 @@ vi.mock('electron', () => ({
 }))
 
 const TUI = '\x1b[?2004h'
-const MCP_OK = 'servers connected (12 tools)'
+const MCP_BANNER = 'servers connected (12 tools)'
+const MCP_STATUS = 'MCP: 1 server enabled (1 connected)'
+const MCP_DIRECT = 'MCP: direct tools refreshed (+16, ~0, -0)'
+const MCP_OK = `${MCP_DIRECT}\n${MCP_BANNER}`
 const MCP_FAIL = 'Failed to connect to vertragus'
 
 describe('judgePiPlayScrollback', () => {
@@ -28,6 +31,16 @@ describe('judgePiPlayScrollback', () => {
     const judgement = judgePiPlayScrollback(`${TUI}\n${MCP_OK}`)
     expect(judgement.status).toBe('pass')
     expect(judgement.reason).toMatch(/MCP attached/)
+  })
+
+  it('passes on status-bar connect plus first-class direct tools', () => {
+    const text = `${TUI}\n${MCP_DIRECT}\n${MCP_STATUS}`
+    expect(judgePiPlayScrollback(text).status).toBe('pass')
+  })
+
+  it('waits when the server is connected but direct tools have not registered', () => {
+    expect(judgePiPlayScrollback(`${TUI}\n${MCP_STATUS}`).status).toBe('wait')
+    expect(judgePiPlayScrollback(`${TUI}\n${MCP_BANNER}`).status).toBe('wait')
   })
 
   it('treats No API key found as noise, not a verdict', () => {

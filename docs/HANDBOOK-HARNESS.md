@@ -364,10 +364,11 @@ questions: resolving the `ask_user` waiter. One text field, two backends.
 `yoloMaster`, one truth), three-way picker in the settings window,
 `ask-user` takes the yolo flags away from the subagents,
 `ask-orchestrator` hangs an approval rule into the task contract (both
-dialects); an honest threat model in the README. Cursor yolo subagents
-are launched in **Run Everything** (`--force --sandbox disabled` plus a
+dialects); an honest threat model in the README. Every native Cursor
+launch is **Run Everything** (`--force --sandbox disabled` plus a
 project `.cursor/cli.json`) so Auto-review / sandbox does not still
-prompt; orchestrators never get those flags.
+prompt. That includes orchestrators and `ask-user` workers: Cursor has
+no per-tool allow-list, and Auto-review otherwise still blocks MCP.
 
 Today a bool; remote × default yolo = RCE on the PC (BigBoy states this
 correctly; opt-in + Tailscale bind + kill switch is the v1 answer).
@@ -868,16 +869,23 @@ restricted in v1 (it can hide MCP tools).
 
 Pi has no native MCP. The launch writes `.pi/mcp.json` (`mcpServers`, same
 key as Cursor, different file) and loads only the pinned `pi-mcp-adapter`
-(`--no-extensions -e`). The Vertragus server is `{ url, lifecycle: "eager" }`
-so MCP tools exist before the first user turn (the adapter's default is lazy
-and races the trailing positional prompt). Extra servers stay as `{ url }` /
-stdio. Native attach (`.cursor/mcp.json`, Claude transient JSON, Grok cage,
-Claude/Kimi trust preaccept) is skipped. The file is on
-`WORKTREE_SECRET_FILES`. The role prompt is written to `.pi/APPEND_SYSTEM.md`
-and passed as `--append-system-prompt <absolute path>` so argv never carries
-a multiline prompt; that file has no token and is not on
-`WORKTREE_SECRET_FILES`. Wrap-on Ollama reports over MCP (`isPtyOnly` is
-false).
+(`--no-extensions -e`). The Vertragus server is
+`{ url, lifecycle: "lazy-keep-alive", directTools: true, toolPrefix: "none",
+auth: false, httpTransport: "streamable-http", requestTimeoutMs: 600000,
+idleTimeout: 0 }` so
+`session_start` (not load-time eager connect) finishes the handshake,
+`await_events` / `start_agent` register as first-class Pi tools (the
+adapter's default is a lazy `mcp()` proxy), a 401 is not treated as OAuth,
+and `await_events` is not killed at the SDK's ~60 s default. Extra servers
+stay as `{ url }` / stdio. Native attach (`.cursor/mcp.json`, Claude
+transient JSON, Grok cage, Claude/Kimi trust preaccept) is skipped. The
+file is on `WORKTREE_SECRET_FILES`. The role prompt is written to
+`.pi/APPEND_SYSTEM.md` and passed as `--append-system-prompt <absolute path>`
+so argv never carries a multiline prompt; that file has no token and is not
+on `WORKTREE_SECRET_FILES`. Wrap-on Ollama reports over MCP (`isPtyOnly` is
+false). Spawn sets `MCP_DIRECT_TOOLS=vertragus` so session_start waits for
+those direct tools before the first turn. The `mcp` proxy stays registered
+so extras and a cold metadata cache still have a fallback.
 
 ### H3 settings toggle — **implemented**
 
@@ -893,9 +901,10 @@ deprecated `@mariozechner/pi-coding-agent` 0.73.1 made `-e` fail at
 extension load and Pi `process.exit(1)` before `session_start`). POSIX
 spawn runs Electron as Node on a CJS entry that polyfills TTY then
 imports the package `bin.pi` (`dist/cli.js`), with `ELECTRON_RUN_AS_NODE=1`.
-Windows spawn uses PATH `node` for that same entry and omits the env:
-ConPTY cannot attach stdio to `electron.exe` (WINDOWS subsystem) and the
-agent window stays blank. Node.js must be on PATH.
+Windows spawn uses PATH `node` for that same entry and omits
+`ELECTRON_RUN_AS_NODE`: ConPTY cannot attach stdio to `electron.exe`
+(WINDOWS subsystem) and the agent window stays blank. Node.js must be on
+PATH. Every wrap sets `MCP_DIRECT_TOOLS=vertragus`.
 CI boots that Play-shaped path (`scripts/pi-play-smoke.mjs`): isolated
 userData, wrap on via the settings store, throwaway git repo, pass only
 when the orchestrator PTY shows a TUI and Vertragus MCP attached.

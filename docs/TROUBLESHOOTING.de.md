@@ -130,12 +130,13 @@ Einstellung.
 Vertragus startet Cursor mit `--approve-mcps` und schreibt zusätzlich
 `~/.cursor/projects/<slug>/mcp-approvals.json` für jeden Server in der
 `.cursor/mcp.json` dieses Worktrees (derselbe State-File-Trick wie
-Claude/Kimi-Trust). Orchestratoren bekommen nie `--force` / `--yolo`.
-Wenn die Subagent-Policy yolo ist, starten Cursor-Worker zusätzlich in
-**Run Everything** (`--force --sandbox disabled` und eine projektweite
-`.cursor/cli.json` mit `approvalMode: unrestricted`), damit Auto-review
-und die Sandbox nicht weiter an Tool-Calls stoppen. `ask-user`- und
-Orchestrator-Starts bekommen diesen Modus nie.
+Claude/Kimi-Trust). Jeder native Cursor-Start ist **Run Everything**
+(`--force --sandbox disabled` und eine projektweite `.cursor/cli.json` mit
+`approvalMode: unrestricted`), damit Auto-review und die Sandbox nicht
+weiter an Tool-Calls oder MCP-Initialize stoppen — auch Orchestratoren
+und `ask-user`-Worker. Cursor hat keine per-Tool-Allowlist; die MCP-
+Identität scoped weiter, welche Vertragus-Tools existieren. Der Pi-Wrap
+überspringt diesen Dialekt.
 
 Stoppt die TUI trotzdem an einer Bestätigung, wird das Windhund-Overlay
 klickdurchlässig (`waiting`), damit du im Fenster auf Approve klicken
@@ -199,6 +200,27 @@ Was tun:
   `node scripts/pi-play-smoke.mjs` startet Electron mit isoliertem userData
   und einem Wegwerf-Repo. Es muss `ok` drucken (TUI + MCP). Es nutzt weder
   `~/.pi` noch Provider-API-Keys.
+
+## Pi-MCP hängt nie
+
+Der Wrap schreibt `.pi/mcp.json` mit **Direct Tools** (`await_events`
+auf Pis Tool-Liste, nicht hinter dem `mcp()`-Proxy des Adapters),
+`lifecycle: "lazy-keep-alive"` (ein Eager-Connect beim Laden wird bei
+`session_start` abgerissen), 600 s `requestTimeoutMs` und
+`MCP_DIRECT_TOOLS=vertragus`, damit der erste Turn darauf wartet.
+
+Was tun:
+
+- Windows: Node.js muss auf dem PATH liegen (`node -v`). Electron-as-node
+  ist ein leeres Fenster; der Wrap weigert sich zu starten, wenn Resolve
+  auf `electron.exe` gelandet ist.
+- Die TUI-Zeile `MCP: Failed to connect to vertragus` ist ein harter Fail —
+  der Loopback-MCP-Server war unter der URL in `.pi/mcp.json` nicht erreichbar.
+- `servers connected (N tools)` oder die Statuszeile `1 server enabled (1
+  connected)` plus `direct tools refreshed (+N)` heißt, Initialize ist
+  durch und die Vertragus-Tools stehen auf Pis Tool-Liste. Wenn der
+  Orchestrator trotzdem nie `await_events` ruft, Issue mit diesem Snapshot
+  öffnen.
 
 ## Etwas anderes
 

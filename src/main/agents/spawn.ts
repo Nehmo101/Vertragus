@@ -9,10 +9,13 @@
  *    `provider.mcp`, and `none` is a declared value, never an omission. The old
  *    repo had a second, interactive spawn path that forgot the config and
  *    produced subagents with no way to report back.
- * 2. **The orchestrator never gets yolo args.** Not "unless configured" — the
- *    yolo flags are only appended for `kind: 'subagent'`, so no profile, no
- *    master switch and no custom provider can hand `--dangerously-skip-*` to
- *    the agent that is supposed to only delegate.
+ * 2. **The orchestrator never gets provider yolo args.** Not "unless
+ *    configured" — those flags are only appended for `kind: 'subagent'`, so
+ *    no profile, no master switch and no custom provider can hand
+ *    `--dangerously-skip-*` to the agent that is supposed to only delegate.
+ *    Cursor Run Everything (`--force --sandbox disabled`) is a separate belt:
+ *    Auto-review otherwise still blocks MCP, and Cursor has no per-tool
+ *    allow-list. That belt is applied to every native Cursor launch.
  * 3. **Never `pty.spawn('cmd')` naked.** Everything goes through
  *    {@link resolveLaunch}: on Windows the CLIs are `.cmd`/`.ps1` shims that a
  *    PTY cannot exec. And when an argument carries a newline — a system prompt
@@ -35,7 +38,7 @@
  * - `<cwd>/.cursor/mcp.json` — Cursor's MCP attachment (merged, not overwritten).
  *   Same working-directory rule as Kimi; the `vertragus` entry is left behind
  *   on purpose so a live CLI cannot lose its server mid-session.
- * - `<cwd>/.cursor/cli.json` — Cursor yolo subagents only. Sets
+ * - `<cwd>/.cursor/cli.json` — every native Cursor launch. Sets
  *   `approvalMode: unrestricted` and `sandbox.mode: disabled` (Run Everything)
  *   so a persisted Auto-review default cannot override `--force`.
  * - `<cwd>/.grok/config.toml` — Grok Build's MCP attachment (merged). Same
@@ -48,7 +51,9 @@
  *   INSTEAD of the native dialect files when the wrap is on. The slot's
  *   provider (Claude / Cursor / …) stays; only the process is the lockfile
  *   `pi` CLI (Electron as Node on POSIX, PATH `node` on Windows, or PATH
- *   `pi` if the package is missing).
+ *   `pi` if the package is missing). Vertragus is lazy-keep-alive +
+ *   first-class `directTools` with a 600 s request timeout; the `mcp` proxy
+ *   stays as fallback for extras.
  * - `<cwd>/.pi/APPEND_SYSTEM.md` — Pi wrap role / orchestrator prompt. No
  *   token; `--append-system-prompt` gets the absolute path so argv stays
  *   one-line. Removed when the launch has no prompt, so a stale file cannot
@@ -88,6 +93,7 @@ import {
   writeKimiAgentFile,
   writeKimiProjectMcpConfig,
   writePiHarnessAppendSystemPrompt,
+  piMcpRequestTimeoutMs,
   writePiHarnessMcpConfig
 } from '@main/mcp/attach'
 import {
@@ -356,8 +362,10 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
  * Pi wrap: POSIX sets `ELECTRON_RUN_AS_NODE=1` so Electron's binary runs a
  * CJS entry that polyfills TTY then imports `dist/cli.js` (see
  * {@link writePiCliEntry}). Windows omits that env and runs PATH `node`
- * (ConPTY + `electron.exe` is a blank window). PATH fallback (no bundled
- * CLI) adds nothing — wrap-on Grok must not inherit the native cage env.
+ * (ConPTY + `electron.exe` is a blank window). Every wrap sets
+ * `MCP_DIRECT_TOOLS=vertragus` so session_start waits for first-class tools
+ * (eager load-time connect is torn down on session_start; the wrap uses
+ * lazy-keep-alive instead). Wrap-on Grok must not inherit the native cage env.
  */
 export function buildAgentEnv(
   input: AgentLaunchInput,
@@ -419,7 +427,12 @@ export function buildAgentArgv(input: AgentLaunchInput): AgentArgv {
       input.kind === 'subagent'
         ? [...(input.extraMcpServers ?? []), ...(input.extraMcp ?? [])]
         : []
-    writePiHarnessMcpConfig(input.mcpUrl, input.cwd, extras)
+    writePiHarnessMcpConfig(
+      input.mcpUrl,
+      input.cwd,
+      extras,
+      piMcpRequestTimeoutMs(input.provider.mcpToolTimeoutSec)
+    )
     const appendSystemPromptFile = writePiHarnessAppendSystemPrompt(
       input.cwd,
       input.systemPrompt
@@ -440,12 +453,13 @@ export function buildAgentArgv(input: AgentLaunchInput): AgentArgv {
   argv.push(...buildEffortArgs(provider, input.effort))
   if (input.kind === 'subagent' && input.yolo) {
     argv.push(...provider.yoloArgs)
-    // Cursor 3.6+ defaults to Auto-review. `--yolo` is only an alias of
-    // `--force`; Run Everything also needs the sandbox off. Applied here so a
-    // stored provider whose yoloArgs are still just `--yolo` still lands in
-    // that mode. Orchestrators never enter this branch.
-    if (cursorUsesProjectDialect(provider)) applyCursorRunEverything(argv)
   }
+  // Cursor 3.6+ defaults to Auto-review. `--yolo` is only an alias of
+  // `--force`; Run Everything also needs the sandbox off. Applied for every
+  // native Cursor launch (orchestrator and lead included) so MCP and tool
+  // calls are not still gated. Stored yoloArgs that are still just `--yolo`
+  // still land in that mode. Pi wrap never reaches this branch.
+  if (cursorUsesProjectDialect(provider)) applyCursorRunEverything(argv)
   argv.push(...buildMcpArgs(input))
   const prompt = buildSystemPromptArgs(input)
   argv.push(...prompt.argv)
@@ -520,8 +534,8 @@ export interface SpawnAgentDeps extends LaunchDeps {
   ensureCursorApprovals?: (workspaceDir: string) => void
   /**
    * Injectable Cursor Run Everything project file. Production writes
-   * `<cwd>/.cursor/cli.json` for yolo subagents. Tests pass a spy so they
-   * can assert the call without depending on disk.
+   * `<cwd>/.cursor/cli.json` for every native Cursor launch. Tests pass a spy
+   * so they can assert the call without depending on disk.
    */
   ensureCursorRunMode?: (workspaceDir: string) => void
 }
@@ -593,7 +607,8 @@ export async function spawnAgent(
   }
   // Cursor: `--approve-mcps` is on argv (see buildMcpArgs). The approvals
   // file is the belt that stops the TUI asking for every extra / leftover
-  // project server. Pi wrap never writes `.cursor/mcp.json`.
+  // project server. Only when we actually write `.cursor/mcp.json`.
+  // Pi wrap never writes that file.
   if (input.harness !== 'pi' && input.provider.mcp.kind === 'cursor-project') {
     const approve = deps.ensureCursorApprovals ?? ensureCursorMcpApprovals
     try {
@@ -601,13 +616,15 @@ export async function spawnAgent(
     } catch (error) {
       console.warn('[spawn] Cursor MCP pre-approval failed — the CLI may ask:', error)
     }
-    if (input.kind === 'subagent' && input.yolo) {
-      const runMode = deps.ensureCursorRunMode ?? ensureCursorRunEverythingConfig
-      try {
-        runMode(launch.cwd)
-      } catch (error) {
-        console.warn('[spawn] Cursor Run Everything config failed — the CLI may ask:', error)
-      }
+  }
+  // Run Everything project file matches the argv belt (`cursorUsesProjectDialect`):
+  // shipped Cursor, cursor-project MCP, or a custom `cursor-agent` command.
+  if (input.harness !== 'pi' && cursorUsesProjectDialect(input.provider)) {
+    const runMode = deps.ensureCursorRunMode ?? ensureCursorRunEverythingConfig
+    try {
+      runMode(launch.cwd)
+    } catch (error) {
+      console.warn('[spawn] Cursor Run Everything config failed — the CLI may ask:', error)
     }
   }
   const pty = deps.createPty ? deps.createPty() : new PtyAgent()

@@ -29,12 +29,29 @@ afterEach(() => {
 })
 
 describe('cursorUsesProjectDialect', () => {
-  it('matches the shipped Cursor preset and the project MCP dialect', () => {
+  it('matches the shipped Cursor preset, the project MCP dialect, and cursor-agent', () => {
     expect(cursorUsesProjectDialect(providerPreset('cursor')!)).toBe(true)
     expect(cursorUsesProjectDialect(providerPreset('claude')!)).toBe(false)
     expect(
       cursorUsesProjectDialect({ presetId: 'claude', mcp: { kind: 'cursor-project' } })
     ).toBe(true)
+    expect(
+      cursorUsesProjectDialect({
+        presetId: 'ollama',
+        mcp: { kind: 'none' },
+        command: 'C:\\Tools\\cursor-agent.exe'
+      })
+    ).toBe(true)
+    expect(
+      cursorUsesProjectDialect({
+        presetId: 'ollama',
+        mcp: { kind: 'none' },
+        command: 'C:\\Tools\\cursor-agent.cmd'
+      })
+    ).toBe(true)
+    expect(
+      cursorUsesProjectDialect({ presetId: 'ollama', mcp: { kind: 'none' }, command: 'ollama' })
+    ).toBe(false)
   })
 })
 

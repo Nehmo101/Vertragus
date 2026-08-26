@@ -228,9 +228,15 @@ export function buildPiHarnessArgv(input: PiHarnessArgvInput): string[] {
  * Interpreter that runs {@link writePiCliEntry}. POSIX uses Electron-as-node.
  * Windows ConPTY cannot attach stdio to `electron.exe` (WINDOWS subsystem):
  * the child exits 0 with a blank PTY. Console-subsystem `node` from PATH
- * works; {@link piHarnessEnv} is omitted there.
+ * works; {@link piHarnessEnv} still sets {@link PI_MCP_DIRECT_TOOLS_ENV} there
+ * so session_start waits for Vertragus direct tools (lazy-keep-alive, not
+ * a load-time handshake the adapter would tear down).
  */
 export const PI_WINDOWS_NODE_COMMAND = 'node'
+
+/** Adapter env: wait for Vertragus direct tools before the first turn. */
+export const PI_MCP_DIRECT_TOOLS_ENV = 'MCP_DIRECT_TOOLS'
+export const PI_MCP_DIRECT_TOOLS_VALUE = 'vertragus'
 
 export function piInterpreterCommand(platform: NodeJS.Platform = process.platform): string {
   return platform === 'win32' ? PI_WINDOWS_NODE_COMMAND : process.execPath
@@ -242,14 +248,21 @@ export function isWindowsElectronBinary(file: string): boolean {
   return base === 'electron.exe' || base === 'electron'
 }
 
-/** Env overlay so Electron's binary behaves like Node when running the CLI. */
+/**
+ * Env overlay for the wrap. Always sets {@link PI_MCP_DIRECT_TOOLS_ENV} so
+ * the adapter waits for Vertragus tools to register as first-class Pi tools
+ * (otherwise the first turn only sees the `mcp` proxy). POSIX also sets
+ * `ELECTRON_RUN_AS_NODE=1` when a bundled CLI path exists.
+ */
 export function piHarnessEnv(
   cliPath: string | undefined,
   platform: NodeJS.Platform = process.platform
-): Record<string, string> | undefined {
-  if (!cliPath) return undefined
-  if (platform === 'win32') return undefined
-  return { ELECTRON_RUN_AS_NODE: '1' }
+): Record<string, string> {
+  const overlay: Record<string, string> = {
+    [PI_MCP_DIRECT_TOOLS_ENV]: PI_MCP_DIRECT_TOOLS_VALUE
+  }
+  if (cliPath && platform !== 'win32') overlay.ELECTRON_RUN_AS_NODE = '1'
+  return overlay
 }
 
 /**

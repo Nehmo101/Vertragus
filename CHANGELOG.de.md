@@ -13,6 +13,18 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Pi-Wrap-MCP als erstklassige Tools.** Der Community-Adapter defaultet
+  auf einen lazy `mcp()`-Proxy, sodass ein Wrap, der nur
+  `{ url, lifecycle: "eager" }` schrieb, connecten konnte, ohne
+  `await_events` sichtbar zu machen. `.pi/mcp.json` setzt jetzt
+  `directTools: true`, `toolPrefix: "none"`, `auth: false`,
+  `httpTransport: "streamable-http"`, `requestTimeoutMs` (Standard 600 s,
+  wie Claudes MCP-Tool-Fenster), `idleTimeout: 0` und
+  `lifecycle: "lazy-keep-alive"`, damit
+  der Adapter nicht beim Laden connectet und diesen Handshake bei
+  `session_start` wieder abreißt. Der `mcp`-Proxy bleibt registriert, damit
+  Extras und ein kalter Metadata-Cache einen Fallback haben. Spawn setzt
+  `MCP_DIRECT_TOOLS=vertragus`, damit session_start auf diese Tools wartet.
 - **Einheitliches CLI-Session-Chrome.** Agent-Fenster zeigen standardmäßig
   ein Vertragus-Overlay (Status, kurzer Branch, Host-Event-Log, Fragen,
   Follow-up) statt jeder Vendor-TUI. Native CLI ist ein Titelleisten-
@@ -46,9 +58,9 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   Starts nutzen weiter `--approve-mcps` und schreiben zusätzlich
   `~/.cursor/projects/<slug>/mcp-approvals.json`, damit die TUI nicht an
   jedem Server stoppt. Extra-MCP-Server bleiben subagent-only.
-  Cursor-Yolo-Subagents starten in **Run Everything** (`--force --sandbox
+  Jeder native Cursor-Start ist **Run Everything** (`--force --sandbox
   disabled` plus `.cursor/cli.json`), damit Auto-review nicht weiter
-  nachfragt; Orchestratoren bekommen diese Flags weiterhin nie.
+  nachfragt — auch Orchestratoren und `ask-user`-Worker.
 - **Phase H — Nested Worker, Live-Steering, First-Party Chromium-
   Erweiterung.** MCP-Worker dürfen eine Helper-Ebene spawnen (Cap 3;
   Helper nesten nicht; Lead-startet-Lead bleibt verboten). Helper-Events
