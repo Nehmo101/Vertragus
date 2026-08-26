@@ -21,11 +21,13 @@ import type { TerminalBootPhase } from '@shared/terminalBoot'
 import type { PtyAgentLike, PtyExitInfo } from './agents/PtyAgent'
 import { getSettings } from './store/settings'
 import {
+  cliWebContents,
   closeCliWindow,
   getCliWindow,
   isCliWindowMaximized,
   isCliWindowSender,
   minimizeCliWindow,
+  registerCliTabIpc,
   toggleCliWindowMaximized
 } from './windows/cliWindow'
 
@@ -547,8 +549,8 @@ export function registerTerminalIpc(): AgentRegistry {
     senderAgentId: (webContentsId) => isCliWindowSender(webContentsId),
     hasWindow: (agentId) => getCliWindow(agentId) !== null,
     send: (agentId, channel, payload) => {
-      const win = getCliWindow(agentId)
-      if (win && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)
+      const contents = cliWebContents(agentId)
+      if (contents && !contents.isDestroyed()) contents.send(channel, payload)
     },
     closeWindow: (agentId) => closeCliWindow(agentId),
     minimizeWindow: (agentId) => minimizeCliWindow(agentId),
@@ -557,6 +559,7 @@ export function registerTerminalIpc(): AgentRegistry {
     locale: () => getSettings().ui.locale,
     theme: () => getSettings().ui.theme
   })
+  registerCliTabIpc()
   return registry
 }
 

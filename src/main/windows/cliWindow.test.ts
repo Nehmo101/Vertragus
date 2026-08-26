@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -8,15 +10,63 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const listeners = new Map<FakeBrowserWindow, Map<string, () => void>>()
 let nextWebContentsId = 1
 
+const settingsUi = vi.hoisted(() => ({
+  startMinimized: false,
+  cliWindowMode: 'per-agent' as 'per-agent' | 'tabs'
+}))
+
+class FakeWebContentsView {
+  static instances: FakeWebContentsView[] = []
+  readonly webContents = {
+    id: nextWebContentsId++,
+    isDestroyed: (): boolean => false,
+    send: vi.fn(),
+    close: vi.fn()
+  }
+  bounds = { x: 0, y: 0, width: 0, height: 0 }
+  visible = true
+
+  constructor(_options?: Record<string, unknown>) {
+    FakeWebContentsView.instances.push(this)
+  }
+  setBounds(bounds: { x: number; y: number; width: number; height: number }): void {
+    this.bounds = bounds
+  }
+  setVisible(visible: boolean): void {
+    this.visible = visible
+  }
+  getVisible(): boolean {
+    return this.visible
+  }
+  getBounds(): { x: number; y: number; width: number; height: number } {
+    return this.bounds
+  }
+}
+
 class FakeBrowserWindow {
   static instances: FakeBrowserWindow[] = []
-  readonly webContents = { id: nextWebContentsId++ }
+  readonly webContents = {
+    id: nextWebContentsId++,
+    isDestroyed: (): boolean => false,
+    send: vi.fn(),
+    close: vi.fn()
+  }
   destroyed = false
   shown = false
   focused = false
   minimized = false
+  readonly childViews: FakeWebContentsView[] = []
+  readonly contentView = {
+    addChildView: (view: FakeWebContentsView): void => {
+      this.childViews.push(view)
+    },
+    removeChildView: (view: FakeWebContentsView): void => {
+      const index = this.childViews.indexOf(view)
+      if (index >= 0) this.childViews.splice(index, 1)
+    }
+  }
   /** Which of show / showInactive / focus ran, in order. */
-  readonly calls: Array<'show' | 'showInactive' | 'focus'> = []
+  readonly calls: Array<'show' | 'showInactive' | 'focus' | 'minimize' | 'restore'> = []
 
   constructor(public readonly options: Record<string, unknown>) {
     FakeBrowserWindow.instances.push(this)
@@ -55,10 +105,22 @@ class FakeBrowserWindow {
   }
   restore(): void {
     this.minimized = false
+    this.calls.push('restore')
   }
   minimize(): void {
     this.minimized = true
+    this.calls.push('minimize')
   }
+  hide(): void {
+    this.shown = false
+  }
+  isVisible(): boolean {
+    return this.shown && !this.destroyed
+  }
+  getContentBounds(): { x: number; y: number; width: number; height: number } {
+    return this.getBounds()
+  }
+  setTitle(_title: string): void {}
   show(): void {
     this.shown = true
     this.calls.push('show')
@@ -83,14 +145,26 @@ function fake(win: unknown): FakeBrowserWindow {
 
 const META = { title: 'Caronte', roleColor: '#2f7d6d' } as const
 
-vi.mock('electron', () => ({ BrowserWindow: FakeBrowserWindow }))
+vi.mock('electron', () => ({
+  BrowserWindow: FakeBrowserWindow,
+  WebContentsView: FakeWebContentsView,
+  ipcMain: { handle: vi.fn(), on: vi.fn(), removeHandler: vi.fn(), removeAllListeners: vi.fn() }
+}))
+vi.mock('@main/store/settings', () => ({
+  getSettings: () => ({ ui: settingsUi })
+}))
 
 const loadRoute = vi.fn()
+const loadContentsRoute = vi.fn()
 const secureWindow = vi.fn()
+const secureWebContents = vi.fn()
 vi.mock('./base', () => ({
   glassWindowOptions: () => ({ frame: false, transparent: true }),
+  baseWebPreferences: () => ({ sandbox: true }),
   loadRoute: (...args: unknown[]) => loadRoute(...args),
-  secureWindow: (...args: unknown[]) => secureWindow(...args)
+  loadContentsRoute: (...args: unknown[]) => loadContentsRoute(...args),
+  secureWindow: (...args: unknown[]) => secureWindow(...args),
+  secureWebContents: (...args: unknown[]) => secureWebContents(...args)
 }))
 
 type CliWindowModule = typeof import('./cliWindow')
@@ -100,7 +174,11 @@ beforeEach(async () => {
   vi.resetModules()
   vi.clearAllMocks()
   FakeBrowserWindow.instances = []
+  FakeWebContentsView.instances = []
   listeners.clear()
+  settingsUi.startMinimized = false
+  settingsUi.cliWindowMode = 'per-agent'
+  nextWebContentsId = 1
   cli = await import('./cliWindow')
 })
 
@@ -232,7 +310,7 @@ describe('CLI window registry', () => {
     win.minimized = true
     cli.focusCliWindow('agent-a')
     expect(win.minimized).toBe(false)
-    expect(win.calls).toEqual(['show', 'focus'])
+    expect(win.calls).toEqual(['restore', 'show', 'focus'])
     expect(win.focused).toBe(true)
     expect(() => cli.focusCliWindow('ghost')).not.toThrow()
   })
@@ -244,7 +322,7 @@ describe('CLI window registry', () => {
     win.minimized = true
     cli.focusCliWindow('agent-b')
     expect(win.minimized).toBe(false)
-    expect(win.calls).toEqual(['show', 'focus'])
+    expect(win.calls).toEqual(['restore', 'show', 'focus'])
     expect(win.focused).toBe(true)
   })
 
@@ -260,6 +338,160 @@ describe('CLI window registry', () => {
 
   it('minimizing an unknown agent is a no-op', () => {
     expect(() => cli.minimizeCliWindow('ghost')).not.toThrow()
+  })
+})
+
+describe('startMinimized', () => {
+  it('minimizes after the first show when the pref is on', async () => {
+    settingsUi.startMinimized = true
+    const placement = await import('./placement')
+    const suppress = vi.spyOn(placement, 'suppressMoveTracking')
+    const win = fake(cli.createCliWindow('agent-a', META))
+    win.emit('ready-to-show')
+    expect(win.calls).toEqual(['show', 'minimize'])
+    expect(win.minimized).toBe(true)
+    expect(suppress).toHaveBeenCalledWith('agent-a')
+  })
+
+  it('does not minimize when the pref is off', () => {
+    const win = fake(cli.createCliWindow('agent-a', META))
+    win.emit('ready-to-show')
+    expect(win.calls).toEqual(['show'])
+    expect(win.minimized).toBe(false)
+  })
+
+  it('does not rewrite a live window when the pref flips on later', () => {
+    const win = fake(cli.createCliWindow('agent-a', META))
+    win.emit('ready-to-show')
+    settingsUi.startMinimized = true
+    expect(win.minimized).toBe(false)
+    expect(win.calls).toEqual(['show'])
+  })
+
+  it('skips minimize when focusCliWindow ran before ready-to-show', () => {
+    settingsUi.startMinimized = true
+    const win = fake(cli.createCliWindow('agent-a', META))
+    cli.focusCliWindow('agent-a')
+    win.emit('ready-to-show')
+    expect(win.minimized).toBe(false)
+    expect(win.calls).not.toContain('minimize')
+  })
+
+  it('suppresses move tracking before restore even when the pref is off', async () => {
+    const placement = await import('./placement')
+    const suppress = vi.spyOn(placement, 'suppressMoveTracking')
+    const win = fake(cli.createCliWindow('agent-a', META))
+    win.minimized = true
+    cli.focusCliWindow('agent-a')
+    expect(suppress).toHaveBeenCalledWith('agent-a')
+    expect(win.calls[0]).toBe('restore')
+  })
+})
+
+describe('tabs mode', () => {
+  const TAB = {
+    title: 'Caronte',
+    roleColor: '#2f7d6d',
+    cliWindowMode: 'tabs' as const,
+    placement: { roleId: 'orchestrator', workspaceId: 'ws-1' }
+  }
+  const TAB_B = {
+    title: 'Arlecchino',
+    roleColor: '#8c4a3a',
+    cliWindowMode: 'tabs' as const,
+    placement: { roleId: 'worker', workspaceId: 'ws-1' }
+  }
+
+  it('opens one chrome window and a view per agent', () => {
+    const chrome = fake(cli.createCliWindow('orch', TAB))
+    cli.createCliWindow('worker', TAB_B)
+    expect(FakeBrowserWindow.instances).toHaveLength(1)
+    expect(FakeWebContentsView.instances).toHaveLength(2)
+    expect(loadRoute).toHaveBeenCalledWith(chrome, '/workspace/ws-1')
+    expect(loadContentsRoute).toHaveBeenCalledWith(
+      FakeWebContentsView.instances[0]!.webContents,
+      '/agent/orch'
+    )
+    expect(loadContentsRoute).toHaveBeenCalledWith(
+      FakeWebContentsView.instances[1]!.webContents,
+      '/agent/worker'
+    )
+    expect(chrome.childViews).toHaveLength(2)
+  })
+
+  it('maps the view webContents, never the chrome window', () => {
+    const chrome = cli.createCliWindow('orch', TAB)
+    cli.createCliWindow('worker', TAB_B)
+    expect(cli.isCliWindowSender(chrome.webContents.id)).toBeNull()
+    expect(cli.isCliWindowSender(FakeWebContentsView.instances[0]!.webContents.id)).toBe('orch')
+    expect(cli.isCliWindowSender(FakeWebContentsView.instances[1]!.webContents.id)).toBe('worker')
+    expect(cli.isWorkspaceChromeSender(chrome.webContents.id)).toBe('ws-1')
+    expect(cli.cliWebContents('orch')).toBe(FakeWebContentsView.instances[0]!.webContents)
+    expect(cli.getCliWindow('orch')).toBe(chrome)
+    expect(cli.getCliWindow('worker')).toBe(chrome)
+  })
+
+  it('selects a tab that belongs to this workspace and hides the other view', () => {
+    cli.createCliWindow('orch', TAB)
+    cli.createCliWindow('worker', TAB_B)
+    const first = FakeWebContentsView.instances[0]!
+    const second = FakeWebContentsView.instances[1]!
+    expect(first.visible).toBe(true)
+    expect(second.visible).toBe(false)
+
+    expect(cli.selectCliTabInWorkspace('ws-1', 'worker')).toBe(true)
+    expect(first.visible).toBe(false)
+    expect(second.visible).toBe(true)
+
+    expect(cli.selectCliTabInWorkspace('ws-1', 'foreign')).toBe(false)
+    expect(cli.selectCliTabInWorkspace('other-ws', 'worker')).toBe(false)
+    expect(second.visible).toBe(true)
+  })
+
+  it('closes one tab without destroying the parent while another remains', () => {
+    const chrome = fake(cli.createCliWindow('orch', TAB))
+    cli.createCliWindow('worker', TAB_B)
+    cli.closeCliWindow('worker')
+    expect(chrome.destroyed).toBe(false)
+    expect(cli.getCliWindow('worker')).toBeNull()
+    expect(cli.getCliWindow('orch')).toBe(chrome)
+    expect(cli.isCliWindowSender(FakeWebContentsView.instances[1]!.webContents.id)).toBeNull()
+  })
+
+  it('closes the parent when the last tab is closed', () => {
+    const chrome = fake(cli.createCliWindow('orch', TAB))
+    cli.closeCliWindow('orch')
+    expect(chrome.destroyed).toBe(true)
+    expect(cli.getCliWindow('orch')).toBeNull()
+  })
+
+  it('minimizes the parent on first show when startMinimized is on', () => {
+    settingsUi.startMinimized = true
+    const chrome = fake(cli.createCliWindow('orch', TAB))
+    chrome.emit('ready-to-show')
+    expect(chrome.calls).toEqual(['show', 'minimize'])
+    expect(chrome.minimized).toBe(true)
+    cli.createCliWindow('worker', TAB_B)
+    expect(chrome.minimized).toBe(true)
+    expect(FakeBrowserWindow.instances).toHaveLength(1)
+  })
+
+  it('focusCliWindow restores the parent and selects that tab', () => {
+    const chrome = fake(cli.createCliWindow('orch', TAB))
+    cli.createCliWindow('worker', TAB_B)
+    chrome.minimized = true
+    cli.focusCliWindow('worker')
+    expect(chrome.minimized).toBe(false)
+    expect(chrome.calls).toEqual(['restore', 'show', 'focus'])
+    expect(FakeWebContentsView.instances[1]!.visible).toBe(true)
+    expect(FakeWebContentsView.instances[0]!.visible).toBe(false)
+  })
+
+  it('preload lists the cliTabs channels', () => {
+    const source = readFileSync(join(__dirname, '../../preload/index.ts'), 'utf8')
+    for (const channel of Object.values(cli.CLI_TAB_CHANNELS)) {
+      expect(source).toContain(`'${channel}'`)
+    }
   })
 })
 

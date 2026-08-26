@@ -576,5 +576,13 @@
       "handshake": "Warte auf MCP …",
       "waiting": "MCP ist noch nicht verbunden — der erste Turn wartet, damit keine Tokens verbraucht werden."
     }
+  },
+  "workspaceTabs": {
+    "title": "Agenten",
+    "select": "{{agent}} anzeigen",
+    "close": "Fenster schließen — Agenten laufen weiter",
+    "minimize": "Fenster minimieren",
+    "maximize": "Fenster vergrößern — füllt den Bildschirm",
+    "restore": "Fenster verkleinern"
   }
 }

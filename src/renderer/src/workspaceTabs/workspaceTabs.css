@@ -1,0 +1,81 @@
+/*
+ * Workspace tab chrome — a drag strip of agent tabs. Views sit under this
+ * bar (main sets their bounds). Every control opts out of the drag region.
+ */
+
+.wt {
+  height: 40px;
+  -webkit-app-region: drag;
+}
+
+.wt-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--hairline);
+  background: linear-gradient(180deg, var(--glass-top), var(--glass-bottom));
+  -webkit-app-region: drag;
+}
+
+.wt-title {
+  flex: 0 0 auto;
+  font: 400 11.5px var(--font-heading);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.wt-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.wt-tab,
+.wt-btn {
+  -webkit-app-region: no-drag;
+  flex: 0 0 auto;
+  height: 24px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font: 500 12px var(--font-body);
+  cursor: pointer;
+}
+
+.wt-tab {
+  max-width: 160px;
+  padding: 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: inset 3px 0 0 var(--role-color, var(--verdigris));
+}
+
+.wt-tab:hover,
+.wt-btn:hover {
+  background: color-mix(in srgb, var(--text-2) 12%, transparent);
+}
+
+.wt-tab.is-active {
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--role-color, var(--verdigris)) 18%, transparent);
+}
+
+.wt-btn {
+  width: 22px;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+}
+
+.wt-close:hover {
+  background: rgba(217, 115, 92, 0.22);
+  color: var(--err-text);
+}

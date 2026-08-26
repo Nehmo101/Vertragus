@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const settingsUi = vi.hoisted(() => ({
+  startMinimized: false,
+  cliWindowMode: 'per-agent' as 'per-agent' | 'tabs'
+}))
+
 /**
  * The seam between the CLI window registry and the placement layer: opening an
  * agent window with a `placement` asks for bounds, re-tiles the windows that
@@ -20,7 +25,7 @@ interface Bounds {
 
 class FakeBrowserWindow {
   static instances: FakeBrowserWindow[] = []
-  readonly webContents = { id: nextWebContentsId++ }
+  readonly webContents = { id: nextWebContentsId++, isDestroyed: (): boolean => false, send: vi.fn() }
   destroyed = false
   bounds: Bounds
 
@@ -51,8 +56,22 @@ class FakeBrowserWindow {
   getBounds(): Bounds {
     return this.bounds
   }
+  getContentBounds(): Bounds {
+    return this.bounds
+  }
   setBounds(bounds: Bounds): void {
     this.bounds = bounds
+  }
+  setTitle(_title: string): void {}
+  readonly childViews: unknown[] = []
+  readonly contentView = {
+    addChildView: (view: unknown): void => {
+      this.childViews.push(view)
+    },
+    removeChildView: (view: unknown): void => {
+      const index = this.childViews.indexOf(view)
+      if (index >= 0) this.childViews.splice(index, 1)
+    }
   }
   show(): void {}
   showInactive(): void {}
@@ -61,6 +80,7 @@ class FakeBrowserWindow {
   }
   focus(): void {}
   restore(): void {}
+  minimize(): void {}
   close(): void {
     this.destroyed = true
     this.emit('closed')
@@ -72,17 +92,31 @@ const DISPLAYS = [
   { id: 2, workArea: { x: 1920, y: 0, width: 1600, height: 900 } }
 ]
 
+class FakeWebContentsView {
+  readonly webContents = { id: nextWebContentsId++, isDestroyed: (): boolean => false, close: vi.fn() }
+  setBounds(_bounds: Bounds): void {}
+  setVisible(_visible: boolean): void {}
+}
+
 vi.mock('electron', () => ({
   BrowserWindow: FakeBrowserWindow,
+  WebContentsView: FakeWebContentsView,
+  ipcMain: { handle: vi.fn(), on: vi.fn() },
   screen: {
     getAllDisplays: () => DISPLAYS,
     getPrimaryDisplay: () => DISPLAYS[0]
   }
 }))
+vi.mock('@main/store/settings', () => ({
+  getSettings: () => ({ ui: settingsUi })
+}))
 vi.mock('./base', () => ({
   glassWindowOptions: () => ({ frame: false, transparent: true }),
+  baseWebPreferences: () => ({ sandbox: true }),
   loadRoute: vi.fn(),
-  secureWindow: vi.fn()
+  loadContentsRoute: vi.fn(),
+  secureWindow: vi.fn(),
+  secureWebContents: vi.fn()
 }))
 
 let panelBounds: Bounds | null = null
@@ -105,6 +139,8 @@ beforeEach(async () => {
   FakeBrowserWindow.instances = []
   listeners.clear()
   panelBounds = null
+  settingsUi.startMinimized = false
+  settingsUi.cliWindowMode = 'per-agent'
   cli = await import('./cliWindow')
   placement = await import('./placement')
   now = 100_000
@@ -622,5 +658,26 @@ describe('layoutCliWindows', () => {
     expect(a1.bounds.x + a1.bounds.width).toBeLessThanOrEqual(zoneA.x + zoneA.width)
     expect(a2.bounds.x).toBeGreaterThanOrEqual(zoneA.x)
     expect(a2.bounds.x + a2.bounds.width).toBeLessThanOrEqual(zoneA.x + zoneA.width)
+  })
+
+  it('does not tile when the workspace is frozen in tabs mode', () => {
+    settingsUi.cliWindowMode = 'tabs'
+    const first = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: { roleId: 'worker', workspaceId: 'W' }
+      })
+    )
+    const before = { ...first.bounds }
+
+    cli.createCliWindow('b', {
+      ...WORKER,
+      placement: { roleId: 'worker', workspaceId: 'W' }
+    })
+    expect(first.bounds).toEqual(before)
+    expect(FakeBrowserWindow.instances).toHaveLength(1)
+
+    cli.layoutCliWindows(['a', 'b'])
+    expect(first.bounds).toEqual(before)
   })
 })

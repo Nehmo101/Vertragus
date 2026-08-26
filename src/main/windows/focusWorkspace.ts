@@ -39,6 +39,11 @@ export interface FocusWorkspaceDeps {
    * window as user-dragged or overwrite the later zone snap.
    */
   beforeRestore?(agentId: string): void
+  /**
+   * When false, minimized wanted windows stay minimized (startMinimized:
+   * a workspace card must not restore every teammate). Default true.
+   */
+  restoreMinimized?: boolean
 }
 
 /**
@@ -54,20 +59,29 @@ export function focusWorkspaceAgents(
 
   const wanted = new Set(agentIds)
   const targets = deps.windows().filter((target) => !target.window.isDestroyed())
+  const restoreMinimized = deps.restoreMinimized !== false
 
+  const hidden = new Set<FocusableWindow>()
   for (const target of targets) {
     if (wanted.has(target.agentId)) continue
+    if (hidden.has(target.window)) continue
     // Hidden (hide-all): leave alone. Minimized still gets hide() so it
     // drops off the taskbar.
     if (!target.window.isVisible() && !target.window.isMinimized()) continue
+    hidden.add(target.window)
     target.window.hide()
   }
 
   // Stable caller order: restore + showInactive each, then one focus.
+  // Shared parents (tab chrome) surface once.
   let focusTarget: FocusableWindow | undefined
+  const shown = new Set<FocusableWindow>()
   for (const agentId of agentIds) {
     const target = targets.find((entry) => entry.agentId === agentId)
     if (!target) continue
+    if (shown.has(target.window)) continue
+    if (target.window.isMinimized() && !restoreMinimized) continue
+    shown.add(target.window)
     if (target.window.isMinimized()) {
       deps.beforeRestore?.(agentId)
       target.window.restore()
@@ -80,8 +94,15 @@ export function focusWorkspaceAgents(
 
 /** Production list of every CLI window as focus-workspace targets. */
 export function cliFocusTargets(): FocusWorkspaceTarget[] {
-  return listCliWindows().map(({ agentId, window }) => ({
-    agentId,
-    window: window as unknown as FocusableWindow
-  }))
+  const seen = new Set<object>()
+  const targets: FocusWorkspaceTarget[] = []
+  for (const { agentId, window } of listCliWindows()) {
+    if (seen.has(window)) continue
+    seen.add(window)
+    targets.push({
+      agentId,
+      window: window as unknown as FocusableWindow
+    })
+  }
+  return targets
 }

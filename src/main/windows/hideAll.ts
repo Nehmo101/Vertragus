@@ -73,10 +73,13 @@ export function createHideAllController(deps: HideAllDeps): HideAllController {
 
       if (hiddenKeys.length === 0) {
         focusedKey = targets.find((target) => target.window.isFocused())?.key
+        const hiddenWindows = new Set<HideableWindow>()
         for (const target of targets) {
+          if (hiddenWindows.has(target.window)) continue
           // A window the user had already hidden or minimized is none of ours.
           if (!target.window.isVisible()) continue
           if (target.window.isMinimized()) continue
+          hiddenWindows.add(target.window)
           target.window.hide()
           hiddenKeys.push(target.key)
         }

@@ -25,7 +25,8 @@ vi.mock('@main/providers/health', () => ({ checkAllProviders: vi.fn() }))
 vi.mock('@main/providers/authStatus', () => ({ checkAllProviderAuth: vi.fn() }))
 vi.mock('@main/windows/cliWindow', () => ({
   focusCliWindow: vi.fn(),
-  listCliWindows: vi.fn(() => [])
+  listCliWindows: vi.fn(() => []),
+  listCliTabWebContents: vi.fn(() => [])
 }))
 vi.mock('@main/windows/panel', () => ({
   getPanelWindow: vi.fn(() => null),

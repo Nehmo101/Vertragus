@@ -48,6 +48,30 @@ const CHANNELS = {
   windowMaximize: 'window:maximize'
 } as const
 
+const CLI_TABS = {
+  attach: 'cliTabs:attach',
+  select: 'cliTabs:select',
+  state: 'cliTabs:state',
+  close: 'cliTabs:close',
+  minimize: 'cliTabs:minimize',
+  maximize: 'cliTabs:maximize'
+} as const
+
+export interface CliTabInfo {
+  agentId: string
+  title: string
+  roleColor: string
+}
+
+export interface CliTabState {
+  workspaceId: string
+  tabs: CliTabInfo[]
+  selectedAgentId: string | null
+  maximized: boolean
+  locale?: string
+  theme?: 'dark' | 'light'
+}
+
 export interface TerminalAgentMeta {
   agentId: string
   name: string
@@ -152,6 +176,27 @@ const terminal = {
    * glyph without keeping a second copy of the truth.
    */
   toggleMaximizeWindow: (): Promise<boolean> => ipcRenderer.invoke(CHANNELS.windowMaximize)
+}
+
+const cliTabs = {
+  attach: (): Promise<CliTabState> => ipcRenderer.invoke(CLI_TABS.attach),
+  select: (agentId: string): void => {
+    ipcRenderer.send(CLI_TABS.select, { agentId })
+  },
+  closeWindow: (): void => {
+    ipcRenderer.send(CLI_TABS.close)
+  },
+  minimizeWindow: (): void => {
+    ipcRenderer.send(CLI_TABS.minimize)
+  },
+  toggleMaximizeWindow: (): Promise<boolean> => ipcRenderer.invoke(CLI_TABS.maximize),
+  onState: (listener: (state: CliTabState) => void): (() => void) => {
+    const handler = (_event: unknown, payload: CliTabState): void => listener(payload)
+    ipcRenderer.on(CLI_TABS.state, handler)
+    return () => {
+      ipcRenderer.removeListener(CLI_TABS.state, handler)
+    }
+  }
 }
 
 /**
@@ -868,7 +913,8 @@ const api = {
   platform: process.platform,
   terminal,
   app,
-  zones
+  zones,
+  cliTabs
 }
 
 export type VertragusApi = typeof api

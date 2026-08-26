@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { BrowserWindow, shell } from 'electron'
+import { BrowserWindow, shell, type WebContents } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { getSettings } from '@main/store/settings'
 import { glassSurface, type GlassEnvironment, type GlassTheme } from './glassSurface'
@@ -20,20 +20,29 @@ export function baseWebPreferences(): Electron.WebPreferences {
   }
 }
 
-export function secureWindow(win: BrowserWindow): void {
-  protectWebContents(win.webContents, {
+export function secureWebContents(webContents: WebContents): void {
+  protectWebContents(webContents, {
     developmentUrl: process.env['ELECTRON_RENDERER_URL'],
     packagedRendererUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).toString(),
     openExternal: (url) => shell.openExternal(url)
   })
 }
 
-export function loadRoute(win: BrowserWindow, hash: string): void {
+export function secureWindow(win: BrowserWindow): void {
+  secureWebContents(win.webContents)
+}
+
+/** Load a hash route into any webContents (BrowserWindow or WebContentsView). */
+export function loadContentsRoute(webContents: WebContents, hash: string): void {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    void win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#${hash}`)
+    void webContents.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#${hash}`)
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'), { hash })
+    void webContents.loadFile(join(__dirname, '../renderer/index.html'), { hash })
   }
+}
+
+export function loadRoute(win: BrowserWindow, hash: string): void {
+  loadContentsRoute(win.webContents, hash)
 }
 
 /**

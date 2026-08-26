@@ -62,7 +62,12 @@ import { asInt16Pcm } from '@main/voice/pcm'
 import { discoverModels, type ModelDiscoveryResult } from '@main/providers/discovery'
 import { checkAllProviderAuth, type ProviderAuthStatus } from '@main/providers/authStatus'
 import { checkAllProviders, type ProviderHealth } from '@main/providers/health'
-import { closeCliWindow, focusCliWindow, listCliWindows } from '@main/windows/cliWindow'
+import {
+  closeCliWindow,
+  focusCliWindow,
+  listCliTabWebContents,
+  listCliWindows
+} from '@main/windows/cliWindow'
 import {
   hideAllHotkeyStatus,
   reRegisterHideAllShortcut,
@@ -2298,15 +2303,21 @@ export function registerAppIpc(
     broadcastAll: (channel, payload) => {
       // CLI and zone overlay windows are not app windows on the IPC guard,
       // but they still need live locale/theme flips and the appearance push.
+      const seen = new Set<BrowserWindow>()
+      const cliWindows: BrowserWindow[] = []
+      for (const { window } of listCliWindows()) {
+        if (seen.has(window)) continue
+        seen.add(window)
+        cliWindows.push(window)
+      }
       send(
-        [
-          ...appWindows(),
-          ...listCliWindows().map((entry) => entry.window),
-          ...listZoneOverlayWindows().map((entry) => entry.window)
-        ],
+        [...appWindows(), ...cliWindows, ...listZoneOverlayWindows().map((entry) => entry.window)],
         channel,
         payload
       )
+      for (const contents of listCliTabWebContents()) {
+        if (!contents.isDestroyed()) contents.send(channel, payload)
+      }
     },
     hideAll: () => {
       toggleHideAll()

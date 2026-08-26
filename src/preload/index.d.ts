@@ -1,6 +1,8 @@
 import type { VertragusApi } from './index'
 
 export type {
+  CliTabInfo,
+  CliTabState,
   ModelDiscoveryResult,
   PanelAgentState,
   PanelPointerEvent,
