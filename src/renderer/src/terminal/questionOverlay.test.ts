@@ -99,6 +99,23 @@ describe('overlay autofocus must not steal OS focus', () => {
     // Self-check: a regex that no longer sees the unconditional mount focus
     // would green the pin above for the wrong reason.
     expect(source).toContain('inputRef.current?.focus()')
+
+    const onWindowFocus = source.slice(
+      source.indexOf('const onWindowFocus'),
+      source.indexOf("addEventListener('focus', onWindowFocus)")
+    )
+    expect(onWindowFocus).toContain('overlayVisibleRef.current')
+    expect(onWindowFocus).toContain('shouldAutofocusOverlay(document.hasFocus())')
+    expect(onWindowFocus).toContain('textarea.cli-question-input')
+    const ungatedOverlayFocus =
+      /if \(overlayVisibleRef\.current\) \{\s*document\.querySelector<HTMLTextAreaElement>\('textarea\.cli-question-input'\)\?\.focus\(\)/
+    expect(onWindowFocus).not.toMatch(ungatedOverlayFocus)
+    // Self-check: the regex above must still see the steal it is forbidding.
+    expect(
+      ungatedOverlayFocus.test(
+        "if (overlayVisibleRef.current) {\n        document.querySelector<HTMLTextAreaElement>('textarea.cli-question-input')?.focus()"
+      )
+    ).toBe(true)
   })
 })
 
