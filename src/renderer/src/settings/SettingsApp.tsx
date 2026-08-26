@@ -438,6 +438,19 @@ export function SettingsApp(): React.JSX.Element {
         </section>
 
         <section className="st-field">
+          <span className="st-label">{t('settings.cliSurface')}</span>
+          <select
+            className="st-input"
+            value={settings.cliSurface}
+            onChange={(event) => view.set('cliSurface', event.target.value)}
+          >
+            <option value="session">{t('settings.cliSurfaceSession')}</option>
+            <option value="raw">{t('settings.cliSurfaceRaw')}</option>
+          </select>
+          <span className="st-hint">{t('settings.cliSurfaceHint')}</span>
+        </section>
+
+        <section className="st-field">
           <label className="st-switch">
             <input
               type="checkbox"

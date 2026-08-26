@@ -25,6 +25,14 @@ No release has been tagged yet; everything lives under Unreleased.
   `MCP_DIRECT_TOOLS=vertragus` so session_start waits for those tools.
 - **Pi Play smoke.** CI boots the real Electron app with isolated
   userData, the Pi wrap on, and a throwaway git repo (`scripts/pi-play-smoke.mjs`).
+- **Unified CLI session chrome.** Agent windows default to one Vertragus
+  overlay (status, short branch, host event log, questions, follow-up)
+  instead of each vendor TUI. Native CLI is a title-bar peek; waiting
+  for MCP still shows the raw TUI so leftover Cursor approvals stay
+  clickable. Follow-ups and answers take the panel host paths, never a
+  PTY write. Setting: Agent windows in Settings.
+- **Pi Play smoke.** CI boots the real Electron app with isolated userData,
+  the Pi wrap on, and a throwaway git repo (`scripts/pi-play-smoke.mjs`).
   It passes only when the orchestrator PTY shows a TUI and Vertragus MCP
   attached — the Windows blank-window regression. No provider keys; not
   part of `pnpm run ci`.
@@ -161,6 +169,13 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Fixed
 
+- **Start-with-goal on Cursor/Ollama submitted two turns.** Providers that
+  type the orchestrator prompt into the PTY (no launch flag) used to submit
+  that prompt, then PTY-seed the user's goal as a second Enter — the extra
+  follow-up the Cursor seed handshake warns about. The first paste is now
+  `prompt + goal`, like a subagent assignment. A failed delivery also no
+  longer writes the goal into `meta.json`, so Resume cannot brief on a goal
+  the run never got.
 - **Cursor Agent on Windows died at Play with "never became ready"** while the
   orchestrator window already showed `An Application Control policy has
   blocked this file` (`file_service.win32-x64-msvc.node` under

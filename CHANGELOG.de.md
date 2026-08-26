@@ -25,6 +25,13 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   `session_start` wieder abreißt. Der `mcp`-Proxy bleibt registriert, damit
   Extras und ein kalter Metadata-Cache einen Fallback haben. Spawn setzt
   `MCP_DIRECT_TOOLS=vertragus`, damit session_start auf diese Tools wartet.
+- **Einheitliches CLI-Session-Chrome.** Agent-Fenster zeigen standardmäßig
+  ein Vertragus-Overlay (Status, kurzer Branch, Host-Event-Log, Fragen,
+  Follow-up) statt jeder Vendor-TUI. Native CLI ist ein Titelleisten-
+  Peek; Warten-auf-MCP zeigt weiter das rohe TUI, damit übrig gebliebene
+  Cursor-Freigaben klickbar bleiben. Follow-ups und Antworten laufen
+  über die Panel-Host-Pfade, nie ein PTY-Write. Setting: Agent-Fenster
+  in den Einstellungen.
 - **Pi-Play-Smoke.** CI bootet die echte Electron-App mit isoliertem
   userData, Pi-Wrap an und einem Wegwerf-Git-Repo
   (`scripts/pi-play-smoke.mjs`). Er wird nur grün, wenn das
@@ -175,6 +182,14 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Fixed
 
+- **Start-mit-Ziel unter Cursor/Ollama schickte zwei Turns.** Provider, die
+  den Orchestrator-Prompt ins PTY tippen (kein Launch-Flag), haben zuerst
+  diesen Prompt abgeschickt und danach das Ziel als zweites Enter — genau
+  der Extra-Follow-up, vor dem der Cursor-Seed-Handshake warnt. Die erste
+  Paste ist jetzt `Prompt + Ziel`, wie bei einer Subagent-Zuweisung. Eine
+  fehlgeschlagene Zustellung schreibt das Ziel auch nicht mehr in
+  `meta.json`, damit Resume nicht auf einem Ziel briefed, das der Lauf
+  nie bekommen hat.
 - **Cursor Agent unter Windows starb beim Play mit „wurde nicht bereit"**,
   während das Orchestrator-Fenster schon `An Application Control policy has
   blocked this file` zeigte (`file_service.win32-x64-msvc.node` unter

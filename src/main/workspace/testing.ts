@@ -13,6 +13,7 @@ import type {
   SpawnedAgent
 } from '@main/agents/spawn'
 import type { TerminalBootPhase } from '@shared/terminalBoot'
+import type { CliSession } from '@shared/cliSession'
 import type { SeedWithReadyOptions } from '@main/agents/interactiveReady'
 import { worktreePathFor } from '@main/agents/worktree'
 import { profileSchema, type Profile, type ProfileInput } from '@shared/schema/profile'
@@ -112,6 +113,7 @@ export class FakeRegistry implements AgentRegistry {
   readonly removed: string[] = []
   readonly detached: string[] = []
   readonly tasks = new Map<string, string | undefined>()
+  readonly sessions = new Map<string, CliSession | undefined>()
   /** Every `setAgentBoot` call, in order — overlay phase sequence for tests. */
   readonly boots: Array<{ agentId: string; phase: TerminalBootPhase | null }> = []
   private readonly agents = new Map<string, RegisteredAgent>()
@@ -138,6 +140,9 @@ export class FakeRegistry implements AgentRegistry {
   }
   setAgentBoot(agentId: string, phase: TerminalBootPhase | null): void {
     this.boots.push({ agentId, phase })
+  }
+  setAgentSession(agentId: string, session: CliSession | undefined): void {
+    this.sessions.set(agentId, session)
   }
   terminals(): import('@main/ipc').TerminalDirectory {
     const agents = this.agents

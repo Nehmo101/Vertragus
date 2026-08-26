@@ -47,7 +47,7 @@ Remote-Server.
 | Haken / Phase | Status |
 | --- | --- |
 | H1 `answer_question` am Gateway | **umgesetzt** (Track 0) — ein Host-Pfad (`mcp/answerQuestion.ts`), Gateway-Verb, Panel-Badge |
-| H2 `workspaces:start {goal}` | **umgesetzt** (Track 0) — Goal-Seed über den Assignment-Handshake, Back-compat ohne Goal; Nachtrag (`workspaces:goal`) gibt einem bar gestarteten Lauf sein Ziel später |
+| H2 `workspaces:start {goal}` | **umgesetzt** (Track 0) — Goal-Seed über den Assignment-Handshake (PTY-Prompt-Provider fügen System-Prompt + Ziel als einen ersten Turn ein); Back-compat ohne Goal; Nachtrag (`workspaces:goal`) gibt einem bar gestarteten Lauf sein Ziel später; `meta.json` schreibt ein Ziel nur, nachdem die CLI es angenommen hat |
 | C3 Snapshot-Commit / C4 Handoff-Paket | **umgesetzt** (Track 1) — `snapshotDone` committet dirty Worktrees beim Done; `start_agent{baseBranch}` trägt Handoff-Block |
 | C5 Orchestrator-Idle-Watchdog | **umgesetzt** (Track 2) — `orchestrator_idle` Event + Panel/Remote-Hinweis; Timeouts ≠ Idle (Touch bei Call-Start und -Ende) |
 | C6 Orchestrator-Succession (Context-Handoff) | **S1 im Code** — siehe [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
@@ -116,6 +116,8 @@ die schon den MCP-Loop fährt, ist genau das Zwei-Hirne-Versagen aus H1;
 das Steuern eines laufenden Ziels bleibt Sache von `user_message`. Ein
 zugestellter Nachtrag schreibt außerdem die `meta.json` des Laufs neu, damit
 das Resume aus E3 auf dem Ziel briefed, das der Lauf wirklich bekommen hat.
+Start-mit-Ziel folgt derselben Regel: die Identitäts-`meta.json` entsteht
+ohne Ziel, und das Ziel kommt erst dazu, nachdem die CLI es angenommen hat.
 
 ### H3 — erledigt in PR #17
 
@@ -380,6 +382,20 @@ richtig; opt-in + Tailscale-Bind + Kill-Switch ist die v1-Antwort).
 Danach, nicht in B: Stufen `yolo` / `ask-user` / `ask-orchestrator`.
 Remote darf in v1 nicht versuchen, CLI-Permission-TUIs auf dem Handy
 schön zu machen — das ist genau der Pfad, der H1 nicht ersetzt.
+
+### D5 Einheitliches CLI-Session-Chrome
+
+**Status: umgesetzt.** Vendor-TUIs widersprechen sich (Cursor malt
+Versionstipps und den vollen Worktree-Pfad). Das CLI-Fenster legt
+**Host-Wahrheits-Session-Chrome** darüber — Status, kurzer
+`vertragus/*`-Branch, Event-Log, Fragen, Follow-up-Composer — aus
+Workspace-Events, sodass jedes Provider-Fenster nach Vertragus aussieht.
+Default `ui.cliSurface: session`. Titelleisten-Peek auf raw
+(Berechtigungsdialoge leben in der TUI). Boot-Phase `waiting` erzwingt
+raw, damit übrig gebliebene Cursor-MCP-Freigaben klickbar bleiben.
+Follow-ups und Antworten laufen über `postUserMessage` /
+`answerQuestion` — nie ein PTY-Write. Phone-xterm ist out of scope. Das
+ist kein TUI-Parser.
 
 ---
 
@@ -678,6 +694,8 @@ gerade Lifecycle und Tokens anfasst.
   `apps/mobile` (BigBoy-Non-Goals, hier übernommen)
 - Pi als siebten Provider (der Wrap überlagert den Spawn; Slots bleiben
   Claude / Cursor / Codex / Kimi / Grok / Ollama)
+- Vendor-TUIs parsen oder umstylen (Session-Chrome liest Host-Events;
+  Berechtigungsdialoge bleiben im rohen PTY)
 
 ---
 
@@ -1012,3 +1030,4 @@ Profil-Feld ist, wie diese Rolle in diesem Projekt *spricht*.
 | Chromium-`/browser`-Bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
 | Pi-Harness-Wrap (kein siebter Provider) | `agents/piHarness.ts`, `spawn.ts`-Overlay, `.pi/mcp.json`, Setting `piHarnessEnabled`, Lockfile-Pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |
 | Extra-System-Prompt pro Identität | `schema/profile.ts` `rolePrompts`, `prompts/rolePrompt.ts`, Profil-Editor | **this** |
+| Einheitliches CLI-Session-Chrome | `cliSurface.ts`, `cliSession.ts`, `cliSessionFeed.ts`, `terminal/SessionPane.tsx` | **this** |

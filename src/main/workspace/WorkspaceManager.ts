@@ -285,14 +285,14 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     } catch (error) {
       console.warn('[taskBoard] not started:', error)
     }
-    // E3: the run's identity, once — everything after this line is events. The
-    // one later write is a refilled goal (`assignGoal`), which is why the meta
-    // is kept beside its journal instead of being forgotten here.
+    // E3: the run's identity, once — everything after this line is events.
+    // A goal is written only after the CLI accepted it (`rememberDeliveredGoal`),
+    // whether that is start-with-goal or a later refill. Putting it here would
+    // let Resume brief on a goal the orchestrator never got.
     const meta: RunMeta = {
       workspaceId: workspace.workspaceId,
       profileId: profile.id,
       workspaceName: workspace.name,
-      ...(options?.goal?.trim() ? { goal: options.goal.trim() } : {}),
       startedAt: Date.now(),
       ...(options?.resume ? { resumedFrom: options.resume.fromWorkspaceId } : {})
     }
@@ -338,16 +338,18 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
         goal ? { initialPrompt: goal } : undefined
       )
       notifyChange()
-      // Providers that take a first user prompt at spawn already have the goal
-      // (goalText is set) — do not type a second copy into the TUI. Everyone
-      // else still uses the assignment handshake. A failed PTY delivery does
-      // NOT tear the workspace down: the orchestrator is running and the user
-      // can still type into its terminal; the error travels to the caller
+      // Providers that take a first user prompt at spawn (argv or a PTY
+      // system-prompt paste that already folded the goal in) have goalText
+      // set — do not type a second copy into the TUI. Everyone else still
+      // uses the assignment handshake. A failed PTY delivery does NOT tear
+      // the workspace down: the orchestrator is running and the user can
+      // still type into its terminal; the error travels to the caller
       // (panel banner / gateway error) and the card truthfully shows "no goal".
       if (goal && !workspace.goalText) {
         await workspace.assignGoal(goal)
         notifyChange()
       }
+      if (workspace.goalText) rememberDeliveredGoal(workspace.workspaceId, workspace.goalText)
       return { workspace, orchestrator, urls: registered }
     } catch (error) {
       // Only a failed ORCHESTRATOR start unwinds the workspace; a delivered
@@ -373,12 +375,19 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     const workspace = workspaces.get(workspaceId)
     if (!workspace) throw new Error(`goal rejected — unknown workspace ${workspaceId}`)
     await workspace.assignGoal(goal)
-    const run = runMetas.get(workspaceId)
-    if (run) {
-      run.meta = { ...run.meta, goal }
-      run.journal.writeMeta(run.meta)
-    }
+    rememberDeliveredGoal(workspaceId, workspace.goalText ?? goal)
     notifyChange()
+  }
+
+  /**
+   * `meta.json` records the goal the run was actually told. Start-with-goal
+   * and H2 refill both land here so a failed handshake cannot poison Resume.
+   */
+  function rememberDeliveredGoal(workspaceId: string, goal: string): void {
+    const run = runMetas.get(workspaceId)
+    if (!run) return
+    run.meta = { ...run.meta, goal }
+    run.journal.writeMeta(run.meta)
   }
 
   async function stopWorkspace(workspaceId: string, options?: StopOptions): Promise<boolean> {

@@ -47,7 +47,7 @@ server.
 | Hook / phase | Status |
 | --- | --- |
 | H1 `answer_question` on the gateway | **implemented** (Track 0) — one host path (`mcp/answerQuestion.ts`), gateway verb, panel badge |
-| H2 `workspaces:start {goal}` | **implemented** (Track 0) — goal seed over the assignment handshake, back-compat without a goal; refill (`workspaces:goal`) hands a bare-started run its goal later |
+| H2 `workspaces:start {goal}` | **implemented** (Track 0) — goal seed over the assignment handshake (PTY-prompt providers paste system prompt + goal as one first turn); back-compat without a goal; refill (`workspaces:goal`) hands a bare-started run its goal later; `meta.json` records a goal only after the CLI accepted it |
 | C3 snapshot commit / C4 handoff package | **implemented** (Track 1) — `snapshotDone` commits dirty worktrees on done; `start_agent{baseBranch}` carries a handoff block |
 | C5 orchestrator idle watchdog | **implemented** (Track 2) — `orchestrator_idle` event + panel/remote hint; timeouts ≠ idle (touch at call start and end) |
 | C6 orchestrator succession (context handoff) | **S1 in the code** — see [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
@@ -115,6 +115,8 @@ with `goal_already_set`, because a second first-turn typed into a CLI that
 drives the MCP loop is the two-brains failure H1 documents; steering a
 running goal stays `user_message`'s job. A delivered refill also rewrites the
 run's `meta.json`, so E3 Resume briefs on the goal the run actually got.
+Start-with-goal is the same rule: the identity `meta.json` is written without
+a goal, and the goal is added only after the CLI took it.
 
 ### H3 — done in PR #17
 
@@ -374,6 +376,18 @@ correctly; opt-in + Tailscale bind + kill switch is the v1 answer).
 After that, not in B: tiers `yolo` / `ask-user` / `ask-orchestrator`.
 Remote v1 must not try to make CLI permission TUIs pretty on the phone —
 that is exactly the path that does not replace H1.
+
+### D5 unified CLI session chrome
+
+**Status: implemented.** Vendor TUIs disagree (Cursor paints version tips
+and a full worktree path). The CLI window overlays **host-truth session
+chrome** — status, short `vertragus/*` branch, event log, questions,
+follow-up composer — from workspace events, so every provider window
+looks like Vertragus. Default `ui.cliSurface: session`. Title-bar peek
+to raw (permission dialogs live in the TUI). Boot phase `waiting` forces
+raw so leftover Cursor MCP approvals stay clickable. Follow-ups and
+answers take `postUserMessage` / `answerQuestion` — never a PTY write.
+Phone xterm is out of scope. This is not a TUI parser.
 
 ---
 
@@ -671,6 +685,8 @@ lifecycle and tokens right there.
   archive's `apps/mobile` (BigBoy non-goals, adopted here)
 - Pi as a seventh provider (the wrap overlays spawn; slots stay Claude /
   Cursor / Codex / Kimi / Grok / Ollama)
+- Parsing or re-skinning vendor TUIs (session chrome reads host events;
+  permission dialogs stay in the raw PTY)
 
 ---
 
@@ -991,3 +1007,4 @@ that role *speaks* in this project.
 | Chromium `/browser` bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
 | Pi harness wrap (not a seventh provider) | `agents/piHarness.ts`, `spawn.ts` overlay, `.pi/mcp.json`, settings `piHarnessEnabled`, lockfile pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |
 | Per-identity extra system prompt | `schema/profile.ts` `rolePrompts`, `prompts/rolePrompt.ts`, profile editor | **this** |
+| Unified CLI session chrome | `cliSurface.ts`, `cliSession.ts`, `cliSessionFeed.ts`, `terminal/SessionPane.tsx` | **this** |

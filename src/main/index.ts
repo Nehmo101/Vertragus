@@ -18,7 +18,8 @@ import {
 } from './appIpc'
 import { createAppVoice, installDefaultVoicePermissions, type AppVoice } from './appVoice'
 import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
-import { getAgentRegistry, registerTerminalIpc, setTerminalInputSink } from './ipc'
+import { getAgentRegistry, registerTerminalIpc, setTerminalInputSink, setTerminalSessionActions } from './ipc'
+import { cliChromeForWorkspace, workspaceOwningAgent } from './workspace/cliSessionFeed'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import {
   getProfile,
@@ -437,21 +438,17 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
 }
 
 /**
- * Feed every agent's current task note into the terminal registry, so the CLI
- * window's title-bar hover card can show what its agent is working on. Runs on
- * the same change feed as the panel; `setAgentTask` dedupes, so a burst of
- * unrelated events costs nothing.
+ * Feed every agent's current task note and host session snapshot into the
+ * terminal registry, so the CLI window's hover card and session chrome follow
+ * the same change feed as the panel. `setAgentTask` / `setAgentSession` dedupe.
  */
-function armTerminalTaskFeed(manager: WorkspaceManager, mcp: McpServerHandle): void {
+function armTerminalChromeFeed(manager: WorkspaceManager, mcp: McpServerHandle): void {
   const registry = getAgentRegistry()
   const push = (): void => {
     for (const ws of manager.list()) {
-      const orchestrator = ws.orchestrator
-      if (orchestrator) {
-        registry.setAgentTask(orchestrator.agentId, ws.orchestratorTaskText)
-      }
-      for (const agent of ws.listAgents()) {
-        registry.setAgentTask(agent.agentId, mcp.agentTask(ws.workspaceId, agent.agentId))
+      for (const row of cliChromeForWorkspace(ws, mcp)) {
+        registry.setAgentTask(row.agentId, row.task)
+        registry.setAgentSession(row.agentId, row.session)
       }
     }
   }
@@ -627,13 +624,30 @@ app.whenReady().then(async () => {
     appManager = createAppWorkspaceManager(appMcp)
     const directory = panelDirectory(appManager, appMcp)
     registerAppIpc(directory, undefined, attachVoice(directory).port)
-    armTerminalTaskFeed(appManager, appMcp)
+    armTerminalChromeFeed(appManager, appMcp)
     // Late-bound: registerTerminalIpc ran before the manager existed. ipc.ts
     // must not import WorkspaceManager. Seed / sendToAgent / assignGoal paste
     // go through pty.write and never hit this sink.
     const manager = appManager
     setTerminalInputSink((agentId, data) => {
       manager.noteOrchestratorGoal(agentId, data)
+    })
+    setTerminalSessionActions({
+      followUp: async (agentId, text) => {
+        const ws = workspaceOwningAgent(manager.list(), agentId)
+        if (!ws) throw new Error(`follow-up rejected — unknown agent ${agentId}`)
+        const target = ws.orchestrator?.agentId === agentId ? undefined : agentId
+        directory.postUserMessage(ws.workspaceId, text, target)
+      },
+      answer: async (agentId, questionId, text) => {
+        const ws = workspaceOwningAgent(manager.list(), agentId)
+        if (!ws) throw new Error(`answer rejected — unknown agent ${agentId}`)
+        const mcp = appMcp
+        if (!mcp) throw new Error('answer rejected — MCP is not running')
+        const userQuestion = mcp.openQuestion(ws.workspaceId, 'user')
+        const target = userQuestion?.questionId === questionId ? 'user' : agentId
+        await directory.answerQuestion(ws.workspaceId, target, questionId, text)
+      }
     })
     const broadcastSettings = (channel: string, payload: unknown): void => {
       for (const { window } of listSettingsWindows()) {

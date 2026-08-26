@@ -128,6 +128,14 @@ keeps the last 1000 and the on-disk journal keeps everything.
   badge answerable from panel or phone (one host path, one question
   registry); the orchestrator's `ask_user` shows on the workspace card the
   same way.
+- **One session view on every CLI window.** Agent windows default to a
+  Vertragus overlay — status, short branch, host event log, questions and
+  a follow-up composer — so Cursor, Claude and Codex look the same. The
+  vendor TUI is one click (**CLI**) in the title bar when you need a
+  permission prompt; waiting-for-MCP still forces that raw view so a
+  leftover Cursor approval stays clickable. Follow-ups and answers take
+  the same host paths as the panel card (`user_message` /
+  `answer_question`) — never a second brain typing into the PTY.
 - **Idle watchdog:** an orchestrator process that is alive but has stopped
   calling tools for two minutes gets flagged (`orchestrator_idle`) on the
   card and the remote client — distinct from process death, and long-polls

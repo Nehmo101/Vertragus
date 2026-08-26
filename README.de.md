@@ -140,6 +140,15 @@ Cursors an; der Ring behält die letzten 1000, das On-Disk-Journal alles.
   als `?`-Badge, beantwortbar von Panel oder Handy (ein Host-Pfad, eine
   Fragen-Registry); das `ask_user` des Orchestrators erscheint auf der
   Workspace-Karte genauso.
+- **Eine Session-Ansicht auf jedem CLI-Fenster.** Agent-Fenster zeigen
+  standardmäßig ein Vertragus-Overlay — Status, kurzer Branch, Host-
+  Event-Log, Fragen und Follow-up-Composer — sodass Cursor, Claude und
+  Codex gleich aussehen. Die native TUI ist ein Klick (**CLI**) in der
+  Titelleiste, wenn du einen Berechtigungsdialog brauchst;
+  Warten-auf-MCP erzwingt weiter diese rohe Ansicht, damit eine übrig
+  gebliebene Cursor-Freigabe klickbar bleibt. Follow-ups und Antworten
+  laufen über dieselben Host-Pfade wie die Panel-Karte (`user_message` /
+  `answer_question`) — nie ein zweites Hirn, das ins PTY tippt.
 - **Idle-Watchdog:** Ein Orchestrator-Prozess, der lebt, aber seit zwei
   Minuten keine Tools mehr ruft, wird auf der Karte und im Remote-Client
   markiert (`orchestrator_idle`) — unterschieden vom Prozess-Tod, und
