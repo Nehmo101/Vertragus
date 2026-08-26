@@ -34,11 +34,21 @@ export interface FocusWorkspaceDeps {
   /** Every registered CLI window, in a stable order. */
   windows(): readonly FocusWorkspaceTarget[]
   /**
+   * Foreign windows, immediately before `hide()`. Production suppresses
+   * move-tracking so hide/show cannot be read as a live-reflow drag.
+   */
+  beforeHide?(agentId: string): void
+  /**
    * Wanted minimized windows, immediately before `restore()`. Production
    * suppresses move-tracking so a delayed restore animation cannot mark the
    * window as user-dragged or overwrite the later zone snap.
    */
   beforeRestore?(agentId: string): void
+  /**
+   * Wanted windows, immediately before `showInactive()`. Same suppress as
+   * hide/restore: Windows may shove the window onto the primary display.
+   */
+  beforeShow?(agentId: string): void
 }
 
 /**
@@ -60,6 +70,7 @@ export function focusWorkspaceAgents(
     // Hidden (hide-all): leave alone. Minimized still gets hide() so it
     // drops off the taskbar.
     if (!target.window.isVisible() && !target.window.isMinimized()) continue
+    deps.beforeHide?.(target.agentId)
     target.window.hide()
   }
 
@@ -72,6 +83,7 @@ export function focusWorkspaceAgents(
       deps.beforeRestore?.(agentId)
       target.window.restore()
     }
+    deps.beforeShow?.(agentId)
     target.window.showInactive()
     if (!focusTarget) focusTarget = target.window
   }

@@ -16,6 +16,7 @@ import {
   resetPlacementStateForTesting,
   setLiveReflowHandler,
   setReflowNeighborsGetter,
+  suppressMoveTracking,
   trackWindowMoves,
   type DisplayInfo,
   type MovableWindow,
@@ -548,5 +549,48 @@ describe('live neighbor reflow', () => {
     flushLiveReflow()
     expect(seen).toEqual(['a'])
     expect(isMovedByUser('a')).toBe(false)
+  })
+
+  it('does not schedule live reflow while move tracking is suppressed', () => {
+    let clock = 1_000
+    resetPlacementStateForTesting(() => clock)
+    setReflowNeighborsGetter(() => true)
+    const seen: string[] = []
+    setLiveReflowHandler((agentId) => seen.push(agentId))
+
+    const events = new Map<string, () => void>()
+    const win: MovableWindow = {
+      on: (event, handler) => events.set(event, handler),
+      setBounds: () => undefined
+    }
+    trackWindowMoves('a', win, () => clock)
+    clock += 5_000
+    suppressMoveTracking('a', () => clock)
+    events.get('move')!()
+    clock += REFLOW_DEBOUNCE_MS
+    flushLiveReflow()
+    expect(seen).toEqual([])
+    expect(isMovedByUser('a')).toBe(false)
+  })
+
+  it('cancels a pending live reflow when hide/show suppress runs', () => {
+    let clock = 1_000
+    resetPlacementStateForTesting(() => clock)
+    setReflowNeighborsGetter(() => true)
+    const seen: string[] = []
+    setLiveReflowHandler((agentId) => seen.push(agentId))
+
+    const events = new Map<string, () => void>()
+    const win: MovableWindow = {
+      on: (event, handler) => events.set(event, handler),
+      setBounds: () => undefined
+    }
+    trackWindowMoves('a', win, () => clock)
+    clock += 5_000
+    events.get('move')!()
+    suppressMoveTracking('a', () => clock)
+    clock += REFLOW_DEBOUNCE_MS
+    flushLiveReflow()
+    expect(seen).toEqual([])
   })
 })

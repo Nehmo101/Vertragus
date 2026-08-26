@@ -24,6 +24,7 @@ import {
   planWindowLayout,
   rectsEqual,
   setLiveReflowHandler,
+  suppressMoveTracking,
   trackWindowMoves,
   type AgentWindowInfo,
   type DisplayInfo,
@@ -312,9 +313,12 @@ function anotherCliWindowIsFocused(except: BrowserWindow): boolean {
 /**
  * Snap these agents' CLI windows into their profile zones (or auto-tiles).
  * Only the first placement's workspace takes part — same grouping as
- * {@link planFor} (omitted workspace ids group with each other). Drops the
+ * {@link planFor} (omitted workspace ids group with each other). Callers that
+ * hold more than one workspace must use {@link layoutCliWindowsByWorkspace}
+ * instead, or profile B's zones would shove profile A. Drops the
  * moved-by-user mark so a workspace click is a "go home", the same idea as
- * shrinking from maximize. Maximized windows are left alone.
+ * shrinking from maximize. Maximized windows are left alone. Bounds come from
+ * the zone's `displayId`, not from where hide/show left the window.
  */
 export function layoutCliWindows(agentIds: readonly string[]): void {
   const entries: CliWindowEntry[] = []
@@ -334,13 +338,17 @@ export function layoutCliWindows(agentIds: readonly string[]): void {
 
   for (const entry of scoped) {
     if (isCliWindowMaximized(entry.agentId)) continue
+    // forget clears the programmatic grace; put it back before setBounds so a
+    // hide/show move event in flight is not read as a user drag.
     forgetWindowPlacement(entry.agentId)
+    suppressMoveTracking(entry.agentId)
   }
 
   const displays = currentDisplays()
   const rail = panelRail(displays)
+  const zones = zonesForPlan(placement)
   const plan = planWindowLayout({
-    ...(placement.zones ? { profile: { zones: placement.zones } } : {}),
+    ...(zones ? { profile: { zones } } : {}),
     displays,
     ...(rail ? { rail } : {}),
     windows: scoped.map((entry) =>
@@ -351,8 +359,26 @@ export function layoutCliWindows(agentIds: readonly string[]): void {
   for (const placed of plan) {
     if (isCliWindowMaximized(placed.agentId)) continue
     const win = getCliWindow(placed.agentId)
-    if (win) applyWindowBounds(placed.agentId, win, placed.bounds)
+    if (!win) continue
+    applyWindowBounds(placed.agentId, win, placed.bounds)
+    rememberDisplay(placed.agentId, placed.bounds)
   }
+}
+
+/**
+ * {@link layoutCliWindows} once per tiling group. Hide-all restore of two
+ * workspaces must not plan them together.
+ */
+export function layoutCliWindowsByWorkspace(agentIds: readonly string[]): void {
+  const groups = new Map<string, string[]>()
+  for (const agentId of agentIds) {
+    if (!liveEntry(agentId)) continue
+    const key = windowWorkspaceId(agentId) ?? ''
+    const group = groups.get(key)
+    if (group) group.push(agentId)
+    else groups.set(key, [agentId])
+  }
+  for (const ids of groups.values()) layoutCliWindows(ids)
 }
 
 export function createCliWindow(agentId: string, options: CliWindowOptions): BrowserWindow {

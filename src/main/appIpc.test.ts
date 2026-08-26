@@ -170,6 +170,7 @@ const SETTINGS: AppSettings = {
     locale: 'de',
     appearance: DEFAULT_APPEARANCE,
     reflowNeighbors: true,
+    snapToZones: true,
     onboardingDismissed: false
   },
   remote: { enabled: false, bindAddress: '', port: 9482 },
@@ -1306,6 +1307,7 @@ describe('settings and windows', () => {
       autostartSupported: true,
       appearance: DEFAULT_APPEARANCE,
       reflowNeighbors: true,
+      snapToZones: true,
       voiceEnabled: false,
       voiceWakePhrase: 'Hey Vertragus',
       voiceVoiceId: 'eve',
@@ -1566,6 +1568,7 @@ describe('settings:set', () => {
       'locale',
       'appearance',
       'reflowNeighbors',
+      'snapToZones',
       'voice',
       'agentPolicy',
       'piHarnessEnabled',
@@ -2047,6 +2050,7 @@ describe('settings:set', () => {
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
       reflowNeighbors: true,
+      snapToZones: true,
       onboardingDismissed: false
     })
   })
@@ -2070,6 +2074,34 @@ describe('settings:set', () => {
       h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'reflowNeighbors', value: 'ja' })
     ).rejects.toThrow(/expects a boolean/)
     expect(h.store.settings.ui.reflowNeighbors).toBe(true)
+  })
+
+  it('patches snapToZones into ui and rejects a non-boolean', async () => {
+    h.broadcasts.length = 0
+    const off = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'snapToZones',
+      value: false
+    })) as PanelSettings
+    expect(off.snapToZones).toBe(false)
+    expect(h.store.settings.ui.snapToZones).toBe(false)
+    expect(h.store.settings.ui.reflowNeighbors).toBe(true)
+    expect(h.store.settings.ui.theme).toBe('dark')
+    expect(
+      (h.broadcasts.find((entry) => entry.channel === APP_CHANNELS.eventSettings)
+        ?.payload as PanelSettings).snapToZones
+    ).toBe(false)
+    expect(off).not.toHaveProperty('apiKey')
+
+    const on = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'snapToZones',
+      value: true
+    })) as PanelSettings
+    expect(on.snapToZones).toBe(true)
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'snapToZones', value: 'ja' })
+    ).rejects.toThrow(/expects a boolean/)
+    expect(h.store.settings.ui.snapToZones).toBe(true)
   })
 
   it('lets the panel close the first-run card for good (WP-7)', async () => {

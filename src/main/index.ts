@@ -414,7 +414,9 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       forgetHideAll()
       focusWorkspaceAgents(agentIds, {
         windows: cliFocusTargets,
-        beforeRestore: suppressMoveTracking
+        beforeHide: suppressMoveTracking,
+        beforeRestore: suppressMoveTracking,
+        beforeShow: suppressMoveTracking
       })
       // After show: restore can fire move events that wreck bounds (Windows).
       layoutCliWindows(agentIds)

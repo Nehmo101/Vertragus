@@ -623,4 +623,78 @@ describe('layoutCliWindows', () => {
     expect(a2.bounds.x).toBeGreaterThanOrEqual(zoneA.x)
     expect(a2.bounds.x + a2.bounds.width).toBeLessThanOrEqual(zoneA.x + zoneA.width)
   })
+
+  it('lands on the zone display, not where hide/show left the window', () => {
+    const win = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones: ZONES, workspaceId: 'W' }
+      })
+    )
+    // Windows hide()/show() often dumps the window on the primary.
+    win.setBounds({ x: 10, y: 10, width: 500, height: 400 })
+
+    cli.layoutCliWindows(['a'])
+
+    expect(win.bounds).toEqual(ZONE_BOUNDS)
+    expect(win.bounds.x).toBeGreaterThanOrEqual(DISPLAYS[1]!.workArea.x)
+  })
+
+  it('does not let a hide/show move rewrite zones onto the primary', () => {
+    placement.setReflowNeighborsGetter(() => true)
+    const persisted: Array<{ zones: typeof ZONES.zones }> = []
+    const win = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: {
+          roleId: 'worker',
+          zones: ZONES,
+          workspaceId: 'W',
+          onZonesChange: (next) => persisted.push(next)
+        }
+      })
+    )
+    placement.suppressMoveTracking('a')
+    win.setBounds({ x: 10, y: 10, width: 500, height: 400 })
+    win.emit('move')
+    now += placement.REFLOW_DEBOUNCE_MS
+    placement.flushLiveReflow()
+
+    expect(persisted).toEqual([])
+    cli.layoutCliWindows(['a'])
+    expect(win.bounds).toEqual(ZONE_BOUNDS)
+    expect(win.bounds.x).toBeGreaterThanOrEqual(DISPLAYS[1]!.workArea.x)
+  })
+})
+
+describe('layoutCliWindowsByWorkspace', () => {
+  it('tiles each workspace on its own so profile B cannot shove profile A', () => {
+    const zonesA = {
+      zones: [{ roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 1 } }]
+    }
+    const zonesB = {
+      zones: [{ roleId: 'worker', displayId: 2, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+    }
+    const a1 = fake(
+      cli.createCliWindow('a1', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones: zonesA, workspaceId: 'A' }
+      })
+    )
+    const b1 = fake(
+      cli.createCliWindow('b1', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones: zonesB, workspaceId: 'B' }
+      })
+    )
+    userDrags(a1)
+    a1.setBounds({ x: 10, y: 10, width: 500, height: 400 })
+    userDrags(b1)
+    b1.setBounds({ x: 30, y: 30, width: 500, height: 400 })
+
+    cli.layoutCliWindowsByWorkspace(['a1', 'b1'])
+
+    expect(a1.bounds).toEqual({ x: 0, y: 0, width: 960, height: 1040 })
+    expect(b1.bounds).toEqual({ x: 2720, y: 0, width: 800, height: 900 })
+  })
 })

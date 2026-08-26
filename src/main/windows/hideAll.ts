@@ -2,19 +2,23 @@
  * Hide-all — one keystroke that clears the screen of agents.
  *
  * The contract, in the user's words: "everything away, and back exactly as it
- * was". Which means:
+ * was" — except when `ui.snapToZones` is on (the default), CLI windows snap
+ * to their role zones on both hide and restore:
  *
- * - Only `hide()`. No close, no move, and never `minimize()` / `restore()` —
- *   positions survive, the PTYs keep running, nothing is re-tiled on the way
- *   back. Windows the user already minimized are left alone (same rule as
- *   already-hidden windows: not ours to touch).
+ * - Only `hide()`. No close, and never `minimize()` / `restore()` — those fire
+ *   move events on Windows that live-reflow would read as a user drag.
+ *   Positions survive when the snap flag is off; PTYs keep running. Windows
+ *   the user already minimized are left alone (same rule as already-hidden
+ *   windows: not ours to touch). Editor and settings windows are hidden, never
+ *   re-tiled.
  * - **The panel stays.** It is the way back — hiding it would leave the user
  *   with an invisible app and a hotkey they may have mistyped.
  * - Restoring uses `showInactive()` in the remembered order and only then
  *   focuses the window that had focus, so bringing four terminals back does not
  *   steal focus four times and end on an arbitrary one.
- * - Toggling twice is the identity. Windows hidden (or minimized) by the user
- *   BEFORE the toggle stay that way afterwards — they were not ours to show.
+ * - With snap off, toggling twice is the identity. Windows hidden (or
+ *   minimized) by the user BEFORE the toggle stay that way afterwards — they
+ *   were not ours to show.
  *
  * The controller is pure bookkeeping over an injectable window list (fake
  * windows in the test), and the global shortcut is registered through an
@@ -24,10 +28,11 @@
 import { globalShortcut } from 'electron'
 import { mainMessages, readLocale } from '@shared/mainMessages'
 import { getSettings } from '@main/store/settings'
-import { listCliWindows } from './cliWindow'
+import { layoutCliWindowsByWorkspace, listCliWindows } from './cliWindow'
 import { listProfileEditorWindows } from './profileEditor'
 import { listProviderEditorWindows } from './providerEditor'
 import { listSettingsWindows } from './settingsWindow'
+import { suppressMoveTracking } from './placement'
 
 /** The slice of BrowserWindow hide-all uses. */
 export interface HideableWindow {
@@ -49,6 +54,16 @@ export interface HideAllTarget {
 export interface HideAllDeps {
   /** Every window hide-all may touch, in a stable order. Never the panel. */
   targets(): readonly HideAllTarget[]
+  /**
+   * CLI keys (`agent:<id>`), immediately before hide/show. Production
+   * suppresses move-tracking so hide/show cannot rewrite live-reflow zones.
+   */
+  beforeNativeVisibility?(key: string): void
+  /**
+   * CLI windows hide-all just hid or just showed. Production snaps them to
+   * role zones when `ui.snapToZones` is on, one workspace at a time.
+   */
+  snapCliWindows?(keys: readonly string[]): void
 }
 
 export interface HideAllController {
@@ -76,16 +91,20 @@ export function createHideAllController(deps: HideAllDeps): HideAllController {
           // A window the user had already hidden or minimized is none of ours.
           if (!target.window.isVisible()) continue
           if (target.window.isMinimized()) continue
+          deps.beforeNativeVisibility?.(target.key)
           target.window.hide()
           hiddenKeys.push(target.key)
         }
+        deps.snapCliWindows?.(hiddenKeys)
         return 'hidden'
       }
 
       const byKey = new Map(targets.map((target) => [target.key, target.window]))
       for (const key of hiddenKeys) {
+        deps.beforeNativeVisibility?.(key)
         byKey.get(key)?.showInactive()
       }
+      deps.snapCliWindows?.(hiddenKeys)
       // Focus last and only once — showInactive deliberately does not.
       const focused = focusedKey ? byKey.get(focusedKey) : undefined
       focused?.focus()
@@ -129,10 +148,45 @@ function appTargets(): HideAllTarget[] {
   ]
 }
 
+const AGENT_KEY_PREFIX = 'agent:'
+
+function cliAgentIdFromKey(key: string): string | undefined {
+  return key.startsWith(AGENT_KEY_PREFIX) ? key.slice(AGENT_KEY_PREFIX.length) : undefined
+}
+
+function suppressCliKey(key: string): void {
+  const agentId = cliAgentIdFromKey(key)
+  if (agentId) suppressMoveTracking(agentId)
+}
+
+/** Snap only CLI keys, one workspace at a time. Editors/settings stay put. */
+function snapCliKeysIfEnabled(keys: readonly string[]): void {
+  let enabled = true
+  try {
+    enabled = getSettings().ui?.snapToZones !== false
+  } catch {
+    enabled = true
+  }
+  if (!enabled) return
+  const agentIds: string[] = []
+  for (const key of keys) {
+    const agentId = cliAgentIdFromKey(key)
+    if (agentId) agentIds.push(agentId)
+  }
+  if (agentIds.length === 0) return
+  layoutCliWindowsByWorkspace(agentIds)
+}
+
 let controller: HideAllController | undefined
 
 function appController(): HideAllController {
-  if (!controller) controller = createHideAllController({ targets: appTargets })
+  if (!controller) {
+    controller = createHideAllController({
+      targets: appTargets,
+      beforeNativeVisibility: suppressCliKey,
+      snapCliWindows: snapCliKeysIfEnabled
+    })
+  }
   return controller
 }
 

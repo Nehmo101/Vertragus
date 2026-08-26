@@ -406,6 +406,8 @@ export interface PanelSettings {
   appearance: Appearance
   /** When a window or zone is moved, neighbors shrink and fill the gap. */
   reflowNeighbors: boolean
+  /** Hide-all hide and restore snap CLI windows back to their role zones. */
+  snapToZones: boolean
   /** WP-7: the first-run card was closed by hand — the panel honours it. */
   onboardingDismissed: boolean
   autostart: boolean
@@ -459,6 +461,7 @@ export type WritableSetting =
   | 'locale'
   | 'appearance'
   | 'reflowNeighbors'
+  | 'snapToZones'
   | 'voice'
   | 'agentPolicy'
   | 'piHarnessEnabled'

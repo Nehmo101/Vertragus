@@ -550,6 +550,8 @@ export interface PanelSettings {
   appearance: Appearance
   /** When a window or zone is moved, neighbors shrink and fill the gap. */
   reflowNeighbors: boolean
+  /** Hide-all hide and restore snap CLI windows back to their role zones. */
+  snapToZones: boolean
   /** WP-7: the first-run card was closed by hand — the panel honours it. */
   onboardingDismissed: boolean
   autostart: boolean
@@ -642,6 +644,7 @@ export const WRITABLE_SETTINGS = [
   'locale',
   'appearance',
   'reflowNeighbors',
+  'snapToZones',
   'voice',
   'agentPolicy',
   'piHarnessEnabled',
@@ -931,6 +934,7 @@ export function toPanelSettings(
     theme: value.ui.theme,
     appearance: value.ui.appearance,
     reflowNeighbors: value.ui.reflowNeighbors,
+    snapToZones: value.ui.snapToZones,
     onboardingDismissed: value.ui.onboardingDismissed,
     autostart: value.autostart,
     updateChannel: value.updateChannel,
@@ -1735,6 +1739,13 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
             throw new Error('settings:set rejected — reflowNeighbors expects a boolean')
           }
           const ui = { ...host.store.getSettings().ui, reflowNeighbors: body.value }
+          return panelSettings(host.store.setSetting('ui', ui))
+        }
+        case 'snapToZones': {
+          if (typeof body.value !== 'boolean') {
+            throw new Error('settings:set rejected — snapToZones expects a boolean')
+          }
+          const ui = { ...host.store.getSettings().ui, snapToZones: body.value }
           return panelSettings(host.store.setSetting('ui', ui))
         }
         default: {

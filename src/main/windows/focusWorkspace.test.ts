@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('./cliWindow', () => ({ listCliWindows: () => [] }))
@@ -151,5 +153,39 @@ describe('focusWorkspaceAgents', () => {
     expect(beforeRestore).toHaveBeenCalledTimes(1)
     expect(log).not.toContain('beforeRestore:other')
     expect(log).not.toContain('restore:other')
+  })
+
+  it('suppresses hide and show so live-reflow cannot read them as a drag', () => {
+    const { log, windows, targets } = harness(['mine', 'foreign'])
+    windows.mine!.minimized = true
+    const beforeHide = vi.fn((agentId: string) => {
+      log.push(`beforeHide:${agentId}`)
+    })
+    const beforeShow = vi.fn((agentId: string) => {
+      log.push(`beforeShow:${agentId}`)
+    })
+
+    focusWorkspaceAgents(['mine'], { windows: () => targets, beforeHide, beforeShow })
+
+    expect(log).toEqual([
+      'beforeHide:foreign',
+      'hide:foreign',
+      'restore:mine',
+      'beforeShow:mine',
+      'show:mine',
+      'focus:mine'
+    ])
+    expect(beforeHide).not.toHaveBeenCalledWith('mine')
+    expect(beforeShow).not.toHaveBeenCalledWith('foreign')
+  })
+})
+
+describe('production wiring', () => {
+  it('suppresses hide, restore and show on a workspace click', () => {
+    const source = readFileSync(join(__dirname, '../index.ts'), 'utf8')
+    expect(source).toMatch(/beforeHide:\s*suppressMoveTracking/)
+    expect(source).toMatch(/beforeRestore:\s*suppressMoveTracking/)
+    expect(source).toMatch(/beforeShow:\s*suppressMoveTracking/)
+    expect(source).toMatch(/layoutCliWindows\(agentIds\)/)
   })
 })
