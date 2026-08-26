@@ -177,8 +177,8 @@ export function piProviderFor(presetId: string | undefined): string | undefined 
 }
 
 /**
- * Vertragus effort is `low|medium|high`, which Pi's `--thinking` accepts
- * verbatim. Absent effort → omit the flag (Pi's own default).
+ * The stored effort token is passed to Pi `--thinking` unchanged. Absent
+ * effort → omit the flag (Pi's own default). Not remapped.
  */
 export function piThinkingFor(effort: EffortLevel | undefined): string | undefined {
   return effort

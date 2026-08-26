@@ -78,6 +78,15 @@ describe('slotSchema', () => {
     ).toBe(false)
   })
 
+  it('persists extra CLI tokens xhigh and max', () => {
+    expect(slotSchema.parse({ id: 's', roleId: 'r', providerId: 'p', effort: 'xhigh' }).effort).toBe(
+      'xhigh'
+    )
+    expect(slotSchema.parse({ id: 's', roleId: 'r', providerId: 'p', effort: 'max' }).effort).toBe(
+      'max'
+    )
+  })
+
   it('E6: takes extra MCP servers with TOML-safe names and http urls', () => {
     const slot = slotSchema.parse({
       id: 's',

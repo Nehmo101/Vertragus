@@ -224,6 +224,13 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
                 {text('effortTemplate', { placeholder: 'model_reasoning_effort="{effort}"' })}
               </Field>
             ) : null}
+            <Field
+              label={t('providerEditor.effortLevels')}
+              error={editor.errors.effortLevels}
+              hint={t('providerEditor.effortLevelsHint')}
+            >
+              {lines('effortLevels', 4)}
+            </Field>
           </div>
         </section>
 

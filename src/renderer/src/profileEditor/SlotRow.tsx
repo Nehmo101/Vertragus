@@ -4,7 +4,14 @@ import { roleColor } from '@shared/prompts/roles'
 import type { RoleTemplate } from '@shared/schema/profile'
 import type { ModelDiscoveryResult, ProviderListEntry } from '../../../preload'
 import { EffortSelect, ModelCombo, ProviderSelect } from './fields'
-import { CUSTOM_ROLE_VALUE, customRoleTemplate, type DraftErrors, type SlotDraft } from './model'
+import {
+  CUSTOM_ROLE_VALUE,
+  coerceRowEffort,
+  customRoleTemplate,
+  rowEffortOptions,
+  type DraftErrors,
+  type SlotDraft
+} from './model'
 
 interface Props {
   slot: SlotDraft
@@ -103,7 +110,21 @@ export function SlotRow({
           value={slot.providerId}
           providers={providers}
           loading={providersLoading}
-          onChange={(providerId) => onChange({ ...slot, providerId, model: '' })}
+          onChange={(providerId) =>
+            onChange({
+              ...slot,
+              providerId,
+              model: '',
+              effort: coerceRowEffort(
+                slot.effort,
+                '',
+                providerId,
+                providers,
+                models,
+                modelsLoading
+              )
+            })
+          }
         />
 
         <ModelCombo
@@ -113,7 +134,13 @@ export function SlotRow({
           onReload={() => onReloadModels(slot.providerId)}
           // A healthy row stays one line high; only a problem earns a caption.
           quietWhenHealthy
-          onChange={(model) => onChange({ ...slot, model })}
+          onChange={(model) =>
+            onChange({
+              ...slot,
+              model,
+              effort: coerceRowEffort(slot.effort, model, slot.providerId, providers, models, modelsLoading)
+            })
+          }
         />
 
         <input
@@ -128,6 +155,7 @@ export function SlotRow({
 
         <EffortSelect
           value={slot.effort}
+          options={rowEffortOptions(slot.model, slot.providerId, providers, models[slot.providerId])}
           onChange={(effort) => onChange({ ...slot, effort })}
           className="pe-input pe-effort"
         />

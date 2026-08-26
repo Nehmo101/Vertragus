@@ -12,7 +12,9 @@ import {
   execProviderCli,
   expandHome,
   extractModels,
+  extractModelEfforts,
   familyAliases,
+  mergeModelEfforts,
   MEMORY_TTL_MS,
   mergeSeedModels,
   normalizeModelMemory,
@@ -160,6 +162,47 @@ describe('extractModels', () => {
 
   it('keeps a bracketed context suffix — it is part of the id, not ANSI residue', () => {
     expect(extractModels(['claude-fable-5[1m]'])).toEqual(['claude-fable-5[1m]'])
+  })
+})
+
+describe('extractModelEfforts', () => {
+  it('reads Kimi supportEfforts from the keyed models table', () => {
+    const parsed = JSON.parse(fixture('kimi-provider-list.json')) as unknown
+    const efforts = extractModelEfforts(collectByPath(parsed, 'models'))
+    expect(efforts['kimi-code/k3']).toEqual(['low', 'high', 'max'])
+    expect(efforts['kimi-code/k3-256k']).toEqual(['low', 'high', 'max'])
+    expect(efforts['kimi-code/kimi-for-coding']).toBeUndefined()
+    expect(efforts['k3']).toBeUndefined()
+  })
+
+  it('reads Grok info.reasoning_efforts keyed by model id', () => {
+    const parsed = JSON.parse(fixture('grok-models-cache.json')) as unknown
+    const efforts = extractModelEfforts(collectByPath(parsed, 'models'))
+    expect(efforts['grok-4.6']).toEqual(['xhigh', 'high', 'medium', 'low'])
+    expect(efforts['grok-4.5']).toEqual(['high', 'medium', 'low'])
+    expect(efforts['grok-4.5']).not.toContain('xhigh')
+  })
+
+  it('drops junk tokens such as ultra from a discovered list', () => {
+    expect(
+      extractModelEfforts([
+        { 'acme/fast': { supportEfforts: ['low', 'ultra', 'max'] } }
+      ])
+    ).toEqual({ 'acme/fast': ['low', 'max'] })
+  })
+
+  it('reads a top-level reasoning_efforts string array', () => {
+    expect(
+      extractModelEfforts([{ slug: 'gpt-x', reasoning_efforts: ['low', 'high'] }])
+    ).toEqual({ 'gpt-x': ['low', 'high'] })
+  })
+})
+
+describe('mergeModelEfforts', () => {
+  it('lets the first source win and fills gaps from the sidecar', () => {
+    expect(
+      mergeModelEfforts({ 'grok-4.6': ['high'] }, { 'grok-4.6': ['xhigh'], 'grok-4.5': ['low'] })
+    ).toEqual({ 'grok-4.6': ['high'], 'grok-4.5': ['low'] })
   })
 })
 
@@ -333,6 +376,10 @@ describe('discoverModels — cli sources', () => {
     // The bare `model` field would launch nothing — it must not reach the picker.
     expect(result.models).not.toContain('kimi-for-coding')
     expect(result.models).not.toContain('managed:kimi-code')
+    expect(result.efforts).toEqual({
+      'kimi-code/k3': ['low', 'high', 'max'],
+      'kimi-code/k3-256k': ['low', 'high', 'max']
+    })
   })
 
   it('reads the Cursor model list line by line', async () => {
@@ -392,6 +439,24 @@ describe('discoverModels — cli sources', () => {
     expect(exec).toHaveBeenCalledWith('grok', ['models'], 8_000)
     expect(result.source).toBe('live')
     expect(result.models).toEqual(['grok-build', 'grok-4.6', 'grok-4.5', 'grok-4.3'])
+  })
+
+  it('merges Grok cache reasoning_efforts without replacing CLI model ids', async () => {
+    const exec = vi.fn(async () => fixture('grok-models.txt'))
+    const readFile = vi.fn((path: string) => {
+      if (path.replace(/\\/g, '/').endsWith('.grok/models_cache.json')) {
+        return fixture('grok-models-cache.json')
+      }
+      throw new Error('ENOENT')
+    })
+    const { deps: overrides } = deps({ exec, readFile })
+    const result = await discoverModels(preset('grok'), overrides)
+    expect(exec).toHaveBeenCalledWith('grok', ['models'], 8_000)
+    expect(result.models).toEqual(['grok-build', 'grok-4.6', 'grok-4.5', 'grok-4.3'])
+    expect(result.efforts?.['grok-4.6']).toEqual(['xhigh', 'high', 'medium', 'low'])
+    expect(result.efforts?.['grok-4.5']).toEqual(['high', 'medium', 'low'])
+    expect(result.efforts?.['grok-4.5']).not.toContain('xhigh')
+    expect(result.efforts?.['grok-build']).toBeUndefined()
   })
 
   it('keeps grok-build startable when grok models needs a login', async () => {

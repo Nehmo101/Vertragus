@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Profile, RoleTemplate } from '@shared/schema/profile'
-import type { ProviderConfig } from '@shared/schema/provider'
+import type { EffortLevel, ProviderConfig } from '@shared/schema/provider'
 import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import type { Zone, ZoneLayout } from '@shared/schema/zones'
 import type { ExtraMcpServer } from '@shared/schema/mcpServer'
@@ -8,6 +8,7 @@ import type { Appearance } from '@shared/appearance'
 import type { BindOption, RemoteClientInfo, RemoteStatus } from '@shared/remote/types'
 import type { BrowserExtensionInstallResult, BrowserExtensionStatus } from '@shared/browserExtension'
 import type { TerminalBootPhase } from '@shared/terminalBoot'
+import type { AgentEvent } from '@shared/schema/events'
 
 /** Mirrors main/appIpc.PanelMcpServer — secrets never appear here. */
 export interface PanelMcpServer {
@@ -42,6 +43,8 @@ const CHANNELS = {
   exit: 'terminal:exit',
   task: 'terminal:task',
   boot: 'terminal:boot',
+  question: 'terminal:question',
+  answerQuestion: 'terminal:answerQuestion',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -72,6 +75,27 @@ export interface TerminalAttachResult {
   task?: string
   /** Boot overlay phase at attach time; later changes arrive via onBoot. */
   boot?: TerminalBootPhase
+  /**
+   * Open MCP question this window may answer, at attach time. Absent when
+   * none. Later changes arrive via onQuestion.
+   */
+  question?: TerminalQuestionInbox
+}
+
+/** One open MCP question the CLI overlay can show and answer. */
+export interface TerminalQuestionInbox {
+  questionId: string
+  question: string
+  /** Registry addressee: "user" for ask_user, otherwise the asking agent. */
+  agentId: string
+  /** Asking agent's Commedia name; absent for ask_user. */
+  fromName?: string
+}
+
+/** Push payload of terminal:question — `null` hides the overlay. */
+export interface TerminalQuestionEvent {
+  agentId: string
+  question: TerminalQuestionInbox | null
 }
 
 export interface TerminalDataEvent {
@@ -137,6 +161,25 @@ const terminal = {
       ipcRenderer.removeListener(CHANNELS.boot, handler)
     }
   },
+  /**
+   * Open MCP question this window may answer — overlay over xterm. `null`
+   * hides it. Keys in the overlay never go to the PTY.
+   */
+  onQuestion: (listener: (event: TerminalQuestionEvent) => void): (() => void) => {
+    const handler = (_event: unknown, payload: TerminalQuestionEvent): void => listener(payload)
+    ipcRenderer.on(CHANNELS.question, handler)
+    return () => {
+      ipcRenderer.removeListener(CHANNELS.question, handler)
+    }
+  },
+  /**
+   * Answer an open MCP question from this CLI window. Main derives the
+   * workspace from the sender; a worker may only answer its own question,
+   * the orchestrator may answer ask_user and children. Same host path as
+   * the panel badge (`answerAgentQuestion`).
+   */
+  answerQuestion: (agentId: string, questionId: string, text: string): Promise<void> =>
+    ipcRenderer.invoke(CHANNELS.answerQuestion, { agentId, questionId, text }),
   /** Close this window only — the agent keeps running. */
   closeWindow: (): void => {
     ipcRenderer.send(CHANNELS.windowClose)
@@ -212,6 +255,8 @@ const APP = {
   providerEditorClose: 'providerEditor:close',
   settingsWindowOpen: 'settingsWindow:open',
   settingsWindowClose: 'settingsWindow:close',
+  timelineAttach: 'timeline:attach',
+  timelineClose: 'timeline:close',
   updatesGet: 'updates:get',
   updatesCheck: 'updates:check',
   updatesInstall: 'updates:install',
@@ -224,6 +269,7 @@ const APP = {
   eventProfiles: 'ev:profiles',
   eventProviders: 'ev:providers',
   eventWorkspaces: 'ev:workspaces',
+  eventTimeline: 'ev:timeline',
   eventUpdate: 'ev:update',
   eventSettings: 'ev:settings',
   eventVoice: 'ev:voice',
@@ -348,6 +394,13 @@ export interface StaleWorktreeSummary {
 
 /** Retro records, re-exported so renderer code imports them from the bridge. */
 export type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
+export type { AgentEvent } from '@shared/schema/events'
+
+/** Snapshot `timeline:attach` answers — host-read journal, never a file path. */
+export interface TimelineAttachResult {
+  workspaceId: string
+  events: AgentEvent[]
+}
 
 /** Result of a provider version probe (see main/providers/health.ts). */
 export interface ProviderHealth {
@@ -388,6 +441,8 @@ export interface ModelDiscoveryResult {
   refreshedAt: number
   /** Why the live source stayed empty — shown in the model picker. */
   detail?: string
+  /** Per-model effort rungs discovered from the catalogue. */
+  efforts?: Record<string, EffortLevel[]>
 }
 
 export interface PanelSettings {
@@ -742,6 +797,18 @@ const app = {
     subscribe(APP.eventProviders, listener),
   onWorkspaces: (listener: (workspaces: WorkspaceSummary[]) => void): (() => void) =>
     subscribe(APP.eventWorkspaces, listener),
+  /**
+   * Journal snapshot for THIS timeline window. Main derives the workspace from
+   * the sender; the renderer never reads events.jsonl.
+   */
+  attachTimeline: (): Promise<TimelineAttachResult> => ipcRenderer.invoke(APP.timelineAttach),
+  /** Close this overview sheet — the workspace keeps running. */
+  closeTimeline: (): void => {
+    ipcRenderer.send(APP.timelineClose)
+  },
+  /** Live journal events for this window only — not the ev:workspaces firehose. */
+  onTimelineEvent: (listener: (event: AgentEvent) => void): (() => void) =>
+    subscribe(APP.eventTimeline, listener),
   /** Self-update state — drives the panel's "Update bereit" badge. */
   onUpdate: (listener: (state: UpdateState) => void): (() => void) =>
     subscribe(APP.eventUpdate, listener),

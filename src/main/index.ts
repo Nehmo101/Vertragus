@@ -9,6 +9,7 @@ import { resolveLaunch } from './agents/resolveCommand'
 import {
   agentCurrentTaskFields,
   APP_CHANNELS,
+  capTimelineEvents,
   createStubWorkspaceDirectory,
   PANEL_TASKS_MAX,
   registerAppIpc,
@@ -18,7 +19,13 @@ import {
 } from './appIpc'
 import { createAppVoice, installDefaultVoicePermissions, type AppVoice } from './appVoice'
 import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
-import { getAgentRegistry, registerTerminalIpc, setTerminalInputSink } from './ipc'
+import {
+  getAgentRegistry,
+  registerTerminalIpc,
+  setTerminalInputSink,
+  setTerminalQuestionSource
+} from './ipc'
+import { cliQuestionContext } from './terminalQuestion'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import {
   getProfile,
@@ -37,6 +44,7 @@ import {
   onCliWindowClosed
 } from './windows/cliWindow'
 import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
+import { focusTimelineWindow } from './windows/timelineWindow'
 import {
   forgetHideAll,
   hideAllHotkeyStatus,
@@ -74,6 +82,7 @@ import {
   buildResumeBriefing,
   latestRun,
   markSuccessionConsumed,
+  readRunEvents,
   readRunTasks,
   readSuccessionPackage,
   successionSuperseded
@@ -409,16 +418,29 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         ...(workspace.orchestrator ? [workspace.orchestrator.agentId] : []),
         ...workspace.listAgents().map((agent) => agent.agentId)
       ]
-      if (agentIds.length === 0) return
       // Workspace click replaced hide-all's snapshot: forget it so the next
       // toggle hides what is visible instead of restoring foreign windows.
       forgetHideAll()
-      focusWorkspaceAgents(agentIds, {
-        windows: cliFocusTargets,
-        beforeRestore: suppressMoveTracking
-      })
-      // After show: restore can fire move events that wreck bounds (Windows).
-      layoutCliWindows(agentIds)
+      if (agentIds.length > 0) {
+        focusWorkspaceAgents(agentIds, {
+          windows: cliFocusTargets,
+          beforeRestore: suppressMoveTracking
+        })
+        // After show: restore can fire move events that wreck bounds (Windows).
+        layoutCliWindows(agentIds)
+      }
+      // Overview sheet: show this workspace's timeline, hide the others.
+      // Never minimize — hide() only. A user-closed sheet is reopened here.
+      focusTimelineWindow(workspaceId)
+    },
+    async readTimelineEvents(workspaceId) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) return []
+      const events = (await readRunEvents(workspace.repoPath, workspaceId)) ?? []
+      return capTimelineEvents(events)
+    },
+    onTimelineEvent(workspaceId, listener) {
+      return manager.onTimelineEvent(workspaceId, listener)
     },
     listStaleWorktrees: (profileId) => cleanup.listStale(profileId),
     removeWorktree: (profileId, worktreePath) => cleanup.remove(profileId, worktreePath),
@@ -439,9 +461,11 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
 
 /**
  * Feed every agent's current task note into the terminal registry, so the CLI
- * window's title-bar hover card can show what its agent is working on. Runs on
- * the same change feed as the panel; `setAgentTask` dedupes, so a burst of
- * unrelated events costs nothing.
+ * window's title-bar hover card can show what its agent is working on. Also
+ * re-reads the MCP-question inbox (H1 overlay) — `questions.onMutate` already
+ * drives {@link WorkspaceManager.onChange}. `setAgentTask` / `refreshQuestions`
+ * dedupe, so a burst of unrelated events costs nothing and never focuses a
+ * CLI window.
  */
 function armTerminalTaskFeed(manager: WorkspaceManager, mcp: McpServerHandle): void {
   const registry = getAgentRegistry()
@@ -455,6 +479,9 @@ function armTerminalTaskFeed(manager: WorkspaceManager, mcp: McpServerHandle): v
         registry.setAgentTask(agent.agentId, mcp.agentTask(ws.workspaceId, agent.agentId))
       }
     }
+    // questions.onMutate already drives notifyChange; re-read the inbox
+    // (ask_user first, else oldest child) without focusing a CLI window.
+    registry.refreshQuestions()
   }
   manager.onChange(push)
 }
@@ -662,6 +689,13 @@ app.whenReady().then(async () => {
     const manager = appManager
     setTerminalInputSink((agentId, data) => {
       manager.noteOrchestratorGoal(agentId, data)
+    })
+    // Late-bound: same list() that paints panel badges. Answer is the
+    // directory method the panel badge uses (answerAgentQuestion).
+    setTerminalQuestionSource({
+      contextFor: (senderAgentId) => cliQuestionContext(senderAgentId, directory.list()),
+      answer: (workspaceId, agentId, questionId, text) =>
+        directory.answerQuestion(workspaceId, agentId, questionId, text)
     })
     const broadcastSettings = (channel: string, payload: unknown): void => {
       for (const { window } of listSettingsWindows()) {

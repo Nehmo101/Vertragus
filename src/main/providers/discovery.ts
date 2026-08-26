@@ -33,6 +33,8 @@ import { mainMessages } from '@shared/mainMessages'
 import { modelFamily, normalizeModelKey, orderedModelList, uniqueModels } from '@shared/models'
 import {
   modelMemorySchema,
+  uniqueEffortLevels,
+  type EffortLevel,
   type ModelDiscovery,
   type ModelMemory,
   type ProviderConfig
@@ -238,6 +240,12 @@ export interface ModelDiscoveryResult {
    * leaving the user guessing why their CLI's models are missing.
    */
   detail?: string
+  /**
+   * Per-model effort rungs from catalogue objects (`supportEfforts`,
+   * `reasoning_efforts`, `info.reasoning_efforts`). Absent when nothing was
+   * found — the editor then uses the provider fallback, or only Standard.
+   */
+  efforts?: Record<string, EffortLevel[]>
 }
 
 /** Expand a leading `~` to the user's home directory. */
@@ -326,11 +334,118 @@ export function extractModels(nodes: readonly unknown[]): string[] {
 
 /** `models[].name` over a parsed JSON document, fail-soft. */
 export function parseJsonModels(raw: string, jsonPath: string | undefined): string[] {
-  try {
-    return extractModels(collectByPath(JSON.parse(raw), jsonPath))
-  } catch {
-    return []
+  return parseJsonCatalogue(raw, jsonPath).models
+}
+
+/**
+ * Well-known effort fields on a catalogue object. String arrays (Kimi
+ * `supportEfforts`) and `{value|id|name}` entries (Grok `reasoning_efforts`)
+ * both qualify; junk tokens such as `ultra` are dropped.
+ */
+function parseEffortList(value: unknown): EffortLevel[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined
+  const tokens: string[] = []
+  for (const item of value) {
+    if (typeof item === 'string') {
+      tokens.push(item)
+      continue
+    }
+    if (!isRecord(item)) continue
+    const key = (['value', 'id', 'name'] as const).find((field) => typeof item[field] === 'string')
+    if (key) tokens.push(item[key] as string)
   }
+  const levels = uniqueEffortLevels(tokens)
+  return levels.length > 0 ? levels : undefined
+}
+
+function parseEffortListFromCatalogue(node: Record<string, unknown>): EffortLevel[] | undefined {
+  const direct = parseEffortList(node.supportEfforts) ?? parseEffortList(node.reasoning_efforts)
+  if (direct) return direct
+  if (!isRecord(node.info)) return undefined
+  return parseEffortList(node.info.supportEfforts) ?? parseEffortList(node.info.reasoning_efforts)
+}
+
+/**
+ * Per-model effort rungs from catalogue JSON. Keyed tables use the KEY as the
+ * picker id (Kimi `kimi-code/k3`, Grok `grok-4.6`); array entries use an
+ * id-bearing field. Never invents ids that `extractModels` would not see.
+ */
+export function extractModelEfforts(nodes: readonly unknown[]): Record<string, EffortLevel[]> {
+  const out: Record<string, EffortLevel[]> = {}
+
+  const assign = (id: string, levels: EffortLevel[]): void => {
+    const token = sanitize(id)
+    if (!token || levels.length === 0 || token in out) return
+    out[token] = levels
+  }
+
+  const visit = (node: unknown, depth: number): void => {
+    if (depth > 4) return
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, depth + 1)
+      return
+    }
+    if (!isRecord(node)) return
+
+    const effortsHere = parseEffortListFromCatalogue(node)
+    const idKey = ID_KEYS.find((key) => typeof node[key] === 'string')
+    if (idKey) {
+      if (effortsHere) assign(node[idKey] as string, effortsHere)
+      return
+    }
+    if (effortsHere && isRecord(node.info) && typeof node.info.id === 'string') {
+      assign(node.info.id, effortsHere)
+      return
+    }
+
+    for (const [key, value] of Object.entries(node)) {
+      if (!isRecord(value) && !Array.isArray(value)) continue
+      const nested = isRecord(value) ? parseEffortListFromCatalogue(value) : undefined
+      if (nested) assign(key, nested)
+      else visit(value, depth + 1)
+    }
+  }
+
+  for (const node of nodes) visit(node, 0)
+  return out
+}
+
+export interface JsonCatalogue {
+  models: string[]
+  efforts: Record<string, EffortLevel[]>
+}
+
+/** Models and well-known effort fields from one JSON document, fail-soft. */
+export function parseJsonCatalogue(raw: string, jsonPath: string | undefined): JsonCatalogue {
+  try {
+    const nodes = collectByPath(JSON.parse(raw), jsonPath)
+    return { models: extractModels(nodes), efforts: extractModelEfforts(nodes) }
+  } catch {
+    return { models: [], efforts: {} }
+  }
+}
+
+/** First source wins; later ids fill gaps. Dedupes punctuation twins. */
+export function mergeModelEfforts(
+  base: Record<string, EffortLevel[]>,
+  extra: Record<string, EffortLevel[]>
+): Record<string, EffortLevel[]> {
+  const out: Record<string, EffortLevel[]> = { ...base }
+  const known = new Set(Object.keys(out).map((model) => normalizeModelKey(model)))
+  for (const [model, list] of Object.entries(extra)) {
+    if (list.length === 0) continue
+    const key = normalizeModelKey(model)
+    if (known.has(key)) continue
+    out[model] = list
+    known.add(key)
+  }
+  return out
+}
+
+function effortsIfPresent(
+  efforts: Record<string, EffortLevel[]>
+): { efforts: Record<string, EffortLevel[]> } | Record<string, never> {
+  return Object.keys(efforts).length > 0 ? { efforts } : {}
 }
 
 /**
@@ -384,26 +499,41 @@ async function runDiscovery(
   config: ProviderConfig,
   discovery: ModelDiscovery,
   deps: DiscoveryDependencies
-): Promise<string[]> {
+): Promise<JsonCatalogue> {
   switch (discovery.kind) {
     case 'none':
-      return []
+      return { models: [], efforts: {} }
     case 'cli': {
       const stdout = await deps.exec(config.command, discovery.args, CLI_DISCOVERY_TIMEOUT_MS)
       return discovery.parse === 'json'
-        ? parseJsonModels(stdout, discovery.jsonPath)
-        : parseLineModels(stdout)
+        ? parseJsonCatalogue(stdout, discovery.jsonPath)
+        : { models: parseLineModels(stdout), efforts: {} }
     }
     case 'file': {
       const raw = deps.readFile(expandHome(discovery.path, deps.homeDir()))
       return discovery.parse === 'toml-keys'
-        ? parseTomlModelKeys(raw)
-        : parseJsonModels(raw, discovery.jsonPath)
+        ? { models: parseTomlModelKeys(raw), efforts: {} }
+        : parseJsonCatalogue(raw, discovery.jsonPath)
     }
     case 'http': {
       const payload = await deps.fetchJson(discovery.url, HTTP_DISCOVERY_TIMEOUT_MS)
-      return extractModels(collectByPath(payload, discovery.jsonPath))
+      const nodes = collectByPath(payload, discovery.jsonPath)
+      return { models: extractModels(nodes), efforts: extractModelEfforts(nodes) }
     }
+  }
+}
+
+/** Sidecar effort catalogue: fail-soft and never contributes picker ids. */
+async function discoverEffortsOnly(
+  config: ProviderConfig,
+  discovery: ModelDiscovery,
+  deps: DiscoveryDependencies
+): Promise<Record<string, EffortLevel[]>> {
+  try {
+    const harvest = await runDiscovery(config, discovery, deps)
+    return harvest.efforts
+  } catch {
+    return {}
   }
 }
 
@@ -547,9 +677,12 @@ export async function discoverModels(
   const discovery = config.modelDiscovery
 
   let live: string[] = []
+  let efforts: Record<string, EffortLevel[]> = {}
   let detail: string | undefined
   try {
-    live = await runDiscovery(config, discovery, deps)
+    const harvest = await runDiscovery(config, discovery, deps)
+    live = harvest.models
+    efforts = harvest.efforts
     if (live.length === 0 && discovery.kind !== 'none') {
       detail = `${describeSource(config, discovery)}: ${
         mainMessages(deps.locale?.()).discoveryNoModels
@@ -563,6 +696,10 @@ export async function discoverModels(
       authFailureHint(config, failure, deps.locale?.()) ?? failure
     }`
   }
+  const sidecar = config.effortDiscovery
+  if (sidecar && sidecar.kind !== 'none') {
+    efforts = mergeModelEfforts(efforts, await discoverEffortsOnly(config, sidecar, deps))
+  }
   // Aliases first: they are the entries that keep tracking new releases.
   if (config.presetId === 'claude' && live.length > 0) {
     live = uniqueModels([...familyAliases(live), ...live])
@@ -573,7 +710,13 @@ export async function discoverModels(
     const { models, added } = mergeSeedModels(found, config.seedModels)
     const source: ModelSource =
       added.length === 0 ? base : base === 'none' ? 'seed' : 'mixed'
-    return { models, source, refreshedAt: now, ...(detail ? { detail } : {}) }
+    return {
+      models,
+      source,
+      refreshedAt: now,
+      ...(detail ? { detail } : {}),
+      ...effortsIfPresent(efforts)
+    }
   }
 
   if (!isRememberable(discovery)) {

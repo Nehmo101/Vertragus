@@ -103,6 +103,7 @@ describe('claude preset', () => {
     expect(claude.yoloArgs).toEqual(['--dangerously-skip-permissions'])
     expect(claude.modelArg).toBe('--model')
     expect(claude.effortArg).toEqual({ style: 'flag', flag: '--effort' })
+    expect(claude.effortLevels).toEqual(['low', 'medium', 'high'])
     expect(claude.systemPromptDelivery).toEqual({
       kind: 'arg',
       flag: '--append-system-prompt'
@@ -163,6 +164,7 @@ describe('codex preset', () => {
       flag: '-c',
       template: 'model_reasoning_effort="{effort}"'
     })
+    expect(codex.effortLevels).toEqual(['low', 'medium', 'high', 'xhigh'])
   })
 
   it('keeps the distinct OpenAI attach surface (no Anthropic flags)', () => {
@@ -201,6 +203,7 @@ describe('kimi preset', () => {
 
   it('declares no effort flag — the CLI has none, and an unknown flag kills a launch', () => {
     expect(kimi.effortArg).toBeUndefined()
+    expect(kimi.effortLevels).toEqual([])
   })
 
   it('lists models via the provider table of the CLI', () => {
@@ -243,6 +246,8 @@ describe('cursor preset', () => {
   it('reads the line-based model list of the CLI', () => {
     expect(cursor.modelDiscovery).toEqual({ kind: 'cli', args: ['models'], parse: 'lines' })
     expect(cursor.auth?.statusArgs).toEqual(['status'])
+    expect(cursor.effortLevels).toEqual([])
+    expect(cursor.effortArg).toBeUndefined()
   })
 })
 
@@ -254,6 +259,7 @@ describe('grok preset', () => {
     expect(grok.yoloArgs).toEqual(['--always-approve'])
     expect(grok.modelArg).toBe('--model')
     expect(grok.effortArg).toEqual({ style: 'flag', flag: '--effort' })
+    expect(grok.effortLevels).toEqual(['low', 'medium', 'high', 'xhigh'])
     expect(grok.systemPromptDelivery).toEqual({
       kind: 'arg',
       flag: '--append-system-prompt'
@@ -264,6 +270,13 @@ describe('grok preset', () => {
 
   it('reads the line-based model list of the CLI', () => {
     expect(grok.modelDiscovery).toEqual({ kind: 'cli', args: ['models'], parse: 'lines' })
+    expect(grok.effortLevels).toEqual(['low', 'medium', 'high', 'xhigh'])
+    expect(grok.effortDiscovery).toEqual({
+      kind: 'file',
+      path: '~/.grok/models_cache.json',
+      parse: 'json',
+      jsonPath: 'models'
+    })
   })
 
   it('has a login flow but no status probe', () => {
@@ -283,6 +296,8 @@ describe('ollama preset', () => {
     expect(ollama.yoloArgs).toEqual([])
     expect(ollama.args).toEqual(['run', '--nowordwrap'])
     expect(ollama.modelArg).toBeUndefined()
+    expect(ollama.effortArg).toBeUndefined()
+    expect(ollama.effortLevels).toEqual([])
   })
 
   it('asks the local service which models physically exist', () => {

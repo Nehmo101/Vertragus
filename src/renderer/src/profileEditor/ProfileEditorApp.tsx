@@ -3,7 +3,14 @@ import { DEFAULT_PR_REMOTE } from '@shared/schema/profile'
 import { WORKER_ROLE_ID, roleColor } from '@shared/prompts/roles'
 import { FolderIcon } from '../panel/icons'
 import { EffortSelect, Field, ModelCombo, ProviderSelect, QuestionModeSelect, SwitchField } from './fields'
-import { newSlotDraft, promptIdentities, type ProfileDraft, type SlotDraft } from './model'
+import {
+  coerceRowEffort,
+  newSlotDraft,
+  promptIdentities,
+  rowEffortOptions,
+  type ProfileDraft,
+  type SlotDraft
+} from './model'
 import { SlotRow } from './SlotRow'
 import { RolePromptsSection } from './RolePromptsSection'
 import { useProfileEditor } from './useProfileEditor'
@@ -126,7 +133,19 @@ export function ProfileEditorApp({
                 onChange={(providerId) =>
                   editor.update((current) => ({
                     ...current,
-                    orchestrator: { ...current.orchestrator, providerId, model: '' }
+                    orchestrator: {
+                      ...current.orchestrator,
+                      providerId,
+                      model: '',
+                      effort: coerceRowEffort(
+                        current.orchestrator.effort,
+                        '',
+                        providerId,
+                        editor.providers,
+                        editor.models,
+                        editor.modelsLoading
+                      )
+                    }
                   }))
                 }
               />
@@ -140,7 +159,18 @@ export function ProfileEditorApp({
                 onChange={(model) =>
                   editor.update((current) => ({
                     ...current,
-                    orchestrator: { ...current.orchestrator, model }
+                    orchestrator: {
+                      ...current.orchestrator,
+                      model,
+                      effort: coerceRowEffort(
+                        current.orchestrator.effort,
+                        model,
+                        current.orchestrator.providerId,
+                        editor.providers,
+                        editor.models,
+                        editor.modelsLoading
+                      )
+                    }
                   }))
                 }
               />
@@ -148,6 +178,12 @@ export function ProfileEditorApp({
             <Field label={t('profileEditor.effort')}>
               <EffortSelect
                 value={draft.orchestrator.effort}
+                options={rowEffortOptions(
+                  draft.orchestrator.model,
+                  draft.orchestrator.providerId,
+                  editor.providers,
+                  editor.models[draft.orchestrator.providerId]
+                )}
                 onChange={(effort) =>
                   editor.update((current) => ({
                     ...current,
