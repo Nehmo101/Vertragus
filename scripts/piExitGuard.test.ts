@@ -168,7 +168,7 @@ describe('host wins stay native', () => {
 
   it('isPtyOnly is mcp.kind === none with no wrap bypass', () => {
     const fn = workspace.match(
-      /private isPtyOnly\(providerId: string\): boolean \{([\s\S]*?)\n  \}/
+      /private isPtyOnly\(providerId: string\): boolean \{([\s\S]*?)\n {2}\}/
     )?.[1]
     expect(fn, 'isPtyOnly vanished').toBeTruthy()
     expect(fn).toMatch(/mcp\.kind === 'none'/)
@@ -179,7 +179,7 @@ describe('host wins stay native', () => {
     expect(workspace).toMatch(/private waitForMcpSession\(/)
     expect(workspace).toMatch(/waitForSession/)
     const wait = workspace.match(
-      /private waitForMcpSession\([\s\S]*?\n  \}/
+      /private waitForMcpSession\([\s\S]*?\n {2}\}/
     )?.[0]
     expect(wait, 'waitForMcpSession vanished').toBeTruthy()
     expect(wait).not.toMatch(/piHarness/)
