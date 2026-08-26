@@ -42,6 +42,8 @@ const CHANNELS = {
   exit: 'terminal:exit',
   task: 'terminal:task',
   boot: 'terminal:boot',
+  question: 'terminal:question',
+  answerQuestion: 'terminal:answerQuestion',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -72,6 +74,27 @@ export interface TerminalAttachResult {
   task?: string
   /** Boot overlay phase at attach time; later changes arrive via onBoot. */
   boot?: TerminalBootPhase
+  /**
+   * Open MCP question this window may answer, at attach time. Absent when
+   * none. Later changes arrive via onQuestion.
+   */
+  question?: TerminalQuestionInbox
+}
+
+/** One open MCP question the CLI overlay can show and answer. */
+export interface TerminalQuestionInbox {
+  questionId: string
+  question: string
+  /** Registry addressee: "user" for ask_user, otherwise the asking agent. */
+  agentId: string
+  /** Asking agent's Commedia name; absent for ask_user. */
+  fromName?: string
+}
+
+/** Push payload of terminal:question — `null` hides the overlay. */
+export interface TerminalQuestionEvent {
+  agentId: string
+  question: TerminalQuestionInbox | null
 }
 
 export interface TerminalDataEvent {
@@ -137,6 +160,25 @@ const terminal = {
       ipcRenderer.removeListener(CHANNELS.boot, handler)
     }
   },
+  /**
+   * Open MCP question this window may answer — overlay over xterm. `null`
+   * hides it. Keys in the overlay never go to the PTY.
+   */
+  onQuestion: (listener: (event: TerminalQuestionEvent) => void): (() => void) => {
+    const handler = (_event: unknown, payload: TerminalQuestionEvent): void => listener(payload)
+    ipcRenderer.on(CHANNELS.question, handler)
+    return () => {
+      ipcRenderer.removeListener(CHANNELS.question, handler)
+    }
+  },
+  /**
+   * Answer an open MCP question from this CLI window. Main derives the
+   * workspace from the sender; a worker may only answer its own question,
+   * the orchestrator may answer ask_user and children. Same host path as
+   * the panel badge (`answerAgentQuestion`).
+   */
+  answerQuestion: (agentId: string, questionId: string, text: string): Promise<void> =>
+    ipcRenderer.invoke(CHANNELS.answerQuestion, { agentId, questionId, text }),
   /** Close this window only — the agent keeps running. */
   closeWindow: (): void => {
     ipcRenderer.send(CHANNELS.windowClose)

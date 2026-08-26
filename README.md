@@ -69,7 +69,7 @@ second path:
 | `list_agents` / `read_output` / `inspect_agent` | Snapshot, raw terminal tail, and **read-only git facts** (status/diff/log/file) from an agent's worktree — verification is host truth, not the agent's word. Oversized output spills to a file (preview + path) instead of being truncated. |
 | `stop_agent` | End an agent; files, branch and worktree stay. |
 | `integrate_branch{agentId, branch}` | The one sanctioned merge path: a **host-side** merge into the target agent's worktree. Conflicts abort cleanly and are reported (`integrate_conflict`); a gate warning flags integrating unverified work. |
-| `ask_user{question, ticket?}` | Ask the human and block for the answer (panel badge and phone); ticket-resume survives the MCP request timeout. |
+| `ask_user{question, ticket?}` | Ask the human and block for the answer (panel badge, CLI overlay, and phone); ticket-resume survives the MCP request timeout. |
 | `start_orchestrator{area, task, …}` | Start a **lead** (see below). |
 | `record_retro{summary, learnings, repoNotes?}` | The run retrospective, once at the end. |
 | `request_succession{reason, …}` | Replace a context-full root with a successor that keeps the same team, queue and open questions. |
@@ -127,9 +127,9 @@ keeps the last 1000 and the on-disk journal keeps everything.
   user turn over the same handshake the start goal takes. A run that already
   has a goal refuses a second one — that is what steering is for.
 - **Questions in both directions:** an agent's open question shows as a `?`
-  badge answerable from panel or phone (one host path, one question
-  registry); the orchestrator's `ask_user` shows on the workspace card the
-  same way.
+  badge answerable from panel, phone, or the CLI overlay (one host path, one
+  question registry); the orchestrator's `ask_user` shows on the workspace
+  card and the orchestrator CLI the same way.
 - **Idle watchdog:** an orchestrator process that is alive but has stopped
   calling tools for two minutes gets flagged (`orchestrator_idle`) on the
   card and the remote client — distinct from process death, and long-polls

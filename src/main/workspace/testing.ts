@@ -139,6 +139,9 @@ export class FakeRegistry implements AgentRegistry {
   setAgentBoot(agentId: string, phase: TerminalBootPhase | null): void {
     this.boots.push({ agentId, phase })
   }
+  refreshQuestions(): void {
+    /* no CLI windows in the fake — attach/push is ipc.ts */
+  }
   terminals(): import('@main/ipc').TerminalDirectory {
     const agents = this.agents
     return {

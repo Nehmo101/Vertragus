@@ -540,6 +540,9 @@
     "closeWindow": "Fenster schließen",
     "searchPlaceholder": "Suchen … (Enter: weiter, Shift+Enter: zurück)",
     "searchClose": "Suche schließen",
+    "userQuestion": "Frage an dich: {{question}}",
+    "answerPlaceholder": "Antwort …",
+    "answerSend": "Antworten",
     "boot": {
       "preparing": "Lauf wird vorbereitet …",
       "worktree": "Worktree wird angelegt …",

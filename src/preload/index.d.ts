@@ -12,6 +12,8 @@ export type {
   TerminalAttachResult,
   TerminalDataEvent,
   TerminalExitEvent,
+  TerminalQuestionEvent,
+  TerminalQuestionInbox,
   VoiceEventPayload,
   VoicePhase,
   VoiceStatusPayload,

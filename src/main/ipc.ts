@@ -21,6 +21,13 @@ import type { TerminalBootPhase } from '@shared/terminalBoot'
 import type { PtyAgentLike, PtyExitInfo } from './agents/PtyAgent'
 import { getSettings } from './store/settings'
 import {
+  authorizeCliAnswer,
+  inboxForCliWindow,
+  sameQuestionInbox,
+  type TerminalQuestionInbox,
+  type TerminalQuestionSource
+} from './terminalQuestion'
+import {
   closeCliWindow,
   getCliWindow,
   isCliWindowMaximized,
@@ -28,6 +35,8 @@ import {
   minimizeCliWindow,
   toggleCliWindowMaximized
 } from './windows/cliWindow'
+
+export type { TerminalQuestionInbox, TerminalQuestionSource } from './terminalQuestion'
 
 export const TERMINAL_CHANNELS = {
   attach: 'terminal:attach',
@@ -37,6 +46,8 @@ export const TERMINAL_CHANNELS = {
   exit: 'terminal:exit',
   task: 'terminal:task',
   boot: 'terminal:boot',
+  question: 'terminal:question',
+  answerQuestion: 'terminal:answerQuestion',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -90,6 +101,17 @@ export interface TerminalAttachResult {
    * Later changes arrive over {@link TERMINAL_CHANNELS.boot}.
    */
   boot?: TerminalBootPhase
+  /**
+   * Open MCP question this window may answer, at attach time. Absent when
+   * none. Later changes arrive over {@link TERMINAL_CHANNELS.question}.
+   */
+  question?: TerminalQuestionInbox
+}
+
+/** Push payload of {@link TERMINAL_CHANNELS.question} — `null` hides the overlay. */
+export interface TerminalQuestionEvent {
+  agentId: string
+  question: TerminalQuestionInbox | null
 }
 
 /** Push payload of {@link TERMINAL_CHANNELS.task} — a new current-task note. */
@@ -136,6 +158,13 @@ export interface AgentRegistry {
    * its next attach.
    */
   setAgentBoot(agentId: string, phase: TerminalBootPhase | null): void
+  /**
+   * Re-read the late-bound question source for every registered agent and
+   * push attached windows whose inbox changed. `PendingQuestions.onMutate`
+   * already drives WorkspaceManager.onChange; the feed calls this there.
+   * Does not focus or show a CLI window.
+   */
+  refreshQuestions(): void
   /** Window gone — stop pushing until it attaches again. */
   markDetached(agentId: string): void
   /**
@@ -225,6 +254,8 @@ interface AgentRecord {
   task: string | undefined
   /** Boot overlay phase; rides on attach and is pushed on change. */
   boot: TerminalBootPhase | null
+  /** Inbox for this window; rides on attach and is pushed on change. */
+  question: TerminalQuestionInbox | null
   unsubscribe: (() => void)[]
 }
 
@@ -246,6 +277,24 @@ let terminalInputSink: TerminalInputSink | undefined
 
 export function setTerminalInputSink(sink: TerminalInputSink | undefined): void {
   terminalInputSink = sink
+}
+
+/**
+ * Late-bound MCP-question source. `registerTerminalIpc()` runs before
+ * WorkspaceManager exists; ipc.ts must not import the manager. A missing
+ * source means attach carries no inbox and `terminal:answerQuestion` refuses.
+ */
+let terminalQuestionSource: TerminalQuestionSource | undefined
+
+export function setTerminalQuestionSource(source: TerminalQuestionSource | undefined): void {
+  terminalQuestionSource = source
+}
+
+function inboxFromSource(agentId: string): TerminalQuestionInbox | null {
+  if (!terminalQuestionSource) return null
+  const ctx = terminalQuestionSource.contextFor(agentId)
+  if (!ctx) return null
+  return inboxForCliWindow(ctx)
 }
 
 export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
@@ -307,6 +356,10 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
     }
     record.pending = ''
     record.attached = true
+    // Live source, not the cached record: a late attach must not miss a
+    // question that opened while this window was gone (same idea as task/boot).
+    const question = inboxFromSource(agentId)
+    record.question = question
     return {
       snapshot: record.entry.pty.snapshot(),
       cols: record.entry.pty.cols,
@@ -316,9 +369,51 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       maximized: host.isWindowMaximized(agentId),
       ...(record.task !== undefined ? { task: record.task } : {}),
       ...(record.boot ? { boot: record.boot } : {}),
+      ...(question ? { question } : {}),
       ...(host.locale ? { locale: host.locale() } : {}),
       ...(host.theme ? { theme: host.theme() } : {})
     }
+  }) as IpcListener)
+
+  host.ipcMain.handle(TERMINAL_CHANNELS.answerQuestion, ((
+    event: { sender: { id: number } },
+    payload?: { agentId?: string; questionId?: string; text?: string }
+  ): Promise<void> => {
+    const senderAgentId = host.senderAgentId(event.sender.id)
+    if (!senderAgentId) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — sender is not a CLI window'))
+    }
+    const agentId = typeof payload?.agentId === 'string' ? payload.agentId : ''
+    const questionId = typeof payload?.questionId === 'string' ? payload.questionId : ''
+    const text = typeof payload?.text === 'string' ? payload.text : ''
+    if (!agentId) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — missing agent id'))
+    }
+    if (!questionId) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — missing question id'))
+    }
+    if (!text.trim()) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — missing answer text'))
+    }
+    if (!terminalQuestionSource) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — no question source'))
+    }
+    const ctx = terminalQuestionSource.contextFor(senderAgentId)
+    if (!ctx) {
+      return Promise.reject(
+        new Error('terminal:answerQuestion rejected — sender is not in a workspace')
+      )
+    }
+    const refusal = authorizeCliAnswer(ctx, { agentId, questionId })
+    if (refusal === 'unknown_question') {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — unknown question'))
+    }
+    if (refusal) {
+      return Promise.reject(
+        new Error('terminal:answerQuestion rejected — sender may not answer this question')
+      )
+    }
+    return terminalQuestionSource.answer(ctx.workspaceId, agentId, questionId, text.trim())
   }) as IpcListener)
 
   const writeUserInput = (record: AgentRecord, data: string): void => {
@@ -410,6 +505,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
         // semantics as the rest of the record.
         task: previous?.task,
         boot: previous?.boot ?? null,
+        question: previous?.question ?? null,
         unsubscribe: []
       }
       agents.set(agentId, record)
@@ -464,6 +560,21 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       }
       const payload: TerminalBootEvent = { agentId, boot: phase }
       host.send(agentId, TERMINAL_CHANNELS.boot, payload)
+    },
+    refreshQuestions(): void {
+      for (const record of agents.values()) {
+        const agentId = record.entry.meta.agentId
+        const next = inboxFromSource(agentId)
+        if (sameQuestionInbox(record.question, next)) continue
+        record.question = next
+        if (!record.attached) continue
+        if (host.hasWindow && !host.hasWindow(agentId)) {
+          record.attached = false
+          continue
+        }
+        const payload: TerminalQuestionEvent = { agentId, question: next }
+        host.send(agentId, TERMINAL_CHANNELS.question, payload)
+      }
     },
     markDetached(agentId: string): void {
       const record = agents.get(agentId)
@@ -533,6 +644,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       }
       host.ipcMain.removeHandler(TERMINAL_CHANNELS.attach)
       host.ipcMain.removeHandler(TERMINAL_CHANNELS.windowMaximize)
+      host.ipcMain.removeHandler(TERMINAL_CHANNELS.answerQuestion)
     }
   }
 }
