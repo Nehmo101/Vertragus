@@ -477,11 +477,16 @@
     background 0.18s ease;
 }
 
-.pe-ghost:hover,
+.pe-ghost:hover:not(:disabled),
 .pe-secondary:hover {
   color: var(--text);
   border-color: rgba(var(--ink-rgb), 0.22);
   background: var(--hover-wash);
+}
+
+.pe-ghost:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .pe-danger {

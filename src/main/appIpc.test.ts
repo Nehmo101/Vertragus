@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('electron', () => ({
   app: { quit: vi.fn() },
   ipcMain: { handle: vi.fn(), on: vi.fn(), removeHandler: vi.fn(), removeAllListeners: vi.fn() },
-  dialog: { showOpenDialog: vi.fn(), showMessageBox: vi.fn() },
+  dialog: { showOpenDialog: vi.fn(), showSaveDialog: vi.fn(), showMessageBox: vi.fn() },
   BrowserWindow: { getAllWindows: () => [] }
 }))
 vi.mock('@main/store/settings', async (importOriginal) => ({
@@ -109,6 +109,10 @@ import { BROWSER_EXTENSION_CHANNELS } from './browserExtension/ipc'
 import type { MinimalIpcMain } from './ipc'
 import type { WorkspaceSummary as PreloadWorkspaceSummary } from '../preload'
 import { profileSchema, type Profile, type RoleTemplate } from '@shared/schema/profile'
+import {
+  packProfileBundle,
+  serializeProfileBundle
+} from '@shared/schema/profileBundle'
 import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import { DEFAULT_APPEARANCE } from '@shared/appearance'
 import type { AppSettings } from './store/settings'
@@ -353,6 +357,10 @@ interface Harness {
   auth: ReturnType<typeof vi.fn>
   discover: ReturnType<typeof vi.fn>
   pick: ReturnType<typeof vi.fn>
+  pickSave: ReturnType<typeof vi.fn>
+  pickOpen: ReturnType<typeof vi.fn>
+  written: Array<{ path: string; text: string }>
+  files: Map<string, string>
   opened: (string | undefined)[]
   /** WP-7: the orchestrator hint each editor-open carried, in the same order. */
   openedHints: (string | undefined)[]
@@ -417,6 +425,10 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     refreshedAt: 1
   }))
   const pick = vi.fn(async () => 'C:/git/picked')
+  const pickSave = vi.fn(async () => 'C:/tmp/vertragus-vertragus.json')
+  const pickOpen = vi.fn(async () => 'C:/tmp/import.json')
+  const written: Array<{ path: string; text: string }> = []
+  const files = new Map<string, string>()
   const result = {
     ipc,
     store,
@@ -425,6 +437,10 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     auth,
     discover,
     pick,
+    pickSave,
+    pickOpen,
+    written,
+    files,
     opened,
     openedHints,
     closed,
@@ -549,6 +565,22 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     checkProviders: health,
     checkProviderAuth: auth,
     pickDirectory: pick,
+    pickSaveFile: pickSave,
+    pickOpenFile: pickOpen,
+    writeTextFile: (path, text) => {
+      written.push({ path, text })
+      files.set(path, text)
+    },
+    readTextFile: (path) => {
+      const text = files.get(path)
+      if (text === undefined) throw new Error(`ENOENT: ${path}`)
+      return text
+    },
+    fileSize: (path) => {
+      const text = files.get(path)
+      if (text === undefined) throw new Error(`ENOENT: ${path}`)
+      return Buffer.byteLength(text, 'utf8')
+    },
     openProfileEditor: (profileId, providerId) => {
       opened.push(profileId)
       openedHints.push(providerId)
@@ -685,6 +717,92 @@ describe('profiles', () => {
 
   it('refuses a delete without an id', () => {
     expect(() => h.ipc.invoke(APP_CHANNELS.profilesDelete, PANEL_ID, {})).toThrow(/missing profile id/)
+  })
+})
+
+describe('profile export / import', () => {
+  it('writes a packed bundle without zones and with the custom roles in use', async () => {
+    const qa: RoleTemplate = { id: 'qa', name: 'QA', prompt: 'Find bugs.', builtin: false }
+    h.store.saveRoleTemplate(qa)
+    h.store.saveProfile({
+      ...profile('p1', 'Vertragus'),
+      rolePrompts: [{ roleId: 'qa', prompt: 'Speak German.' }],
+      slots: [{ id: 'p1-slot', roleId: 'qa', providerId: 'claude' }],
+      zones: { zones: [{ roleId: 'qa', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 0.5 } }] }
+    })
+
+    const result = (await h.ipc.invoke(APP_CHANNELS.profilesExport, EDITOR_ID, {
+      profileId: 'p1'
+    })) as { path: string }
+    expect(result.path).toBe('C:/tmp/vertragus-vertragus.json')
+    expect(h.pickSave).toHaveBeenCalledWith(
+      EDITOR_ID,
+      expect.objectContaining({ defaultPath: 'vertragus-vertragus.json' })
+    )
+    const written = JSON.parse(h.written[0]!.text) as {
+      profile: Profile
+      roleTemplates: RoleTemplate[]
+    }
+    expect(written.profile.zones).toBeUndefined()
+    expect(written.profile.rolePrompts).toEqual([{ roleId: 'qa', prompt: 'Speak German.' }])
+    expect(written.roleTemplates).toEqual([qa])
+  })
+
+  it('returns null when the save dialog is cancelled and writes nothing', async () => {
+    h.pickSave.mockResolvedValueOnce(null)
+    await expect(h.ipc.invoke(APP_CHANNELS.profilesExport, PANEL_ID, { profileId: 'p1' })).resolves.toBe(
+      null
+    )
+    expect(h.written).toEqual([])
+  })
+
+  it('refuses a missing id in English (renderer bug) and an unknown profile in the UI locale', async () => {
+    await expect(h.ipc.invoke(APP_CHANNELS.profilesExport, PANEL_ID, {})).rejects.toThrow(
+      /profiles:export rejected — missing profile id/
+    )
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.profilesExport, PANEL_ID, { profileId: 'ghost' })
+    ).rejects.toThrow(/Unbekanntes Profil ghost/)
+  })
+
+  it('imports a bundle as a new profile, adding its custom role', async () => {
+    const qa: RoleTemplate = { id: 'qa', name: 'QA', prompt: 'Find bugs.', builtin: false }
+    const source = profileSchema.parse({
+      ...profile('foreign', 'UWE'),
+      slots: [{ id: 's1', roleId: 'qa', providerId: 'claude' }],
+      rolePrompts: [{ roleId: 'orchestrator', prompt: 'Be brief.' }],
+      zones: { zones: [{ roleId: 'qa', displayId: 3, rect: { x: 0, y: 0, w: 0.4, h: 0.4 } }] }
+    })
+    h.files.set('C:/tmp/import.json', serializeProfileBundle(packProfileBundle(source, [qa])))
+
+    const profiles = (await h.ipc.invoke(APP_CHANNELS.profilesImport, PANEL_ID)) as Profile[]
+    const imported = profiles.find((entry) => entry.name === 'UWE')
+    expect(imported).toBeDefined()
+    expect(imported!.id).not.toBe('foreign')
+    expect(imported!.zones).toBeUndefined()
+    expect(imported!.rolePrompts).toEqual([{ roleId: 'orchestrator', prompt: 'Be brief.' }])
+    expect(imported!.slots[0]!.roleId).toBe('qa')
+    expect(h.store.getRoleTemplates()).toEqual([qa])
+    expect(h.broadcasts.at(-1)?.channel).toBe(APP_CHANNELS.eventProfiles)
+  })
+
+  it('returns null when the open dialog is cancelled', async () => {
+    h.pickOpen.mockResolvedValueOnce(null)
+    await expect(h.ipc.invoke(APP_CHANNELS.profilesImport, EDITOR_ID)).resolves.toBe(null)
+    expect(h.store.getProfiles()).toHaveLength(2)
+  })
+
+  it('rejects a file that is not a profile', async () => {
+    h.files.set('C:/tmp/import.json', '{"hello":true}')
+    await expect(h.ipc.invoke(APP_CHANNELS.profilesImport, PANEL_ID)).rejects.toThrow(
+      /kein Vertragus-Profil/
+    )
+  })
+
+  it('refuses a file over the size cap before parsing it', async () => {
+    const live = harness({ fileSize: () => 2_000_000 })
+    live.files.set('C:/tmp/import.json', '{}')
+    await expect(live.ipc.invoke(APP_CHANNELS.profilesImport, PANEL_ID)).rejects.toThrow(/zu groß/)
   })
 })
 
@@ -2354,6 +2472,8 @@ describe('sender authorization', () => {
     APP_CHANNELS.profilesList,
     APP_CHANNELS.profilesSave,
     APP_CHANNELS.profilesDelete,
+    APP_CHANNELS.profilesExport,
+    APP_CHANNELS.profilesImport,
     APP_CHANNELS.rolesList,
     APP_CHANNELS.rolesSave,
     APP_CHANNELS.providersList,

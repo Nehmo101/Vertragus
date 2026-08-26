@@ -171,14 +171,24 @@ export function PanelApp(): React.JSX.Element {
               ))}
             </ul>
           )}
-          <button
-            type="button"
-            className="panel-new"
-            title={t('panel.newProfileTitle')}
-            onClick={() => panel.editProfile(undefined)}
-          >
-            {t('panel.newProfile')}
-          </button>
+          <div className="panel-profile-actions">
+            <button
+              type="button"
+              className="panel-new"
+              title={t('panel.newProfileTitle')}
+              onClick={() => panel.editProfile(undefined)}
+            >
+              {t('panel.newProfile')}
+            </button>
+            <button
+              type="button"
+              className="panel-new"
+              title={t('panel.importProfileTitle')}
+              onClick={() => panel.importProfile()}
+            >
+              {t('panel.importProfile')}
+            </button>
+          </div>
         </section>
 
         <section className="panel-section">
