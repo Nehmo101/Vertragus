@@ -1,6 +1,6 @@
 import { homedir, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, safeStorage, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, nativeImage, safeStorage, ipcMain, shell } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { mainMessages, readLocale } from '@shared/mainMessages'
 import { allRoleTemplates, roleColor } from '@shared/prompts/roles'
@@ -46,6 +46,7 @@ import {
 } from './windows/hideAll'
 import { suppressMoveTracking } from './windows/placement'
 import { createPanelWindow, getPanelWindow, isPanelWindowSender } from './windows/panel'
+import { armPanelAttention, attentionOverlayPng } from './windows/panelAttention'
 import { armProfileEditorSmoke, openProfileEditorWindow } from './windows/profileEditor'
 import { armProviderEditorSmoke } from './windows/providerEditor'
 import {
@@ -497,12 +498,28 @@ async function startDevAgent(): Promise<void> {
 
 let appMcp: McpServerHandle | undefined
 let appManager: WorkspaceManager | undefined
+let disposePanelAttention: (() => void) | undefined
 let devRun: DevRunHandle | undefined
 let appVoice: AppVoice | undefined
 
 function sendToPanel(channel: string, payload: unknown): void {
   const win = getPanelWindow()
   if (win && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)
+}
+
+/** Windows taskbar overlay for open questions; null if the image cannot be built. */
+function panelAttentionOverlay(): { image: Electron.NativeImage; description: () => string } | null {
+  try {
+    const image = nativeImage.createFromBuffer(attentionOverlayPng())
+    if (image.isEmpty()) return null
+    return {
+      image,
+      description: () =>
+        mainMessages(readLocale(() => getSettings().ui.locale)).panelAttentionOverlay
+    }
+  } catch {
+    return null
+  }
 }
 
 function broadcastPanelSettings(): void {
@@ -628,6 +645,17 @@ app.whenReady().then(async () => {
     const directory = panelDirectory(appManager, appMcp)
     registerAppIpc(directory, undefined, attachVoice(directory).port)
     armTerminalTaskFeed(appManager, appMcp)
+    // Native taskbar/dock blink for open questions. Driven by the same
+    // onMutate → onChange feed that refreshes panel badges. flashFrame is
+    // the unfocused path; the overlay toggles so the icon still blinks
+    // while the panel already has focus (Windows flashFrame is a no-op then).
+    disposePanelAttention = armPanelAttention({
+      window: getPanelWindow,
+      dock: () => app.dock ?? null,
+      overlay: panelAttentionOverlay(),
+      openCount: () => appMcp?.openQuestionCount() ?? 0,
+      onChange: (listener) => appManager?.onChange(listener) ?? (() => undefined)
+    })
     // Late-bound: registerTerminalIpc ran before the manager existed. ipc.ts
     // must not import WorkspaceManager. Seed / sendToAgent / assignGoal paste
     // go through pty.write and never hit this sink.
@@ -766,6 +794,8 @@ app.whenReady().then(async () => {
 app.on('will-quit', () => {
   // A leaked global shortcut outlives the process on Windows.
   unregisterHideAllShortcut()
+  disposePanelAttention?.()
+  disposePanelAttention = undefined
 })
 
 /**

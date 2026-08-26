@@ -52,6 +52,8 @@ export function createPanelWindow(): BrowserWindow {
     resizable: false,
     maximizable: false,
     fullscreenable: false,
+    // The panel is the app's taskbar/dock target (CLI windows must not
+    // flash). Native attention in panelAttention.ts flashes this window.
     skipTaskbar: false,
     alwaysOnTop: true
   })
