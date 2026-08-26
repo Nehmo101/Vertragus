@@ -102,10 +102,18 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
   const roleLabel = (roleId: string): string =>
     allRoleTemplates(getRoleTemplates()).find((role) => role.id === roleId)?.name ?? roleId
 
-  const pendingOf = (
-    workspaceId: string,
-    agentId: string
-  ): { questionId: string; question: string } | undefined => mcp.openQuestion(workspaceId, agentId)
+  const pendingOf = (workspaceId: string, agentId: string) => mcp.openQuestion(workspaceId, agentId)
+
+  const pendingFields = (open: ReturnType<McpServerHandle['openQuestion']>) =>
+    open
+      ? {
+          pendingQuestion: open.question,
+          pendingQuestionId: open.questionId,
+          ...(open.choices && open.choices.length > 0
+            ? { pendingQuestionChoices: open.choices }
+            : {})
+        }
+      : {}
 
   // Active paths across ALL workspaces, not just the asking profile's: two
   // profiles may point at the same repository, and an agent of either must
@@ -181,12 +189,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     // Latest user CLI submit — not the last delegated start_agent.
                     ...agentCurrentTaskFields(ws.orchestratorTaskText),
                     ...(windowOpenOf(orchestrator.agentId) ? { windowOpen: true } : {}),
-                    ...(orchestratorQuestion
-                      ? {
-                          pendingQuestion: orchestratorQuestion.question,
-                          pendingQuestionId: orchestratorQuestion.questionId
-                        }
-                      : {})
+                    ...pendingFields(orchestratorQuestion)
                   }
                 ]
               : []),
@@ -215,12 +218,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                 ...(parentId ? { parentId } : {}),
                 ...agentCurrentTaskFields(agentTask),
                 ...(windowOpenOf(agent.agentId) ? { windowOpen: true } : {}),
-                ...(pendingQuestion
-                  ? {
-                      pendingQuestion: pendingQuestion.question,
-                      pendingQuestionId: pendingQuestion.questionId
-                    }
-                  : {})
+                ...pendingFields(pendingQuestion)
               }
             })
           ]

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PendingQuestions } from './pendingQuestions'
+import { PendingQuestions, toOpenQuestionView } from './pendingQuestions'
 
 function registry(): PendingQuestions {
   let n = 0
@@ -156,5 +156,41 @@ describe('PendingQuestions', () => {
     off()
     questions.create('a3', 'after?')
     expect(n).toBe(6)
+  })
+
+  it('persists choices on create/get/list/answer and copies them so callers cannot mutate the registry', () => {
+    const questions = registry()
+    const labels = ['Postgres', 'SQLite']
+    const created = questions.create('a1', 'which db?', { choices: labels })
+    labels.push('MySQL')
+    expect(created.choices).toEqual(['Postgres', 'SQLite'])
+    expect(questions.get(created.questionId)?.choices).toEqual(['Postgres', 'SQLite'])
+    expect(questions.openForAgent('a1')?.choices).toEqual(['Postgres', 'SQLite'])
+    expect(questions.listOpen()[0]?.choices).toEqual(['Postgres', 'SQLite'])
+    expect(questions.answer(created.questionId, 'Postgres')?.choices).toEqual(['Postgres', 'SQLite'])
+    expect(questions.create('a2', 'plain?').choices).toBeUndefined()
+  })
+
+  it('omits an empty choices array rather than storing it', () => {
+    const questions = registry()
+    expect(questions.create('a1', 'q?', { choices: [] }).choices).toBeUndefined()
+  })
+
+  it('toOpenQuestionView copies choices and never leaks deliverAnswer', () => {
+    const questions = registry()
+    const created = questions.create('a1', 'which file?', {
+      choices: ['src/a.ts', 'src/b.ts'],
+      deliverAnswer: async () => undefined
+    })
+    expect(created.deliverAnswer).toBeTypeOf('function')
+    expect(toOpenQuestionView(created)).toEqual({
+      questionId: created.questionId,
+      question: 'which file?',
+      choices: ['src/a.ts', 'src/b.ts']
+    })
+    expect(toOpenQuestionView(questions.create('a2', 'plain?'))).toEqual({
+      questionId: 'q2',
+      question: 'plain?'
+    })
   })
 })

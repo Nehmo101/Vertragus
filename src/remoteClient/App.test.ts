@@ -24,6 +24,15 @@ import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(fileURLToPath(new URL('./App.tsx', import.meta.url)), 'utf8')
 
+describe('AnswerForm choice buttons', () => {
+  it('uses the shared helper, submits a tapped label, and keeps Send disabled on blank custom text', () => {
+    expect(source).toContain('questionChoicesDisplay')
+    expect(source).toContain('className="answer-choice"')
+    expect(source).toContain('onClick={() => submit(choice)}')
+    expect(source).toContain('disabled={busy || !text.trim()}')
+  })
+})
+
 describe('a composer draft counts as live exactly while its composer is drawn', () => {
   it('is reading a file that still has both ends', () => {
     // Self-check: every assertion below is a claim about these two lines, and

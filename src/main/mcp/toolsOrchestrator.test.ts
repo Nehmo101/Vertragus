@@ -105,6 +105,45 @@ describe('ask_user — D3', () => {
     expect(wrong.json.error).toBe('question_agent_mismatch')
     expect(runtime.questions.openForAgent('user')?.questionId).toBe(ticket)
   })
+
+  it('persists choices on create, carries them on user_question, and keeps them on ticket resume', async () => {
+    const { runtime, tools } = setup()
+    runtime.ctx.askTimeoutMs = 10
+    const first = await callTool(tools, 'ask_user', {
+      question: 'Ship v1 without dark mode?',
+      choices: ['Ship it', 'Wait']
+    })
+    const ticket = String(first.json.ticket)
+    const open = runtime.questions.openForAgent('user')
+    expect(open?.choices).toEqual(['Ship it', 'Wait'])
+    expect(runtime.events.all().filter((event) => event.type === 'user_question')[0]).toMatchObject({
+      questionId: ticket,
+      question: 'Ship v1 without dark mode?',
+      choices: ['Ship it', 'Wait']
+    })
+
+    const resumed = callTool(tools, 'ask_user', {
+      question: 'unchanged',
+      choices: ['Ignored'],
+      ticket
+    })
+    expect(runtime.questions.openForAgent('user')?.choices).toEqual(['Ship it', 'Wait'])
+    runtime.questions.answer(ticket, 'Ship it')
+    expect((await resumed).json).toMatchObject({ answer: 'Ship it', ticket })
+  })
+
+  it('rejects duplicate or oversized choices', async () => {
+    const { tools } = setup()
+    await expect(
+      callTool(tools, 'ask_user', { question: 'Q?', choices: ['Yes', 'Yes'] })
+    ).rejects.toThrow()
+    await expect(
+      callTool(tools, 'ask_user', {
+        question: 'Q?',
+        choices: Array.from({ length: 29 }, (_, i) => `c${i}`)
+      })
+    ).rejects.toThrow()
+  })
 })
 
 describe('C5 idle-watchdog touch', () => {

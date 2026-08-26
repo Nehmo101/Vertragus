@@ -20,3 +20,15 @@ describe('WorkspaceCard goal visibility', () => {
     expect(source).toContain('<RunTimeline')
   })
 })
+
+describe('WorkspaceCard question choices', () => {
+  const source = readFileSync(join(__dirname, 'WorkspaceCard.tsx'), 'utf8')
+
+  it('resolves buttons through the shared helper and still keeps a custom Send', () => {
+    expect(source).toContain('questionChoicesDisplay')
+    expect(source).toContain('className="panel-answer-choice"')
+    expect(source).toContain('onSubmit(choice)')
+    expect(source).toContain('className="panel-answer-send"')
+    expect(source).toContain('disabled={!answer.trim()}')
+  })
+})

@@ -326,6 +326,37 @@ describe('ask_orchestrator', () => {
     expect(result.json).toMatchObject({ answer: null, ticket: null })
     expect(String(result.json.note)).toMatch(/stop waiting/i)
   })
+
+  it('persists choices, emits them on agent_question, and keeps them on ticket resume', async () => {
+    const { runtime, tools, agentId } = await setup(20)
+    const first = await callTool(tools, 'ask_orchestrator', {
+      question: 'which db?',
+      choices: ['Postgres', 'SQLite']
+    })
+    const ticket = String(first.json.ticket)
+    expect(runtime.questions.openForAgent(agentId)?.choices).toEqual(['Postgres', 'SQLite'])
+    expect(questionEvents(runtime.events.all())[0]).toMatchObject({
+      question: 'which db?',
+      choices: ['Postgres', 'SQLite']
+    })
+
+    const second = callTool(tools, 'ask_orchestrator', {
+      question: 'which db?',
+      choices: ['Ignored'],
+      ticket
+    })
+    expect(runtime.questions.openForAgent(agentId)?.choices).toEqual(['Postgres', 'SQLite'])
+    runtime.questions.answer(ticket, 'Postgres')
+    expect((await second).json).toMatchObject({ answer: 'Postgres', ticket })
+    expect(questionEvents(runtime.events.all())).toHaveLength(1)
+  })
+
+  it('rejects duplicate choices', async () => {
+    const { tools } = await setup(20)
+    await expect(
+      callTool(tools, 'ask_orchestrator', { question: 'q?', choices: ['a', 'a'] })
+    ).rejects.toThrow()
+  })
 })
 
 describe('resolveAskTimeoutMs', () => {

@@ -8,6 +8,7 @@ import {
   canSpawnHelpers,
   ensureNest,
   queueForAgent,
+  slimAgentsSummary,
   summarizeAgents
 } from './types'
 import { FakeAgentHost, fakeRuntime } from './testing'
@@ -168,5 +169,27 @@ describe('summarizeAgents childCount', () => {
     const rows = summarizeAgents(runtime)
     const worker = rows.find((row) => row.agentId === workerId)
     expect(worker?.childCount).toBe(1)
+  })
+})
+
+describe('summarizeAgents pendingQuestionChoices', () => {
+  it('copies open choices onto the full and slim rows', () => {
+    const runtime = fakeRuntime()
+    const host = runtime.host as FakeAgentHost
+    host.beginAgent({ role: 'worker', task: 't' })
+    const workerId = [...host.agents.keys()][0]!
+    runtime.questions.create(workerId, 'which db?', { choices: ['Postgres', 'SQLite'] })
+
+    const full = summarizeAgents(runtime).find((row) => row.agentId === workerId)
+    expect(full).toMatchObject({
+      pendingQuestion: 'which db?',
+      pendingQuestionChoices: ['Postgres', 'SQLite']
+    })
+    const slim = slimAgentsSummary(runtime).find((row) => row.agentId === workerId)
+    expect(slim).toMatchObject({
+      pendingQuestion: 'which db?',
+      pendingQuestionChoices: ['Postgres', 'SQLite']
+    })
+    expect(slim).not.toHaveProperty('worktreePath')
   })
 })

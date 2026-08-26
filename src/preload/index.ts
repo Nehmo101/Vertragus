@@ -329,6 +329,8 @@ export interface WorkspaceAgentSummary {
   pendingQuestion?: string
   /** Id of that open question — what `answerQuestion` addresses. */
   pendingQuestionId?: string
+  /** Short labels for that open question, when the asker passed `choices`. */
+  pendingQuestionChoices?: string[]
 }
 
 /** S4: one row of the run's task board. Mirrors main's WorkspaceTaskSummary. */
@@ -362,7 +364,7 @@ export interface WorkspaceSummary {
   /** C6: a successor orchestrator is spawning — the card shows a badge. */
   successionInProgress?: true
   /** D3: the orchestrator's open ask_user question (answer with agentId "user"). */
-  userQuestion?: { questionId: string; question: string }
+  userQuestion?: { questionId: string; question: string; choices?: string[] }
   agents: WorkspaceAgentSummary[]
   /** S4: the run's task board, capped and tombstone-free. Absent = no plan yet. */
   tasks?: WorkspaceTaskSummary[]

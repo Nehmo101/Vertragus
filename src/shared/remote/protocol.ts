@@ -114,6 +114,8 @@ export interface RemoteAgentSummary {
   pendingQuestion?: string
   /** Registry id of that open question — what `answer_question` addresses. */
   pendingQuestionId?: string
+  /** Short labels for that open question, when the asker passed `choices`. */
+  pendingQuestionChoices?: string[]
 }
 
 /**
@@ -148,7 +150,7 @@ export interface RemoteWorkspaceSummary {
   /** C5: orchestrator alive but silent on its tools — the card shows a hint. */
   orchestratorIdle?: boolean
   /** D3: the orchestrator's open ask_user question (answer with agentId "user"). */
-  userQuestion?: { questionId: string; question: string }
+  userQuestion?: { questionId: string; question: string; choices?: string[] }
   agents: RemoteAgentSummary[]
   /**
    * S4: the run's task board, capped and tombstone-free by the panel. Absent

@@ -22,14 +22,41 @@ export interface PendingQuestion {
   question: string
   createdAt: number
   /**
+   * Optional short labels for a decision. The human taps one to submit that
+   * label as the answer; the custom text field stays available either way.
+   * Sentinel PTY questions leave this unset — buttons then come only from
+   * parsing the question text.
+   */
+  choices?: string[]
+  /**
    * Optional PTY delivery for sentinel questions. Invoked by
    * `send_to_agent{questionId}` after {@link PendingQuestions.answer} returns.
+   * Never copied onto the panel / remote view ({@link toOpenQuestionView}).
    */
   deliverAnswer?: (answer: string) => Promise<void>
 }
 
 export interface CreateQuestionOptions {
   deliverAnswer?: (answer: string) => Promise<void>
+  choices?: string[]
+}
+
+/**
+ * Renderer-safe open question — id, prompt, optional choices. Never includes
+ * {@link PendingQuestion.deliverAnswer}.
+ */
+export interface OpenQuestionView {
+  questionId: string
+  question: string
+  choices?: string[]
+}
+
+export function toOpenQuestionView(question: PendingQuestion): OpenQuestionView {
+  return {
+    questionId: question.questionId,
+    question: question.question,
+    ...(question.choices && question.choices.length > 0 ? { choices: question.choices } : {})
+  }
 }
 
 export type AwaitAnswerResult =
@@ -45,12 +72,18 @@ interface OpenEntry extends PendingQuestion {
 /** How many answered questions stay resolvable for a late ticket resume. */
 const ANSWERED_MEMORY = 50
 
+function copiedChoices(choices: readonly string[] | undefined): string[] | undefined {
+  if (!choices || choices.length === 0) return undefined
+  return [...choices]
+}
+
 function publicQuestion(entry: OpenEntry): PendingQuestion {
   return {
     questionId: entry.questionId,
     agentId: entry.agentId,
     question: entry.question,
     createdAt: entry.createdAt,
+    ...(entry.choices && entry.choices.length > 0 ? { choices: entry.choices } : {}),
     ...(entry.deliverAnswer ? { deliverAnswer: entry.deliverAnswer } : {})
   }
 }
@@ -91,12 +124,14 @@ export class PendingQuestions {
 
   /** Register a new question and return it (the caller pushes the event). */
   create(agentId: string, question: string, options: CreateQuestionOptions = {}): PendingQuestion {
+    const choices = copiedChoices(options.choices)
     const entry: OpenEntry = {
       questionId: this.newId(),
       agentId,
       question,
       createdAt: this.now(),
       waiters: new Set(),
+      ...(choices ? { choices } : {}),
       ...(options.deliverAnswer ? { deliverAnswer: options.deliverAnswer } : {})
     }
     this.open.set(entry.questionId, entry)

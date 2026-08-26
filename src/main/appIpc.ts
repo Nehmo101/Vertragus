@@ -280,6 +280,12 @@ export interface WorkspaceAgentSummary {
    * {@link pendingQuestion}.
    */
   pendingQuestionId?: string
+  /**
+   * Short labels for that open question. Always set together with
+   * {@link pendingQuestion} when the asker passed `choices` (or omitted when
+   * the UI should parse the question text / stay text-only).
+   */
+  pendingQuestionChoices?: string[]
 }
 
 /**
@@ -355,7 +361,7 @@ export interface WorkspaceSummary {
    * badge. Answered over the same `workspaces:answerQuestion` channel with
    * the reserved agent id `user`.
    */
-  userQuestion?: { questionId: string; question: string }
+  userQuestion?: { questionId: string; question: string; choices?: string[] }
   agents: WorkspaceAgentSummary[]
   /**
    * S4: the run's task board, capped at {@link PANEL_TASKS_MAX} and free of

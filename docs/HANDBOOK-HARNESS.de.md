@@ -365,8 +365,11 @@ Orchestrator-Tool, blockierend, Ticket wie `ask_orchestrator`.
 best-supported option“ fällt.
 
 Subagent-Fragen: derselbe Host-Pfad wie H1 `answer_question`.
-User-Fragen: Auflösen des `ask_user`-Waiters. Ein Textfeld, zwei
-Backends.
+User-Fragen: Auflösen des `ask_user`-Waiters. Auswahl-Buttons, wenn die
+Frage strukturierte `choices` trägt (oder eine parsebare nummerierte /
+buchstabierte / Aufzählungsliste mit mindestens zwei Einträgen); das
+freie Textfeld bleibt darunter sichtbar. Offene Fragen bleiben Prompt +
+Textfeld.
 
 ### D4 Yolo als Policy
 

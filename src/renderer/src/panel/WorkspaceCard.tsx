@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { questionChoicesDisplay } from '@shared/questionChoices'
 import type { VertragusAppApi, WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
 import { activeLocale } from '../i18n'
 import { LoreTip } from '../lore/LoreTip'
@@ -50,12 +51,16 @@ function AgentRow({ agent, nested, onFocus, onCloseWindow, onAnswer, onPromote }
   const question = agent.pendingQuestion
   const questionId = agent.pendingQuestionId
 
-  const submit = (): void => {
-    if (!questionId || !answer.trim()) return
-    onAnswer(agent.agentId, questionId, answer.trim())
+  const submit = (text: string): void => {
+    if (!questionId || !text.trim()) return
+    onAnswer(agent.agentId, questionId, text.trim())
     setAnswer('')
     setAnswering(false)
   }
+  const display =
+    question && questionId
+      ? questionChoicesDisplay(question, agent.pendingQuestionChoices)
+      : { prompt: '', choices: [] as string[] }
 
   return (
     // F: children of a lead indent under it — flat list, no tree widget.
@@ -119,30 +124,18 @@ function AgentRow({ agent, nested, onFocus, onCloseWindow, onAnswer, onPromote }
       ) : null}
       {answering && question && questionId ? (
         <div className="panel-answer">
-          <p className="panel-answer-question">{question}</p>
-          <textarea
-            className="panel-answer-input"
-            rows={2}
+          <AnswerFields
+            prompt={display.prompt}
+            choices={display.choices}
+            answer={answer}
+            onAnswerChange={setAnswer}
+            onSubmit={submit}
+            onEscape={() => setAnswering(false)}
             placeholder={t('panel.answerPlaceholder')}
-            value={answer}
+            sendLabel={t('panel.answerSend')}
+            choiceLabel={(choice) => t('panel.answerChoice', { choice })}
             autoFocus
-            onChange={(event) => setAnswer(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                submit()
-              }
-              if (event.key === 'Escape') setAnswering(false)
-            }}
           />
-          <button
-            type="button"
-            className="panel-answer-send"
-            disabled={!answer.trim()}
-            onClick={submit}
-          >
-            {t('panel.answerSend')}
-          </button>
         </div>
       ) : null}
     </li>
@@ -181,40 +174,113 @@ function UserQuestion({
   workspaceId,
   question,
   questionId,
+  choices,
   onAnswer
 }: {
   workspaceId: string
   question: string
   questionId: string
+  choices?: string[]
   onAnswer(workspaceId: string, agentId: string, questionId: string, text: string): void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [answer, setAnswer] = useState('')
-  const submit = (): void => {
-    if (!answer.trim()) return
-    onAnswer(workspaceId, 'user', questionId, answer.trim())
+  const display = questionChoicesDisplay(question, choices)
+  const submit = (text: string): void => {
+    if (!text.trim()) return
+    onAnswer(workspaceId, 'user', questionId, text.trim())
     setAnswer('')
   }
   return (
     <div className="panel-answer panel-user-question">
-      <p className="panel-answer-question">{t('panel.userQuestion', { question })}</p>
+      <AnswerFields
+        prompt={t('panel.userQuestion', { question: display.prompt })}
+        choices={display.choices}
+        answer={answer}
+        onAnswerChange={setAnswer}
+        onSubmit={submit}
+        placeholder={t('panel.answerPlaceholder')}
+        sendLabel={t('panel.answerSend')}
+        choiceLabel={(choice) => t('panel.answerChoice', { choice })}
+      />
+    </div>
+  )
+}
+
+/**
+ * Prompt, optional choice chips, always-visible custom textarea + Send.
+ * Tapping a chip submits that label immediately; Send stays disabled on blank
+ * custom text.
+ */
+function AnswerFields({
+  prompt,
+  choices,
+  answer,
+  onAnswerChange,
+  onSubmit,
+  onEscape,
+  placeholder,
+  sendLabel,
+  choiceLabel,
+  autoFocus
+}: {
+  prompt: string
+  choices: readonly string[]
+  answer: string
+  onAnswerChange(value: string): void
+  onSubmit(text: string): void
+  onEscape?(): void
+  placeholder: string
+  sendLabel: string
+  choiceLabel(choice: string): string
+  autoFocus?: boolean
+}): React.JSX.Element {
+  const submitCustom = (): void => {
+    if (!answer.trim()) return
+    onSubmit(answer.trim())
+  }
+  return (
+    <>
+      <p className="panel-answer-question">{prompt}</p>
+      {choices.length > 0 ? (
+        <div className="panel-answer-choices">
+          {choices.map((choice) => (
+            <button
+              key={choice}
+              type="button"
+              className="panel-answer-choice"
+              aria-label={choiceLabel(choice)}
+              onClick={() => onSubmit(choice)}
+            >
+              {choice}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <textarea
         className="panel-answer-input"
         rows={2}
-        placeholder={t('panel.answerPlaceholder')}
+        placeholder={placeholder}
         value={answer}
-        onChange={(event) => setAnswer(event.target.value)}
+        autoFocus={autoFocus}
+        onChange={(event) => onAnswerChange(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault()
-            submit()
+            submitCustom()
           }
+          if (event.key === 'Escape') onEscape?.()
         }}
       />
-      <button type="button" className="panel-answer-send" disabled={!answer.trim()} onClick={submit}>
-        {t('panel.answerSend')}
+      <button
+        type="button"
+        className="panel-answer-send"
+        disabled={!answer.trim()}
+        onClick={submitCustom}
+      >
+        {sendLabel}
       </button>
-    </div>
+    </>
   )
 }
 
@@ -558,6 +624,7 @@ export function WorkspaceCard({
               workspaceId={workspace.workspaceId}
               question={workspace.userQuestion.question}
               questionId={workspace.userQuestion.questionId}
+              choices={workspace.userQuestion.choices}
               onAnswer={onAnswerQuestion}
             />
           ) : null}
