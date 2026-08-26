@@ -576,6 +576,12 @@ export class Workspace implements AgentHost {
    * the merge starts, so `record_retro` and Stop cannot promote twice.
    */
   private orchestratorPromoteStarted = false
+  /**
+   * Shared wrap-up: `record_retro` and Stop both call {@link finishRunAutomation}.
+   * The second waiter joins this promise so it cannot promote while the first
+   * is still in {@link openRunPullRequest}.
+   */
+  private finishRunAutomationInFlight: Promise<RunPullRequest | undefined> | undefined
   /** C5 idle watchdog: when the orchestrator last called one of its tools. */
   private orchestratorLastToolAt = 0
   private orchestratorIdleTimer: ReturnType<typeof setTimeout> | undefined
@@ -1485,26 +1491,33 @@ export class Workspace implements AgentHost {
    * orchestrator branch into the repository checkout. Either step is a no-op
    * when its profile switch is off. At most once per side; never throws — a
    * failed PR is a recorded answer, a failed promote is an `integrate_conflict`
-   * event.
+   * event. Concurrent callers share one in-flight promise (first caller's
+   * options win, same as {@link openRunPullRequest}) so Stop cannot promote
+   * while `record_retro` is still choosing the PR head.
    */
   async finishRunAutomation(options: { summary?: string } = {}): Promise<RunPullRequest | undefined> {
-    let pullRequest: RunPullRequest | undefined
-    try {
-      pullRequest = await this.openRunPullRequest(options)
-    } catch (error) {
-      pullRequest = {
-        ok: false,
-        branch: this.orchestratorRecord?.branch ?? '',
-        base: '',
-        message: errorText(error)
+    if (this.finishRunAutomationInFlight) return this.finishRunAutomationInFlight
+    const wrapUp = (async (): Promise<RunPullRequest | undefined> => {
+      let pullRequest: RunPullRequest | undefined
+      try {
+        pullRequest = await this.openRunPullRequest(options)
+      } catch (error) {
+        pullRequest = {
+          ok: false,
+          branch: this.orchestratorRecord?.branch ?? '',
+          base: '',
+          message: errorText(error)
+        }
       }
-    }
-    try {
-      await this.autoPromoteOrchestrator()
-    } catch {
-      /* the promote reports as an event; never fail the wrap-up */
-    }
-    return pullRequest
+      try {
+        await this.autoPromoteOrchestrator()
+      } catch {
+        /* the promote reports as an event; never fail the wrap-up */
+      }
+      return pullRequest
+    })()
+    this.finishRunAutomationInFlight = wrapUp
+    return wrapUp
   }
 
   /**
