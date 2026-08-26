@@ -48,6 +48,7 @@ const CHANNELS = {
   session: 'terminal:session',
   followup: 'terminal:followup',
   answer: 'terminal:answer',
+  image: 'terminal:image',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -120,6 +121,14 @@ const terminal = {
   input: (data: string): void => {
     ipcRenderer.send(CHANNELS.input, data)
   },
+  /**
+   * Save a clipboard/drop image into THIS window's agent worktree and return
+   * the relative path. Sender-bound in main — the renderer cannot pick agent.
+   * `write` stays a string; this never sends bytes to the PTY.
+   */
+  image: (
+    source: 'clipboard' | { absPath: string } | { bytes: Uint8Array; mime?: string } = 'clipboard'
+  ): Promise<{ relativePath: string } | null> => ipcRenderer.invoke(CHANNELS.image, { source }),
   resize: (cols: number, rows: number): void => {
     ipcRenderer.send(CHANNELS.resize, { cols, rows })
   },
@@ -223,6 +232,7 @@ const APP = {
   workspacesUserMessage: 'workspaces:userMessage',
   workspacesPromoteAgent: 'workspaces:promoteAgent',
   workspacesOpenRunFolder: 'workspaces:openRunFolder',
+  attachmentsSave: 'attachments:save',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
@@ -609,8 +619,22 @@ const app = {
     ipcRenderer.invoke(APP.modelsDiscover, { providerId }),
   listWorkspaces: (): Promise<WorkspaceSummary[]> => ipcRenderer.invoke(APP.workspacesList),
   /** Start a workspace; `goal` (optional) is seeded into the orchestrator. */
-  startWorkspace: (profileId: string, goal?: string): Promise<void> =>
-    ipcRenderer.invoke(APP.workspacesStart, { profileId, ...(goal ? { goal } : {}) }),
+  startWorkspace: (profileId: string, goal?: string, attachmentIds?: string[]): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesStart, {
+      profileId,
+      ...(goal ? { goal } : {}),
+      ...(attachmentIds?.length ? { attachmentIds } : {})
+    }),
+  /**
+   * Save one image. Pre-start `{profileId}` stages in userData; live
+   * `{workspaceId, agentId?}` writes the agent's worktree. Clipboard is
+   * `'clipboard'` so main reads the OS clipboard (zero IPC bytes).
+   */
+  saveAttachment: (
+    target: { profileId: string } | { workspaceId: string; agentId?: string },
+    source: 'clipboard' | { absPath: string } | { bytes: Uint8Array; mime?: string }
+  ): Promise<{ relativePath: string; stagingId?: string } | null> =>
+    ipcRenderer.invoke(APP.attachmentsSave, { ...target, source }),
   /**
    * H2 refill: hand a workspace that was started bare its goal now. Rejects
    * readably when the run already has one (steer it with a message instead) or

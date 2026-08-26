@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -9,7 +10,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * modules are mocked away wholesale and never actually run here.
  */
 vi.mock('electron', () => ({
-  app: { quit: vi.fn() },
+  app: { quit: vi.fn(), getPath: vi.fn(() => '/userData') },
+  clipboard: {
+    readImage: vi.fn(() => ({ isEmpty: () => true, toPNG: () => Buffer.alloc(0) }))
+  },
   ipcMain: { handle: vi.fn(), on: vi.fn(), removeHandler: vi.fn(), removeAllListeners: vi.fn() },
   dialog: { showOpenDialog: vi.fn(), showSaveDialog: vi.fn(), showMessageBox: vi.fn() },
   BrowserWindow: { getAllWindows: () => [] }
@@ -118,6 +122,7 @@ import { DEFAULT_APPEARANCE } from '@shared/appearance'
 import type { AppSettings } from './store/settings'
 import type { ProviderConfig, ProviderConfigInput } from '@shared/schema/provider'
 import { extraMcpServerSchema, type ExtraMcpServer } from '@shared/schema/mcpServer'
+import { createStagingStore, stagingDirFor } from './attachments'
 import { mergeProviderConfigs, providerConfigSchema } from '@shared/schema/provider'
 import type { ProviderHealth } from './providers/health'
 
@@ -335,7 +340,8 @@ interface Harness {
   store: ReturnType<typeof createFakeStore>
   broadcasts: { channel: string; payload: unknown }[]
   directory: WorkspaceDirectory & {
-    started: Array<{ profileId: string; goal?: string }>
+    started: Array<{ profileId: string; goal?: string; attachmentIds?: string[] }>
+    worktrees: Record<string, string>
     goalsAssigned: Array<{ workspaceId: string; goal: string }>
     resumed: string[]
     sentToOrchestrator: Array<{ workspaceId: string; text: string }>
@@ -478,7 +484,8 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
   }
 
   const directory = {
-    started: [] as Array<{ profileId: string; goal?: string }>,
+    started: [] as Array<{ profileId: string; goal?: string; attachmentIds?: string[] }>,
+    worktrees: {} as Record<string, string>,
     goalsAssigned: [] as Array<{ workspaceId: string; goal: string }>,
     resumed: [] as string[],
     sentToOrchestrator: [] as Array<{ workspaceId: string; text: string }>,
@@ -496,8 +503,15 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
       { path: '/repo/.vertragus/worktrees/old-1', branch: 'vertragus/paradiso/caronte' }
     ] as { path: string; branch?: string }[],
     list: () => state.workspaces,
-    start(profileId: string, goal?: string) {
-      this.started.push({ profileId, ...(goal !== undefined ? { goal } : {}) })
+    start(profileId: string, goal?: string, attachmentIds?: readonly string[]) {
+      this.started.push({
+        profileId,
+        ...(goal !== undefined ? { goal } : {}),
+        ...(attachmentIds?.length ? { attachmentIds: [...attachmentIds] } : {})
+      })
+    },
+    worktreePathOf(workspaceId: string, agentId?: string) {
+      return this.worktrees[`${workspaceId}:${agentId ?? ''}`]
     },
     async assignGoal(workspaceId: string, goal: string) {
       this.goalsAssigned.push({ workspaceId, goal })
@@ -1093,6 +1107,128 @@ describe('workspaces', () => {
     ])
   })
 
+  it('forwards attachmentIds on start and never treats them as bytes', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesStart, PANEL_ID, {
+      profileId: 'p1',
+      goal: 'see .vertragus/attachments/screenshot-aa.png',
+      attachmentIds: ['id1', 'id2']
+    })
+    expect(h.directory.started).toEqual([
+      {
+        profileId: 'p1',
+        goal: 'see .vertragus/attachments/screenshot-aa.png',
+        attachmentIds: ['id1', 'id2']
+      }
+    ])
+  })
+})
+
+describe('attachments:save', () => {
+  const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
+  let userData: string
+  let worktree: string
+
+  beforeEach(() => {
+    userData = mkdtempSync(join(tmpdir(), 'vertragus-ipc-ud-'))
+    worktree = mkdtempSync(join(tmpdir(), 'vertragus-ipc-wt-'))
+  })
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+    rmSync(worktree, { recursive: true, force: true })
+  })
+
+  function attachHarness() {
+    const live = harness({
+      stagingStore: createStagingStore({ dir: stagingDirFor(userData) }),
+      readClipboardImage: () => ({ isEmpty: () => false, toPNG: () => PNG })
+    })
+    live.directory.worktrees['w1:'] = worktree
+    live.directory.worktrees['w1:agent-w'] = worktree
+    return live
+  }
+
+  it('stages a clipboard image for a profile without touching repoPath', async () => {
+    const live = attachHarness()
+    const result = (await live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, {
+      profileId: 'p1',
+      source: 'clipboard'
+    })) as { relativePath: string; stagingId: string }
+    expect(result.relativePath).toMatch(/^\.vertragus\/attachments\/screenshot-[a-z0-9]+\.png$/)
+    expect(result.stagingId).toBeTruthy()
+    expect(existsSync(join(userData, 'attachment-staging', result.stagingId, 'payload'))).toBe(true)
+    expect(existsSync(join('C:/git/demo', '.vertragus'))).toBe(false)
+  })
+
+  it('writes a live workspace image into the agent worktree', async () => {
+    const live = attachHarness()
+    const result = (await live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, {
+      workspaceId: 'w1',
+      source: { bytes: PNG, mime: 'image/png' }
+    })) as { relativePath: string }
+    expect(result.relativePath).toMatch(/^\.vertragus\/attachments\//)
+    expect(existsSync(join(worktree, ...result.relativePath.split('/')))).toBe(true)
+    expect(readFileSync(join(worktree, '.vertragus', '.gitignore'), 'utf8')).toBe('*\n')
+  })
+
+  it('empty clipboard is a no-op', async () => {
+    const live = harness({
+      stagingStore: createStagingStore({ dir: stagingDirFor(userData) }),
+      readClipboardImage: () => ({ isEmpty: () => true, toPNG: () => PNG })
+    })
+    expect(
+      await live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, {
+        profileId: 'p1',
+        source: 'clipboard'
+      })
+    ).toBeNull()
+  })
+
+  it('rejects a missing target and an unknown workspace', async () => {
+    const live = attachHarness()
+    await expect(
+      Promise.resolve(live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, { source: 'clipboard' }))
+    ).rejects.toThrow(/missing target/)
+    await expect(
+      Promise.resolve(
+        live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, {
+          workspaceId: 'ghost',
+          source: 'clipboard'
+        })
+      )
+    ).rejects.toThrow(/unknown workspace/)
+  })
+
+  it('saves from an absolute path into a selected worker worktree', async () => {
+    const live = attachHarness()
+    const file = join(worktree, 'drop.jpg')
+    const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])
+    writeFileSync(file, jpeg)
+    const result = (await live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, {
+      workspaceId: 'w1',
+      agentId: 'agent-w',
+      source: { absPath: file }
+    })) as { relativePath: string }
+    expect(result.relativePath).toMatch(/\.jpg$/)
+    expect(existsSync(join(worktree, ...result.relativePath.split('/')))).toBe(true)
+  })
+
+  it('is panel-only and keeps bytes off workspaces:goal', async () => {
+    const live = attachHarness()
+    expect(() =>
+      live.ipc.invoke(APP_CHANNELS.attachmentsSave, CLI_ID, { profileId: 'p1', source: 'clipboard' })
+    ).toThrow(/not the panel window/)
+    await live.ipc.invoke(APP_CHANNELS.workspacesGoal, PANEL_ID, {
+      workspaceId: 'w1',
+      goal: '.vertragus/attachments/screenshot-aa.png'
+    })
+    expect(live.directory.goalsAssigned[0]).toEqual({
+      workspaceId: 'w1',
+      goal: '.vertragus/attachments/screenshot-aa.png'
+    })
+  })
+})
+
+describe('workspaces (goal refill and after)', () => {
   it('H2 refill: hands a running workspace its goal and refuses a blank one', async () => {
     await h.ipc.invoke(APP_CHANNELS.workspacesGoal, PANEL_ID, {
       workspaceId: 'w1',
@@ -1304,7 +1440,8 @@ describe('workspaces', () => {
         closeAgentWindow() {},
         focusWorkspace() {},
         listStaleWorktrees: async () => refuse(),
-        removeWorktree: async () => refuse()
+        removeWorktree: async () => refuse(),
+        worktreePathOf: () => undefined
       }
     })
     await expect(
@@ -2464,6 +2601,7 @@ describe('sender authorization', () => {
   const panelOnly = [
     APP_CHANNELS.workspacesList,
     APP_CHANNELS.workspacesStart,
+    APP_CHANNELS.attachmentsSave,
     APP_CHANNELS.workspacesSendToOrchestrator,
     APP_CHANNELS.workspacesGoal,
     APP_CHANNELS.workspacesStop,
@@ -2823,7 +2961,8 @@ describe('production registration', () => {
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
       listStaleWorktrees: vi.fn(async () => []),
-      removeWorktree: vi.fn(async () => [])
+      removeWorktree: vi.fn(async () => []),
+      worktreePathOf: vi.fn()
     }
     const second: WorkspaceDirectory = {
       list: () => [],
@@ -2841,7 +2980,8 @@ describe('production registration', () => {
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
       listStaleWorktrees: vi.fn(async () => []),
-      removeWorktree: vi.fn(async () => [])
+      removeWorktree: vi.fn(async () => []),
+      worktreePathOf: vi.fn()
     }
     const first = registerAppIpc(real)
     expect(registerAppIpc(second)).toBe(first)
@@ -2909,7 +3049,7 @@ describe('preload parity', () => {
     }
     const found = [
       ...source.matchAll(
-        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|runs|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|remote|voice|ev):[a-zA-Z]+)'/g
+        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|runs|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|remote|voice|ev|attachments):[a-zA-Z]+)'/g
       )
     ].map((match) => match[1])
     expect(new Set(found)).toEqual(expected)

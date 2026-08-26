@@ -816,6 +816,37 @@ describe('readOutput', () => {
   })
 })
 
+describe('image attachments at orchestrator start', () => {
+  it('materializes staged files after createWorktree and before spawn', async () => {
+    const order: string[] = []
+    const seen: Array<{ ids: readonly string[]; dest: string }> = []
+    const trees = fakeWorktrees()
+    const spawner = fakeSpawn()
+    const { workspace } = harness({
+      deps: {
+        createWorktree: async (repoPath, agentId, branchName, options) => {
+          order.push('worktree')
+          return trees.createWorktree(repoPath, agentId, branchName, options)
+        },
+        materializeAttachments: async (ids, dest) => {
+          order.push('materialize')
+          seen.push({ ids, dest })
+        },
+        spawn: (async (input, spawnDeps) => {
+          order.push('spawn')
+          return spawner.spawn(input, spawnDeps)
+        }) as unknown as WorkspaceDeps['spawn']
+      }
+    })
+    const started = await workspace.startOrchestrator({
+      initialPrompt: 'see this',
+      attachmentIds: ['stg-1']
+    })
+    expect(order).toEqual(['worktree', 'materialize', 'spawn'])
+    expect(seen).toEqual([{ ids: ['stg-1'], dest: started.worktreePath }])
+  })
+})
+
 describe('startOrchestrator', () => {
   it('starts a bronze, never-yolo orchestrator with its system prompt', async () => {
     const { workspace, registry, windows, spawns } = harness()

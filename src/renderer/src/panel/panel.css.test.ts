@@ -27,4 +27,12 @@ describe('panel app-region', () => {
   it('opts .panel-scroll out of the drag region so wheel reaches Chromium', () => {
     expect(ruleBody('.panel-scroll')).toMatch(/-webkit-app-region:\s*no-drag/)
   })
+
+  it('opts textarea out of the drag region so Windows can deliver image drop', () => {
+    expect(css).toMatch(/\.panel textarea/)
+    const start = css.indexOf('.panel button,')
+    const block = css.slice(start, css.indexOf('}', start) + 1)
+    expect(block).toMatch(/\.panel textarea/)
+    expect(block).toMatch(/-webkit-app-region:\s*no-drag/)
+  })
 })

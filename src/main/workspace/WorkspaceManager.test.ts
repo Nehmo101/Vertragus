@@ -411,6 +411,29 @@ describe('startWorkspace', () => {
     }
   })
 
+  it('copies staged attachments into the orchestrator worktree and consumes staging after spawn', async () => {
+    const copied: Array<{ ids: string[]; dest: string }> = []
+    const consumed: string[][] = []
+    const { manager, spawns } = harness({
+      materializeAttachments: async (ids, dest) => {
+        copied.push({ ids: [...ids], dest })
+      },
+      consumeAttachments: async (ids) => {
+        consumed.push([...ids])
+      }
+    })
+
+    const running = await manager.startWorkspace(testProfile(), {
+      goal: 'see .vertragus/attachments/screenshot-aa.png',
+      attachmentIds: ['stg-1']
+    })
+
+    expect(copied).toEqual([{ ids: ['stg-1'], dest: running.orchestrator.worktreePath }])
+    expect(consumed).toEqual([['stg-1']])
+    expect(spawns).toHaveLength(1)
+    expect(running.workspace.goalText).toBe('see .vertragus/attachments/screenshot-aa.png')
+  })
+
   it('a bare start stays a bare start — no goal, no seed, no crash', async () => {
     const { manager, spawns } = harness()
     const running = await manager.startWorkspace(testProfile())

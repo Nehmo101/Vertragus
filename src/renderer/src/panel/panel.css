@@ -26,7 +26,8 @@
 
 .panel button,
 .panel input,
-.panel select {
+.panel select,
+.panel textarea {
   -webkit-app-region: no-drag;
   font-family: inherit;
 }

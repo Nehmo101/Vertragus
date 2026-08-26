@@ -66,6 +66,7 @@
     "voiceInputMissing": "Selected microphone is unavailable — using the system default.",
     "voiceOutputMissing": "Selected speaker is unavailable — using the system default.",
     "goalPlaceholder": "Goal for the orchestrator … (empty = start without a goal)",
+    "attachImagesHint": "Paste or drop images. They are saved into the agent worktree and the path is inserted as text.",
     "startWithGoal": "Start with goal",
     "startWithoutGoal": "Start without goal",
     "resumeRun": "Resume last run",
