@@ -3,18 +3,23 @@ import { profileSchema, ROLE_PROMPT_MAX_CHARS, type Profile } from '@shared/sche
 import { BUILTIN_ROLE_TEMPLATES, roleColor } from '@shared/prompts/roles'
 import { initialRolePromptDraft } from '@shared/prompts/rolePrompt'
 import { translator } from '../i18n'
+import type { ModelDiscoveryResult, ProviderListEntry } from '../../../preload'
 import {
   CUSTOM_ROLE_VALUE,
+  coerceEffort,
   customRoleTemplate,
   draftFromProfile,
   emptyDraft,
+  effortSelectOptions,
   filterModelOptions,
   messageForPath,
   modelComboStatus,
   modelOptions,
   newSlotDraft,
   promptIdentities,
+  resetInvalidEfforts,
   roleOptions,
+  rowEffortOptions,
   toProfileInput,
   validateDraft,
   type ProfileDraft
@@ -45,6 +50,23 @@ describe('draft ⇄ profile', () => {
     const result = validateDraft(t, draftFromProfile(SAVED))
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.profile).toEqual(SAVED)
+  })
+
+  it('persists xhigh and max through the form and still rejects ultra', () => {
+    const xhigh = validateDraft(
+      t,
+      draft({ orchestrator: { providerId: 'grok', model: 'grok-4.6', effort: 'xhigh' } })
+    )
+    expect(xhigh.ok).toBe(true)
+    if (xhigh.ok) expect(xhigh.profile.orchestrator.effort).toBe('xhigh')
+    const maxed = validateDraft(
+      t,
+      draft({
+        slots: [{ id: 's1', roleId: 'worker', providerId: 'kimi', model: 'kimi-code/k3', effort: 'max', maxCount: '' }]
+      })
+    )
+    expect(maxed.ok).toBe(true)
+    if (maxed.ok) expect(maxed.profile.slots[0]!.effort).toBe('max')
   })
 
   it('turns empty optional fields into absent ones, never into empty strings', () => {
@@ -402,5 +424,108 @@ describe('modelComboStatus', () => {
 
   it('does not claim to be loading once a provider answered with nothing', () => {
     expect(modelComboStatus(t, undefined, false).tone).toBe('warn')
+  })
+})
+
+describe('effortSelectOptions', () => {
+  const grokCatalogue: ModelDiscoveryResult = {
+    models: ['grok-build', 'grok-4.6', 'grok-4.5'],
+    source: 'live',
+    refreshedAt: 1,
+    efforts: {
+      'grok-4.6': ['xhigh', 'high', 'medium', 'low'],
+      'grok-4.5': ['high', 'medium', 'low']
+    }
+  }
+  const kimiCatalogue: ModelDiscoveryResult = {
+    models: ['kimi-code/k3', 'kimi-code/kimi-for-coding'],
+    source: 'live',
+    refreshedAt: 1,
+    efforts: { 'kimi-code/k3': ['low', 'high', 'max'] }
+  }
+
+  function entry(id: string, effortLevels: string[] = []): ProviderListEntry {
+    return { config: { id, effortLevels } } as ProviderListEntry
+  }
+
+  it('uses grok-4.6 cache rungs including xhigh, and grok-4.5 without xhigh', () => {
+    expect(effortSelectOptions('grok-4.6', [], grokCatalogue.efforts)).toEqual([
+      'xhigh',
+      'high',
+      'medium',
+      'low'
+    ])
+    expect(effortSelectOptions('grok-4.5', [], grokCatalogue.efforts)).toEqual([
+      'high',
+      'medium',
+      'low'
+    ])
+    expect(effortSelectOptions('grok-4.5', [], grokCatalogue.efforts)).not.toContain('xhigh')
+  })
+
+  it('falls back to Standard-only for an empty model or a no-effort provider', () => {
+    expect(effortSelectOptions('', [], grokCatalogue.efforts)).toEqual([])
+    expect(effortSelectOptions('grok-build', [], grokCatalogue.efforts)).toEqual([])
+    expect(rowEffortOptions('auto', 'cursor', [entry('cursor')], undefined)).toEqual([])
+    expect(rowEffortOptions('qwen', 'custom', [entry('custom')], undefined)).toEqual([])
+  })
+
+  it('uses the provider fallback when the model has no discovered list', () => {
+    expect(
+      rowEffortOptions('opus', 'claude', [entry('claude', ['low', 'medium', 'high'])], undefined)
+    ).toEqual(['low', 'medium', 'high'])
+    expect(
+      rowEffortOptions('gpt-5.6', 'codex', [entry('codex', ['low', 'medium', 'high', 'xhigh'])], {
+        models: ['gpt-5.6'],
+        source: 'live',
+        refreshedAt: 1
+      })
+    ).toEqual(['low', 'medium', 'high', 'xhigh'])
+  })
+
+  it('shows Kimi supportEfforts (low/high/max, not medium) and Standard otherwise', () => {
+    expect(effortSelectOptions('kimi-code/k3', [], kimiCatalogue.efforts)).toEqual([
+      'low',
+      'high',
+      'max'
+    ])
+    expect(effortSelectOptions('kimi-code/k3', [], kimiCatalogue.efforts)).not.toContain('medium')
+    expect(effortSelectOptions('kimi-code/kimi-for-coding', [], kimiCatalogue.efforts)).toEqual([])
+  })
+
+  it('resets a stored effort that the new list does not offer, and keeps it while loading', () => {
+    expect(coerceEffort('xhigh', ['high', 'medium', 'low'])).toBe('')
+    expect(coerceEffort('xhigh', ['xhigh', 'high', 'medium', 'low'])).toBe('xhigh')
+    expect(coerceEffort('xhigh', undefined)).toBe('xhigh')
+    expect(coerceEffort('high', [])).toBe('')
+    expect(coerceEffort('', ['low', 'medium', 'high'])).toBe('')
+  })
+
+  it('keeps a discovered-only token while discovery is still running', () => {
+    const current = draft({
+      orchestrator: { providerId: 'grok', model: 'grok-4.6', effort: 'xhigh' }
+    })
+    const next = resetInvalidEfforts(current, [entry('grok')], {}, { grok: true })
+    expect(next.orchestrator.effort).toBe('xhigh')
+    expect(next).toBe(current)
+  })
+
+  it('resets orchestrator and slot efforts once the catalogue is in', () => {
+    const current = draft({
+      orchestrator: { providerId: 'grok', model: 'grok-4.5', effort: 'xhigh' },
+      slots: [
+        { id: 's1', roleId: 'worker', providerId: 'grok', model: 'grok-4.6', effort: 'xhigh', maxCount: '' },
+        { id: 's2', roleId: 'reviewer', providerId: 'cursor', model: 'auto', effort: 'high', maxCount: '' }
+      ]
+    })
+    const next = resetInvalidEfforts(
+      current,
+      [entry('grok'), entry('cursor')],
+      { grok: grokCatalogue, cursor: { models: ['auto'], source: 'live', refreshedAt: 1 } },
+      {}
+    )
+    expect(next.orchestrator.effort).toBe('')
+    expect(next.slots[0]!.effort).toBe('xhigh')
+    expect(next.slots[1]!.effort).toBe('')
   })
 })

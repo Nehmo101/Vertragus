@@ -8,6 +8,7 @@ import {
   normalizeProviderId,
   parseProviderConfigs,
   providerConfigSchema,
+  uniqueEffortLevels,
   type ProviderConfig
 } from './provider'
 
@@ -109,6 +110,37 @@ describe('providerConfigSchema', () => {
     expect(
       providerConfigSchema.safeParse({ ...minimal, mcp: { kind: 'cursor-json' } }).success
     ).toBe(false)
+  })
+
+  it('accepts extra CLI effort tokens on the fallback list and rejects junk', () => {
+    expect(config({ effortLevels: ['low', 'xhigh', 'max'] }).effortLevels).toEqual([
+      'low',
+      'xhigh',
+      'max'
+    ])
+    expect(config().effortLevels).toEqual([])
+    expect(providerConfigSchema.safeParse({ ...minimal, effortLevels: ['ultra'] }).success).toBe(
+      false
+    )
+  })
+
+  it('accepts a sidecar effort catalogue and ignores it when absent', () => {
+    expect(config().effortDiscovery).toBeUndefined()
+    expect(
+      config({
+        effortDiscovery: {
+          kind: 'file',
+          path: '~/.grok/models_cache.json',
+          parse: 'json',
+          jsonPath: 'models'
+        }
+      }).effortDiscovery
+    ).toEqual({
+      kind: 'file',
+      path: '~/.grok/models_cache.json',
+      parse: 'json',
+      jsonPath: 'models'
+    })
   })
 
   it('rejects an effort template without the {effort} placeholder', () => {
@@ -262,6 +294,12 @@ describe('launch argument helpers', () => {
       'high'
     ])
     expect(
+      buildEffortArgs(config({ effortArg: { style: 'flag', flag: '--effort' } }), 'xhigh')
+    ).toEqual(['--effort', 'xhigh'])
+    expect(
+      buildEffortArgs(config({ effortArg: { style: 'flag', flag: '--effort' } }), 'max')
+    ).toEqual(['--effort', 'max'])
+    expect(
       buildEffortArgs(
         config({
           effortArg: { style: 'template', flag: '-c', template: 'model_reasoning_effort="{effort}"' }
@@ -286,6 +324,16 @@ describe('launch argument helpers', () => {
       buildInitialPromptArgs(config({ initialPromptDelivery: { kind: 'positional' } }), '   ')
     ).toEqual([])
     expect(buildInitialPromptArgs(config(), 'Fix login')).toEqual([])
+  })
+})
+
+describe('uniqueEffortLevels', () => {
+  it('keeps first-seen order, trims, and drops junk', () => {
+    expect(uniqueEffortLevels([' high ', 'xhigh', 'high', 'ultra', 'max', ''])).toEqual([
+      'high',
+      'xhigh',
+      'max'
+    ])
   })
 })
 

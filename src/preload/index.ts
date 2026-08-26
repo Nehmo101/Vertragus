@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Profile, RoleTemplate } from '@shared/schema/profile'
-import type { ProviderConfig } from '@shared/schema/provider'
+import type { EffortLevel, ProviderConfig } from '@shared/schema/provider'
 import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import type { RunJournalView, RunListEntry } from '@shared/schema/runArchive'
 import type { Zone, ZoneLayout } from '@shared/schema/zones'
@@ -536,6 +536,8 @@ export interface ModelDiscoveryResult {
   refreshedAt: number
   /** Why the live source stayed empty — shown in the model picker. */
   detail?: string
+  /** Per-model effort rungs discovered from the catalogue. */
+  efforts?: Record<string, EffortLevel[]>
 }
 
 export interface PanelSettings {

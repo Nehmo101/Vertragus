@@ -48,8 +48,8 @@ function rendererFiles(dir = rendererSrc): string[] {
 /**
  * Literal keys as the components write them: `t('panel.hideAll')`, and
  * `t(['settings.updateStatus.idle', fallback])` for the array form. Template
- * literals (`` t(`profileEditor.effortLevel.${level}`) ``) cannot be resolved
- * statically and are covered by the dead-key check below instead.
+ * literals (`` t(`profileEditor.modelsFrom.${catalogue.source}`) ``) cannot be
+ * resolved statically and are covered by the dead-key check below instead.
  */
 const LITERAL_T_CALL = /\bt\(\s*\[?\s*'([A-Za-z][\w.-]*)'/g
 
@@ -79,8 +79,6 @@ function literalUsages(): Usage[] {
 const DYNAMIC_KEY_PREFIXES = [
   // settings/SettingsApp.tsx — indexed by UpdateStatus
   'settings.updateStatus.',
-  // profileEditor/fields.tsx — indexed by EffortLevel
-  'profileEditor.effortLevel.',
   // profileEditor/fields.tsx — indexed by QuestionMode
   'profileEditor.questionMode.',
   // profileEditor/model.ts — indexed by ModelDiscoveryResult['source']

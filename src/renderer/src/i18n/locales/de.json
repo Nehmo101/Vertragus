@@ -210,11 +210,6 @@
     "modelPlaceholder": "Standard des CLI",
     "effort": "Effort",
     "effortDefault": "Standard",
-    "effortLevel": {
-      "low": "niedrig",
-      "medium": "mittel",
-      "high": "hoch"
-    },
     "slots": "Subagent-Slots",
     "slotsHint": "Bauplan, keine feste Anzahl — der Orchestrator entscheidet innerhalb der Limits. Scout ist Intake-Recon (nur lesen); einen Slot nur anlegen, wenn die Rolle verfügbar sein soll.",
     "noSlots": "Noch keine Rollen. Ohne Slot kann der Orchestrator niemanden starten.",
@@ -331,6 +326,8 @@
     "effortFlag": "Flag",
     "effortTemplate": "Vorlage",
     "effortTemplateHint": "Muss {effort} enthalten — der Wert wird wörtlich eingesetzt.",
+    "effortLevels": "Fallback-Effort-Werte",
+    "effortLevelsHint": "Eins pro Zeile (low, medium, high, xhigh, max, …). Gilt, wenn das gewählte Modell keine entdeckte Liste hat. Leer = nur Standard (CLI-Default).",
     "auth": "Anmeldung",
     "authLoginArgs": "Login-Argumente",
     "authLoginArgsHint": "Eins pro Zeile. Startet den Login des CLIs in einem Terminal.",
@@ -397,6 +394,7 @@
       "command": "Bitte den Programmnamen eintragen.",
       "flag": "Bitte ein Flag eintragen.",
       "effortTemplate": "Die Vorlage muss {effort} enthalten.",
+      "effortLevels": "Unbekannter Effort-Wert.",
       "path": "Bitte einen Pfad eintragen.",
       "url": "Bitte eine vollständige Url eintragen (mit http:// oder https://).",
       "jsonPath": "Bitte einen JSON-Pfad eintragen.",

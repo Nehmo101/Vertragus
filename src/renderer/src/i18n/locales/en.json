@@ -210,11 +210,6 @@
     "modelPlaceholder": "CLI default",
     "effort": "Effort",
     "effortDefault": "Default",
-    "effortLevel": {
-      "low": "low",
-      "medium": "medium",
-      "high": "high"
-    },
     "slots": "Subagent slots",
     "slotsHint": "A blueprint, not a fixed head count — the orchestrator decides within the limits. Scout is intake recon (read-only); add a slot only when you want that role available.",
     "noSlots": "No roles yet. Without a slot the orchestrator cannot start anyone.",
@@ -331,6 +326,8 @@
     "effortFlag": "Flag",
     "effortTemplate": "Template",
     "effortTemplateHint": "Must contain {effort} — the value is inserted verbatim.",
+    "effortLevels": "Fallback effort values",
+    "effortLevelsHint": "One per line (low, medium, high, xhigh, max, …). Used when the selected model has no discovered list. Empty = only Default (CLI default).",
     "auth": "Sign-in",
     "authLoginArgs": "Login arguments",
     "authLoginArgsHint": "One per line. Starts the CLI’s login in a terminal.",
@@ -397,6 +394,7 @@
       "command": "Please enter the program name.",
       "flag": "Please enter a flag.",
       "effortTemplate": "The template must contain {effort}.",
+      "effortLevels": "Unknown effort value.",
       "path": "Please enter a path.",
       "url": "Please enter a complete url (with http:// or https://).",
       "jsonPath": "Please enter a JSON path.",
