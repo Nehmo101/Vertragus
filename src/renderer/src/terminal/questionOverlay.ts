@@ -6,6 +6,7 @@
  * (the same host path as the panel badge). Escape hides it; the question
  * stays open on the panel.
  */
+import { shouldFocusTerminal } from './windowFocus'
 
 /**
  * Registry key for `ask_user`. Duplicated from `src/main/mcp/types.ts` because
@@ -39,6 +40,16 @@ export function overlayKeyAction(event: { key: string; shiftKey: boolean }): Ove
 /** False while the overlay is up — xterm must not see those keystrokes. */
 export function shouldForwardKeyToPty(overlayVisible: boolean): boolean {
   return !overlayVisible
+}
+
+/**
+ * Autofocus the overlay textarea only when this window already has the OS
+ * keyboard. Same Windows path as xterm: focusing a textarea activates the
+ * BrowserWindow even after showInactive() — a worker question must not yank
+ * the user out of the orchestrator CLI. See {@link shouldFocusTerminal}.
+ */
+export function shouldAutofocusOverlay(hasDocumentFocus: boolean): boolean {
+  return shouldFocusTerminal(hasDocumentFocus)
 }
 
 export function isUserQuestion(question: Pick<TerminalQuestionView, 'agentId'>): boolean {
