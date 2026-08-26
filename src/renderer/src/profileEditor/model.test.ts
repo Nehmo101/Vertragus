@@ -448,22 +448,27 @@ describe('effortSelectOptions', () => {
     return { config: { id, effortLevels } } as ProviderListEntry
   }
 
+  const grokLevels = ['low', 'medium', 'high', 'xhigh']
+
   it('uses grok-4.6 cache rungs including xhigh, and grok-4.5 without xhigh', () => {
-    expect(effortSelectOptions('grok-4.6', [], grokCatalogue.efforts)).toEqual([
+    expect(effortSelectOptions('grok-4.6', grokLevels, grokCatalogue.efforts)).toEqual([
       'xhigh',
       'high',
       'medium',
       'low'
     ])
-    expect(effortSelectOptions('grok-4.5', [], grokCatalogue.efforts)).toEqual([
+    expect(effortSelectOptions('grok-4.5', grokLevels, grokCatalogue.efforts)).toEqual([
       'high',
       'medium',
       'low'
     ])
-    expect(effortSelectOptions('grok-4.5', [], grokCatalogue.efforts)).not.toContain('xhigh')
+    expect(effortSelectOptions('grok-4.5', grokLevels, grokCatalogue.efforts)).not.toContain('xhigh')
+    expect(
+      rowEffortOptions('grok-4.5', 'grok', [entry('grok', grokLevels)], grokCatalogue)
+    ).not.toContain('xhigh')
   })
 
-  it('falls back to Standard-only for an empty model or a no-effort provider', () => {
+  it('falls back to Standard-only for cursor, custom, or an empty provider list', () => {
     expect(effortSelectOptions('', [], grokCatalogue.efforts)).toEqual([])
     expect(effortSelectOptions('grok-build', [], grokCatalogue.efforts)).toEqual([])
     expect(rowEffortOptions('auto', 'cursor', [entry('cursor')], undefined)).toEqual([])
@@ -471,6 +476,11 @@ describe('effortSelectOptions', () => {
   })
 
   it('uses the provider fallback when the model has no discovered list', () => {
+    const grok = [entry('grok', grokLevels)]
+    expect(rowEffortOptions('', 'grok', grok, grokCatalogue)).toEqual(grokLevels)
+    expect(rowEffortOptions('grok-build', 'grok', grok, grokCatalogue)).toEqual(grokLevels)
+    expect(rowEffortOptions('grok-4.3', 'grok', grok, grokCatalogue)).toEqual(grokLevels)
+    expect(rowEffortOptions('grok-4.3', 'grok', grok, grokCatalogue)).toContain('xhigh')
     expect(
       rowEffortOptions('opus', 'claude', [entry('claude', ['low', 'medium', 'high'])], undefined)
     ).toEqual(['low', 'medium', 'high'])
