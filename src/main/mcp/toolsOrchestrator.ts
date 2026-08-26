@@ -910,11 +910,10 @@ export function registerOrchestratorTools(
     'ask_user',
     {
       description:
-        'Ask the HUMAN a question and wait for the answer — for decisions that are genuinely the ' +
-        'user’s (scope changes, destructive actions, product choices), never for things an agent or ' +
-        'you can decide. Blocks until the user answers in the panel or on their phone. If it returns ' +
-        'answer: null, call it again with the returned ticket and the unchanged question. Never guess ' +
-        'the user’s decision and never continue without it.',
+        'Ask the HUMAN a question and wait for the answer — they see it in the panel and on their ' +
+        'phone. When to call it is the question-mode block in your system prompt — that block is ' +
+        'authoritative, not this schema. Blocks until the user answers. If it returns answer: null, ' +
+        'call it again with the returned ticket and the unchanged question.',
       inputSchema: {
         question: z
           .string()

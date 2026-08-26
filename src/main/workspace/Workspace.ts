@@ -105,6 +105,7 @@ import { buildReminderSuffix, type ReportingMode } from '@shared/prompts/contrac
 import {
   buildLeadSystemPrompt,
   buildOrchestratorSystemPrompt,
+  type OrchestratorPromptInput,
   type RoleWithLimit
 } from '@shared/prompts/orchestrator'
 import { buildSuccessorOrchestratorSystemPrompt } from '@shared/prompts/orchestratorHandoff'
@@ -1744,15 +1745,18 @@ export class Workspace implements AgentHost {
     }
   }
 
-  private async orchestratorPrompt(): Promise<string> {
-    const input = {
+  /**
+   * Shared root-orchestrator prompt fields. Cold start and C6 recovery add a
+   * briefing on top; live succession reuses this so questionMode / automation
+   * do not snap back to the prompt defaults.
+   */
+  private orchestratorPromptInput(): OrchestratorPromptInput {
+    return {
       workspaceName: this.name,
       repoPath: this.repoPath,
       rolesWithLimits: this.rolesWithLimits(),
       maxSubagents: this.profile.maxSubagents,
       knowledge: this.deps.retro?.knowledge(this.profile) ?? [],
-      // E2: best-effort — a repo without docs or git history still boots.
-      briefing: await this.collectBriefing(),
       // A3: what the host now does without the orchestrator (and without the
       // user) — rendered only when something is actually switched on.
       ...(this.automation.autoIntegrate || this.automation.autoPromote || this.automation.autoPr
@@ -1765,6 +1769,14 @@ export class Workspace implements AgentHost {
           }
         : {}),
       questionMode: this.profile.questionMode
+    }
+  }
+
+  private async orchestratorPrompt(): Promise<string> {
+    const input = {
+      ...this.orchestratorPromptInput(),
+      // E2: best-effort — a repo without docs or git history still boots.
+      briefing: await this.collectBriefing()
     }
     // C6 crash recovery: the resumed run left a frozen package behind. It is
     // strictly richer than the journal briefing (roster with branches, the
@@ -1897,16 +1909,7 @@ export class Workspace implements AgentHost {
         name: pending.successorName,
         systemPrompt: this.systemPromptFor(
           ORCHESTRATOR_ROLE_ID,
-          buildSuccessorOrchestratorSystemPrompt(
-            {
-              workspaceName: this.name,
-              repoPath: this.repoPath,
-              rolesWithLimits: this.rolesWithLimits(),
-              maxSubagents: this.profile.maxSubagents,
-              knowledge: this.deps.retro?.knowledge(this.profile) ?? []
-            },
-            pending.pkg
-          )
+          buildSuccessorOrchestratorSystemPrompt(this.orchestratorPromptInput(), pending.pkg)
         ),
         mcpUrl: this.requireMcp().orchestratorUrl
       })
