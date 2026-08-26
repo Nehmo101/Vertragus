@@ -36,6 +36,7 @@ import {
   isUserQuestion,
   overlayKeyAction,
   overlayShows,
+  shouldAutofocusOverlay,
   shouldForwardKeyToPty
 } from './questionOverlay'
 import {
@@ -145,6 +146,11 @@ function QuestionOverlay({
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
+    // Same Windows trap as xterm: textarea.focus() activates the BrowserWindow
+    // even after showInactive(). Only grab the caret when this window already
+    // has the OS keyboard; a background worker overlay waits for the existing
+    // window 'focus' listener.
+    if (!shouldAutofocusOverlay(document.hasFocus())) return
     inputRef.current?.focus()
   }, [])
 
