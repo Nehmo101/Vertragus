@@ -199,9 +199,11 @@ export function useProfileEditor(
 
   useEffect(() => {
     setDraft((current) =>
-      current ? resetInvalidEfforts(current, providers, models, modelsLoading) : current
+      current
+        ? resetInvalidEfforts(current, providers, models, modelsLoading, providersLoading)
+        : current
     )
-  }, [providers, models, modelsLoading])
+  }, [providers, models, modelsLoading, providersLoading])
 
   const update = useCallback((mutate: (current: ProfileDraft) => ProfileDraft) => {
     setDraft((current) => (current ? mutate(current) : current))
