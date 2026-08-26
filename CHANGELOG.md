@@ -12,6 +12,13 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **Competitive landscape research.**
+  [`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md) maps
+  neighbouring CLI orchestrators, sandboxed workspaces, vendor harnesses
+  and cloud agents against the handbook doctrine — what they ship, what
+  Vertragus already has, and which gaps are worth taking. The parallel
+  adoption plan is [`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md).
+  No code in that change.
 - **Pi wrap MCP as first-class tools.** The community adapter's default is a
   lazy `mcp()` proxy, so a wrap that only wrote `{ url, lifecycle: "eager" }`
   could connect without ever exposing `await_events`. `.pi/mcp.json` now

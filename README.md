@@ -33,6 +33,10 @@ The handbook [`docs/HANDBOOK-HARNESS.md`](docs/HANDBOOK-HARNESS.md)
 is the code-grounded map of the harness core; serial root succession
 (fresh context, same team) is described in
 [`docs/ORCHESTRATOR-SUCCESSION.md`](docs/ORCHESTRATOR-SUCCESSION.md).
+Neighbouring tools and the gaps worth taking are mapped in
+[`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md); the
+parallel adoption plan is
+[`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md).
 
 ## How a run works
 
