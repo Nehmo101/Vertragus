@@ -34,8 +34,9 @@ import { XTERM_THEME } from './xtermTheme'
 import {
   attachmentText,
   clipboardDataLooksLikeImage,
-  collectDroppedImages,
-  droppedImageSource
+  droppedImageSources,
+  pasteImageSources,
+  type AttachmentSource
 } from '../lib/imageAttach'
 
 /**
@@ -205,15 +206,21 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
     const typePath = (relativePath: string): void => {
       bridge.input(attachmentText(relativePath))
     }
-    const saveClipboard = (): void => {
-      void bridge.image('clipboard').then((result) => {
-        if (result) typePath(result.relativePath)
-      }, () => undefined)
+    const saveSource = async (source: AttachmentSource): Promise<void> => {
+      const result = await bridge.image(source).then(
+        (saved) => saved,
+        () => null
+      )
+      if (result) typePath(result.relativePath)
     }
     const onPaste = (event: ClipboardEvent): void => {
       if (!clipboardDataLooksLikeImage(event.clipboardData)) return
       event.preventDefault()
-      saveClipboard()
+      void (async () => {
+        for (const source of await pasteImageSources(event.clipboardData)) {
+          await saveSource(source)
+        }
+      })()
     }
     const onDragOver = (event: DragEvent): void => {
       event.preventDefault()
@@ -223,10 +230,8 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       const files = event.dataTransfer?.files
       if (!files) return
       void (async () => {
-        for (const file of collectDroppedImages(files)) {
-          const source = await droppedImageSource(file)
-          const result = await bridge.image(source)
-          if (result) typePath(result.relativePath)
+        for (const source of await droppedImageSources(files)) {
+          await saveSource(source)
         }
       })()
     }

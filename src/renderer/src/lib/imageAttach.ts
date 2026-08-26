@@ -6,6 +6,7 @@
  * touches a worktree path.
  */
 export const ATTACHMENT_MAX_FILES = 8
+export const ATTACHMENT_MAX_BYTES = 8 * 1024 * 1024
 export const IMAGE_NAME = /\.(png|jpe?g|gif|webp|bmp)$/i
 const IMAGE_SUBTYPES = new Set(['png', 'jpeg', 'jpg', 'gif', 'webp', 'bmp', 'x-png'])
 
@@ -33,12 +34,20 @@ export function insertAttachmentText(
   }
 }
 
+/** Only the raster types we can sniff in main — not TIFF, SVG, or `image/*`. */
+export function isAllowedImageMime(type: string): boolean {
+  const lower = type.toLowerCase()
+  if (!lower.startsWith('image/')) return false
+  return IMAGE_SUBTYPES.has(lower.slice('image/'.length))
+}
+
 export function isImageFile(file: { name: string; type: string }): boolean {
-  if (file.type) {
-    const sub = file.type.toLowerCase().replace(/^image\//, '')
-    if (file.type.toLowerCase().startsWith('image/') && IMAGE_SUBTYPES.has(sub)) return true
-  }
+  if (file.type && isAllowedImageMime(file.type)) return true
   return IMAGE_NAME.test(file.name)
+}
+
+function exceedsAttachmentMax(file: { size?: number }): boolean {
+  return typeof file.size === 'number' && file.size > ATTACHMENT_MAX_BYTES
 }
 
 export function clipboardDataLooksLikeImage(data: {
@@ -47,10 +56,8 @@ export function clipboardDataLooksLikeImage(data: {
   items?: ArrayLike<{ type: string }>
 } | null): boolean {
   if (!data) return false
-  if (data.types && Array.from(data.types).some((type) => type.toLowerCase().startsWith('image/'))) {
-    return true
-  }
-  if (data.items && Array.from(data.items).some((item) => item.type.toLowerCase().startsWith('image/'))) {
+  if (data.types && Array.from(data.types).some(isAllowedImageMime)) return true
+  if (data.items && Array.from(data.items).some((item) => isAllowedImageMime(item.type))) {
     return true
   }
   if (data.files && Array.from(data.files).some(isImageFile)) return true
@@ -84,14 +91,45 @@ export function electronFilePath(file: File): string | undefined {
 }
 
 export function collectDroppedImages(files: ArrayLike<File>): File[] {
-  return Array.from(files).filter(isImageFile).slice(0, ATTACHMENT_MAX_FILES)
+  return Array.from(files)
+    .filter(isImageFile)
+    .filter((file) => !exceedsAttachmentMax(file))
+    .slice(0, ATTACHMENT_MAX_FILES)
 }
 
-export async function droppedImageSource(file: File): Promise<DroppedImageSource> {
+/**
+ * Prefer File.path when Electron still fills it. Otherwise send bytes — but
+ * never arrayBuffer a file over ATTACHMENT_MAX_BYTES (main still enforces).
+ */
+export async function droppedImageSource(file: File): Promise<DroppedImageSource | null> {
+  if (exceedsAttachmentMax(file)) return null
   const absPath = electronFilePath(file)
   if (absPath) return { absPath }
   const bytes = new Uint8Array(await file.arrayBuffer())
   return { bytes, mime: file.type || 'application/octet-stream' }
+}
+
+export async function droppedImageSources(files: ArrayLike<File>): Promise<DroppedImageSource[]> {
+  const out: DroppedImageSource[] = []
+  for (const file of collectDroppedImages(files)) {
+    const source = await droppedImageSource(file)
+    if (source) out.push(source)
+  }
+  return out
+}
+
+/**
+ * File paste (Explorer/Finder copy) uses the DataTransfer files, same as drop.
+ * Screenshots have an empty FileList — those still go through native clipboard.
+ * A FileList that is present but unusable (oversize, non-image) does not fall
+ * back to clipboard, so a leftover screenshot is not stolen.
+ */
+export async function pasteImageSources(
+  data: { files?: ArrayLike<File> } | null
+): Promise<AttachmentSource[]> {
+  const listed = data?.files && data.files.length > 0 ? Array.from(data.files) : []
+  if (listed.length > 0) return droppedImageSources(listed)
+  return ['clipboard']
 }
 
 export function trackStagingId(
@@ -99,7 +137,20 @@ export function trackStagingId(
   stagingId: string | undefined
 ): string[] {
   if (!stagingId) return [...ids]
+  if (ids.length >= ATTACHMENT_MAX_FILES) return [...ids]
   return [...ids, stagingId]
+}
+
+/**
+ * Cap staging ids at ATTACHMENT_MAX_FILES. Returning null means the path must
+ * not be inserted — parseAttachmentIds would drop the extra id on start.
+ */
+export function applyAttachmentSave(
+  ids: readonly string[],
+  result: AttachmentSaveResult
+): { ids: string[]; relativePath: string } | null {
+  if (result.stagingId && ids.length >= ATTACHMENT_MAX_FILES) return null
+  return { ids: trackStagingId(ids, result.stagingId), relativePath: result.relativePath }
 }
 
 export function clearIdsWhenGoalEmpty(goal: string, ids: readonly string[]): string[] {
