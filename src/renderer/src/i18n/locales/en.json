@@ -195,7 +195,7 @@
     "autoIntegrate": "Merge finished branches into the orchestrator",
     "autoIntegrateHint": "Every agent branch reported as a clean success is merged into the orchestrator’s worktree right away. A conflict aborts and is reported — nothing is overwritten.",
     "autoPromote": "Adopt finished branches into the checkout",
-    "autoPromoteHint": "The panel’s merge button without the click: a finished agent branch lands in the repository’s own checkout. Refused while the checkout has uncommitted changes.",
+    "autoPromoteHint": "The panel’s merge button without the click: a finished agent branch lands in the repository’s own checkout. At the end of the run the orchestrator’s own branch is adopted too — including when no subagent ran. Refused while the checkout has uncommitted changes.",
     "autoPr": "Create a pull request automatically",
     "autoPrHint": "At the end of the run the orchestrator’s branch is pushed and a pull request is opened. Needs the GitHub CLI (gh), logged in; otherwise Vertragus reports the ready-made compare link.",
     "prBaseBranch": "Pull request base branch",

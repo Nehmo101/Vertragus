@@ -309,6 +309,16 @@ export interface AgentHost {
    * once per workspace. Undefined when the profile never asked for one.
    */
   openRunPullRequest?(options?: { summary?: string }): Promise<RunPullRequest | undefined>
+  /**
+   * A3: end-of-run host automation — open the pull request first (so the
+   * orchestrator branch is still ahead of checkout), then auto-promote that
+   * branch into the repository checkout. Called by `record_retro` and Stop,
+   * at most once per side. Implementations should call
+   * {@link openRunPullRequest} internally so callers that only look at PR
+   * bookkeeping still see it. Optional so older fakes still satisfy the
+   * interface.
+   */
+  finishRunAutomation?(options?: { summary?: string }): Promise<RunPullRequest | undefined>
 }
 
 /**

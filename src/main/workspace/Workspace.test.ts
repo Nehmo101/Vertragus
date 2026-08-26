@@ -3085,5 +3085,97 @@ describe('automation', () => {
     expect(prompt).toContain('merged into YOUR worktree')
     expect(prompt).toContain('never tell them to merge the branch in the panel')
     expect(prompt).toContain('record_retro')
+    expect(prompt).toContain('YOUR own branch is merged into the checkout at record_retro')
+    expect(prompt).toContain('even if no subagent ran')
+    expect(prompt).toContain('Never start an agent to merge or to open a pull request')
+  })
+
+  it('promotes the orchestrator branch into checkout at end of run with no subagent', async () => {
+    const { git, calls } = automationGit()
+    const { workspace } = harness({
+      profile: automationProfile({ autoPromote: true }),
+      deps: { worktreeDeps: { git } }
+    })
+    const orch = await workspace.startOrchestrator()
+
+    await workspace.finishRunAutomation()
+
+    const merge = merges(calls)[0]!
+    expect(merge.cwd).toBe('/repo')
+    expect(merge.args).toContain(orch.branch)
+    expect(workspace.events.all().find((entry) => entry.type === 'integrate_ok')).toMatchObject({
+      target: 'checkout',
+      branch: orch.branch
+    })
+  })
+
+  it('does not merge from finishRunAutomation when autoPromote is off', async () => {
+    const { git, calls } = automationGit()
+    const { workspace } = harness({ deps: { worktreeDeps: { git } } })
+    await workspace.startOrchestrator()
+
+    await workspace.finishRunAutomation()
+
+    expect(merges(calls)).toEqual([])
+  })
+
+  it('refuses end-of-run promote over uncommitted work in the checkout', async () => {
+    const { git, calls } = automationGit({ dirtyCheckout: true })
+    const { workspace } = harness({
+      profile: automationProfile({ autoPromote: true }),
+      deps: { worktreeDeps: { git } }
+    })
+    await workspace.startOrchestrator()
+
+    await workspace.finishRunAutomation()
+
+    expect(merges(calls)).toEqual([])
+    expect(workspace.events.all().find((entry) => entry.type === 'integrate_conflict')).toMatchObject({
+      target: 'checkout',
+      message: expect.stringContaining('uncommitted')
+    })
+  })
+
+  it('opens the pull request with the orchestrator head before promoting, and a second wrap-up is a no-op', async () => {
+    const order: string[] = []
+    const openPullRequest = vi.fn().mockImplementation(async (input: { head: string }) => {
+      order.push(`pr:${input.head}`)
+      return { ok: true, url: 'https://github.com/o/r/pull/9', created: true }
+    })
+    const { git, calls } = automationGit()
+    const sequencedGit: typeof git = async (args, cwd) => {
+      if (args.includes('merge')) order.push(`merge:${cwd}`)
+      return git(args, cwd)
+    }
+    const { workspace } = harness({
+      profile: automationProfile({ autoPr: true, autoPromote: true }),
+      deps: { worktreeDeps: { git: sequencedGit }, openPullRequest }
+    })
+    const orch = await workspace.startOrchestrator()
+
+    await workspace.finishRunAutomation({ summary: 'Done.' })
+    await workspace.finishRunAutomation({ summary: 'Again.' })
+
+    expect(openPullRequest).toHaveBeenCalledTimes(1)
+    expect(openPullRequest.mock.calls[0]![0]).toMatchObject({ head: orch.branch })
+    expect(order[0]).toBe(`pr:${orch.branch}`)
+    expect(order).toContain('merge:/repo')
+    expect(order.indexOf(`pr:${orch.branch}`)).toBeLessThan(order.indexOf('merge:/repo'))
+    expect(merges(calls)).toHaveLength(1)
+    expect(merges(calls)[0]!.args).toContain(orch.branch)
+  })
+
+  it('still skips the orchestrator on per-child adoptOnDone', async () => {
+    const { git, calls } = automationGit()
+    const { workspace } = harness({
+      profile: automationProfile({ autoPromote: true }),
+      deps: { worktreeDeps: { git } }
+    })
+    const orch = await workspace.startOrchestrator()
+
+    await workspace.adoptOnDone(orch.agentId, 'success')
+
+    expect(merges(calls)).toEqual([])
+    expect(workspace.events.all().filter((event) => event.type === 'integrate_ok')).toEqual([])
   })
 })

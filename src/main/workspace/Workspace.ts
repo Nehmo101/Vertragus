@@ -571,6 +571,11 @@ export class Workspace implements AgentHost {
   private pullRequest: RunPullRequest | undefined
   /** Set BEFORE the PR work starts, so two concurrent askers cannot race. */
   private pullRequestStarted = false
+  /**
+   * A3: end-of-run auto-promote of the orchestrator's own branch. Set BEFORE
+   * the merge starts, so `record_retro` and Stop cannot promote twice.
+   */
+  private orchestratorPromoteStarted = false
   /** C5 idle watchdog: when the orchestrator last called one of its tools. */
   private orchestratorLastToolAt = 0
   private orchestratorIdleTimer: ReturnType<typeof setTimeout> | undefined
@@ -1271,7 +1276,8 @@ export class Workspace implements AgentHost {
    *
    * - only a `success` report: a blocked or failed agent's branch is precisely
    *   the work a human still has to look at,
-   * - never the orchestrator's own branch,
+   * - never the orchestrator's own branch (that lands at end of run via
+   *   {@link autoPromoteOrchestrator}, after autoPr),
    * - only agents that report to the ROOT queue: a lead's workers are the
    *   lead's business, and auto-merging them into the root's worktree would
    *   integrate an area behind its own lead's back,
@@ -1332,6 +1338,21 @@ export class Workspace implements AgentHost {
   }
 
   /**
+   * A3: at end of run, merge the ORCHESTRATOR's own branch into the repository
+   * checkout — the same Promote path as a subagent, including the dirty-checkout
+   * refusal. Off, already-run, or no orchestrator is a no-op. Never throws.
+   */
+  async autoPromoteOrchestrator(): Promise<void> {
+    if (!this.automation.autoPromote) return
+    if (this.orchestratorPromoteStarted) return
+    if (this.closed) return
+    const orch = this.orchestratorRecord
+    if (!orch) return
+    this.orchestratorPromoteStarted = true
+    await this.autoPromote(orch)
+  }
+
+  /**
    * The event of one automated adoption — the same two event types the manual
    * merge path pushes, plus `target`, which is the only thing that differs
    * between "into the orchestrator's worktree" and "into the checkout". Loud
@@ -1364,16 +1385,18 @@ export class Workspace implements AgentHost {
   /**
    * A3: open the run's pull request — the `automation.autoPr` path.
    *
-   * Called by `record_retro` (the orchestrator saying the work is done) and by
-   * the user stopping the workspace, whichever comes first; the second caller
-   * gets the recorded answer instead of a second pull request. Returns
+   * Called by {@link finishRunAutomation} (`record_retro` and Stop); kept
+   * public so unit tests can drive the PR path without promoting. The second
+   * caller gets the recorded answer instead of a second pull request. Returns
    * undefined when the profile never asked for one.
    *
    * The head branch is the run's own integration branch: the orchestrator's,
    * when it carries commits the base does not, otherwise the repository
    * checkout's branch when THAT is ahead (the shape an auto-promote run
    * leaves behind). Neither ahead means there is nothing to open a pull
-   * request for, and saying so is more useful than an empty PR.
+   * request for, and saying so is more useful than an empty PR. End-of-run
+   * autoPromote runs AFTER this, so the orchestrator branch is still ahead
+   * when the PR is opened.
    */
   async openRunPullRequest(options: { summary?: string } = {}): Promise<RunPullRequest | undefined> {
     const automation = this.automation
@@ -1454,6 +1477,34 @@ export class Workspace implements AgentHost {
             ...(outcome.compareUrl ? { url: outcome.compareUrl } : {})
           }
     )
+  }
+
+  /**
+   * A3: wrap up the run's host automation. Opens the pull request FIRST (so
+   * the orchestrator branch is still ahead of checkout), then promotes the
+   * orchestrator branch into the repository checkout. Either step is a no-op
+   * when its profile switch is off. At most once per side; never throws — a
+   * failed PR is a recorded answer, a failed promote is an `integrate_conflict`
+   * event.
+   */
+  async finishRunAutomation(options: { summary?: string } = {}): Promise<RunPullRequest | undefined> {
+    let pullRequest: RunPullRequest | undefined
+    try {
+      pullRequest = await this.openRunPullRequest(options)
+    } catch (error) {
+      pullRequest = {
+        ok: false,
+        branch: this.orchestratorRecord?.branch ?? '',
+        base: '',
+        message: errorText(error)
+      }
+    }
+    try {
+      await this.autoPromoteOrchestrator()
+    } catch {
+      /* the promote reports as an event; never fail the wrap-up */
+    }
+    return pullRequest
   }
 
   /**

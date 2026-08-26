@@ -12,6 +12,12 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **End-of-run auto-promote of the orchestrator branch.** With `autoPromote`
+  on, the host merges the orchestrator's own branch into the repository
+  checkout at `record_retro` or Stop — even if no subagent ran. `autoPr`
+  still runs first so the pull request sees the branch as ahead. Per-child
+  autoIntegrate / autoPromote and the panel's Promote button (stopped
+  subagents only) are unchanged.
 - **Pi wrap MCP as first-class tools.** The community adapter's default is a
   lazy `mcp()` proxy, so a wrap that only wrote `{ url, lifecycle: "eager" }`
   could connect without ever exposing `await_events`. `.pi/mcp.json` now

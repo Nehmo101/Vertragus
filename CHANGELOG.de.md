@@ -13,6 +13,13 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Auto-Promote des Orchestrator-Branches am Laufende.** Bei
+  eingeschaltetem `autoPromote` mergt der Host den eigenen Branch des
+  Orchestrators am Ende des Laufs (`record_retro` oder Stop) ins
+  Repository-Checkout — auch ohne Subagent. `autoPr` läuft davor, damit
+  der Pull Request den Branch noch als voraus sieht. Per-Kind
+  autoIntegrate / autoPromote und der Promote-Knopf im Panel (nur
+  gestoppte Subagenten) bleiben unverändert.
 - **Pi-Wrap-MCP als erstklassige Tools.** Der Community-Adapter defaultet
   auf einen lazy `mcp()`-Proxy, sodass ein Wrap, der nur
   `{ url, lifecycle: "eager" }` schrieb, connecten konnte, ohne

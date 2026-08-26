@@ -407,14 +407,14 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     runMetas.delete(workspaceId)
     timelineListeners.delete(workspaceId)
     // A3: the user pressing Stop is the other "the work is done" — open the
-    // pull request the profile asked for if record_retro never got around to
-    // it. Before close(), because the event queue dies in there; at most one
-    // pull request per run, so a retro that already opened it wins. A failure
-    // here must never keep a workspace running.
+    // pull request (if asked) then auto-promote the orchestrator branch.
+    // Before close(), because the event queue dies in there; at most once
+    // per run, so a retro that already ran this wins. A failure here must
+    // never keep a workspace running.
     try {
-      await workspace.openRunPullRequest?.({ summary: workspace.pendingRetroSummary })
+      await workspace.finishRunAutomation({ summary: workspace.pendingRetroSummary })
     } catch (error) {
-      console.warn('[automation] failed to open the run pull request:', error)
+      console.warn('[automation] failed to finish run automation:', error)
     }
     // Agents first (subagents, then the orchestrator), then the registration —
     // unregisterWorkspace closes the EventQueue, and a push after that throws.

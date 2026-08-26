@@ -1077,12 +1077,15 @@ export function registerOrchestratorTools(
       const { applied } = retro.recordLearnings(learnings)
       const appliedNotes = repoNotes.length > 0 ? retro.recordRepoNotes?.(repoNotes)?.applied ?? 0 : 0
       // A3: the retro is the run's "work is done" — so it is where the
-      // profile's auto-PR is opened. Never able to fail the retro: a pull
-      // request that could not be opened is a line in the answer, not a lost
-      // retrospective.
+      // profile's auto-PR is opened and the orchestrator branch is
+      // auto-promoted (PR first, so the branch is still ahead). Never able
+      // to fail the retro: a pull request that could not be opened is a line
+      // in the answer, not a lost retrospective.
       let pullRequest: RunPullRequest | undefined
       try {
-        pullRequest = await ctx.host.openRunPullRequest?.({ summary })
+        pullRequest = ctx.host.finishRunAutomation
+          ? await ctx.host.finishRunAutomation({ summary })
+          : await ctx.host.openRunPullRequest?.({ summary })
       } catch (error) {
         pullRequest = { ok: false, branch: '', base: '', message: errorMessage(error) }
       }
