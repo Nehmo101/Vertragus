@@ -697,4 +697,36 @@ describe('layoutCliWindowsByWorkspace', () => {
     expect(a1.bounds).toEqual({ x: 0, y: 0, width: 960, height: 1040 })
     expect(b1.bounds).toEqual({ x: 2720, y: 0, width: 800, height: 900 })
   })
+
+  it('auto-tiles a zoneless workspace instead of stealing another profile\'s zones', () => {
+    const zonesB = {
+      zones: [{ roleId: 'worker', displayId: 2, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+    }
+    const zoneB = { x: 2720, y: 0, width: 800, height: 900 }
+
+    const a = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: { roleId: 'worker', workspaceId: 'A' }
+      })
+    )
+    const b = fake(
+      cli.createCliWindow('b', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones: zonesB, workspaceId: 'B' }
+      })
+    )
+    userDrags(a)
+    a.setBounds({ x: 10, y: 10, width: 500, height: 400 })
+    userDrags(b)
+    b.setBounds({ x: 30, y: 30, width: 500, height: 400 })
+
+    cli.layoutCliWindowsByWorkspace(['a', 'b'])
+
+    // A has no zones of its own — auto-tile on the primary, not B's display-2 zone.
+    expect(a.bounds).toEqual(DISPLAYS[0]!.workArea)
+    expect(a.bounds).not.toEqual(zoneB)
+    expect(b.bounds).toEqual(zoneB)
+    expect(b.bounds.x).toBeGreaterThanOrEqual(DISPLAYS[1]!.workArea.x)
+  })
 })
