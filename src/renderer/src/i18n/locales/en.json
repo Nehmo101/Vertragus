@@ -162,6 +162,13 @@
     "customRoleSave": "Add role",
     "autoSubmitTasks": "Submit tasks automatically",
     "autoSubmitTasksHint": "Vertragus presses Enter for the agent. Off: the task stays in the CLI’s input field and has to be submitted by hand.",
+    "questionModeLabel": "Follow-up questions",
+    "questionModeHint": "How often the orchestrator asks you via ask_user. Few (default): only genuine decisions — a change of scope the goal did not already contain, a destructive action, or a product choice the goal does not settle. None: the goal text is authoritative; it still asks before destructive work or a change of scope. Thorough: close the brief first — every hole is one numbered question, batched.",
+    "questionMode": {
+      "none": "None",
+      "few": "Few",
+      "thorough": "Thorough"
+    },
     "rolePrompts": "System prompts",
     "rolePromptsHint": "Starter text for a new profile — edit or clear per identity. A communication overlay on the built-in prompt (language, who reads the report, how they hand off). It never replaces the reporting contract or the orchestrator loop.",
     "rolePromptPlaceholder": "e.g. Answer in German. Keep reports to three bullets.",

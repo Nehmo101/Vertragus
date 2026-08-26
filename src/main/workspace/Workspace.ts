@@ -1763,7 +1763,8 @@ export class Workspace implements AgentHost {
               autoPr: this.automation.autoPr
             }
           }
-        : {})
+        : {}),
+      questionMode: this.profile.questionMode
     }
     // C6 crash recovery: the resumed run left a frozen package behind. It is
     // strictly richer than the journal briefing (roster with branches, the

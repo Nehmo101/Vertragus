@@ -63,7 +63,12 @@ gleiche Sprache wie das Ziel, destillierte Übergabe); du kannst sie
 ändern, leeren oder wiederherstellen. Jeder Extra-Prompt wird an den
 Host-generierten bzw. mitgelieferten Rollen-Prompt angehängt, sodass du
 Sprache, Ton und die Art der Rückmeldung steuern kannst, ohne die
-Schleife oder den Reporting-Contract zu ersetzen.
+Schleife oder den Reporting-Contract zu ersetzen. Ein Profil legt
+außerdem fest, **wie viele Rückfragen** der Root-Orchestrator über
+`ask_user` stellt (`questionMode`: none / few / thorough; Standard few).
+Durchsetzung nur per Prompt — das Tool bleibt registriert. `none` fragt
+trotzdem vor destruktiver Arbeit oder einer Scope-Änderung, die das Ziel
+nicht schon enthält.
 
 Alles, was der Orchestrator kann, läuft über seine MCP-Tools — es gibt
 keinen zweiten Pfad:
@@ -76,7 +81,7 @@ keinen zweiten Pfad:
 | `list_agents` / `read_output` / `inspect_agent` | Snapshot, roher Terminal-Schwanz und **read-only Git-Fakten** (status/diff/log/file) aus dem Worktree eines Agenten — Verifikation ist Host-Wahrheit, nicht das Wort des Agenten. Übergroße Ausgaben spillen in eine Datei (Preview + Pfad) statt gekappt zu werden. |
 | `stop_agent` | Beendet einen Agenten; Dateien, Branch und Worktree bleiben. |
 | `integrate_branch{agentId, branch}` | Der eine sanktionierte Merge-Pfad: ein **host-seitiger** Merge in das Worktree des Ziel-Agenten. Konflikte brechen sauber ab und werden gemeldet (`integrate_conflict`); eine Gate-Warnung markiert das Integrieren unverifizierter Arbeit. |
-| `ask_user{question, ticket?}` | Fragt den Menschen und blockiert auf die Antwort (Panel-Badge und Handy); Ticket-Resume überlebt den MCP-Request-Timeout. |
+| `ask_user{question, ticket?}` | Fragt den Menschen und blockiert auf die Antwort (Panel-Badge und Handy); Ticket-Resume überlebt den MCP-Request-Timeout. Das Volumen ist pro Profil (`questionMode`: none / few / thorough; Standard few, nur Prompt). |
 | `start_orchestrator{area, task, …}` | Startet einen **Lead** (siehe unten). |
 | `record_retro{summary, learnings, repoNotes?}` | Die Lauf-Retrospektive, einmal am Ende. |
 | `request_succession{reason, …}` | Ersetzt einen kontextvollen Root durch einen Nachfolger, der dasselbe Team, dieselbe Queue und dieselben offenen Fragen behält. |
@@ -141,7 +146,8 @@ Cursors an; der Ring behält die letzten 1000, das On-Disk-Journal alles.
 - **Fragen in beide Richtungen:** Die offene Frage eines Agenten erscheint
   als `?`-Badge, beantwortbar von Panel oder Handy (ein Host-Pfad, eine
   Fragen-Registry); das `ask_user` des Orchestrators erscheint auf der
-  Workspace-Karte genauso.
+  Workspace-Karte genauso. Wie oft er fragt, ist eine Profil-Einstellung
+  (`questionMode`: none / few / thorough; Standard few).
 - **Idle-Watchdog:** Ein Orchestrator-Prozess, der lebt, aber seit zwei
   Minuten keine Tools mehr ruft, wird auf der Karte und im Remote-Client
   markiert (`orchestrator_idle`) — unterschieden vom Prozess-Tod, und

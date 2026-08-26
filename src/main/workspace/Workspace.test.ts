@@ -859,6 +859,18 @@ describe('startOrchestrator', () => {
     expect(prompt).toMatch(/never override the reporting contract/i)
   })
 
+  it('briefs the orchestrator with the profile questionMode', async () => {
+    const none = harness({ profile: testProfile({ questionMode: 'none' }) })
+    await none.workspace.startOrchestrator()
+    expect(none.spawns[0]!.input.systemPrompt).toContain('the goal text is authoritative')
+    expect(none.spawns[0]!.input.systemPrompt).toContain('Do not fish for extra requirements')
+
+    const thorough = harness({ profile: testProfile({ questionMode: 'thorough' }) })
+    await thorough.workspace.startOrchestrator()
+    expect(thorough.spawns[0]!.input.systemPrompt).toContain('before starting the team, close the brief')
+    expect(thorough.spawns[0]!.input.systemPrompt).toContain('one numbered ask_user, batched')
+  })
+
   it('opens the CLI window before spawn so the overlay covers MCP attach', async () => {
     let openedAtSpawn = 0
     const inner = fakeSpawn()

@@ -87,6 +87,20 @@ describe('draft ⇄ profile', () => {
     expect(result.ok && result.profile.autoSubmitTasks).toBe(false)
   })
 
+  it('carries questionMode both ways, few by default', () => {
+    expect(emptyDraft('claude', 'profile-x').questionMode).toBe('few')
+    expect(draftFromProfile(SAVED).questionMode).toBe('few')
+
+    // none/thorough must be persisted, not omitted — an omission would snap
+    // back to the schema default few.
+    for (const mode of ['none', 'thorough'] as const) {
+      const input = toProfileInput(draft({ questionMode: mode })) as Record<string, unknown>
+      expect(input.questionMode).toBe(mode)
+      const result = validateDraft(t, draft({ questionMode: mode }))
+      expect(result.ok && result.profile.questionMode).toBe(mode)
+    }
+  })
+
   it('A3: carries every automation switch both ways, all off by default', () => {
     expect(emptyDraft('claude', 'profile-x').automation).toEqual({
       autoIntegrate: false,

@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { DEFAULT_PR_REMOTE } from '@shared/schema/profile'
 import { WORKER_ROLE_ID, roleColor } from '@shared/prompts/roles'
 import { FolderIcon } from '../panel/icons'
-import { EffortSelect, Field, ModelCombo, ProviderSelect, SwitchField } from './fields'
+import { EffortSelect, Field, ModelCombo, ProviderSelect, QuestionModeSelect, SwitchField } from './fields'
 import { newSlotDraft, promptIdentities, type ProfileDraft, type SlotDraft } from './model'
 import { SlotRow } from './SlotRow'
 import { RolePromptsSection } from './RolePromptsSection'
@@ -197,6 +197,14 @@ export function ProfileEditorApp({
               editor.update((current) => ({ ...current, autoSubmitTasks }))
             }
           />
+          <Field label={t('profileEditor.questionModeLabel')} hint={t('profileEditor.questionModeHint')}>
+            <QuestionModeSelect
+              value={draft.questionMode}
+              onChange={(questionMode) =>
+                editor.update((current) => ({ ...current, questionMode }))
+              }
+            />
+          </Field>
         </section>
 
         <RolePromptsSection

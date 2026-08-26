@@ -162,6 +162,13 @@
     "customRoleSave": "Rolle übernehmen",
     "autoSubmitTasks": "Aufträge automatisch absenden",
     "autoSubmitTasksHint": "Vertragus drückt für den Agenten Enter. Aus: Der Auftrag bleibt im Eingabefeld der CLI stehen und muss von Hand abgeschickt werden.",
+    "questionModeLabel": "Rückfragen",
+    "questionModeHint": "Wie oft der Orchestrator dich über ask_user fragt. Wenige (Standard): nur echte Entscheidungen — eine Scope-Änderung, die das Ziel nicht schon enthält, eine destruktive Aktion oder eine Produktwahl, die das Ziel nicht klärt. Keine: der Zieltext gilt; er fragt trotzdem vor destruktiver Arbeit oder einer Scope-Änderung. Sorgfältig: zuerst das Briefing schließen — jedes Loch ist eine nummerierte Frage, gebündelt.",
+    "questionMode": {
+      "none": "Keine",
+      "few": "Wenige",
+      "thorough": "Sorgfältig"
+    },
     "rolePrompts": "System-Prompts",
     "rolePromptsHint": "Starttext für ein neues Profil — pro Identität ändern oder leeren. Ein Kommunikations-Overlay auf dem eingebauten Prompt (Sprache, wer den Bericht liest, Art der Übergabe). Ersetzt weder den Reporting-Contract noch die Orchestrator-Schleife.",
     "rolePromptPlaceholder": "z. B. Antworte auf Deutsch. Berichte in drei Stichpunkten.",

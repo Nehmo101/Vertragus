@@ -12,6 +12,13 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **Per-profile orchestrator question volume.** Profiles now carry
+  `questionMode` (`none` / `few` / `thorough`, default `few`). The profile
+  editor has a picker after auto-submit. The root orchestrator prompt is
+  briefed accordingly — prompt-only, `ask_user` stays registered. `none`
+  still asks before a destructive action or a change of scope; `thorough`
+  closes the brief first. Leads are not briefed; there is no remote-client
+  picker.
 - **Pi wrap MCP as first-class tools.** The community adapter's default is a
   lazy `mcp()` proxy, so a wrap that only wrote `{ url, lifecycle: "eager" }`
   could connect without ever exposing `await_events`. `.pi/mcp.json` now

@@ -13,6 +13,13 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Orchestrator-Fragevolumen pro Profil.** Profile tragen jetzt
+  `questionMode` (`none` / `few` / `thorough`, Standard `few`). Der
+  Profil-Editor hat einen Picker nach Auto-Submit. Der Root-Orchestrator-
+  Prompt wird entsprechend briefed — nur Prompt-Ebene, `ask_user` bleibt
+  registriert. `none` fragt trotzdem vor einer destruktiven Aktion oder
+  einer Scope-Änderung; `thorough` schließt zuerst das Briefing. Leads
+  werden nicht briefed; es gibt keinen Picker im Remote-Client.
 - **Pi-Wrap-MCP als erstklassige Tools.** Der Community-Adapter defaultet
   auf einen lazy `mcp()`-Proxy, sodass ein Wrap, der nur
   `{ url, lifecycle: "eager" }` schrieb, connecten konnte, ohne

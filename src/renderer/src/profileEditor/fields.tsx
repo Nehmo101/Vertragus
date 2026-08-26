@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { QUESTION_MODES, type QuestionMode } from '@shared/schema/profile'
 import { EFFORT_LEVELS } from '@shared/schema/provider'
 import type { ModelDiscoveryResult, ProviderListEntry } from '../../../preload'
 import { NEW_PROVIDER_VALUE } from '../providerEditor/model'
@@ -162,6 +163,34 @@ export function EffortSelect({ value, onChange, className }: EffortSelectProps):
       {EFFORT_LEVELS.map((level) => (
         <option key={level} value={level}>
           {t(`profileEditor.effortLevel.${level}`)}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+interface QuestionModeSelectProps {
+  value: QuestionMode
+  onChange(value: QuestionMode): void
+  className?: string
+}
+
+/** Always one of none / few / thorough — no empty option, unlike EffortSelect. */
+export function QuestionModeSelect({
+  value,
+  onChange,
+  className
+}: QuestionModeSelectProps): React.JSX.Element {
+  const { t } = useTranslation()
+  return (
+    <select
+      className={className ?? 'pe-input'}
+      value={value}
+      onChange={(event) => onChange(event.target.value as QuestionMode)}
+    >
+      {QUESTION_MODES.map((mode) => (
+        <option key={mode} value={mode}>
+          {t(`profileEditor.questionMode.${mode}`)}
         </option>
       ))}
     </select>
