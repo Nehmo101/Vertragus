@@ -395,17 +395,25 @@ export function rowEffortOptions(
 }
 
 /**
- * `undefined` while discovery for this provider has not finished — the stored
- * token must not be wiped before the per-model list exists.
+ * `undefined` while this row is not ready to coerce — the stored token must
+ * not be wiped first. Discovery still in flight, or the catalogue missing,
+ * waits. A missing provider entry (list still loading, or this id not in it)
+ * also waits, unless the model already has a discovered list: that catalogue
+ * wins even when the provider fallback is empty. `effortLevels: []` on a
+ * present provider (Cursor, custom) is ready and Standard-only.
  */
 export function knownEffortOptions(
   model: string,
   providerLevels: readonly string[] | undefined,
   catalogue: ModelDiscoveryResult | undefined,
-  loading: boolean
+  loading: boolean,
+  providerReady: boolean
 ): EffortLevel[] | undefined {
   if (loading || catalogue === undefined) return undefined
-  return effortSelectOptions(model, providerLevels, catalogue.efforts)
+  const fromModel = lookupModelEfforts(catalogue.efforts, model)
+  if (fromModel.length > 0) return fromModel
+  if (!providerReady) return undefined
+  return uniqueEffortLevels(providerLevels ?? [])
 }
 
 export function coerceEffort(
@@ -423,12 +431,22 @@ export function coerceRowEffort(
   providerId: string,
   providers: readonly ProviderListEntry[],
   catalogues: Record<string, ModelDiscoveryResult>,
-  loading: Record<string, boolean>
+  loading: Record<string, boolean>,
+  providersLoading = false
 ): EffortChoice {
-  const levels = providers.find((entry) => entry.config.id === providerId)?.config.effortLevels
+  const entry = providersLoading
+    ? undefined
+    : providers.find((item) => item.config.id === providerId)
+  const levels = entry === undefined ? undefined : (entry.config.effortLevels ?? [])
   return coerceEffort(
     effort,
-    knownEffortOptions(model, levels, catalogues[providerId], loading[providerId] ?? false)
+    knownEffortOptions(
+      model,
+      levels,
+      catalogues[providerId],
+      loading[providerId] ?? false,
+      entry !== undefined
+    )
   )
 }
 
@@ -437,7 +455,8 @@ export function resetInvalidEfforts(
   draft: ProfileDraft,
   providers: readonly ProviderListEntry[],
   catalogues: Record<string, ModelDiscoveryResult>,
-  loading: Record<string, boolean>
+  loading: Record<string, boolean>,
+  providersLoading = false
 ): ProfileDraft {
   const nextOrch = coerceRowEffort(
     draft.orchestrator.effort,
@@ -445,7 +464,8 @@ export function resetInvalidEfforts(
     draft.orchestrator.providerId,
     providers,
     catalogues,
-    loading
+    loading,
+    providersLoading
   )
   let changed = nextOrch !== draft.orchestrator.effort
   const slots = draft.slots.map((slot) => {
@@ -455,7 +475,8 @@ export function resetInvalidEfforts(
       slot.providerId,
       providers,
       catalogues,
-      loading
+      loading,
+      providersLoading
     )
     if (next === slot.effort) return slot
     changed = true

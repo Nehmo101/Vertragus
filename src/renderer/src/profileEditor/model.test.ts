@@ -538,4 +538,40 @@ describe('effortSelectOptions', () => {
     expect(next.slots[0]!.effort).toBe('xhigh')
     expect(next.slots[1]!.effort).toBe('')
   })
+
+  it('does not wipe fallback efforts while the provider list is still empty', () => {
+    const catalogues = {
+      grok: grokCatalogue,
+      cursor: { models: ['auto'], source: 'live' as const, refreshedAt: 1 }
+    }
+    const current = draft({
+      orchestrator: { providerId: 'grok', model: 'grok-build', effort: 'xhigh' },
+      slots: [
+        { id: 's1', roleId: 'worker', providerId: 'grok', model: 'grok-4.6', effort: 'xhigh', maxCount: '' },
+        { id: 's2', roleId: 'reviewer', providerId: 'cursor', model: 'auto', effort: 'high', maxCount: '' }
+      ]
+    })
+    const waiting = resetInvalidEfforts(current, [], catalogues, {}, true)
+    expect(resetInvalidEfforts(current, [], catalogues, {}).orchestrator.effort).toBe('xhigh')
+    expect(waiting.orchestrator.effort).toBe('xhigh')
+    expect(waiting.slots[0]!.effort).toBe('xhigh')
+    expect(waiting.slots[1]!.effort).toBe('high')
+    expect(waiting).toBe(current)
+
+    const discovered = draft({
+      orchestrator: { providerId: 'grok', model: 'grok-4.6', effort: 'max' }
+    })
+    expect(resetInvalidEfforts(discovered, [], catalogues, {}, true).orchestrator.effort).toBe('')
+
+    const ready = resetInvalidEfforts(
+      current,
+      [entry('grok', grokLevels), entry('cursor')],
+      catalogues,
+      {},
+      false
+    )
+    expect(ready.orchestrator.effort).toBe('xhigh')
+    expect(ready.slots[0]!.effort).toBe('xhigh')
+    expect(ready.slots[1]!.effort).toBe('')
+  })
 })
