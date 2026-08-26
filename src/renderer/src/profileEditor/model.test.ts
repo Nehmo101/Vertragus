@@ -482,8 +482,13 @@ describe('effortSelectOptions', () => {
     expect(rowEffortOptions('grok-4.3', 'grok', grok, grokCatalogue)).toEqual(grokLevels)
     expect(rowEffortOptions('grok-4.3', 'grok', grok, grokCatalogue)).toContain('xhigh')
     expect(
-      rowEffortOptions('opus', 'claude', [entry('claude', ['low', 'medium', 'high'])], undefined)
-    ).toEqual(['low', 'medium', 'high'])
+      rowEffortOptions(
+        'opus',
+        'claude',
+        [entry('claude', ['low', 'medium', 'high', 'xhigh', 'max'])],
+        undefined
+      )
+    ).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
     expect(
       rowEffortOptions('gpt-5.6', 'codex', [entry('codex', ['low', 'medium', 'high', 'xhigh'])], {
         models: ['gpt-5.6'],

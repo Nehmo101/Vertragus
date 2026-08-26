@@ -60,7 +60,8 @@ const PRESETS: readonly ProviderConfig[] = [
     yoloArgs: ['--dangerously-skip-permissions'],
     modelArg: '--model',
     effortArg: { style: 'flag', flag: '--effort' },
-    effortLevels: ['low', 'medium', 'high'],
+    // Claude Code `--effort` (verified 2.1.238): low, medium, high, xhigh, max.
+    effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
     versionArgs: ['--version'],
     auth: { loginArgs: ['auth', 'login'], statusArgs: ['auth', 'status'] },
     systemPromptDelivery: { kind: 'arg', flag: '--append-system-prompt' },
