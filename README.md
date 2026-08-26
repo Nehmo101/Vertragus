@@ -36,9 +36,8 @@ is the code-grounded map of the harness core; serial root succession
 Neighbouring tools and the gaps worth taking are mapped in
 [`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md); the
 parallel adoption plan is
-[`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md). The Pi wrap is
-leaving (host wins stay native):
-[`docs/PLAN-PI-EXIT.md`](docs/PLAN-PI-EXIT.md).
+[`docs/PLAN-LANDSCAPE.md`](docs/PLAN-LANDSCAPE.md). Play starts each
+slot's native CLI — there is no spawn overlay.
 
 ## How a run works
 
@@ -192,15 +191,6 @@ verified dialect: a strict transient config file (Claude), process-local
 (Kimi, Cursor, Grok — token-carrying files are kept out of the user's git
 history). Orchestrators and leads run on a strict tool allow-list; workers
 run unrestricted — their discipline is the contract, not a tool cage.
-
-**Pi is not a seventh provider.** A settings toggle (off by default) can wrap
-spawn so the process is the lockfile `pi` CLI while the roster still names
-Claude, Cursor, Codex, Kimi, Grok or Ollama: the preset maps onto Pi's
-`--provider`, the slot's model onto `--model`. MCP attaches through
-`.pi/mcp.json` and the pinned `pi-mcp-adapter`. Cursor's closest Pi backend
-is `github-copilot`; Ollama has no Pi backend, so only `--model` is passed.
-Takes effect on the next Play. Dependabot allow-lists only those two
-packages (no automerge); PATH `pi` is the fallback if the package is missing.
 
 A slot can declare **extra MCP servers** (`extraMcp: [{name, url}]`) that
 its agents attach in addition to Vertragus — subagents only, never the

@@ -567,13 +567,11 @@ describe('startWorkspace', () => {
     const roleTemplates = vi.fn(() => [])
     const yoloMaster = vi.fn(() => false)
     const agentPolicy = vi.fn(() => 'ask-orchestrator' as const)
-    const piHarness = vi.fn(() => true)
     const { manager, spawns, mcp } = harness({
       providers,
       roleTemplates,
       yoloMaster,
-      agentPolicy,
-      piHarness
+      agentPolicy
     })
 
     await manager.startWorkspace(testProfile())
@@ -584,11 +582,8 @@ describe('startWorkspace', () => {
     expect(yoloMaster).toHaveBeenCalledTimes(2)
     // D4: the tier is read fresh too, and it reaches the MCP context.
     expect(agentPolicy).toHaveBeenCalledTimes(2)
-    expect(piHarness).toHaveBeenCalledTimes(2)
     expect(mcp.contexts[0]!.agentPolicy).toBe('ask-orchestrator')
     expect(spawns).toHaveLength(2)
-    expect(spawns[0]!.input.harness).toBe('pi')
-    expect(spawns[1]!.input.harness).toBe('pi')
     expect(spawns[0]!.input.provider.id).toBe('claude')
   })
 

@@ -861,9 +861,9 @@ installieren**, der `chrome://extensions` und den entpackten Ordner
 [`CHROMIUM-EXTENSION.md`](./CHROMIUM-EXTENSION.md). MCP-Tool-Contract-
 Version auf `1.1.0` angehoben.
 
-## Phase H — Pi-Harness-Wrap: Exit
+## Phase H — Pi-Harness-Wrap: entfernt
 
-Pi war ein Spawn-Overlay, kein Provider. Es **geht**. Der Wrap hat
+Pi war ein Spawn-Overlay, kein Provider. Es ist **weg**. Der Wrap hat
 Host-Lehren sichtbar gemacht; die bleiben. Das Overlay nicht.
 Schnitt-Plan: [`PLAN-PI-EXIT.md`](./PLAN-PI-EXIT.md).
 
@@ -883,8 +883,9 @@ stirbt.
 Das Prozess-Overlay (`piHarness.ts`, `.pi/mcp.json`, `pi-mcp-adapter`,
 mitgeliefertes `@earendil-works/pi-coding-agent`, Setting
 `piHarnessEnabled`, Pi-Play-Smoke, Dependabot-Pin, asarUnpack-Steuer)
-ist zur Löschung vorgesehen. Slots bleiben Claude / Cursor / Codex /
-Kimi / Grok / Ollama. Der Prozess ist diese CLI.
+ist **gelöscht**. Slots bleiben Claude / Cursor / Codex / Kimi / Grok /
+Ollama. Der Prozess ist diese CLI. `scripts/piExitGuard.test.ts` würde
+scheitern, kämen die Pakete oder das Setting zurück.
 
 ### Kein First-Party-Agent
 
@@ -971,6 +972,6 @@ Profil-Feld ist, wie diese Rolle in diesem Projekt *spricht*.
 | Worker-Helper (eine Extra-Ebene) | `types.ts` `canSpawnHelpers` / `ensureNest` / `MAX_HELPERS_PER_WORKER` | **Phase H** |
 | Live-`user_message`-Targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium-`/browser`-Bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
-| Pi-Harness-Wrap | `agents/piHarness.ts`, `spawn.ts`-Overlay (bis X2) | **exit** — [`PLAN-PI-EXIT.md`](./PLAN-PI-EXIT.md) |
+| Pi-Harness-Wrap | (entfernt) `scripts/piExitGuard.test.ts` | **entfernt** — [`PLAN-PI-EXIT.md`](./PLAN-PI-EXIT.md) |
 | Extra-System-Prompt pro Identität | `schema/profile.ts` `rolePrompts`, `prompts/rolePrompt.ts`, Profil-Editor | **this** |
 | Einheitliches CLI-Session-Chrome | `cliSurface.ts`, `cliSession.ts`, `cliSessionFeed.ts`, `terminal/SessionPane.tsx` | **this** |

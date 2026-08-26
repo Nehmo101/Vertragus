@@ -418,7 +418,7 @@ machen, dass man für Alltagstasks nicht zu Devin geht.
 
 | Fähigkeit | Vertragus heute | Häufig bei Nachbarn |
 | --- | --- | --- |
-| Mixed-Vendor-CLI-Wrap | Ja (6 Presets + Custom + Pi-Wrap) | Emdash 20+, Pane jede CLI, Warp 14+ |
+| Mixed-Vendor-CLI-Wrap | Ja (6 Presets + Custom) | Emdash 20+, Pane jede CLI, Warp 14+ |
 | Worktree pro Agent | Ja, Pflicht, kein Autodelete | Fast universell in A |
 | Blockierende MCP-Teamschleife | **Ja — unverwechselbar** | Selten (Daintree/Superset exponieren MCP *der ADE*; dsh/Claude Teams sind Single-Vendor) |
 | Host-Truth Inspect / Snapshot-Commit / Integrate | **Ja — unverwechselbar** | Review-UIs; Merge ist meist ein menschlicher Git-Klick |
@@ -432,7 +432,7 @@ machen, dass man für Alltagstasks nicht zu Devin geht.
 | CI-Status auf dem PR, den der Host geöffnet hat | Automation kann einen PR öffnen; kein Checks-Feed | Conductor Checks, Emdash CI-Tracking, Sculptor CI-Babysitter |
 | Issue-Tracker-Intake | Nein | Emdash, Conductor, MindFlock, Factory, Cursor, Copilot |
 | Skills-Standard (`agentskills.io`) | Pro-CLI nativ, kein Host-Katalog | Emdash-Sync, OpenHands-Bibliothek, Factory Skills, dsh Skills |
-| ACP-Dialekt | Nein (MCP + Sentinel + Pi) | OpenHands, Copilot CLI, dsh, Codeg |
+| ACP-Dialekt | Nein (MCP + Sentinel) | OpenHands, Copilot CLI, dsh, Codeg |
 | Remote: Phone-Steer | Tailscale + 7 Verben | Pane-Daemon, Nimbalyst iOS, Emdash SSH-*Execution* |
 | Same-Task-A/B (zwei Modelle, einen Sieger wählen) | Von Hand möglich (`start_agent` zweimal) | Emdash „mehrere Agenten auf demselben Problem", Sculptor-Fork |
 | Desktop-Notifications | Nein | Warp, CodeAgentSwarm |

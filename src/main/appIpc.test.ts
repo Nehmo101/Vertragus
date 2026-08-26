@@ -175,7 +175,6 @@ const SETTINGS: AppSettings = {
   },
   remote: { enabled: false, bindAddress: '', port: 9482 },
   yoloMaster: true,
-  piHarnessEnabled: false,
   hideAllHotkey: 'Control+Alt+V',
   autostart: false,
   updateChannel: 'main',
@@ -1298,7 +1297,6 @@ describe('settings and windows', () => {
     expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).toEqual({
       yoloMaster: true,
       agentPolicy: 'yolo',
-      piHarnessEnabled: false,
       hideAllHotkey: 'Control+Alt+V',
       locale: 'de',
       theme: 'dark',
@@ -1407,25 +1405,6 @@ describe('settings and windows', () => {
     await expect(
       h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'agentPolicy', value: 'full-send' })
     ).rejects.toThrow(/agentPolicy expects/)
-  })
-
-  it('writes the Pi harness wrap as a boolean and rejects a string', async () => {
-    const on = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
-      key: 'piHarnessEnabled',
-      value: true
-    })) as PanelSettings
-    expect(on.piHarnessEnabled).toBe(true)
-    expect(h.store.settings.piHarnessEnabled).toBe(true)
-
-    const off = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
-      key: 'piHarnessEnabled',
-      value: false
-    })) as PanelSettings
-    expect(off.piHarnessEnabled).toBe(false)
-
-    await expect(
-      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'piHarnessEnabled', value: 'ja' })
-    ).rejects.toThrow(/piHarnessEnabled expects/)
   })
 
   it('broadcasts every settings write so the other windows follow', async () => {
@@ -1571,7 +1550,6 @@ describe('settings:set', () => {
       'reflowNeighbors',
       'voice',
       'agentPolicy',
-      'piHarnessEnabled',
       'onboardingDismissed',
       'mcpServers'
     ])

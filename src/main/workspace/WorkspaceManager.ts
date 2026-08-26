@@ -42,7 +42,6 @@ export interface WorkspaceManagerDeps
     | 'roleTemplates'
     | 'yoloMaster'
     | 'agentPolicy'
-    | 'piHarness'
     | 'retro'
     | 'resumeBriefing'
     | 'resumeSuccession'
@@ -55,8 +54,6 @@ export interface WorkspaceManagerDeps
   yoloMaster?: boolean | (() => boolean)
   /** D4: the three-tier policy; wins over `yoloMaster`. Also read fresh per start. */
   agentPolicy?: WorkspaceDeps['agentPolicy'] | (() => WorkspaceDeps['agentPolicy'])
-  /** Pi harness wrap; also read fresh per start. Default off. */
-  piHarness?: boolean | (() => boolean)
   /** Full sink (the workspace itself only sees the feed slice). Absent = no retro. */
   retro?: RetroSink
   /**
@@ -214,7 +211,6 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       roleTemplates: deps.roleTemplates ? resolveValue(deps.roleTemplates) : [],
       yoloMaster: deps.yoloMaster === undefined ? true : resolveValue(deps.yoloMaster),
       agentPolicy: deps.agentPolicy === undefined ? undefined : resolveValue(deps.agentPolicy),
-      piHarness: deps.piHarness === undefined ? false : resolveValue(deps.piHarness),
       retro: deps.retro
     }
   }

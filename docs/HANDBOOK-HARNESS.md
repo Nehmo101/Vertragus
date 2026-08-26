@@ -850,9 +850,9 @@ copies the pairing URL. How-to:
 [`CHROMIUM-EXTENSION.md`](./CHROMIUM-EXTENSION.md). MCP tool-contract
 version bumped to `1.1.0`.
 
-## Phase H — Pi harness wrap: exit
+## Phase H — Pi harness wrap: removed
 
-Pi was a spawn overlay, not a provider. It is **leaving**. The wrap made
+Pi was a spawn overlay, not a provider. It is **gone**. The wrap made
 host lessons obvious; those stay. The overlay does not. Cut plan:
 [`PLAN-PI-EXIT.md`](./PLAN-PI-EXIT.md).
 
@@ -870,9 +870,10 @@ not die in cmd.exe.
 
 The process overlay (`piHarness.ts`, `.pi/mcp.json`, `pi-mcp-adapter`,
 bundled `@earendil-works/pi-coding-agent`, settings `piHarnessEnabled`,
-Pi Play smoke, Dependabot pin, asarUnpack tax) is scheduled for
-deletion. Slots stay Claude / Cursor / Codex / Kimi / Grok / Ollama.
-The process is that CLI.
+Pi Play smoke, Dependabot pin, asarUnpack tax) is **deleted**. Slots stay
+Claude / Cursor / Codex / Kimi / Grok / Ollama. The process is that CLI.
+`scripts/piExitGuard.test.ts` would fail if the packages or setting
+returned.
 
 ### Not a first-party agent
 
@@ -955,6 +956,6 @@ that role *speaks* in this project.
 | Worker helpers (one extra level) | `types.ts` `canSpawnHelpers` / `ensureNest` / `MAX_HELPERS_PER_WORKER` | **Phase H** |
 | Live `user_message` targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium `/browser` bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
-| Pi harness wrap | `agents/piHarness.ts`, `spawn.ts` overlay (until X2) | **exit** — [`PLAN-PI-EXIT.md`](./PLAN-PI-EXIT.md) |
+| Pi harness wrap | (removed) `scripts/piExitGuard.test.ts` | **removed** — [`PLAN-PI-EXIT.md`](./PLAN-PI-EXIT.md) |
 | Per-identity extra system prompt | `schema/profile.ts` `rolePrompts`, `prompts/rolePrompt.ts`, profile editor | **this** |
 | Unified CLI session chrome | `cliSurface.ts`, `cliSession.ts`, `cliSessionFeed.ts`, `terminal/SessionPane.tsx` | **this** |

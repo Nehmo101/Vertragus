@@ -17,10 +17,7 @@ fährt. CI führt zusätzlich die Coverage-Ratchet aus
 (`pnpm run test:coverage`; die Schwellen in `vitest.config.ts` liegen knapp
 unter dem gemessenen Status quo, Coverage kann sich also nur nach oben
 bewegen) und einen Panel-Smoke-Test, der die echte Electron-App bootet
-(`scripts/panel-smoke.mjs`). CI fährt außerdem einen Pi-Play-Smoke
-(`scripts/pi-play-smoke.mjs`), der einen Workspace über den Pi-Wrap mit
-isoliertem userData startet und das Orchestrator-PTY auf TUI plus
-Vertragus-MCP prüft — ohne Provider-Keys. Ein Packaging-Job beweist, dass die Installer
+(`scripts/panel-smoke.mjs`). Ein Packaging-Job beweist, dass die Installer
 weiterhin bauen; aus CI wird nichts veröffentlicht.
 
 Nützliche Einzelteile: `pnpm run typecheck:node` / `typecheck:web` für ein

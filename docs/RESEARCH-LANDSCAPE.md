@@ -401,7 +401,7 @@ leave for Devin on everyday tasks.
 
 | Capability | Vertragus today | Common in neighbours |
 | --- | --- | --- |
-| Mixed-vendor CLI wrap | Yes (6 presets + custom + Pi wrap) | Emdash 20+, Pane any CLI, Warp 14+ |
+| Mixed-vendor CLI wrap | Yes (6 presets + custom) | Emdash 20+, Pane any CLI, Warp 14+ |
 | Worktree per agent | Yes, mandatory, no autodelete | Almost universal in A |
 | Blocking MCP team loop | **Yes — distinctive** | Rare (Daintree/Superset expose MCP *of the ADE*; dsh/Claude Teams are single-vendor) |
 | Host-truth inspect / snapshot commit / integrate | **Yes — distinctive** | Review UIs; merge is usually a human git click |
@@ -415,7 +415,7 @@ leave for Devin on everyday tasks.
 | CI status on the PR the host opened | Automation can open a PR; no checks feed | Conductor checks, Emdash CI tracking, Sculptor CI babysitter |
 | Issue-tracker intake | No | Emdash, Conductor, MindFlock, Factory, Cursor, Copilot |
 | Skills standard (`agentskills.io`) | Per-CLI native, not a host catalog | Emdash sync, OpenHands library, Factory Skills, dsh skills |
-| ACP dialect | No (MCP + sentinel + Pi) | OpenHands, Copilot CLI, dsh, Codeg |
+| ACP dialect | No (MCP + sentinel) | OpenHands, Copilot CLI, dsh, Codeg |
 | Remote: phone steer | Tailscale + 7 verbs | Pane daemon, Nimbalyst iOS, Emdash SSH *execution* |
 | Same-task A/B (two models, pick a winner) | Possible by hand (`start_agent` twice) | Emdash "several agents on the same problem", Sculptor fork |
 | Desktop notifications | No | Warp, CodeAgentSwarm |

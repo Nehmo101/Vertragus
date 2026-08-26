@@ -94,7 +94,6 @@ export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManage
     // D4: the tier wins over the boolean; read fresh so a settings change
     // reaches the next workspace without a restart.
     agentPolicy: () => effectiveAgentPolicy(getSettings()),
-    piHarness: () => getSettings().piHarnessEnabled,
     extraMcpServers: () => enabledExtraMcpServers(getSettings().mcpServers),
     // Seed-failure errors (Application Control, dead CLI) follow the panel language.
     locale: () => getSettings().ui.locale,

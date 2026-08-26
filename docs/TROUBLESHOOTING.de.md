@@ -135,8 +135,7 @@ Claude/Kimi-Trust). Jeder native Cursor-Start ist **Run Everything**
 `approvalMode: unrestricted`), damit Auto-review und die Sandbox nicht
 weiter an Tool-Calls oder MCP-Initialize stoppen — auch Orchestratoren
 und `ask-user`-Worker. Cursor hat keine per-Tool-Allowlist; die MCP-
-Identität scoped weiter, welche Vertragus-Tools existieren. Der Pi-Wrap
-überspringt diesen Dialekt.
+Identität scoped weiter, welche Vertragus-Tools existieren.
 
 Stoppt die TUI trotzdem an einer Bestätigung, wird das Windhund-Overlay
 klickdurchlässig (`waiting`), damit du im Fenster auf Approve klicken
@@ -176,51 +175,6 @@ Was tun:
 - Ist Smart App Control schon aus und stirbt ein normales Terminal trotzdem,
   ist das ein Bug der Cursor-CLI. Dort öffnen; der Dump im
   Orchestrator-Fenster reicht als Anhang.
-
-## Pi-Wrap-Fenster bleibt unter Windows leer
-
-Play mit **Agenten über Pi starten** startet einen Prozess, danach bleibt
-das Agentenfenster leer und das Kind beendet mit Exit 0 innerhalb weniger
-Sekunden.
-
-ConPTY kann `electron.exe` (WINDOWS-Subsystem) nicht anbinden. Der Wrap
-startet deshalb PATH-`node` gegen den mitgelieferten CJS-Entrypoint, nicht
-Electron-as-node. POSIX bleibt Electron-as-node.
-
-Was tun:
-
-- [Node.js](https://nodejs.org/) installieren, sodass `node` auf dem PATH
-  liegt, dann erneut Play. Außerhalb des Panels prüfen: `node -v` in einem
-  normalen Terminal.
-- Pi braucht weiterhin **eigene** Provider-Keys (`~/.pi/agent` oder
-  `ANTHROPIC_API_KEY` / das gemappte Backend). Ein Claude-Code-Login ist
-  ein anderer Speicher; die TUI kann "No API key found" zeigen, obwohl MCP
-  hängt.
-- Den Wrap außerhalb der echten Einstellungen prüfen:
-  `node scripts/pi-play-smoke.mjs` startet Electron mit isoliertem userData
-  und einem Wegwerf-Repo. Es muss `ok` drucken (TUI + MCP). Es nutzt weder
-  `~/.pi` noch Provider-API-Keys.
-
-## Pi-MCP hängt nie
-
-Der Wrap schreibt `.pi/mcp.json` mit **Direct Tools** (`await_events`
-auf Pis Tool-Liste, nicht hinter dem `mcp()`-Proxy des Adapters),
-`lifecycle: "lazy-keep-alive"` (ein Eager-Connect beim Laden wird bei
-`session_start` abgerissen), 600 s `requestTimeoutMs` und
-`MCP_DIRECT_TOOLS=vertragus`, damit der erste Turn darauf wartet.
-
-Was tun:
-
-- Windows: Node.js muss auf dem PATH liegen (`node -v`). Electron-as-node
-  ist ein leeres Fenster; der Wrap weigert sich zu starten, wenn Resolve
-  auf `electron.exe` gelandet ist.
-- Die TUI-Zeile `MCP: Failed to connect to vertragus` ist ein harter Fail —
-  der Loopback-MCP-Server war unter der URL in `.pi/mcp.json` nicht erreichbar.
-- `servers connected (N tools)` oder die Statuszeile `1 server enabled (1
-  connected)` plus `direct tools refreshed (+N)` heißt, Initialize ist
-  durch und die Vertragus-Tools stehen auf Pis Tool-Liste. Wenn der
-  Orchestrator trotzdem nie `await_events` ruft, Issue mit diesem Snapshot
-  öffnen.
 
 ## Etwas anderes
 

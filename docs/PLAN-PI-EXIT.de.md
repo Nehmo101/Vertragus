@@ -2,7 +2,7 @@ Deutsch | [English](PLAN-PI-EXIT.md)
 
 # Pi-Wrap-Exit
 
-Stand: 26. August 2026. Kein Programcode in dieser Änderung.
+Stand: 26. August 2026. Umgesetzt (X1–X4).
 
 Der Wrap geht. Die **Host-Gewinne**, die er sichtbar gemacht hat,
 bleiben als native Vertragus-Pfade — nicht als mitgelieferter
