@@ -1194,6 +1194,15 @@ describe('requestSuccession', () => {
     expect(seed).toContain(`[${worker.agentId}] (worker`)
   })
 
+  it('briefs the live successor with the profile questionMode', async () => {
+    const { workspace, spawns } = harness({ profile: testProfile({ questionMode: 'none' }) })
+    await workspace.startOrchestrator()
+    await workspace.requestSuccession({ reason: 'context_full' }).ready
+    const successor = spawns.at(-1)!.input.systemPrompt
+    expect(successor).toContain('the goal text is authoritative')
+    expect(successor).toContain('Do not fish for extra requirements')
+  })
+
   it('refuses a second succession while one is in flight', async () => {
     const { workspace } = harness()
     await workspace.startOrchestrator()
