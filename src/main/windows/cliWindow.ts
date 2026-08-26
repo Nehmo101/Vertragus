@@ -194,6 +194,8 @@ function toAgentWindowInfo(agentId: string, roleId: string): AgentWindowInfo {
 function zonesForPlan(placement: CliWindowPlacement): ZoneLayout | undefined {
   if (placement.zones) return placement.zones
   for (const { agentId } of listCliWindows()) {
+    // Same grouping as planFor — omitted workspace ids group with each other.
+    if (windowWorkspaceId(agentId) !== placement.workspaceId) continue
     const zones = windows.get(agentId)?.options.placement?.zones
     if (zones && zones.zones.length > 0) return zones
   }
