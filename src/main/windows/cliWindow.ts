@@ -298,15 +298,34 @@ function reflowLiveNeighbors(agentId: string): void {
 setLiveReflowHandler(reflowLiveNeighbors)
 
 /**
- * Another live CLI already has the keyboard. The window being reused is
- * excluded so its own isFocused() does not suppress the show+focus path.
+ * The Vertragus window that currently has the OS keyboard, if any.
+ * A focused CLI wins; otherwise a focused panel. `except` is the window
+ * being reused so its own isFocused() does not look like a steal.
  */
-function anotherCliWindowIsFocused(except: BrowserWindow): boolean {
+function snapshotKeyboardWindow(except?: BrowserWindow): BrowserWindow | null {
   for (const { window } of listCliWindows()) {
     if (window === except) continue
-    if (window.isFocused()) return true
+    if (window.isFocused()) return window
   }
-  return false
+  const panel = getPanelWindow()
+  if (panel?.isFocused()) return panel
+  return null
+}
+
+/**
+ * Spawn must not steal OS focus. Exception: Play — the panel is focused and
+ * this is the first CLI of a run. A null snapshot means the user is in
+ * another app: showInactive and do not focus.
+ */
+function shouldKeepKeyboard(previous: BrowserWindow | null, otherCliCount: number): boolean {
+  if (!previous) return true
+  const panel = getPanelWindow()
+  if (previous === panel && otherCliCount === 0) return false
+  return true
+}
+
+function restoreKeyboard(previous: BrowserWindow | null): void {
+  if (previous && !previous.isDestroyed()) previous.focus()
 }
 
 /**
@@ -358,9 +377,12 @@ export function layoutCliWindows(agentIds: readonly string[]): void {
 export function createCliWindow(agentId: string, options: CliWindowOptions): BrowserWindow {
   const existing = getCliWindow(agentId)
   if (existing) {
-    // show() activates; do not steal keystrokes from another live CLI.
-    if (anotherCliWindowIsFocused(existing)) existing.showInactive()
-    else {
+    const previous = snapshotKeyboardWindow(existing)
+    const otherCliCount = listCliWindows().filter(({ window }) => window !== existing).length
+    if (shouldKeepKeyboard(previous, otherCliCount)) {
+      existing.showInactive()
+      restoreKeyboard(previous)
+    } else {
       existing.show()
       existing.focus()
     }
@@ -372,7 +394,8 @@ export function createCliWindow(agentId: string, options: CliWindowOptions): Bro
   const bounds = options.bounds ?? placed
 
   // Windows: new BrowserWindow() can steal OS focus before ready-to-show.
-  const keepKeyboard = listCliWindows().some(({ window }) => window.isFocused())
+  const previous = snapshotKeyboardWindow()
+  const keepKeyboard = shouldKeepKeyboard(previous, listCliWindows().length)
 
   const win = new BrowserWindow({
     ...glassWindowOptions(),
@@ -393,11 +416,16 @@ export function createCliWindow(agentId: string, options: CliWindowOptions): Bro
     alwaysOnTop: false,
     title: cliWindowTitle(options.title)
   })
+  if (keepKeyboard) restoreKeyboard(previous)
   secureWindow(win)
   loadRoute(win, `/agent/${encodeURIComponent(agentId)}`)
   win.on('ready-to-show', () => {
-    if (keepKeyboard) win.showInactive()
-    else win.show()
+    if (keepKeyboard) {
+      win.showInactive()
+      restoreKeyboard(previous)
+    } else {
+      win.show()
+    }
     // Constructor x/y is a hint. Linux compositors often ignore it until
     // after `show`; pinning here is what actually lands the window on the
     // target display.

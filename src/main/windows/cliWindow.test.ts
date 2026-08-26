@@ -93,6 +93,37 @@ vi.mock('./base', () => ({
   secureWindow: (...args: unknown[]) => secureWindow(...args)
 }))
 
+class FakePanel {
+  focused = false
+  destroyed = false
+  readonly calls: Array<'focus'> = []
+  isDestroyed(): boolean {
+    return this.destroyed
+  }
+  isFocused(): boolean {
+    return this.focused
+  }
+  focus(): void {
+    this.focused = true
+    this.calls.push('focus')
+  }
+}
+
+const panelControl = vi.hoisted(() => ({
+  current: null as {
+    focused: boolean
+    destroyed: boolean
+    readonly calls: Array<'focus'>
+    isDestroyed(): boolean
+    isFocused(): boolean
+    focus(): void
+  } | null
+}))
+
+vi.mock('./panel', () => ({
+  getPanelWindow: () => panelControl.current
+}))
+
 type CliWindowModule = typeof import('./cliWindow')
 let cli: CliWindowModule
 
@@ -101,8 +132,16 @@ beforeEach(async () => {
   vi.clearAllMocks()
   FakeBrowserWindow.instances = []
   listeners.clear()
+  panelControl.current = null
   cli = await import('./cliWindow')
 })
+
+function focusedPanel(): FakePanel {
+  const panel = new FakePanel()
+  panel.focused = true
+  panelControl.current = panel
+  return panel
+}
 
 describe('createCliWindow', () => {
   it('creates a frameless, resizable glass window that is never always-on-top', () => {
@@ -138,19 +177,37 @@ describe('createCliWindow', () => {
     expect(second.x).toBeUndefined()
   })
 
-  it('reuses and refocuses an existing window instead of opening a second one', () => {
+  it('reuses an existing window without stealing focus when nothing in the app is focused', () => {
     const first = fake(cli.createCliWindow('agent-1', META))
     const again = cli.createCliWindow('agent-1', META)
     expect(again).toBe(first)
     expect(FakeBrowserWindow.instances).toHaveLength(1)
+    expect(first.calls).toEqual(['showInactive'])
+    expect(first.focused).toBe(false)
+  })
+
+  it('reuses the first CLI with show+focus when the panel is focused (Play)', () => {
+    focusedPanel()
+    const first = fake(cli.createCliWindow('agent-1', META))
+    const again = cli.createCliWindow('agent-1', META)
+    expect(again).toBe(first)
     expect(first.calls).toEqual(['show', 'focus'])
     expect(first.focused).toBe(true)
   })
 
-  it('shows a new window when no other CLI is focused', () => {
+  it('shows a new window inactive when nothing in the app is focused', () => {
+    const win = fake(cli.createCliWindow('agent-1', META))
+    win.emit('ready-to-show')
+    expect(win.calls).toEqual(['showInactive'])
+    expect(win.focused).toBe(false)
+  })
+
+  it('shows the first CLI when the panel is focused (Play)', () => {
+    const panel = focusedPanel()
     const win = fake(cli.createCliWindow('agent-1', META))
     win.emit('ready-to-show')
     expect(win.calls).toEqual(['show'])
+    expect(panel.calls).toEqual([])
   })
 
   it('shows a new window inactive when another CLI is focused', () => {
@@ -160,6 +217,8 @@ describe('createCliWindow', () => {
     win.emit('ready-to-show')
     expect(win.calls).toEqual(['showInactive'])
     expect(win.focused).toBe(false)
+    expect(other.calls).toContain('focus')
+    expect(other.focused).toBe(true)
   })
 
   it('shows inactive on ready-to-show even if construction stole focus from the other CLI', () => {
@@ -170,6 +229,21 @@ describe('createCliWindow', () => {
     win.emit('ready-to-show')
     expect(win.calls).toEqual(['showInactive'])
     expect(win.focused).toBe(false)
+    expect(other.calls).toContain('focus')
+    expect(other.focused).toBe(true)
+  })
+
+  it('restores panel focus when spawning while the panel is focused and a CLI already exists', () => {
+    const panel = focusedPanel()
+    fake(cli.createCliWindow('agent-a', { title: 'A', roleColor: '#111' }))
+    panel.focused = true
+    const win = fake(cli.createCliWindow('agent-b', { title: 'B', roleColor: '#222' }))
+    panel.focused = false
+    win.emit('ready-to-show')
+    expect(win.calls).toEqual(['showInactive'])
+    expect(win.focused).toBe(false)
+    expect(panel.calls).toContain('focus')
+    expect(panel.focused).toBe(true)
   })
 
   it('reuses an existing window without stealing focus from another CLI', () => {
@@ -181,6 +255,22 @@ describe('createCliWindow', () => {
     expect(FakeBrowserWindow.instances).toHaveLength(2)
     expect(existing.calls).toEqual(['showInactive'])
     expect(existing.focused).toBe(false)
+    expect(other.calls).toContain('focus')
+    expect(other.focused).toBe(true)
+  })
+
+  it('reuses an existing window without stealing when the panel is focused and other CLIs exist', () => {
+    const panel = focusedPanel()
+    fake(cli.createCliWindow('agent-a', { title: 'A', roleColor: '#111' }))
+    panel.focused = true
+    const existing = fake(cli.createCliWindow('agent-b', { title: 'B', roleColor: '#222' }))
+    panel.focused = true
+    const again = cli.createCliWindow('agent-b', { title: 'B', roleColor: '#222' })
+    expect(again).toBe(existing)
+    expect(existing.calls).toEqual(['showInactive'])
+    expect(existing.focused).toBe(false)
+    expect(panel.calls).toContain('focus')
+    expect(panel.focused).toBe(true)
   })
 })
 
