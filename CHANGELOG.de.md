@@ -13,6 +13,11 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Pi-Wrap-Exit-Plan.** Das Overlay geht; Host-Gewinne bleiben nativ
+  (Session-Chrome, First-Turn-Hold, Policy auf echten CLIs,
+  Sentinel-Ollama). Kein First-Party-Coding-Agent. Plan:
+  [`docs/PLAN-PI-EXIT.md`](docs/PLAN-PI-EXIT.md). Kein Code in dieser
+  Änderung.
 - **Wettbewerbslandkarte.**
   [`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md) ordnet
   benachbarte CLI-Orchestratoren, Sandbox-Workspaces, Vendor-Harnesses

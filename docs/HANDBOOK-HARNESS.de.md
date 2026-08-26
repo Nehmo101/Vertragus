@@ -696,8 +696,10 @@ gerade Lifecycle und Tokens anfasst.
 - **Dieses Handbuch als parallelen Lifecycle-/Auth-Umbau** — das ist A/B
 - Tunnel, TLS, Account-System, Internet-Exposure, native App, Archiv-
   `apps/mobile` (BigBoy-Non-Goals, hier übernommen)
-- Pi als siebten Provider (der Wrap überlagert den Spawn; Slots bleiben
-  Claude / Cursor / Codex / Kimi / Grok / Ollama)
+- Ein Spawn-Overlay einer fremden Agent-CLI oder eine First-Party-
+  Coding-Agent-Runtime (Slots bleiben Claude / Cursor / Codex / Kimi /
+  Grok / Ollama; der Prozess ist diese CLI). Exit-Plan:
+  [`PLAN-PI-EXIT.md`](./PLAN-PI-EXIT.md)
 - Vendor-TUIs parsen oder umstylen (Session-Chrome liest Host-Events;
   Berechtigungsdialoge bleiben im rohen PTY)
 
@@ -863,94 +865,35 @@ installieren**, der `chrome://extensions` und den entpackten Ordner
 [`CHROMIUM-EXTENSION.md`](./CHROMIUM-EXTENSION.md). MCP-Tool-Contract-
 Version auf `1.1.0` angehoben.
 
-## Phase H — Pi-Harness-Wrap: umgesetzt
+## Phase H — Pi-Harness-Wrap: Exit
 
-Pi ist ein Spawn-Overlay, kein Provider. Slots bleiben Claude / Cursor /
-Codex / Kimi / Grok / Ollama (Modellroute und Abo). Ist der Wrap an, ist
-jeder Agentenprozess `pi`; native CLIs werden nicht gestartet.
-Standardmäßig aus; aufgelöst beim Workspace-Start wie `yoloMaster`
-(nächstes Play).
+Pi war ein Spawn-Overlay, kein Provider. Es **geht**. Der Wrap hat
+Host-Lehren sichtbar gemacht; die bleiben. Das Overlay nicht.
+Schnitt-Plan: [`PLAN-PI-EXIT.md`](./PLAN-PI-EXIT.md).
 
-### H1 Overlay, kein siebter Provider — **umgesetzt**
+### Host-Gewinne, die bleiben
 
-`PROVIDER_PRESET_IDS` bleibt unverändert. `agents/piHarness.ts` mappt
-Preset → Pi `--provider` (`claude`→`anthropic`, `codex`→`openai-codex`,
-`kimi`→`kimi-coding`, `cursor`→`github-copilot`, `grok`→`xai`; `ollama`
-und Custom lassen `--provider` weg und übergeben nur `--model`).
-`spawn.ts` ersetzt argv vollständig — Ollamas `run --nowordwrap` darf
-nicht durchsickern. Native Yolo-Flags werden nicht durchgereicht (Pi hat
-keine Berechtigungsabfragen). `--tools` wird in v1 nicht eingeschränkt
-(kann MCP-Tools verstecken).
+Einheitliches Session-Chrome (`cliSurface`) aus Host-Events, nicht aus
+einer geparsten Vendor-TUI. Erster Turn erst, wenn die Vertragus-MCP-
+Session steht. Policy-Tiers auf den nativen CLIs; Cursor Run Everything
+ist der ehrliche Cursor-Pfad. `mcp: none` (Ollama) reportet über den
+Sentinel-Dialekt. Provider-deklarierte MCP-Tool-Timeouts
+(`raisedWindow`), damit `await_events` lebt. Treues argv
+(`needsFaithfulArgs`), damit ein mehrzeiliger Prompt nicht in cmd.exe
+stirbt.
 
-### H2 MCP über `.pi/mcp.json` — **umgesetzt**
+### Overlay, das geht
 
-Pi hat kein natives MCP. Der Launch schreibt `.pi/mcp.json` (`mcpServers`,
-derselbe Key wie Cursor, andere Datei) und lädt nur den gepinnten
-`pi-mcp-adapter` (`--no-extensions -e`). Der Vertragus-Server ist
-`{ url, lifecycle: "lazy-keep-alive", directTools: true, toolPrefix: "none",
-auth: false, httpTransport: "streamable-http", requestTimeoutMs: 600000,
-idleTimeout: 0 }`,
-damit `session_start` (nicht ein Eager-Connect beim Laden) den Handshake
-fertig macht, `await_events` / `start_agent` als erstklassige Pi-Tools
-erscheinen (der Adapter defaultet auf einen lazy `mcp()`-Proxy), ein 401
-nicht als OAuth gelesen wird und `await_events` nicht am SDK-Default von
-~60 s stirbt. Extra-Server bleiben `{ url }` / stdio. Native Attachments
-(`.cursor/mcp.json`, Claude-transientes JSON, Grok-Käfig,
-Claude/Kimi-Trust-Preaccept) entfallen. Die Datei steht auf
-`WORKTREE_SECRET_FILES`. Der Rollenprompt wird nach `.pi/APPEND_SYSTEM.md`
-geschrieben und als `--append-system-prompt <absoluter Pfad>` übergeben,
-damit argv keinen mehrzeiligen Prompt trägt; die Datei hat kein Token und
-steht nicht auf `WORKTREE_SECRET_FILES`. Wrap-an-Ollama reportet über MCP
-(`isPtyOnly` ist false). Spawn setzt `MCP_DIRECT_TOOLS=vertragus`, damit
-session_start auf diese Direct Tools wartet. Der `mcp`-Proxy bleibt
-registriert, damit Extras und ein kalter Metadata-Cache einen Fallback haben.
+Das Prozess-Overlay (`piHarness.ts`, `.pi/mcp.json`, `pi-mcp-adapter`,
+mitgeliefertes `@earendil-works/pi-coding-agent`, Setting
+`piHarnessEnabled`, Pi-Play-Smoke, Dependabot-Pin, asarUnpack-Steuer)
+ist zur Löschung vorgesehen. Slots bleiben Claude / Cursor / Codex /
+Kimi / Grok / Ollama. Der Prozess ist diese CLI.
 
-### H3 Settings-Toggle — **umgesetzt**
+### Kein First-Party-Agent
 
-`piHarnessEnabled` in App-Settings, IPC und Settings. Cursors nächstes Pi-
-Backend ist `github-copilot`; Ollama hat kein Pi-Backend — beides ist
-dokumentiert, nicht übertüncht.
-
-### H4 Lockfile-Pin und Dependabot — **umgesetzt**
-
-`@earendil-works/pi-coding-agent` und `pi-mcp-adapter` sind
-Produktionsabhängigkeiten (derselbe Paketname, den der Adapter importiert
-— auf dem veralteten `@mariozechner/pi-coding-agent` 0.73.1 scheiterte
-`-e` beim Laden und Pi machte `process.exit(1)` vor `session_start`).
-POSIX-Spawn startet Electron als Node auf einem CJS-Entrypoint, der TTY
-polyfillt und dann das Paket-`bin.pi` (`dist/cli.js`) importiert, mit
-`ELECTRON_RUN_AS_NODE=1`. Windows-Spawn nutzt PATH-`node` für denselben
-Entrypoint und lässt `ELECTRON_RUN_AS_NODE` weg: ConPTY kann `electron.exe`
-(WINDOWS-Subsystem) nicht anbinden, das Agentenfenster bleibt leer.
-Node.js muss auf dem PATH liegen. Jeder Wrap setzt
-`MCP_DIRECT_TOOLS=vertragus`. CI bootet denselben Play-Pfad
-(`scripts/pi-play-smoke.mjs`): isoliertes userData, Wrap an über den
-Settings-Store, Wegwerf-Git-Repo, grün nur wenn das Orchestrator-PTY eine
-TUI zeigt und Vertragus-MCP hängt.
-Pi 0.84 behandelt `-r` als `--resume`, deshalb
-ist der Entrypoint das *Skript* (argv[1]) und kein Node-`-r` vor der CLI
-— wenn Electron `-r` nicht konsumiert, bleibt der Print-Modus an, und ein
-nachgestelltes Play-Ziel plus fehlender Pi-API-Key ist `process.exit(1)`.
-Der Polyfill setzt `stdin`/`stdout`/`stderr`.isTTY (und ein
-`setRawMode`-Stub, wenn der Stream keines hat). `-e` lädt das installierte
-Adapter-Verzeichnis (versioniertes `npm:pi-mcp-adapter@x.y.z`, wenn das
-Paket fehlt). PATH-`pi` bleibt der Fallback, wenn die CLI nicht auf der
-Platte liegt (kein Entrypoint, kein `RUN_AS_NODE`).
-`.github/dependabot.yml` erlaubt nur diese zwei Namen, gruppiert als
-`pi-harness`, wöchentlich, kein Automerge — Overlay-Flags sind ein
-Vertrag. CLI, Photon-WASM, der MCP-Adapter, die nativen Keyring-Bäume
-und die unscoped `typebox`/`jiti` der CLI (der Extension-Loader
-`require.resolve`t sie aus dem ausgepackten `loader.js`) werden
-ausgepackt (`asarUnpack` in `electron-builder.yml`). Universal-macOS
-setzt `mac.x64ArchFiles` auf `**/node_modules/**`: die
-architektur-spezifischen optionalen `.node`-Dateien (Clipboard, koffi,
-Keyring, node-pty) sind in beiden Temp-Apps bytegleich, und
-`@electron/universal` verweigert das Überspringen von lipo, solange das
-Pattern das nicht als erwartet ausweist. Eine Scope-Klammerliste verfehlt
-unscoped Addons wie koffi. `mac.mergeASARs` bleibt false: die
-ausgepackten Pi-Bäume lassen das Brace-Glob der Unpack-Pfade in
-`@electron/universal` über minimatch laufen (`pattern is too long`), und
-das JS in asar ist bereits architekturidentisch.
+Den Wrap nicht durch einen In-Process-Coding-Agent ersetzen. Das wäre
+Pi als siebter Provider unter anderem Namen.
 
 ## Phase A3 — Automatisierung: Übernahme ohne Klick und der Pull Request des Laufs
 
@@ -1052,7 +995,7 @@ Renderer nennt nie einen Dateisystempfad.
 | Worker-Helper (eine Extra-Ebene) | `types.ts` `canSpawnHelpers` / `ensureNest` / `MAX_HELPERS_PER_WORKER` | **Phase H** |
 | Live-`user_message`-Targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium-`/browser`-Bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |
-| Pi-Harness-Wrap (kein siebter Provider) | `agents/piHarness.ts`, `spawn.ts`-Overlay, `.pi/mcp.json`, Setting `piHarnessEnabled`, Lockfile-Pin, `.github/dependabot.yml`, `electron-builder.yml` | **H** |
+| Pi-Harness-Wrap | `agents/piHarness.ts`, `spawn.ts`-Overlay (bis X2) | **exit** — [`PLAN-PI-EXIT.md`](./PLAN-PI-EXIT.md) |
 | Extra-System-Prompt pro Identität | `schema/profile.ts` `rolePrompts`, `prompts/rolePrompt.ts`, Profil-Editor | **this** |
 | Profil-Export / -Import | `schema/profileBundle.ts`, `profiles:export` / `profiles:import`, Profil-Editor + Panel | **this** |
 | Einheitliches CLI-Session-Chrome | `cliSurface.ts`, `cliSession.ts`, `cliSessionFeed.ts`, `terminal/SessionPane.tsx` | **this** |

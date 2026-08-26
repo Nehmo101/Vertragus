@@ -48,7 +48,7 @@ Features unabhängig sind.
 | Hot-File | Warum es serialisiert |
 | --- | --- |
 | `src/main/workspace/Workspace.ts` | Lifecycle, Summary, Succession, Inspect, PR, Budget |
-| `src/main/agents/spawn.ts` | Argv, Env, MCP-Attach, Pi-Wrap, Yolo-Flags |
+| `src/main/agents/spawn.ts` | Argv, Env, MCP-Attach, Yolo-Flags. Pi-Wrap-Exit ([`PLAN-PI-EXIT.md`](PLAN-PI-EXIT.md)) besitzt diese Datei, bis er landet. |
 | `src/shared/schema/events.ts` | Discriminated Union + exhaustiver Test |
 | `src/shared/schema/profile.ts` | Automation, Caps, jede per-Profil-Setting |
 
@@ -78,6 +78,8 @@ gelandet ist.
 - Zwei Preset-PRs, die beide `presets.ts` editieren (Lane P ist eine
   Queue).
 - Alles, was Spawn wrappt (`W3` Port-Env, dann `S1` Sandbox).
+- Pi-Wrap-Exit ([`PLAN-PI-EXIT.md`](PLAN-PI-EXIT.md)) vor W3 / S1 / P2
+  (`spawn.ts`, Pi-Block von `attach.ts`, `electron-builder.yml`).
 - C7 M1–M3 (eine State Machine). M2 (Panel-Picker) kann sich mit M3-
   *Vorbereitung* überlappen, darf aber nicht vor M1 landen.
 - Event-Kind-Ergänzungen: im PR landen, das das Event **zuerst

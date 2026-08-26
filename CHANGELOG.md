@@ -12,6 +12,10 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **Pi wrap exit plan.** The overlay leaves; host wins stay native
+  (session chrome, first-turn hold, policy on real CLIs, sentinel
+  Ollama). Not a first-party coding agent. Plan:
+  [`docs/PLAN-PI-EXIT.md`](docs/PLAN-PI-EXIT.md). No code in that change.
 - **Competitive landscape research.**
   [`docs/RESEARCH-LANDSCAPE.md`](docs/RESEARCH-LANDSCAPE.md) maps
   neighbouring CLI orchestrators, sandboxed workspaces, vendor harnesses
