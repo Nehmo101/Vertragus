@@ -515,6 +515,21 @@ export function SettingsApp(): React.JSX.Element {
         </section>
 
         <section className="st-field">
+          <label className="st-switch">
+            <input
+              type="checkbox"
+              className="st-switch-input"
+              checked={settings.snapToZones}
+              onChange={(event) => view.set('snapToZones', event.target.checked)}
+            />
+            <span className="st-switch-text">
+              <span className="st-switch-label">{t('settings.snapToZones')}</span>
+              <span className="st-hint">{t('settings.snapToZonesHint')}</span>
+            </span>
+          </label>
+        </section>
+
+        <section className="st-field">
           <span className="st-label">{t('settings.updateChannel')}</span>
           <select
             className="st-input"

@@ -257,6 +257,7 @@ describe('app settings', () => {
         appearance: DEFAULT_APPEARANCE,
         cliSurface: 'session',
         reflowNeighbors: true,
+        snapToZones: true,
         onboardingDismissed: false
       },
       remote: { enabled: false, bindAddress: '', port: 9482 },
@@ -279,9 +280,10 @@ describe('app settings', () => {
     })
   })
 
-  it('defaults reflowNeighbors to true when ui is missing', () => {
+  it('defaults reflowNeighbors and snapToZones to true when ui is missing', () => {
     const { store: settings } = store({ hideAllHotkey: 'Control+Shift+H' })
     expect(settings.getSettings().ui.reflowNeighbors).toBe(true)
+    expect(settings.getSettings().ui.snapToZones).toBe(true)
     expect(settings.getSettings().hideAllHotkey).toBe('Control+Shift+H')
   })
 
@@ -383,6 +385,7 @@ describe('app settings', () => {
       appearance: DEFAULT_APPEARANCE,
       cliSurface: 'session',
       reflowNeighbors: true,
+      snapToZones: true,
       onboardingDismissed: false,
       panelBounds: { edge: 'right', y: 320 }
     })
@@ -392,6 +395,7 @@ describe('app settings', () => {
       appearance: DEFAULT_APPEARANCE,
       cliSurface: 'session',
       reflowNeighbors: true,
+      snapToZones: true,
       onboardingDismissed: false,
       panelBounds: { edge: 'right', y: 320 }
     })
@@ -423,6 +427,7 @@ describe('app settings', () => {
       appearance: DEFAULT_APPEARANCE,
       cliSurface: 'session',
       reflowNeighbors: true,
+      snapToZones: true,
       onboardingDismissed: false
     })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid settings section'))
@@ -578,6 +583,7 @@ describe('adoptLegacyStore', () => {
       appearance: DEFAULT_APPEARANCE,
       cliSurface: 'session',
       reflowNeighbors: true,
+      snapToZones: true,
       onboardingDismissed: false
     })
     expect(adopted.mcpServers).toBeUndefined()

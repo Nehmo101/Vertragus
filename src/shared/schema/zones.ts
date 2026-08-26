@@ -72,6 +72,24 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
+ * The monitor a zone belongs to.
+ *
+ * `zone.displayId` wins while that screen is attached — never the primary, and
+ * never whichever monitor a window currently happens to sit on. A stale id
+ * rematches only when exactly one display remains (Windows Display.id churn);
+ * with several monitors attached, a missing id is "unplugged", not a guess.
+ */
+export function displayForZone(
+  zone: Pick<Zone, 'displayId'>,
+  displays: readonly DisplayLike[]
+): DisplayLike | undefined {
+  const match = displays.find((candidate) => candidate.id === zone.displayId)
+  if (match) return match
+  if (displays.length === 1) return displays[0]
+  return undefined
+}
+
+/**
  * Absolute pixel rect of a zone on the display it was drawn on.
  *
  * Returns `null` when that display is not currently attached — the caller then
@@ -82,13 +100,7 @@ export function resolveZoneRect(
   zone: Pick<Zone, 'displayId' | 'rect'>,
   displays: readonly DisplayLike[]
 ): AbsRect | null {
-  // Prefer the stored Electron id. When it is gone, a single attached display
-  // is still the monitor the zone was drawn on — Windows churns Display.id
-  // across sessions/reboots even when the physical layout did not change, and
-  // treating that as "unplugged" silently drops every hand-drawn zone into
-  // auto-tiling.
-  let display = displays.find((candidate) => candidate.id === zone.displayId)
-  if (!display && displays.length === 1) display = displays[0]
+  const display = displayForZone(zone, displays)
   if (!display) return null
   const { workArea } = display
   const width = Math.round(clamp(zone.rect.w, 0, 1) * workArea.width)

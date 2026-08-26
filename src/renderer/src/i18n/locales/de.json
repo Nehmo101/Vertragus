@@ -388,6 +388,8 @@
     "autostartUnsupported": "Nur in der installierten App: im Entwicklungslauf würde der Autostart auf die Electron-Binärdatei zeigen.",
     "reflowNeighbors": "Nachbarn anpassen",
     "reflowNeighborsHint": "Wenn du ein Agent-Fenster oder eine Zone verschiebst, füllen die anderen die Lücke. Aus: nur dieses Fenster bewegt sich.",
+    "snapToZones": "Beim Ausblenden auf Zonen setzen",
+    "snapToZonesHint": "„Alles ausblenden“ setzt Agent-Fenster beim Verstecken und Wiederzeigen auf ihre Rollen-Zone. Aus: sie kommen genau dort zurück, wo sie waren.",
     "updateChannel": "Update-Kanal",
     "updateChannelMain": "main — jeder grüne Build",
     "updateChannelStable": "stable — nur veröffentlichte Versionen",

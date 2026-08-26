@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -14,14 +16,23 @@ vi.mock('electron', () => ({
     unregisterAll: () => unregisterAll()
   }
 }))
-const getSettings = vi.fn(() => ({ hideAllHotkey: 'Control+Alt+V' }))
+const getSettings = vi.fn(() => ({
+  hideAllHotkey: 'Control+Alt+V',
+  ui: { snapToZones: true }
+}))
 vi.mock('@main/store/settings', () => ({ getSettings: () => getSettings() }))
-vi.mock('./cliWindow', () => ({ listCliWindows: vi.fn(() => []) }))
-vi.mock('./profileEditor', () => ({ listProfileEditorWindows: () => [] }))
+vi.mock('./cliWindow', () => ({
+  listCliWindows: vi.fn(() => []),
+  layoutCliWindowsByWorkspace: vi.fn()
+}))
+vi.mock('./profileEditor', () => ({
+  listProfileEditorWindows: vi.fn(() => [])
+}))
 vi.mock('./providerEditor', () => ({ listProviderEditorWindows: () => [] }))
 vi.mock('./settingsWindow', () => ({ listSettingsWindows: () => [] }))
 
-import { listCliWindows } from './cliWindow'
+import { layoutCliWindowsByWorkspace, listCliWindows } from './cliWindow'
+import { listProfileEditorWindows } from './profileEditor'
 import {
   createHideAllController,
   forgetHideAll,
@@ -96,6 +107,13 @@ beforeEach(() => {
   register.mockImplementation(() => true)
   resetHideAllForTesting()
   vi.mocked(listCliWindows).mockReturnValue([])
+  vi.mocked(layoutCliWindowsByWorkspace).mockReset()
+  vi.mocked(listProfileEditorWindows).mockReset()
+  vi.mocked(listProfileEditorWindows).mockReturnValue([])
+  getSettings.mockReturnValue({
+    hideAllHotkey: 'Control+Alt+V',
+    ui: { snapToZones: true }
+  })
 })
 
 describe('toggle', () => {
@@ -224,6 +242,108 @@ describe('toggle', () => {
     expect(log).toEqual(['hide:a'])
     expect(windows.b!.visible).toBe(false)
     expect(log).not.toContain('show:b')
+  })
+
+  it('snaps after hide and after restore', () => {
+    const { log, targets } = harness(['agent:a', 'editor:p', 'settings:s'])
+    const snapCliWindows = vi.fn((keys: readonly string[]) => {
+      log.push(`snap:${keys.join(',')}`)
+    })
+    const hideAll = createHideAllController({ targets: () => targets, snapCliWindows })
+
+    hideAll.toggle()
+    expect(log).toEqual([
+      'hide:agent:a',
+      'hide:editor:p',
+      'hide:settings:s',
+      'snap:agent:a,editor:p,settings:s'
+    ])
+    expect(snapCliWindows).toHaveBeenCalledTimes(1)
+
+    log.length = 0
+    hideAll.toggle()
+    expect(log).toEqual([
+      'show:agent:a',
+      'show:editor:p',
+      'show:settings:s',
+      'snap:agent:a,editor:p,settings:s'
+    ])
+  })
+
+  it('suppresses native visibility before hide and before show', () => {
+    const { log, windows, targets } = harness(['agent:a', 'agent:b'])
+    windows['agent:b']!.minimized = true
+    const beforeNativeVisibility = vi.fn((key: string) => {
+      log.push(`prep:${key}`)
+    })
+    const hideAll = createHideAllController({ targets: () => targets, beforeNativeVisibility })
+
+    hideAll.toggle()
+    expect(log).toEqual(['prep:agent:a', 'hide:agent:a'])
+    expect(beforeNativeVisibility).not.toHaveBeenCalledWith('agent:b')
+
+    log.length = 0
+    hideAll.toggle()
+    expect(log[0]).toBe('prep:agent:a')
+    expect(log).toEqual(['prep:agent:a', 'show:agent:a'])
+  })
+
+  it('does not snap a user-minimized window that hide-all left alone', () => {
+    const { targets, windows } = harness(['agent:a', 'agent:b'])
+    windows['agent:b']!.minimized = true
+    const snapCliWindows = vi.fn()
+    const hideAll = createHideAllController({ targets: () => targets, snapCliWindows })
+
+    hideAll.toggle()
+    expect(snapCliWindows).toHaveBeenCalledWith(['agent:a'])
+    hideAll.toggle()
+    expect(snapCliWindows).toHaveBeenLastCalledWith(['agent:a'])
+  })
+})
+
+describe('production snapToZones', () => {
+  it('snaps only CLI windows on hide and restore when the flag is on', () => {
+    const { windows } = harness(['a', 'b', 'ed'])
+    vi.mocked(listCliWindows).mockReturnValue([
+      { agentId: 'a', window: windows.a as never },
+      { agentId: 'b', window: windows.b as never }
+    ])
+    vi.mocked(listProfileEditorWindows).mockReturnValue([
+      { key: 'p', window: windows.ed as never }
+    ])
+
+    expect(toggleHideAll()).toBe('hidden')
+    expect(layoutCliWindowsByWorkspace).toHaveBeenCalledTimes(1)
+    expect(layoutCliWindowsByWorkspace).toHaveBeenCalledWith(['a', 'b'])
+    vi.mocked(layoutCliWindowsByWorkspace).mockClear()
+    expect(toggleHideAll()).toBe('restored')
+    expect(layoutCliWindowsByWorkspace).toHaveBeenCalledWith(['a', 'b'])
+  })
+
+  it('does not re-tile when snapToZones is off', () => {
+    getSettings.mockReturnValue({
+      hideAllHotkey: 'Control+Alt+V',
+      ui: { snapToZones: false }
+    })
+    const { windows } = harness(['a'])
+    vi.mocked(listCliWindows).mockReturnValue([{ agentId: 'a', window: windows.a as never }])
+
+    expect(toggleHideAll()).toBe('hidden')
+    expect(layoutCliWindowsByWorkspace).not.toHaveBeenCalled()
+    expect(toggleHideAll()).toBe('restored')
+    expect(layoutCliWindowsByWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('never calls minimize or restore on a hide-all target', () => {
+    const source = readFileSync(join(__dirname, 'hideAll.ts'), 'utf8')
+    expect(source).not.toMatch(/window\.minimize\s*\(/)
+    expect(source).not.toMatch(/window\.restore\s*\(/)
+    const iface = source.slice(
+      source.indexOf('export interface HideableWindow'),
+      source.indexOf('export interface HideAllTarget')
+    )
+    expect(iface).not.toMatch(/\bminimize\b/)
+    expect(iface).not.toMatch(/\brestore\b/)
   })
 })
 
