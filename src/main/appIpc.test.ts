@@ -114,7 +114,11 @@ import { DEFAULT_APPEARANCE } from '@shared/appearance'
 import type { AppSettings } from './store/settings'
 import type { ProviderConfig, ProviderConfigInput } from '@shared/schema/provider'
 import { extraMcpServerSchema, type ExtraMcpServer } from '@shared/schema/mcpServer'
-import { createStagingStore, stagingDirFor } from './attachments'
+import {
+  ATTACHMENT_MAX_BYTES,
+  createStagingStore,
+  stagingDirFor
+} from './attachments'
 import { mergeProviderConfigs, providerConfigSchema } from '@shared/schema/provider'
 import type { ProviderHealth } from './providers/health'
 
@@ -1034,6 +1038,7 @@ describe('attachments:save', () => {
     expect(result.stagingId).toBeTruthy()
     expect(existsSync(join(userData, 'attachment-staging', result.stagingId, 'payload'))).toBe(true)
     expect(existsSync(join('C:/git/demo', '.vertragus'))).toBe(false)
+    expect(existsSync(join('C:/git/demo', ...result.relativePath.split('/')))).toBe(false)
   })
 
   it('writes a live workspace image into the agent worktree', async () => {
@@ -1087,6 +1092,28 @@ describe('attachments:save', () => {
     })) as { relativePath: string }
     expect(result.relativePath).toMatch(/\.jpg$/)
     expect(existsSync(join(worktree, ...result.relativePath.split('/')))).toBe(true)
+  })
+
+  it('rejects oversized and non-image payloads before any write', async () => {
+    const live = attachHarness()
+    await expect(
+      Promise.resolve(
+        live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, {
+          profileId: 'p1',
+          source: { bytes: new Uint8Array(ATTACHMENT_MAX_BYTES + 1), mime: 'image/png' }
+        })
+      )
+    ).rejects.toThrow(/8 MiB/)
+    await expect(
+      Promise.resolve(
+        live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, {
+          workspaceId: 'w1',
+          source: { bytes: Uint8Array.from(Buffer.from('not-an-image!!!!')), mime: 'text/plain' }
+        })
+      )
+    ).rejects.toThrow(/Bild/)
+    expect(existsSync(join('C:/git/demo', '.vertragus'))).toBe(false)
+    expect(existsSync(join(worktree, '.vertragus'))).toBe(false)
   })
 
   it('is panel-only and keeps bytes off workspaces:goal', async () => {

@@ -13,5 +13,9 @@ describe('ProfileRow image attach', () => {
     expect(source).toContain("setAttachmentIds([])")
     expect(source).toContain('panel.attachImagesHint')
     expect(source).toContain('if (!clipboardDataLooksLikeImage(event.clipboardData)) return')
+    const pasteFn = source.slice(source.indexOf('const onGoalPaste'), source.indexOf('const onGoalDrop'))
+    expect(pasteFn.indexOf('if (!clipboardDataLooksLikeImage(event.clipboardData)) return')).toBeLessThan(
+      pasteFn.indexOf("onSaveAttachment({ profileId: profile.id }, 'clipboard')")
+    )
   })
 })

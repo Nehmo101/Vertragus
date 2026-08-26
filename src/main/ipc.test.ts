@@ -218,6 +218,10 @@ describe('terminal:image', () => {
     expect(calls).toEqual([{ agentId: 'agent-a', source: 'clipboard' }])
     expect(ptyA.written).toEqual([])
     expect(ptyB.written).toEqual([])
+    ipc.send(TERMINAL_CHANNELS.input, 10, '.vertragus/attachments/shot.png ')
+    expect(ptyA.written).toEqual(['.vertragus/attachments/shot.png '])
+    expect(typeof ptyA.written[0]).toBe('string')
+    expect(ptyB.written).toEqual([])
   })
 
   it('rejects a panel sender', async () => {
