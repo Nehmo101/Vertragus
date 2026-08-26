@@ -348,7 +348,7 @@
     "reflowNeighbors": "Reflow neighbors",
     "reflowNeighborsHint": "When you move an agent window or a zone, the others fill the gap. Off: only this window moves.",
     "startMinimized": "Start in the background",
-    "startMinimizedHint": "Vertragus starts hidden. The taskbar entry brings it back.",
+    "startMinimizedHint": "New agent CLI windows start minimized in the taskbar. The panel stays. Click the agent to restore.",
     "cliWindowMode": "CLI view",
     "cliWindowModePerAgent": "One window per agent",
     "cliWindowModeTabs": "Tabs",
