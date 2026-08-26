@@ -24,16 +24,18 @@ describe('orchestrator tool surface', () => {
 })
 
 describe('ask_user — D3', () => {
-  it('describes intake holes as user decisions and forbids guessing', () => {
+  it('defers ask volume to the system-prompt question-mode block', () => {
     const { tools } = setup()
     const description = tools.get('ask_user')!.description ?? ''
-    expect(description).toMatch(/acceptance criteria/i)
-    expect(description).toMatch(/Definition of Done/)
-    expect(description).toMatch(/Guessing is forbidden/)
-    expect(description).toMatch(/Scout/)
-    expect(description).toMatch(/HEAD Read/)
-    expect(description).not.toMatch(/Only for decisions that are genuinely the/)
+    expect(description).toMatch(/ask the HUMAN/i)
+    expect(description).toMatch(/question-mode block/i)
+    expect(description).toContain('ticket')
+    expect(description).toContain('unchanged question')
+    expect(description).toMatch(/choices/)
+    expect(description).not.toMatch(/product choices/i)
+    expect(description).not.toMatch(/Never guess the user/i)
   })
+
   it('parks a question for the human, pushes user_question once, and resumes by ticket', async () => {
     const { runtime, tools } = setup()
 

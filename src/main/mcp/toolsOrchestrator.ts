@@ -943,16 +943,11 @@ export function registerOrchestratorTools(
     'ask_user',
     {
       description:
-        'Ask the HUMAN a question and wait for the answer. Use this for holes in acceptance criteria ' +
-        'and Definition of Done (observable happy path, non-goals, named verify command, review/docs/PR ' +
-        'expectations), and for scope changes, destructive actions and product choices. Code facts are ' +
-        'Scout (when that role is available) or a HEAD Read — do not ask the user what the repository ' +
-        'already answers. Do not ask which model to pick or whether to use MCP tools. Guessing is ' +
-        'forbidden: never invent a product or scope decision. Batch several holes into one numbered ' +
-        'question; do not drip tickets. For a decision, pass 2–8 short labels in choices (at most 28); ' +
-        'question is the prompt only — do not dump numbered options into it. Blocks until the user answers ' +
-        'in the panel or on their phone. If it returns answer: null, call it again with the returned ticket ' +
-        'and the unchanged question. Never continue without the answer.',
+        'Ask the HUMAN a question and wait for the answer — they see it in the panel, on the CLI overlay, and on their ' +
+        'phone. When to call it is the question-mode block in your system prompt — that block is ' +
+        'authoritative, not this schema. For a decision, pass 2–8 short labels in choices (at most 28); ' +
+        'question is the prompt only — do not dump numbered options into it. Blocks until the user answers. If it returns answer: null, ' +
+        'call it again with the returned ticket and the unchanged question (choices stay). Never continue without the answer.',
       inputSchema: {
         question: z
           .string()
