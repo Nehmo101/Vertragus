@@ -111,6 +111,18 @@ export const uiSettingsSchema = z
     /** When a window or zone is moved, neighbors shrink and fill the gap. */
     reflowNeighbors: z.boolean().default(true),
     /**
+     * Start the app minimized. App-wide window behavior, not a profile field.
+     * Default false so an install from before this key existed keeps today's
+     * visible launch.
+     */
+    startMinimized: z.boolean().default(false),
+    /**
+     * One CLI BrowserWindow per agent, or tabs in a shared window. Stored
+     * here so the setting survives a profile switch; the tab host is later
+     * work. Default `per-agent` is today's layout.
+     */
+    cliWindowMode: z.enum(['per-agent', 'tabs']).default('per-agent'),
+    /**
      * WP-7: the user closed the first-run card. NOT the card's trigger — that
      * stays "there is no profile yet", which is true again after a reinstall
      * and needs nothing persisted. This flag only records the one thing the
