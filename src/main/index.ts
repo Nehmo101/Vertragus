@@ -52,7 +52,8 @@ import {
   focusCliWindow,
   getCliWindow,
   layoutCliWindows,
-  onCliWindowClosed
+  onCliWindowClosed,
+  workspaceUsesTabChrome
 } from './windows/cliWindow'
 import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
 import { focusTimelineWindow } from './windows/timelineWindow'
@@ -443,7 +444,11 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       // intact) reopens so the last task is not a tooltip-only memory.
       if (!getAgentRegistry().getAgent(agentId)) return
       for (const workspace of manager.list()) {
-        if (workspace.showAgentWindow(agentId)) return
+        if (workspace.showAgentWindow(agentId)) {
+          // Cancel startMinimized on this first-show: the click asked to see it.
+          focusCliWindow(agentId)
+          return
+        }
       }
     },
     closeAgentWindow: (agentId) => closeCliWindow(agentId),
@@ -459,14 +464,24 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       // toggle hides what is visible instead of restoring foreign windows.
       forgetHideAll()
       if (agentIds.length > 0) {
+        let startMinimized = false
+        try {
+          startMinimized = getSettings().ui.startMinimized === true
+        } catch {
+          startMinimized = false
+        }
         focusWorkspaceAgents(agentIds, {
           windows: cliFocusTargets,
           beforeHide: suppressMoveTracking,
           beforeRestore: suppressMoveTracking,
-          beforeShow: suppressMoveTracking
+          beforeShow: suppressMoveTracking,
+          restoreMinimized: !startMinimized
         })
         // After show: restore can fire move events that wreck bounds (Windows).
-        layoutCliWindows(agentIds)
+        // Tabs do not tile; startMinimized must not snap still-minimized teammates.
+        if (!startMinimized && !workspaceUsesTabChrome(workspaceId)) {
+          layoutCliWindows(agentIds)
+        }
       }
       // Overview sheet: show this workspace's timeline, hide the others.
       // Never minimize — hide() only. A user-closed sheet is reopened here.

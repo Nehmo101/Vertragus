@@ -653,5 +653,13 @@
       "handshake": "Waiting for MCP …",
       "waiting": "MCP is not connected yet — the first turn is on hold so no tokens are spent."
     }
+  },
+  "workspaceTabs": {
+    "title": "Agents",
+    "select": "Show {{agent}}",
+    "close": "Close window — agents keep running",
+    "minimize": "Minimize window",
+    "maximize": "Enlarge window — fills the screen",
+    "restore": "Shrink window"
   }
 }

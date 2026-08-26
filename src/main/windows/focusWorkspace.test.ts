@@ -178,6 +178,33 @@ describe('focusWorkspaceAgents', () => {
     expect(beforeHide).not.toHaveBeenCalledWith('mine')
     expect(beforeShow).not.toHaveBeenCalledWith('foreign')
   })
+
+  it('leaves minimized wanted windows put when restoreMinimized is false', () => {
+    const { log, windows, targets } = harness(['orch', 'worker', 'foreign'])
+    windows.orch!.minimized = true
+    windows.worker!.minimized = true
+
+    focusWorkspaceAgents(['orch', 'worker'], {
+      windows: () => targets,
+      restoreMinimized: false
+    })
+
+    expect(log).toEqual(['hide:foreign'])
+    expect(windows.orch!.minimized).toBe(true)
+    expect(windows.worker!.minimized).toBe(true)
+    expect(log.some((entry) => entry.startsWith('restore:'))).toBe(false)
+    expect(log.some((entry) => entry.startsWith('show:'))).toBe(false)
+  })
+
+  it('surfaces a shared parent window once (tab chrome)', () => {
+    const { log, windows, targets } = harness(['orch'])
+    targets.push({ agentId: 'worker', window: windows.orch! })
+
+    focusWorkspaceAgents(['orch', 'worker'], { windows: () => targets })
+
+    expect(log.filter((entry) => entry.startsWith('show:'))).toEqual(['show:orch'])
+    expect(log.filter((entry) => entry.startsWith('focus:'))).toEqual(['focus:orch'])
+  })
 })
 
 describe('production wiring', () => {

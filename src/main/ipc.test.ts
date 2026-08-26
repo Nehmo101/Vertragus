@@ -9,7 +9,9 @@ vi.mock('electron', () => ({ ipcMain: { handle: vi.fn(), on: vi.fn() } }))
 vi.mock('./windows/cliWindow', () => ({
   isCliWindowSender: vi.fn(() => null),
   getCliWindow: vi.fn(() => null),
-  closeCliWindow: vi.fn()
+  cliWebContents: vi.fn(() => null),
+  closeCliWindow: vi.fn(),
+  registerCliTabIpc: vi.fn()
 }))
 
 import {
@@ -759,6 +761,14 @@ describe('AgentRegistry', () => {
     expect(registry.listAgents()).toEqual([])
     expect(ipc.handlers.size).toBe(0)
     expect(ipc.listeners.size).toBe(0)
+  })
+})
+
+describe('production CLI send path', () => {
+  it('sends to cliWebContents so tab views, not chrome, receive PTY data', () => {
+    const source = readFileSync(join(__dirname, 'ipc.ts'), 'utf8')
+    expect(source).toMatch(/cliWebContents\(agentId\)/)
+    expect(source).toMatch(/registerCliTabIpc\(\)/)
   })
 })
 

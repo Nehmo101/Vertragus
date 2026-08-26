@@ -178,6 +178,19 @@ describe('toggle', () => {
     expect(log.filter((entry) => entry.startsWith('focus:'))).toHaveLength(1)
   })
 
+  it('hides a shared parent once (tab chrome)', () => {
+    const { log, windows, targets } = harness(['orch'])
+    targets.push({ key: 'worker', window: windows.orch! })
+    const hideAll = createHideAllController({ targets: () => targets })
+
+    expect(hideAll.toggle()).toBe('hidden')
+    expect(log).toEqual(['hide:orch'])
+
+    log.length = 0
+    expect(hideAll.toggle()).toBe('restored')
+    expect(log).toEqual(['show:orch'])
+  })
+
   it('never touches a window that is not a target — the panel survives', () => {
     const { log, targets } = harness(['a'])
     const panel = new FakeWindow('panel', log)

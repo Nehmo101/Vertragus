@@ -31,11 +31,13 @@ import {
   type TerminalQuestionSource
 } from './terminalQuestion'
 import {
+  cliWebContents,
   closeCliWindow,
   getCliWindow,
   isCliWindowMaximized,
   isCliWindowSender,
   minimizeCliWindow,
+  registerCliTabIpc,
   toggleCliWindowMaximized
 } from './windows/cliWindow'
 
@@ -798,8 +800,8 @@ export function registerTerminalIpc(): AgentRegistry {
     senderAgentId: (webContentsId) => isCliWindowSender(webContentsId),
     hasWindow: (agentId) => getCliWindow(agentId) !== null,
     send: (agentId, channel, payload) => {
-      const win = getCliWindow(agentId)
-      if (win && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)
+      const contents = cliWebContents(agentId)
+      if (contents && !contents.isDestroyed()) contents.send(channel, payload)
     },
     closeWindow: (agentId) => closeCliWindow(agentId),
     minimizeWindow: (agentId) => minimizeCliWindow(agentId),
@@ -809,6 +811,7 @@ export function registerTerminalIpc(): AgentRegistry {
     theme: () => getSettings().ui.theme,
     cliSurface: () => getSettings().ui.cliSurface ?? DEFAULT_CLI_SURFACE
   })
+  registerCliTabIpc()
   return registry
 }
 
