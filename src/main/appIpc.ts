@@ -101,6 +101,7 @@ import {
   type ZoneOverlaySender
 } from '@main/windows/zoneOverlay'
 import type { MinimalIpcMain } from './ipc'
+import { listRuns, readRun } from '@main/workspace/listRuns'
 
 export const APP_CHANNELS = {
   profilesList: 'profiles:list',
@@ -152,6 +153,12 @@ export const APP_CHANNELS = {
   retroDeleteLearning: 'retro:deleteLearning',
   retroRepoNotes: 'retro:repoNotes',
   retroDeleteRepoNote: 'retro:deleteRepoNote',
+  /**
+   * Archive of this profile's journals (live + stopped). Panel-only; the
+   * timeline is a read of files the host already writes.
+   */
+  runsList: 'runs:list',
+  runsGet: 'runs:get',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
@@ -1608,6 +1615,32 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     const id = typeof payload === 'string' ? payload : (payload as { id?: string })?.id
     if (!id) throw new Error('retro:deleteRepoNote rejected — missing note id')
     return host.store.deleteRepoNote(id)
+  })
+
+  // --- run archive (panel-only; no remote verb) --------------------------
+
+  handle(APP_CHANNELS.runsList, requirePanel, async (_event, payload) => {
+    const profileId =
+      typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
+    if (!profileId) throw new Error('runs:list rejected — missing profile id')
+    const profile = host.store.getProfiles().find((entry) => entry.id === profileId)
+    if (!profile) throw new Error(`runs:list rejected — unknown profile ${profileId}`)
+    if (!profile.repoPath.trim()) return []
+    return listRuns(profile.repoPath, profileId)
+  })
+
+  handle(APP_CHANNELS.runsGet, requirePanel, async (_event, payload) => {
+    const body = (payload ?? {}) as { profileId?: string; workspaceId?: string }
+    if (!body.profileId) throw new Error('runs:get rejected — missing profile id')
+    if (!body.workspaceId) throw new Error('runs:get rejected — missing workspace id')
+    const profile = host.store.getProfiles().find((entry) => entry.id === body.profileId)
+    if (!profile) throw new Error(`runs:get rejected — unknown profile ${body.profileId}`)
+    if (!profile.repoPath.trim()) {
+      throw new Error('runs:get rejected — profile has no repository path')
+    }
+    const view = await readRun(profile.repoPath, body.profileId, body.workspaceId)
+    if (!view) throw new Error(`runs:get rejected — unknown run ${body.workspaceId}`)
+    return view
   })
 
   // --- settings & windows ------------------------------------------------

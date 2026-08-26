@@ -250,6 +250,30 @@ describe('agent event schema', () => {
     ).toMatchObject({ summary: 's' })
   })
 
+  it('A1: agent_started may name its parent and a capped task subject; old lines stay valid', () => {
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'agent_started',
+        ...identity
+      })
+    ).toMatchObject({ type: 'agent_started' })
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'agent_started',
+        ...identity,
+        parentId: 'worker-1',
+        taskSubject: 'Fix the parser'
+      })
+    ).toMatchObject({ parentId: 'worker-1', taskSubject: 'Fix the parser' })
+    expect(
+      agentEventPayloadSchema.safeParse({
+        type: 'agent_started',
+        ...identity,
+        taskSubject: 'x'.repeat(201)
+      }).success
+    ).toBe(false)
+  })
+
   it('marks unconfirmed exits explicitly', () => {
     const parsed = agentEventPayloadSchema.parse({
       type: 'agent_exited',

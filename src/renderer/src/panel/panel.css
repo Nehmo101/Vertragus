@@ -479,6 +479,187 @@
   color: var(--text-3);
 }
 
+/* --- archive (folded out under a profile row) + timeline ----------------- */
+
+.panel-archive {
+  margin: 1px 6px 4px 12px;
+  padding: 4px 6px;
+  border-left: 2px solid var(--hover-wash);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel-archive-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel-archive-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel-archive-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.panel-archive-row:hover,
+.panel-archive-row.is-open {
+  background: var(--hover-wash);
+}
+
+.panel-archive-goal {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px var(--font-body);
+}
+
+.panel-archive-pill,
+.panel-archive-pr,
+.panel-archive-meta {
+  flex: 0 0 auto;
+  font: 400 10px var(--font-body);
+  color: var(--text-3);
+}
+
+.panel-timeline {
+  margin: 2px 4px 6px 8px;
+  padding: 4px 0 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.panel-timeline-head,
+.panel-timeline-chapters,
+.panel-timeline-id {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  font: 400 10px var(--font-body);
+  color: var(--text-2);
+}
+
+.panel-timeline-verdict,
+.panel-timeline-summary,
+.panel-timeline-facts,
+.panel-timeline-tasks,
+.panel-timeline-events,
+.panel-timeline-note,
+.panel-timeline-error {
+  margin: 0;
+  font: 400 11px var(--font-body);
+  overflow-wrap: anywhere;
+}
+
+.panel-timeline-error {
+  color: var(--warn-text);
+}
+
+.panel-timeline-note {
+  color: var(--text-2);
+}
+
+.panel-timeline-lanes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.panel-timeline-lane-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 1px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.panel-timeline-lane.is-selected .panel-timeline-lane-btn {
+  background: var(--hover-wash);
+  border-radius: 4px;
+}
+
+.panel-timeline-lane-name {
+  flex: 0 0 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 10px var(--font-body);
+  text-align: left;
+}
+
+.panel-timeline-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--hover-wash);
+}
+
+.panel-timeline-span {
+  position: absolute;
+  top: 1px;
+  height: 8px;
+  border-radius: 2px;
+  opacity: 0.85;
+}
+
+.panel-timeline-more {
+  margin: 0;
+  padding-left: 76px;
+  font: 400 10px var(--font-body);
+  color: var(--text-3);
+}
+
+.panel-timeline-inspector {
+  margin-top: 2px;
+  padding-top: 3px;
+  border-top: 1px solid var(--hover-wash);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel-timeline-role {
+  opacity: 0.7;
+}
+
+.panel-timeline-children {
+  margin: 0;
+  padding-left: 14px;
+  font: 400 10px var(--font-body);
+  color: var(--text-2);
+}
+
 /* --- first run (WP-7, only while there is no profile) --------------------- */
 
 .panel-onboarding {

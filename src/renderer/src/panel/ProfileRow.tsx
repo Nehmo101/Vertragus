@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Profile } from '@shared/schema/profile'
 import type { VertragusAppApi } from '../../../preload'
-import { BroomIcon, ChartIcon, GearIcon, PlayIcon } from './icons'
+import { BroomIcon, ChartIcon, ClockIcon, GearIcon, PlayIcon } from './icons'
+import { ArchivePanel } from './ArchivePanel'
 import { RetroPanel } from './RetroPanel'
 import { WorktreeCleanup } from './WorktreeCleanup'
 
@@ -24,6 +25,11 @@ interface Props {
   /** True while this row's retro view is unfolded below it. */
   retroOpen: boolean
   onToggleRetro(profileId: string): void
+  /** True while this row's archive of stopped (and live) runs is unfolded. */
+  archiveOpen: boolean
+  onToggleArchive(profileId: string): void
+  /** Live workspace ids of this profile — archive rows overlay "running". */
+  liveWorkspaceIds: readonly string[]
   /** Bridge for the fold-out views; absent only when preload never loaded. */
   bridge?: VertragusAppApi
 }
@@ -31,10 +37,11 @@ interface Props {
 /**
  * One profile line: name + workspace count (toggles the filter), Play (opens
  * another workspace — pressing it twice gives two), chart (what the runs
- * taught the app, folded out below), broom (the worktree cleanup list, folded
+ * taught the app, folded out below), clock (archived journals, folded out
+ * below), broom (the worktree cleanup list, folded
  * out below), gear (profile editor). Play is deliberately the visually
  * loudest control in the panel; it is the one thing the app exists to do.
- * Name/count stay a sibling of the four buttons so filter clicks never hit
+ * Name/count stay a sibling of the five buttons so filter clicks never hit
  * those targets.
  *
  * The row itself is a `div` inside an `li` wrapper: the fold-out views hang
@@ -53,6 +60,9 @@ export function ProfileRow({
   onToggleCleanup,
   retroOpen,
   onToggleRetro,
+  archiveOpen,
+  onToggleArchive,
+  liveWorkspaceIds,
   bridge
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
@@ -70,6 +80,7 @@ export function ProfileRow({
   const filter = t('panel.filterProfileWorkspaces', { profile: profile.name })
   const cleanup = t('panel.cleanupWorktrees', { profile: profile.name })
   const retro = t('panel.retroToggle', { profile: profile.name })
+  const archive = t('panel.archiveToggle', { profile: profile.name })
   return (
     <li className="panel-row-group">
       <div className={selected ? 'panel-row is-selected' : 'panel-row'}>
@@ -107,6 +118,16 @@ export function ProfileRow({
           onClick={() => onToggleRetro(profile.id)}
         >
           <ChartIcon />
+        </button>
+        <button
+          type="button"
+          className={`panel-icon-button${archiveOpen ? ' is-active' : ''}`}
+          title={archive}
+          aria-label={archive}
+          aria-expanded={archiveOpen}
+          onClick={() => onToggleArchive(profile.id)}
+        >
+          <ClockIcon />
         </button>
         <button
           type="button"
@@ -188,6 +209,14 @@ export function ProfileRow({
       ) : null}
       {retroOpen && bridge ? (
         <RetroPanel key={profile.id} profileId={profile.id} bridge={bridge} />
+      ) : null}
+      {archiveOpen && bridge ? (
+        <ArchivePanel
+          key={`archive-${profile.id}`}
+          profileId={profile.id}
+          liveWorkspaceIds={liveWorkspaceIds}
+          bridge={bridge}
+        />
       ) : null}
       {cleanupOpen && bridge ? (
         <WorktreeCleanup key={profile.id} profileId={profile.id} bridge={bridge} />

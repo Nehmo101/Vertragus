@@ -72,6 +72,10 @@ vi.mock('@main/windows/hideAll', () => ({
   hideAllHotkeyStatus: vi.fn(() => undefined),
   reRegisterHideAllShortcut: vi.fn(() => ({ hotkey: 'Control+Alt+V', registered: true }))
 }))
+vi.mock('@main/workspace/listRuns', () => ({
+  listRuns: vi.fn(async () => []),
+  readRun: vi.fn(async () => undefined)
+}))
 
 import { ipcMain } from 'electron'
 import { isPanelWindowSender } from '@main/windows/panel'
@@ -1289,6 +1293,39 @@ describe('retro', () => {
     )
     expect(() => h.ipc.invoke(APP_CHANNELS.retroDeleteLearning, EDITOR_ID, { id: 'l2' })).toThrow(
       /not the panel/
+    )
+  })
+})
+
+describe('runs archive IPC', () => {
+  it('lists and gets runs for the panel only', async () => {
+    const { listRuns, readRun } = await import('@main/workspace/listRuns')
+    vi.mocked(listRuns).mockResolvedValue([
+      { workspaceId: 'ws-1', status: 'stopped', endReason: 'user_stop' }
+    ])
+    vi.mocked(readRun).mockResolvedValue({
+      workspaceId: 'ws-1',
+      events: []
+    })
+
+    const listed = await h.ipc.invoke(APP_CHANNELS.runsList, PANEL_ID, { profileId: 'p1' })
+    expect(listed).toEqual([{ workspaceId: 'ws-1', status: 'stopped', endReason: 'user_stop' }])
+    expect(listRuns).toHaveBeenCalledWith('C:/git/demo', 'p1')
+
+    const view = await h.ipc.invoke(APP_CHANNELS.runsGet, PANEL_ID, {
+      profileId: 'p1',
+      workspaceId: 'ws-1'
+    })
+    expect(view).toMatchObject({ workspaceId: 'ws-1' })
+
+    expect(() => h.ipc.invoke(APP_CHANNELS.runsList, CLI_ID, { profileId: 'p1' })).toThrow(
+      /not the panel/
+    )
+    expect(() => h.ipc.invoke(APP_CHANNELS.runsGet, CLI_ID, { profileId: 'p1', workspaceId: 'ws-1' })).toThrow(
+      /not the panel/
+    )
+    await expect(Promise.resolve(h.ipc.invoke(APP_CHANNELS.runsList, PANEL_ID, {}))).rejects.toThrow(
+      /missing profile id/
     )
   })
 })
@@ -2742,7 +2779,7 @@ describe('preload parity', () => {
     }
     const found = [
       ...source.matchAll(
-        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|remote|voice|ev):[a-zA-Z]+)'/g
+        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|runs|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|remote|voice|ev):[a-zA-Z]+)'/g
       )
     ].map((match) => match[1])
     expect(new Set(found)).toEqual(expected)

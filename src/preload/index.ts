@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Profile, RoleTemplate } from '@shared/schema/profile'
 import type { ProviderConfig } from '@shared/schema/provider'
 import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
+import type { RunJournalView, RunListEntry } from '@shared/schema/runArchive'
 import type { Zone, ZoneLayout } from '@shared/schema/zones'
 import type { ExtraMcpServer } from '@shared/schema/mcpServer'
 import type { Appearance } from '@shared/appearance'
@@ -227,6 +228,8 @@ const APP = {
   retroDeleteLearning: 'retro:deleteLearning',
   retroRepoNotes: 'retro:repoNotes',
   retroDeleteRepoNote: 'retro:deleteRepoNote',
+  runsList: 'runs:list',
+  runsGet: 'runs:get',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
@@ -380,6 +383,7 @@ export interface StaleWorktreeSummary {
 
 /** Retro records, re-exported so renderer code imports them from the bridge. */
 export type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
+export type { RunJournalView, RunListEntry } from '@shared/schema/runArchive'
 
 /** Result of a provider version probe (see main/providers/health.ts). */
 export interface ProviderHealth {
@@ -691,6 +695,12 @@ const app = {
   /** Remove one repo note (explicit user click); answers with the refreshed list. */
   deleteRepoNote: (id: string): Promise<RepoNote[]> =>
     ipcRenderer.invoke(APP.retroDeleteRepoNote, { id }),
+  /** Archived and live journals of this profile, newest first. */
+  listRuns: (profileId: string): Promise<RunListEntry[]> =>
+    ipcRenderer.invoke(APP.runsList, { profileId }),
+  /** One run's events + meta + tasks — the timeline input. */
+  getRun: (profileId: string, workspaceId: string): Promise<RunJournalView> =>
+    ipcRenderer.invoke(APP.runsGet, { profileId, workspaceId }),
   getSettings: (): Promise<PanelSettings> => ipcRenderer.invoke(APP.settingsGet),
   /**
    * How see-through the app is. Unlike `getSettings` this one answers in EVERY

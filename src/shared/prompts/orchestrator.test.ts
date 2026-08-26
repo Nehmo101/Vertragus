@@ -179,6 +179,18 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/Lead-starts-lead remains forbidden/)
   })
 
+  it('I1: intake closes AC and DoD before the team starts, or skips ask_user when complete', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/0\. Intake/)
+    expect(prompt).toMatch(/four-line brief/)
+    expect(prompt).toMatch(/If there are no holes, do not call ask_user/)
+    expect(prompt).toMatch(/Never guess a product or scope decision/)
+    expect(prompt).toMatch(/start_agent\{role:scout\}/)
+    expect(prompt).toMatch(/If scout is not in Available roles/)
+    expect(prompt).toMatch(/Never start a worker to "just look around"/)
+    expect(prompt).toMatch(/Do not write HOW/)
+    expect(prompt).toMatch(/acceptance-criteria and Definition-of-Done holes/)
+  })
 
   it('is plain English with no German left in it', () => {
     const prompt = buildOrchestratorSystemPrompt(base)

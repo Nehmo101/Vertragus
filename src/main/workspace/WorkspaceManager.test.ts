@@ -631,6 +631,35 @@ describe('stopWorkspace', () => {
     expect(manager.list()).toHaveLength(0)
   })
 
+  it('A1: writes endedAt and endReason on Stop, retro when a verdict was recorded', async () => {
+    const metas: unknown[] = []
+    const { manager } = harness({
+      journal: () => ({
+        path: '/repo/.vertragus/runs/x/events.jsonl',
+        append: () => undefined,
+        writeMeta: (meta) => metas.push(structuredClone(meta))
+      })
+    })
+    const running = await manager.startWorkspace(testProfile())
+    await manager.stopWorkspace(running.workspace.workspaceId)
+    const stopped = metas.at(-1) as { endedAt?: number; endReason?: string }
+    expect(stopped.endReason).toBe('user_stop')
+    expect(stopped.endedAt).toBeGreaterThan(0)
+
+    const metas2: unknown[] = []
+    const { manager: manager2 } = harness({
+      journal: () => ({
+        path: '/repo/.vertragus/runs/y/events.jsonl',
+        append: () => undefined,
+        writeMeta: (meta) => metas2.push(structuredClone(meta))
+      })
+    })
+    const withRetro = await manager2.startWorkspace(testProfile({ id: 'profile-retro' }))
+    withRetro.workspace.pendingRetroSummary = 'The parser is fixed.'
+    await manager2.stopWorkspace(withRetro.workspace.workspaceId)
+    expect((metas2.at(-1) as { endReason?: string }).endReason).toBe('retro')
+  })
+
   it('A3: opens the run’s pull request before the queue closes, and only for a profile that asked', async () => {
     const openPullRequest = vi
       .fn()
