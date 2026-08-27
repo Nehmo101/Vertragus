@@ -74,7 +74,9 @@ export class PendingQuestions {
    * Fires after every change to the set of open questions (create, answer,
    * cancel, clear). The panel's question badges derive from this registry, and
    * only `create` has a companion event — an answered badge would otherwise
-   * stay lit until something else happens to refresh the view.
+   * stay lit until something else happens to refresh the view. Native
+   * taskbar/dock attention follows {@link openCount} on the same feed
+   * (`src/main/windows/panelAttention.ts`).
    */
   onMutate(listener: () => void): () => void {
     this.mutationListeners.add(listener)

@@ -161,6 +161,7 @@ describe('createPanelWindow', () => {
     expect(win.options.resizable).toBe(false)
     expect(win.options.alwaysOnTop).toBe(true)
     expect(win.alwaysOnTopLevel).toBe('floating')
+    expect(win.options.skipTaskbar).toBe(false)
     expect(win.options.width).toBe(panel.PANEL_WIDTH)
     expect(win.options.x).toBe(1920 - panel.PANEL_WIDTH - panel.PANEL_MARGIN)
     expect(loadRoute).toHaveBeenCalledWith(win, '/panel')

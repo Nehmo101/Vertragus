@@ -1536,7 +1536,7 @@
  * steady highlight must remain.
  */
 
-/* The whole card, when the ORCHESTRATOR waits — see workspaceNeedsAttention. */
+/* The whole card, when the human must answer — see workspaceNeedsAttention. */
 .panel-card.needs-attention {
   border-color: color-mix(in srgb, var(--warn) 55%, transparent);
   background: color-mix(in srgb, var(--warn) 9%, transparent);
