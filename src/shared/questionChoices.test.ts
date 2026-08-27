@@ -146,6 +146,29 @@ describe('questionChoicesDisplay — parse fallback', () => {
     })
   })
 
+  it('does not parse a lettered list that starts after A/a, skips a letter, or breaks', () => {
+    expect(questionChoicesDisplay('Pick:\nb. bcrypt\nc. argon2')).toEqual({
+      prompt: 'Pick:\nb. bcrypt\nc. argon2',
+      choices: []
+    })
+    expect(questionChoicesDisplay('Pick:\nB) left\nC) right')).toEqual({
+      prompt: 'Pick:\nB) left\nC) right',
+      choices: []
+    })
+    expect(questionChoicesDisplay('Pick:\na. bcrypt\nc. argon2')).toEqual({
+      prompt: 'Pick:\na. bcrypt\nc. argon2',
+      choices: []
+    })
+    expect(questionChoicesDisplay('Pick:\na. bcrypt\nplain\nb. argon2')).toEqual({
+      prompt: 'Pick:\na. bcrypt\nplain\nb. argon2',
+      choices: []
+    })
+    expect(questionChoicesDisplay('Pick:\na. bcrypt\n\nb. argon2')).toEqual({
+      prompt: 'Pick:\na. bcrypt\n\nb. argon2',
+      choices: []
+    })
+  })
+
   it('does not parse unstructured paragraphs that happen to contain numbers', () => {
     const prose =
       'I think we should use 1. postgres because of 2. reasons in this paragraph, and then ship.'

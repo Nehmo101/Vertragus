@@ -103,16 +103,14 @@ function takeNumbered(lines: readonly string[], start: number): ParsedRun | unde
     const match = NUMBERED.exec(line)
     if (!match) break
     if (Number(match[1]) !== expected) break
-    const label = capLabel(match[2]!)
-    if (!label) break
-    labels.push(label)
+    labels.push(capLabel(match[2]!))
     expected += 1
   }
   return parsedRun(labels, start)
 }
 
 function takeLettered(lines: readonly string[], start: number): ParsedRun | undefined {
-  const first = LETTERED.exec(lines[start] ?? '')
+  const first = LETTERED.exec(lines[start]!)
   if (!first) return undefined
   const firstLetter = first[1]!
   const upper = firstLetter === firstLetter.toUpperCase()
@@ -126,9 +124,7 @@ function takeLettered(lines: readonly string[], start: number): ParsedRun | unde
     if (!match) break
     const expected = String.fromCharCode(base + (i - start))
     if (match[1] !== expected) break
-    const label = capLabel(match[2]!)
-    if (!label) break
-    labels.push(label)
+    labels.push(capLabel(match[2]!))
   }
   return parsedRun(labels, start)
 }
@@ -140,9 +136,7 @@ function takeBullets(lines: readonly string[], start: number): ParsedRun | undef
     if (line.trim() === '') break
     const match = BULLET.exec(line)
     if (!match) break
-    const label = capLabel(match[1]!)
-    if (!label) break
-    labels.push(label)
+    labels.push(capLabel(match[1]!))
   }
   return parsedRun(labels, start)
 }
