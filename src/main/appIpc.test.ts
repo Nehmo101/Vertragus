@@ -374,6 +374,7 @@ interface Harness {
     runFolders: string[]
     removedWorktrees: Array<{ profileId: string; path: string }>
     staleWorktrees: { path: string; branch?: string }[]
+    appliedZones: Array<{ profileId: string; zones: unknown }>
     change?: () => void
     timelineEvents: unknown[]
     timelineListener?: (event: unknown) => void
@@ -526,6 +527,10 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     staleWorktrees: [
       { path: '/repo/.vertragus/worktrees/old-1', branch: 'vertragus/paradiso/caronte' }
     ] as { path: string; branch?: string }[],
+    appliedZones: [] as Array<{ profileId: string; zones: unknown }>,
+    applyProfileZones(profileId: string, zones: unknown) {
+      this.appliedZones.push({ profileId, zones })
+    },
     list: () => state.workspaces,
     start(profileId: string, goal?: string, attachmentIds?: readonly string[]) {
       this.started.push({
@@ -660,8 +665,8 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
       return displayId === 11 || displayId === 22
     },
     listZoneDisplays: () => [
-      { id: 11, label: 'Main', width: 1920, height: 1040, primary: true },
-      { id: 22, label: 'Side', width: 1600, height: 860, primary: false }
+      { id: 11, label: 'Main', width: 1920, height: 1040, x: 0, y: 0, primary: true },
+      { id: 22, label: 'Side', width: 1600, height: 860, x: 1920, y: 100, primary: false }
     ],
     zoneOverlaySender: (id) =>
       id === OVERLAY_A_ID
@@ -2823,6 +2828,8 @@ describe('zones', () => {
       { roleId: 'reviewer', displayId: 22, rect: rel(0, 0, 0.5, 1) }
     ])
     expect(saved.zones?.targetDisplayId).toBe(11)
+    expect(saved.zones?.targetWorkArea).toEqual({ x: 0, y: 0, width: 1920, height: 1040 })
+    expect(h.directory.appliedZones).toEqual([{ profileId: 'p1', zones: saved.zones }])
     expect(h.zonesClosed).toBe(1)
     expect(h.broadcasts.at(-1)?.channel).toBe(APP_CHANNELS.eventProfiles)
   })
@@ -2958,6 +2965,15 @@ describe('zones', () => {
     expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones?.targetDisplayId).toBe(
       22
     )
+    expect(
+      h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones?.targetWorkArea
+    ).toEqual({ x: 1920, y: 100, width: 1600, height: 860 })
+    expect(h.directory.appliedZones).toEqual([
+      {
+        profileId: 'p1',
+        zones: h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones
+      }
+    ])
     expect(h.broadcasts.at(-1)?.channel).toBe(APP_CHANNELS.eventProfiles)
   })
 

@@ -248,5 +248,14 @@ describe('the overlay registry', () => {
   })
 })
 
+describe('listZoneDisplays', () => {
+  it('includes the work-area origin so a saved zone can rematch the screen', () => {
+    expect(overlay.listZoneDisplays()).toEqual([
+      { id: 11, label: 'Display 1', width: 1920, height: 1040, x: 0, y: 0, primary: true },
+      { id: 22, label: 'Display 2', width: 1600, height: 860, x: 1920, y: 100, primary: false }
+    ])
+  })
+})
+
 // The sandbox/secureWindow posture of this window is pinned centrally by
 // base.securityContract.test.ts, which derives its file list from the directory.

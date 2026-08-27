@@ -29,6 +29,17 @@ export const relRectSchema = z
   .strict()
 export type RelRect = z.infer<typeof relRectSchema>
 
+/** Pixel rect as Electron reports a display work area (origin may be negative). */
+export const absRectSchema = z
+  .object({
+    x: z.number(),
+    y: z.number(),
+    width: z.number().nonnegative(),
+    height: z.number().nonnegative()
+  })
+  .strict()
+export type AbsRect = z.infer<typeof absRectSchema>
+
 export const zoneSchema = z
   .object({
     roleId: z.string().trim().min(1).max(40),
@@ -50,17 +61,16 @@ export const zoneLayoutSchema = z
      * on?" when several are attached. Absent = every attached display (the
      * historical auto-tile-across-all-monitors behaviour).
      */
-    targetDisplayId: z.number().int().optional()
+    targetDisplayId: z.number().int().optional(),
+    /**
+     * Work area of {@link targetDisplayId} at save time. Windows Display.id
+     * values churn across sessions; origin + size rematch the same physical
+     * monitor so hide-all / show-all does not dump every window on primary.
+     */
+    targetWorkArea: absRectSchema.optional()
   })
   .strict()
 export type ZoneLayout = z.infer<typeof zoneLayoutSchema>
-
-export interface AbsRect {
-  x: number
-  y: number
-  width: number
-  height: number
-}
 
 export interface DisplayLike {
   id: number
@@ -72,21 +82,50 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
+ * Reattach a saved screen to the live monitor list.
+ *
+ * Order: Electron id, then a unique work-area origin, then a unique size,
+ * then the sole remaining display. Several remaining monitors and no unique
+ * geometry match is "unplugged", not a guess at the primary.
+ */
+export function matchDisplay<T extends DisplayLike>(
+  saved: { displayId: number; workArea?: AbsRect },
+  displays: readonly T[]
+): T | undefined {
+  const byId = displays.find((candidate) => candidate.id === saved.displayId)
+  if (byId) return byId
+  if (saved.workArea) {
+    const origin = displays.filter(
+      (candidate) =>
+        candidate.workArea.x === saved.workArea!.x && candidate.workArea.y === saved.workArea!.y
+    )
+    if (origin.length === 1) return origin[0]
+    const size = displays.filter(
+      (candidate) =>
+        candidate.workArea.width === saved.workArea!.width &&
+        candidate.workArea.height === saved.workArea!.height
+    )
+    if (size.length === 1) return size[0]
+  }
+  if (displays.length === 1) return displays[0]
+  return undefined
+}
+
+/**
  * The monitor a zone belongs to.
  *
  * `zone.displayId` wins while that screen is attached — never the primary, and
  * never whichever monitor a window currently happens to sit on. A stale id
- * rematches only when exactly one display remains (Windows Display.id churn);
- * with several monitors attached, a missing id is "unplugged", not a guess.
+ * rematches from {@link hint} (the layout's saved work area) or when exactly
+ * one display remains; with several monitors and no unique geometry, a missing
+ * id is "unplugged", not a guess.
  */
 export function displayForZone(
   zone: Pick<Zone, 'displayId'>,
-  displays: readonly DisplayLike[]
+  displays: readonly DisplayLike[],
+  hint?: { workArea?: AbsRect }
 ): DisplayLike | undefined {
-  const match = displays.find((candidate) => candidate.id === zone.displayId)
-  if (match) return match
-  if (displays.length === 1) return displays[0]
-  return undefined
+  return matchDisplay({ displayId: zone.displayId, workArea: hint?.workArea }, displays)
 }
 
 /**
@@ -98,9 +137,10 @@ export function displayForZone(
  */
 export function resolveZoneRect(
   zone: Pick<Zone, 'displayId' | 'rect'>,
-  displays: readonly DisplayLike[]
+  displays: readonly DisplayLike[],
+  hint?: { workArea?: AbsRect }
 ): AbsRect | null {
-  const display = displayForZone(zone, displays)
+  const display = displayForZone(zone, displays, hint)
   if (!display) return null
   const { workArea } = display
   const width = Math.round(clamp(zone.rect.w, 0, 1) * workArea.width)

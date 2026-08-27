@@ -43,6 +43,7 @@ import {
 import {
   zoneSchema,
   zoneLayoutSchema,
+  type AbsRect,
   type Zone,
   type ZoneLayout
 } from '@shared/schema/zones'
@@ -486,6 +487,11 @@ export interface WorkspaceDirectory {
    * Rejects with a readable message when the repo holds no journaled run.
    */
   resume(profileId: string): void | Promise<unknown>
+  /**
+   * Overlay save / display pick: push the new layout into running workspaces
+   * of this profile so hide-all snap uses the saved screen.
+   */
+  applyProfileZones?(profileId: string, zones: ZoneLayout): void
   stop(workspaceId: string): void | Promise<unknown>
   /**
    * C6/S3: replace this workspace's root orchestrator with a fresh one that
@@ -867,7 +873,8 @@ export function mergeZoneLayout(
   existing: ZoneLayout | undefined,
   drafts: ReadonlyMap<number, readonly Zone[]>,
   coveredDisplayIds: readonly number[],
-  targetDisplayId?: number
+  targetDisplayId?: number,
+  targetWorkArea?: AbsRect
 ): ZoneLayout {
   const covered = new Set([...coveredDisplayIds, ...drafts.keys()])
   const kept = (existing?.zones ?? []).filter((zone) => !covered.has(zone.displayId))
@@ -879,10 +886,26 @@ export function mergeZoneLayout(
   const target =
     targetDisplayId ??
     (coveredDisplayIds.length === 1 ? coveredDisplayIds[0] : existing?.targetDisplayId)
+  const workArea =
+    targetWorkArea ??
+    (target !== undefined && target === existing?.targetDisplayId
+      ? existing?.targetWorkArea
+      : undefined)
   return zoneLayoutSchema.parse({
     zones: [...kept, ...drawn],
-    ...(target !== undefined ? { targetDisplayId: target } : {})
+    ...(target !== undefined ? { targetDisplayId: target } : {}),
+    ...(workArea ? { targetWorkArea: workArea } : {})
   })
+}
+
+function workAreaOfDisplay(
+  displayId: number | undefined,
+  displays: readonly ZoneDisplayInfo[]
+): AbsRect | undefined {
+  if (displayId === undefined) return undefined
+  const display = displays.find((entry) => entry.id === displayId)
+  if (!display) return undefined
+  return { x: display.x, y: display.y, width: display.width, height: display.height }
 }
 
 // --- quitting ------------------------------------------------------------
@@ -2365,13 +2388,16 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     // display; the other displays come from the drafts they pushed while the
     // user was dragging.
     zoneDrafts.set(sender.displayId, parseDraftZones(body.zones, sender.displayId))
+    const displays = host.listZoneDisplays?.() ?? []
     const zones = mergeZoneLayout(
       profile.zones,
       zoneDrafts,
       host.zoneOverlayDisplayIds(),
-      sender.displayId
+      sender.displayId,
+      workAreaOfDisplay(sender.displayId, displays)
     )
     const profiles = host.store.saveProfile({ ...profile, zones })
+    host.directory.applyProfileZones?.(sender.profileId, zones)
     zoneDrafts.clear()
     emitProfiles(profiles)
     host.closeZoneOverlays()
@@ -2418,8 +2444,15 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     if (!profile) throw new Error(`zones:pickDisplay rejected — unknown profile ${sender.profileId}`)
     // Stamp the target screen now, not only on Save: auto-tiling must honour
     // the pick even if the user never draws a rectangle.
-    const zones = mergeZoneLayout(profile.zones, new Map(), [], requested)
+    const zones = mergeZoneLayout(
+      profile.zones,
+      new Map(),
+      [],
+      requested,
+      workAreaOfDisplay(requested, displays)
+    )
     const profiles = host.store.saveProfile({ ...profile, zones })
+    host.directory.applyProfileZones?.(sender.profileId, zones)
     emitProfiles(profiles)
     return {
       ...zoneEditorPayload(

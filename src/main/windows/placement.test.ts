@@ -280,6 +280,22 @@ describe('placeAgentWindow — auto-tiling', () => {
     expect(bounds).not.toEqual({ x: 960, y: 0, width: 960, height: 1080 })
   })
 
+  it('places on the saved screen after Display.id churn', () => {
+    const profile = {
+      zones: zoneLayoutSchema.parse({
+        targetDisplayId: 99,
+        targetWorkArea: SECOND.workArea,
+        zones: [{ roleId: 'worker', displayId: 99, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+      })
+    }
+    const bounds = placeAgentWindow({
+      profile,
+      roleId: 'worker',
+      displays: [PRIMARY, SECOND]
+    })
+    expect(contains(SECOND.workArea, bounds)).toBe(true)
+  })
+
   it('returns a usable rect when there is no display at all', () => {
     const bounds = placeAgentWindow({ roleId: 'worker', displays: [] })
     expect(bounds.width).toBeGreaterThan(0)
@@ -293,6 +309,13 @@ describe('displaysForPlacement', () => {
     expect(displaysForPlacement([PRIMARY, SECOND], 99)).toEqual([PRIMARY, SECOND])
     expect(displaysForPlacement([PRIMARY], 99)).toEqual([PRIMARY])
     expect(displaysForPlacement([PRIMARY, SECOND], undefined)).toEqual([PRIMARY, SECOND])
+  })
+
+  it('rematches a stale target id from the saved work area', () => {
+    expect(displaysForPlacement([PRIMARY, SECOND], 99, SECOND.workArea)).toEqual([SECOND])
+    expect(displaysForPlacement([PRIMARY, SECOND], 99, { x: 50, y: 50, width: 10, height: 10 })).toEqual(
+      [PRIMARY, SECOND]
+    )
   })
 })
 
@@ -397,6 +420,27 @@ describe('windows the user moved', () => {
     }
     applyWindowBounds('gone', win, { x: 0, y: 0, width: 100, height: 100 })
     expect(called).toBe(0)
+  })
+
+  it('jumps to the target origin before setBounds so a cross-display move sticks', () => {
+    let bounds: Rect = { x: 10, y: 10, width: 400, height: 300 }
+    let originPinned = false
+    const win: MovableWindow = {
+      on: () => undefined,
+      getBounds: () => bounds,
+      setPosition(x, y) {
+        bounds = { ...bounds, x, y }
+        originPinned = true
+      },
+      setBounds(next) {
+        // Windows: a lone setBounds onto another display is ignored.
+        if (!originPinned && next.x !== bounds.x) return
+        bounds = next
+        originPinned = false
+      }
+    }
+    applyWindowBounds('a', win, { x: 2000, y: 10, width: 700, height: 500 })
+    expect(win.getBounds?.()).toEqual({ x: 2000, y: 10, width: 700, height: 500 })
   })
 })
 
@@ -503,6 +547,31 @@ describe('live neighbor reflow', () => {
     expect(
       plan!.zones.zones.map((zone) => `${zone.roleId}:${zone.displayId}`).sort()
     ).toEqual(['orchestrator:1', 'reviewer:1', 'worker:1', 'worker:2'])
+  })
+
+  it('keeps the profile’s chosen screen when live reflow rewrites rectangles', () => {
+    const existing = zoneLayoutSchema.parse({
+      targetDisplayId: SECOND.id,
+      targetWorkArea: SECOND.workArea,
+      zones: [{ roleId: 'worker', displayId: 2, rect: { x: 0, y: 0, w: 0.5, h: 1 } }]
+    })
+    const live = layout({ roleId: 'worker', displayId: 2, rect: { x: 0, y: 0, w: 0.4, h: 1 } })
+    const merged = mergeLiveReflowZones(existing, live, [SECOND.id])
+    expect(merged.targetDisplayId).toBe(SECOND.id)
+    expect(merged.targetWorkArea).toEqual(SECOND.workArea)
+
+    const plan = planLiveReflow({
+      displays: [PRIMARY, SECOND],
+      previousDisplayId: SECOND.id,
+      existingZones: existing,
+      movedId: 'left',
+      nextRect: { x: 1920, y: 0, width: 600, height: 900 },
+      windows: [
+        { agentId: 'left', roleId: 'worker', bounds: { x: 1920, y: 0, width: 800, height: 900 } }
+      ]
+    })
+    expect(plan!.zones.targetDisplayId).toBe(SECOND.id)
+    expect(plan!.zones.targetWorkArea).toEqual(SECOND.workArea)
   })
 
   it('pins a window that crossed displays and lets the remainder fill the origin', () => {

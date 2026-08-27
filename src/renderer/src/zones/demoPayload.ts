@@ -25,7 +25,7 @@ export function demoZoneEditorPayload(displayId: number): ZoneEditorPayload {
       { roleId: 'worker', displayId, rect: { x: 0.44, y: 0.08, w: 0.52, h: 0.34 } },
       { roleId: 'reviewer', displayId, rect: { x: 0.44, y: 0.46, w: 0.52, h: 0.34 } }
     ],
-    displays: [{ id: displayId, label: 'Demo', width: 1920, height: 1080, primary: true }],
+    displays: [{ id: displayId, label: 'Demo', width: 1920, height: 1080, x: 0, y: 0, primary: true }],
     selectingDisplay: false
   }
 }
