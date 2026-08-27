@@ -38,8 +38,9 @@ export default tseslint.config(
      * chunk of a page loaded over a tailnet. That regression shipped once,
      * passed every typecheck, every test and every lint, and was found by
      * weighing the bundle. Constants both sides need live in
-     * `@shared/remote/limits`, which has no dependencies; types stay here and
-     * cost nothing, because they erase.
+     * `@shared/remote/limits` (no dependencies) or `@shared/questionChoicesDisplay`
+     * (display helpers, also zod-free); types stay here and cost nothing,
+     * because they erase.
      */
     files: ['src/remoteClient/**/*.{ts,tsx}'],
     ignores: ['src/remoteClient/**/*.test.ts'],
@@ -60,11 +61,13 @@ export default tseslint.config(
                 '@shared/remote/protocol',
                 '**/shared/remote/protocol',
                 '@shared/schema/*',
-                '**/shared/schema/*'
+                '**/shared/schema/*',
+                '@shared/questionChoices',
+                '**/shared/questionChoices'
               ],
               allowTypeImports: true,
               message:
-                'Import types only. A value import pulls zod into the phone bundle — put shared constants in @shared/remote/limits.'
+                'Import types only. A value import pulls zod into the phone bundle — put shared constants in @shared/remote/limits or @shared/questionChoicesDisplay.'
             }
           ]
         }

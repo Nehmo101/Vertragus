@@ -26,6 +26,7 @@ const source = readFileSync(fileURLToPath(new URL('./App.tsx', import.meta.url))
 
 describe('AnswerForm choice buttons', () => {
   it('uses the shared helper, submits a tapped label, and keeps Send disabled on blank custom text', () => {
+    expect(source).toContain("from '@shared/questionChoicesDisplay'")
     expect(source).toContain('questionChoicesDisplay')
     expect(source).toContain('className="answer-choice"')
     expect(source).toContain('onClick={() => submit(choice)}')

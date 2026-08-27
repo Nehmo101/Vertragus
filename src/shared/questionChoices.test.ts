@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   QUESTION_CHOICE_MAX,
@@ -144,6 +146,29 @@ describe('questionChoicesDisplay — parse fallback', () => {
     })
   })
 
+  it('does not parse a lettered list that starts after A/a, skips a letter, or breaks', () => {
+    expect(questionChoicesDisplay('Pick:\nb. bcrypt\nc. argon2')).toEqual({
+      prompt: 'Pick:\nb. bcrypt\nc. argon2',
+      choices: []
+    })
+    expect(questionChoicesDisplay('Pick:\nB) left\nC) right')).toEqual({
+      prompt: 'Pick:\nB) left\nC) right',
+      choices: []
+    })
+    expect(questionChoicesDisplay('Pick:\na. bcrypt\nc. argon2')).toEqual({
+      prompt: 'Pick:\na. bcrypt\nc. argon2',
+      choices: []
+    })
+    expect(questionChoicesDisplay('Pick:\na. bcrypt\nplain\nb. argon2')).toEqual({
+      prompt: 'Pick:\na. bcrypt\nplain\nb. argon2',
+      choices: []
+    })
+    expect(questionChoicesDisplay('Pick:\na. bcrypt\n\nb. argon2')).toEqual({
+      prompt: 'Pick:\na. bcrypt\n\nb. argon2',
+      choices: []
+    })
+  })
+
   it('does not parse unstructured paragraphs that happen to contain numbers', () => {
     const prose =
       'I think we should use 1. postgres because of 2. reasons in this paragraph, and then ship.'
@@ -197,5 +222,26 @@ describe('sanitizeQuestionChoices', () => {
     expect(sanitizeQuestionChoices(['x'.repeat(QUESTION_CHOICE_MAX_CHARS + 10)])).toEqual([
       'x'.repeat(QUESTION_CHOICE_MAX_CHARS)
     ])
+  })
+})
+
+describe('phone-bundle split', () => {
+  it('keeps display helpers zod-free so the phone client can import them', () => {
+    const display = readFileSync(join(__dirname, 'questionChoicesDisplay.ts'), 'utf8')
+    // Self-check: a rename that hid this file would otherwise green the no-zod claim.
+    expect(display).toContain('export function questionChoicesDisplay')
+    expect(display).not.toMatch(/from ['"]zod['"]/)
+    expect(display).not.toMatch(/\bz\./)
+
+    const eslint = readFileSync(join(__dirname, '../../eslint.config.mjs'), 'utf8')
+    expect(eslint).toContain("'@shared/questionChoices'")
+    expect(eslint).toContain('@shared/questionChoicesDisplay')
+
+    const app = readFileSync(join(__dirname, '../remoteClient/App.tsx'), 'utf8')
+    const inbox = readFileSync(join(__dirname, '../remoteClient/inbox.ts'), 'utf8')
+    for (const source of [app, inbox]) {
+      expect(source).toContain("from '@shared/questionChoicesDisplay'")
+      expect(source).not.toMatch(/from '@shared\/questionChoices['"]/)
+    }
   })
 })
