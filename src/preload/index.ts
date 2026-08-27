@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Profile, RoleTemplate } from '@shared/schema/profile'
-import type { ProviderConfig } from '@shared/schema/provider'
+import type { EffortLevel, ProviderConfig } from '@shared/schema/provider'
 import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import type { RunJournalView, RunListEntry } from '@shared/schema/runArchive'
 import type { Zone, ZoneLayout } from '@shared/schema/zones'
@@ -11,6 +11,7 @@ import type { BrowserExtensionInstallResult, BrowserExtensionStatus } from '@sha
 import type { TerminalBootPhase } from '@shared/terminalBoot'
 import type { CliSession } from '@shared/cliSession'
 import type { CliSurface } from '@shared/cliSurface'
+import type { AgentEvent } from '@shared/schema/events'
 
 /** Mirrors main/appIpc.PanelMcpServer — secrets never appear here. */
 export interface PanelMcpServer {
@@ -48,10 +49,37 @@ const CHANNELS = {
   session: 'terminal:session',
   followup: 'terminal:followup',
   answer: 'terminal:answer',
+  image: 'terminal:image',
+  question: 'terminal:question',
+  answerQuestion: 'terminal:answerQuestion',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
 } as const
+
+const CLI_TABS = {
+  attach: 'cliTabs:attach',
+  select: 'cliTabs:select',
+  state: 'cliTabs:state',
+  close: 'cliTabs:close',
+  minimize: 'cliTabs:minimize',
+  maximize: 'cliTabs:maximize'
+} as const
+
+export interface CliTabInfo {
+  agentId: string
+  title: string
+  roleColor: string
+}
+
+export interface CliTabState {
+  workspaceId: string
+  tabs: CliTabInfo[]
+  selectedAgentId: string | null
+  maximized: boolean
+  locale?: string
+  theme?: 'dark' | 'light'
+}
 
 export interface TerminalAgentMeta {
   agentId: string
@@ -80,8 +108,29 @@ export interface TerminalAttachResult {
   boot?: TerminalBootPhase
   /** Host session chrome at attach time; later changes arrive via onSession. */
   session?: CliSession
+  /**
+   * Open MCP question this window may answer, at attach time. Absent when
+   * none. Later changes arrive via onQuestion.
+   */
+  question?: TerminalQuestionInbox
   /** Stored CLI surface at attach time; later flips arrive via onSettings. */
   cliSurface?: CliSurface
+}
+
+/** One open MCP question the CLI overlay can show and answer. */
+export interface TerminalQuestionInbox {
+  questionId: string
+  question: string
+  /** Registry addressee: "user" for ask_user, otherwise the asking agent. */
+  agentId: string
+  /** Asking agent's Commedia name; absent for ask_user. */
+  fromName?: string
+}
+
+/** Push payload of terminal:question — `null` hides the overlay. */
+export interface TerminalQuestionEvent {
+  agentId: string
+  question: TerminalQuestionInbox | null
 }
 
 export interface TerminalDataEvent {
@@ -120,6 +169,14 @@ const terminal = {
   input: (data: string): void => {
     ipcRenderer.send(CHANNELS.input, data)
   },
+  /**
+   * Save a clipboard/drop image into THIS window's agent worktree and return
+   * the relative path. Sender-bound in main — the renderer cannot pick agent.
+   * `write` stays a string; this never sends bytes to the PTY.
+   */
+  image: (
+    source: 'clipboard' | { absPath: string } | { bytes: Uint8Array; mime?: string } = 'clipboard'
+  ): Promise<{ relativePath: string } | null> => ipcRenderer.invoke(CHANNELS.image, { source }),
   resize: (cols: number, rows: number): void => {
     ipcRenderer.send(CHANNELS.resize, { cols, rows })
   },
@@ -161,6 +218,25 @@ const terminal = {
     }
   },
   /**
+   * Open MCP question this window may answer — overlay over xterm. `null`
+   * hides it. Keys in the overlay never go to the PTY.
+   */
+  onQuestion: (listener: (event: TerminalQuestionEvent) => void): (() => void) => {
+    const handler = (_event: unknown, payload: TerminalQuestionEvent): void => listener(payload)
+    ipcRenderer.on(CHANNELS.question, handler)
+    return () => {
+      ipcRenderer.removeListener(CHANNELS.question, handler)
+    }
+  },
+  /**
+   * Answer an open MCP question from this CLI window. Main derives the
+   * workspace from the sender; a worker may only answer its own question,
+   * the orchestrator may answer ask_user and children. Same host path as
+   * the panel badge.
+   */
+  answerQuestion: (agentId: string, questionId: string, text: string): Promise<void> =>
+    ipcRenderer.invoke(CHANNELS.answerQuestion, { agentId, questionId, text }),
+  /**
    * Steer this agent over the host `user_message` path — never a PTY write.
    * The main process derives the agent from the sender window.
    */
@@ -184,6 +260,27 @@ const terminal = {
    * glyph without keeping a second copy of the truth.
    */
   toggleMaximizeWindow: (): Promise<boolean> => ipcRenderer.invoke(CHANNELS.windowMaximize)
+}
+
+const cliTabs = {
+  attach: (): Promise<CliTabState> => ipcRenderer.invoke(CLI_TABS.attach),
+  select: (agentId: string): void => {
+    ipcRenderer.send(CLI_TABS.select, { agentId })
+  },
+  closeWindow: (): void => {
+    ipcRenderer.send(CLI_TABS.close)
+  },
+  minimizeWindow: (): void => {
+    ipcRenderer.send(CLI_TABS.minimize)
+  },
+  toggleMaximizeWindow: (): Promise<boolean> => ipcRenderer.invoke(CLI_TABS.maximize),
+  onState: (listener: (state: CliTabState) => void): (() => void) => {
+    const handler = (_event: unknown, payload: CliTabState): void => listener(payload)
+    ipcRenderer.on(CLI_TABS.state, handler)
+    return () => {
+      ipcRenderer.removeListener(CLI_TABS.state, handler)
+    }
+  }
 }
 
 /**
@@ -223,6 +320,7 @@ const APP = {
   workspacesUserMessage: 'workspaces:userMessage',
   workspacesPromoteAgent: 'workspaces:promoteAgent',
   workspacesOpenRunFolder: 'workspaces:openRunFolder',
+  attachmentsSave: 'attachments:save',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
@@ -249,6 +347,8 @@ const APP = {
   providerEditorClose: 'providerEditor:close',
   settingsWindowOpen: 'settingsWindow:open',
   settingsWindowClose: 'settingsWindow:close',
+  timelineAttach: 'timeline:attach',
+  timelineClose: 'timeline:close',
   updatesGet: 'updates:get',
   updatesCheck: 'updates:check',
   updatesInstall: 'updates:install',
@@ -261,6 +361,7 @@ const APP = {
   eventProfiles: 'ev:profiles',
   eventProviders: 'ev:providers',
   eventWorkspaces: 'ev:workspaces',
+  eventTimeline: 'ev:timeline',
   eventUpdate: 'ev:update',
   eventSettings: 'ev:settings',
   eventVoice: 'ev:voice',
@@ -329,6 +430,8 @@ export interface WorkspaceAgentSummary {
   pendingQuestion?: string
   /** Id of that open question — what `answerQuestion` addresses. */
   pendingQuestionId?: string
+  /** Short labels for that open question, when the asker passed `choices`. */
+  pendingQuestionChoices?: string[]
 }
 
 /** S4: one row of the run's task board. Mirrors main's WorkspaceTaskSummary. */
@@ -362,7 +465,7 @@ export interface WorkspaceSummary {
   /** C6: a successor orchestrator is spawning — the card shows a badge. */
   successionInProgress?: true
   /** D3: the orchestrator's open ask_user question (answer with agentId "user"). */
-  userQuestion?: { questionId: string; question: string }
+  userQuestion?: { questionId: string; question: string; choices?: string[] }
   agents: WorkspaceAgentSummary[]
   /** S4: the run's task board, capped and tombstone-free. Absent = no plan yet. */
   tasks?: WorkspaceTaskSummary[]
@@ -386,6 +489,13 @@ export interface StaleWorktreeSummary {
 /** Retro records, re-exported so renderer code imports them from the bridge. */
 export type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 export type { RunJournalView, RunListEntry } from '@shared/schema/runArchive'
+export type { AgentEvent } from '@shared/schema/events'
+
+/** Snapshot `timeline:attach` answers — host-read journal, never a file path. */
+export interface TimelineAttachResult {
+  workspaceId: string
+  events: AgentEvent[]
+}
 
 /** Result of a provider version probe (see main/providers/health.ts). */
 export interface ProviderHealth {
@@ -426,6 +536,8 @@ export interface ModelDiscoveryResult {
   refreshedAt: number
   /** Why the live source stayed empty — shown in the model picker. */
   detail?: string
+  /** Per-model effort rungs discovered from the catalogue. */
+  efforts?: Record<string, EffortLevel[]>
 }
 
 export interface PanelSettings {
@@ -444,6 +556,12 @@ export interface PanelSettings {
   cliSurface: CliSurface
   /** When a window or zone is moved, neighbors shrink and fill the gap. */
   reflowNeighbors: boolean
+  /** Hide-all hide and restore snap CLI windows back to their role zones. */
+  snapToZones: boolean
+  /** New CLI windows start OS-minimized to the taskbar. The panel stays visible. */
+  startMinimized: boolean
+  /** One CLI window per agent, or tabs in a shared window. */
+  cliWindowMode: 'per-agent' | 'tabs'
   /** WP-7: the first-run card was closed by hand — the panel honours it. */
   onboardingDismissed: boolean
   autostart: boolean
@@ -498,6 +616,9 @@ export type WritableSetting =
   | 'appearance'
   | 'cliSurface'
   | 'reflowNeighbors'
+  | 'snapToZones'
+  | 'startMinimized'
+  | 'cliWindowMode'
   | 'voice'
   | 'agentPolicy'
   | 'onboardingDismissed'
@@ -604,8 +725,22 @@ const app = {
     ipcRenderer.invoke(APP.modelsDiscover, { providerId }),
   listWorkspaces: (): Promise<WorkspaceSummary[]> => ipcRenderer.invoke(APP.workspacesList),
   /** Start a workspace; `goal` (optional) is seeded into the orchestrator. */
-  startWorkspace: (profileId: string, goal?: string): Promise<void> =>
-    ipcRenderer.invoke(APP.workspacesStart, { profileId, ...(goal ? { goal } : {}) }),
+  startWorkspace: (profileId: string, goal?: string, attachmentIds?: string[]): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesStart, {
+      profileId,
+      ...(goal ? { goal } : {}),
+      ...(attachmentIds?.length ? { attachmentIds } : {})
+    }),
+  /**
+   * Save one image. Pre-start `{profileId}` stages in userData; live
+   * `{workspaceId, agentId?}` writes the agent's worktree. Clipboard is
+   * `'clipboard'` so main reads the OS clipboard (zero IPC bytes).
+   */
+  saveAttachment: (
+    target: { profileId: string } | { workspaceId: string; agentId?: string },
+    source: 'clipboard' | { absPath: string } | { bytes: Uint8Array; mime?: string }
+  ): Promise<{ relativePath: string; stagingId?: string } | null> =>
+    ipcRenderer.invoke(APP.attachmentsSave, { ...target, source }),
   /**
    * H2 refill: hand a workspace that was started bare its goal now. Rejects
    * readably when the run already has one (steer it with a message instead) or
@@ -792,6 +927,18 @@ const app = {
     subscribe(APP.eventProviders, listener),
   onWorkspaces: (listener: (workspaces: WorkspaceSummary[]) => void): (() => void) =>
     subscribe(APP.eventWorkspaces, listener),
+  /**
+   * Journal snapshot for THIS timeline window. Main derives the workspace from
+   * the sender; the renderer never reads events.jsonl.
+   */
+  attachTimeline: (): Promise<TimelineAttachResult> => ipcRenderer.invoke(APP.timelineAttach),
+  /** Close this overview sheet — the workspace keeps running. */
+  closeTimeline: (): void => {
+    ipcRenderer.send(APP.timelineClose)
+  },
+  /** Live journal events for this window only — not the ev:workspaces firehose. */
+  onTimelineEvent: (listener: (event: AgentEvent) => void): (() => void) =>
+    subscribe(APP.eventTimeline, listener),
   /** Self-update state — drives the panel's "Update bereit" badge. */
   onUpdate: (listener: (state: UpdateState) => void): (() => void) =>
     subscribe(APP.eventUpdate, listener),
@@ -895,7 +1042,8 @@ const api = {
   platform: process.platform,
   terminal,
   app,
-  zones
+  zones,
+  cliTabs
 }
 
 export type VertragusApi = typeof api

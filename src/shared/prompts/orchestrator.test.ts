@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildOrchestratorSystemPrompt } from './orchestrator'
+import { buildLeadSystemPrompt, buildOrchestratorSystemPrompt } from './orchestrator'
 
 const base = {
   workspaceName: 'Arsenale 2',
@@ -179,9 +179,9 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/Lead-starts-lead remains forbidden/)
   })
 
-  it('I1: intake closes AC and DoD before the team starts, or skips ask_user when complete', () => {
-    const prompt = buildOrchestratorSystemPrompt(base)
-    expect(prompt).toMatch(/0\. Intake/)
+  it('I1: thorough intake closes AC and DoD before the team starts, or skips ask_user when complete', () => {
+    const prompt = buildOrchestratorSystemPrompt({ ...base, questionMode: 'thorough' })
+    expect(prompt).toMatch(/0\. Close the brief/)
     expect(prompt).toMatch(/four-line brief/)
     expect(prompt).toMatch(/If there are no holes, do not call ask_user/)
     expect(prompt).toMatch(/Never guess a product or scope decision/)
@@ -189,11 +189,67 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/If scout is not in Available roles/)
     expect(prompt).toMatch(/Never start a worker to "just look around"/)
     expect(prompt).toMatch(/Do not write HOW/)
-    expect(prompt).toMatch(/acceptance-criteria and Definition-of-Done holes/)
+    expect(prompt).toMatch(/acceptance criteria/)
+    expect(prompt).toMatch(/Definition of Done/)
+  })
+
+  it('A3: autoPromote briefing says the host merges YOUR branch at end of run, even with no subagent', () => {
+    const prompt = buildOrchestratorSystemPrompt({
+      ...base,
+      automation: { autoIntegrate: false, autoPromote: true, autoPr: false }
+    })
+    expect(prompt).toContain('YOUR own branch is merged into the checkout at record_retro')
+    expect(prompt).toContain('even if no subagent ran')
+    expect(prompt).toContain('Never start an agent to merge or to open a pull request')
+    expect(prompt).not.toContain('A pull request for this run is opened by the host')
   })
 
   it('is plain English with no German left in it', () => {
-    const prompt = buildOrchestratorSystemPrompt(base)
-    expect(prompt).not.toMatch(/\b(der|die|das|und|nicht|Agenten)\b/)
+    for (const questionMode of [undefined, 'none', 'few', 'thorough'] as const) {
+      const prompt = buildOrchestratorSystemPrompt(
+        questionMode === undefined ? base : { ...base, questionMode }
+      )
+      expect(prompt).not.toMatch(/\b(der|die|das|und|nicht|Agenten)\b/)
+    }
+  })
+
+  it('always briefs questionMode, defaulting omitted input to few', () => {
+    const omitted = buildOrchestratorSystemPrompt(base)
+    const few = buildOrchestratorSystemPrompt({ ...base, questionMode: 'few' })
+    const none = buildOrchestratorSystemPrompt({ ...base, questionMode: 'none' })
+    const thorough = buildOrchestratorSystemPrompt({ ...base, questionMode: 'thorough' })
+
+    expect(omitted).toBe(few)
+    expect(omitted).toContain('Question mode for this run')
+    expect(omitted).toContain('No intake round of clarifying questions')
+
+    expect(few).toContain('only genuine user decisions')
+    expect(few).toContain('a product choice the goal does not settle')
+    expect(few).not.toContain('the goal text is authoritative')
+    expect(few).not.toContain('close the brief')
+
+    expect(none).toContain('the goal text is authoritative')
+    expect(none).toContain('Do not fish for extra requirements')
+    expect(none).toContain('Do not run intake')
+    expect(none).toContain('STILL call ask_user for a destructive action')
+    expect(none).not.toContain('a product choice the goal does not settle')
+    expect(none).not.toContain('No intake round of clarifying questions')
+    expect(none).not.toMatch(/ask_user[^.]*product choice/i)
+    expect(none).toContain('answer it yourself')
+    expect(none).toContain('Escalate with ask_user only for a destructive action')
+
+    expect(thorough).toContain('before starting the team, close the brief')
+    expect(thorough).toContain('one numbered ask_user, batched')
+    expect(thorough).toContain('0. Close the brief:')
+    expect(thorough).toContain('Never guess a product or scope decision the goal does not settle')
+    expect(omitted).not.toContain('0. Close the brief:')
+    expect(none).not.toContain('0. Close the brief:')
+    expect(few).not.toContain('0. Close the brief:')
+  })
+
+  it('does not brief the lead with questionMode', () => {
+    const prompt = buildLeadSystemPrompt({ ...base, area: 'payments' })
+    expect(prompt).not.toContain('Question mode for this run')
+    expect(prompt).not.toContain('ask_user')
   })
 })

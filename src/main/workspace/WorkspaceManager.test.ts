@@ -120,9 +120,14 @@ class FakeMcp implements McpServerHandle {
   openQuestion(
     workspaceId: string,
     agentId: string
-  ): { questionId: string; question: string } | undefined {
+  ): { questionId: string; question: string; choices?: string[] } | undefined {
     const open = this.runtimes.get(workspaceId)?.questions.openForAgent(agentId)
-    return open ? { questionId: open.questionId, question: open.question } : undefined
+    if (!open) return undefined
+    return {
+      questionId: open.questionId,
+      question: open.question,
+      ...(open.choices && open.choices.length > 0 ? { choices: open.choices } : {})
+    }
   }
   openQuestionCount(): number {
     let n = 0
@@ -404,6 +409,31 @@ describe('startWorkspace', () => {
     } finally {
       rmSync(cwd, { recursive: true, force: true })
     }
+  })
+
+  it('copies staged attachments into the orchestrator worktree and consumes staging after spawn', async () => {
+    const copied: Array<{ ids: string[]; dest: string }> = []
+    const consumed: string[][] = []
+    const { manager, spawns } = harness({
+      materializeAttachments: async (ids, dest) => {
+        copied.push({ ids: [...ids], dest })
+      },
+      consumeAttachments: async (ids) => {
+        consumed.push([...ids])
+      }
+    })
+
+    const running = await manager.startWorkspace(testProfile(), {
+      goal: 'see .vertragus/attachments/screenshot-aa.png',
+      attachmentIds: ['stg-1']
+    })
+
+    expect(copied).toEqual([{ ids: ['stg-1'], dest: running.orchestrator.worktreePath }])
+    expect(consumed).toEqual([['stg-1']])
+    expect(spawns).toHaveLength(1)
+    expect(running.workspace.goalText).toBe('see .vertragus/attachments/screenshot-aa.png')
+    expect(copied[0]!.dest).not.toBe(testProfile().repoPath)
+    expect(copied[0]!.dest).toBe(running.orchestrator.worktreePath)
   })
 
   it('a bare start stays a bare start — no goal, no seed, no crash', async () => {

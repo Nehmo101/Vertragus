@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('./cliWindow', () => ({ listCliWindows: () => [] }))
@@ -151,5 +153,66 @@ describe('focusWorkspaceAgents', () => {
     expect(beforeRestore).toHaveBeenCalledTimes(1)
     expect(log).not.toContain('beforeRestore:other')
     expect(log).not.toContain('restore:other')
+  })
+
+  it('suppresses hide and show so live-reflow cannot read them as a drag', () => {
+    const { log, windows, targets } = harness(['mine', 'foreign'])
+    windows.mine!.minimized = true
+    const beforeHide = vi.fn((agentId: string) => {
+      log.push(`beforeHide:${agentId}`)
+    })
+    const beforeShow = vi.fn((agentId: string) => {
+      log.push(`beforeShow:${agentId}`)
+    })
+
+    focusWorkspaceAgents(['mine'], { windows: () => targets, beforeHide, beforeShow })
+
+    expect(log).toEqual([
+      'beforeHide:foreign',
+      'hide:foreign',
+      'restore:mine',
+      'beforeShow:mine',
+      'show:mine',
+      'focus:mine'
+    ])
+    expect(beforeHide).not.toHaveBeenCalledWith('mine')
+    expect(beforeShow).not.toHaveBeenCalledWith('foreign')
+  })
+
+  it('leaves minimized wanted windows put when restoreMinimized is false', () => {
+    const { log, windows, targets } = harness(['orch', 'worker', 'foreign'])
+    windows.orch!.minimized = true
+    windows.worker!.minimized = true
+
+    focusWorkspaceAgents(['orch', 'worker'], {
+      windows: () => targets,
+      restoreMinimized: false
+    })
+
+    expect(log).toEqual(['hide:foreign'])
+    expect(windows.orch!.minimized).toBe(true)
+    expect(windows.worker!.minimized).toBe(true)
+    expect(log.some((entry) => entry.startsWith('restore:'))).toBe(false)
+    expect(log.some((entry) => entry.startsWith('show:'))).toBe(false)
+  })
+
+  it('surfaces a shared parent window once (tab chrome)', () => {
+    const { log, windows, targets } = harness(['orch'])
+    targets.push({ agentId: 'worker', window: windows.orch! })
+
+    focusWorkspaceAgents(['orch', 'worker'], { windows: () => targets })
+
+    expect(log.filter((entry) => entry.startsWith('show:'))).toEqual(['show:orch'])
+    expect(log.filter((entry) => entry.startsWith('focus:'))).toEqual(['focus:orch'])
+  })
+})
+
+describe('production wiring', () => {
+  it('suppresses hide, restore and show on a workspace click', () => {
+    const source = readFileSync(join(__dirname, '../index.ts'), 'utf8')
+    expect(source).toMatch(/beforeHide:\s*suppressMoveTracking/)
+    expect(source).toMatch(/beforeRestore:\s*suppressMoveTracking/)
+    expect(source).toMatch(/beforeShow:\s*suppressMoveTracking/)
+    expect(source).toMatch(/layoutCliWindows\(agentIds\)/)
   })
 })

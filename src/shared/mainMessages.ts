@@ -100,6 +100,7 @@ interface MainMessages {
   profileEditorTitle: string
   providerEditorTitle: string
   zoneOverlayTitle: string
+  timelineWindowTitle: string
   /**
    * Voice assistant: the mic is on but no xAI key is stored. Said in the
    * panel's voice badge, so it names the two places a key can come from.
@@ -117,6 +118,20 @@ interface MainMessages {
   cliNativeAddon: string
   /** Seed handshake: orchestrator prompt never landed. */
   cliNeverReadyPrompt: (name: string, provider: string) => string
+  /**
+   * Image attach: the file is larger than the 8 MiB cap. A correct renderer
+   * can provoke this (a big drop), so it is localized.
+   */
+  attachmentTooLarge: string
+  /** Image attach: magic bytes were not a supported image type. */
+  attachmentNotImage: string
+  /** Image attach: pre-start staging expired or was already consumed. */
+  attachmentStagingExpired: string
+  /**
+   * Image attach: the agent's worktree is not on disk yet (boot overlay) or
+   * the agent is unknown.
+   */
+  attachmentWorktreeMissing: string
   /** Seed handshake: subagent task never landed. */
   cliNeverReadyTask: (name: string, provider: string) => string
   /** Seed handshake: lead area never landed. */
@@ -195,6 +210,7 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     profileEditorTitle: 'Vertragus — Profil',
     providerEditorTitle: 'Vertragus — Provider',
     zoneOverlayTitle: 'Vertragus — Zonen',
+    timelineWindowTitle: 'Vertragus — Übersicht',
     voiceMissingApiKey: 'Kein xAI-API-Key. Unter Einstellungen eintragen oder XAI_API_KEY setzen.',
     voiceMissingOpenaiApiKey:
       'Kein OpenAI-API-Key. Unter Einstellungen eintragen oder OPENAI_API_KEY setzen.',
@@ -204,6 +220,11 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
       'umgehen. Smart App Control ausschalten oder eine Ausnahme für %LOCALAPPDATA%\\cursor-agent ' +
       'setzen. Siehe docs/TROUBLESHOOTING.md.',
     cliNativeAddon: 'ein natives .node-Addon',
+    attachmentTooLarge: 'Bild abgelehnt — größer als 8 MiB.',
+    attachmentNotImage: 'Kein unterstütztes Bild (png, jpeg, gif, webp, bmp).',
+    attachmentStagingExpired: 'Das Bild ist abgelaufen — bitte erneut einfügen.',
+    attachmentWorktreeMissing:
+      'Bild abgelehnt — das Agent-Worktree ist noch nicht bereit.',
     cliNeverReadyPrompt: (name, provider) =>
       `${name} (${provider}) wurde nicht bereit — der Orchestrator-Prompt wurde nicht zugestellt.`,
     cliNeverReadyTask: (name, provider) =>
@@ -272,6 +293,7 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     profileEditorTitle: 'Vertragus — Profile',
     providerEditorTitle: 'Vertragus — Provider',
     zoneOverlayTitle: 'Vertragus — Zones',
+    timelineWindowTitle: 'Vertragus — Timeline',
     voiceMissingApiKey: 'No xAI API key. Set it under Settings or XAI_API_KEY.',
     voiceMissingOpenaiApiKey: 'No OpenAI API key. Set it under Settings or OPENAI_API_KEY.',
     cliBlockedByAppControl: (name, provider, blockedPath) =>
@@ -280,6 +302,10 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
       'App Control off, or add an exception for %LOCALAPPDATA%\\cursor-agent. See ' +
       'docs/TROUBLESHOOTING.md.',
     cliNativeAddon: 'a native .node addon',
+    attachmentTooLarge: 'Image rejected — larger than 8 MiB.',
+    attachmentNotImage: 'Not a supported image (png, jpeg, gif, webp, bmp).',
+    attachmentStagingExpired: 'That image expired — paste it again.',
+    attachmentWorktreeMissing: 'Image rejected — the agent worktree is not ready yet.',
     cliNeverReadyPrompt: (name, provider) =>
       `${name} (${provider}) never became ready — the orchestrator prompt was not delivered.`,
     cliNeverReadyTask: (name, provider) =>

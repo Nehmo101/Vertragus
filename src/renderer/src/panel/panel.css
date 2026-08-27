@@ -26,7 +26,8 @@
 
 .panel button,
 .panel input,
-.panel select {
+.panel select,
+.panel textarea {
   -webkit-app-region: no-drag;
   font-family: inherit;
 }
@@ -1142,6 +1143,30 @@
   margin: 0;
   font: 400 10.5px var(--font-body);
   color: var(--warn-text);
+  overflow-wrap: anywhere;
+}
+
+.panel-answer-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.panel-answer-choice {
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--text);
+  font: 500 11px var(--font-body);
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.panel-answer-choice:hover {
+  background: var(--hover-wash);
 }
 
 .panel-answer-input {

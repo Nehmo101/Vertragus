@@ -8,6 +8,7 @@
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { parseNewAskChoices, questionChoicesToolFieldSchema } from '@shared/questionChoices'
 import { buildHandoffBlock, buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
 import { successionRequestSchema } from '@shared/schema/handoff'
 import { searchRuns } from '@main/workspace/searchRuns'
@@ -942,21 +943,20 @@ export function registerOrchestratorTools(
     'ask_user',
     {
       description:
-        'Ask the HUMAN a question and wait for the answer. Use this for holes in acceptance criteria ' +
-        'and Definition of Done (observable happy path, non-goals, named verify command, review/docs/PR ' +
-        'expectations), and for scope changes, destructive actions and product choices. Code facts are ' +
-        'Scout (when that role is available) or a HEAD Read — do not ask the user what the repository ' +
-        'already answers. Do not ask which model to pick or whether to use MCP tools. Guessing is ' +
-        'forbidden: never invent a product or scope decision. Batch several holes into one numbered ' +
-        'question; do not drip tickets. Blocks until the user answers in the panel or on their phone. ' +
-        'If it returns answer: null, call it again with the returned ticket and the unchanged question. ' +
-        'Never continue without the answer.',
+        'Ask the HUMAN a question and wait for the answer — they see it in the panel, on the CLI overlay, and on their ' +
+        'phone. When to call it is the question-mode block in your system prompt — that block is ' +
+        'authoritative, not this schema. For a decision, pass 2–8 short labels in choices (at most 28); ' +
+        'question is the prompt only — do not dump numbered options into it. Blocks until the user answers. If it returns answer: null, ' +
+        'call it again with the returned ticket and the unchanged question (choices stay). Never continue without the answer.',
       inputSchema: {
         question: z
           .string()
           .min(1)
           .max(4_000)
-          .describe('One concrete question, with the context the user needs to answer it'),
+          .describe('The prompt only — do not dump numbered options into this string'),
+        choices: questionChoicesToolFieldSchema.describe(
+          'Short labels for a decision (typically 2–8, at most 28, each ≤ 200 chars). The human taps one to answer. Omit for open-ended questions.'
+        ),
         ticket: z
           .string()
           .min(1)
@@ -964,7 +964,7 @@ export function registerOrchestratorTools(
           .describe('Only when resuming: the ticket from a previous answer: null response')
       }
     },
-    async ({ question, ticket }): Promise<ToolText> => {
+    async ({ question, ticket, choices }): Promise<ToolText> => {
       // The same raised window that funds the long await_events poll: ask_user
       // runs on the orchestrator's own CLI, so awaitMax is exactly the block
       // this call can afford — a human who answers within it costs zero
@@ -980,6 +980,7 @@ export function registerOrchestratorTools(
         'you may keep handling agent events.'
 
       if (ticket) {
+        // Ignore leftover/empty/invalid `choices` — they must not block resume.
         const resumed = await runtime.questions.waitForAnswer(
           ticket,
           USER_QUESTION_AGENT_ID,
@@ -1004,14 +1005,23 @@ export function registerOrchestratorTools(
       // One open user question at a time — a second one would give the human
       // two blocking prompts for one orchestrator.
       const alreadyOpen = runtime.questions.openForAgent(USER_QUESTION_AGENT_ID)
+      const newChoices = alreadyOpen ? undefined : parseNewAskChoices(choices)
       const pending =
-        alreadyOpen ?? runtime.questions.create(USER_QUESTION_AGENT_ID, question)
+        alreadyOpen ??
+        runtime.questions.create(USER_QUESTION_AGENT_ID, question, {
+          ...(newChoices ? { choices: newChoices } : {})
+        })
       if (!alreadyOpen) {
         // Quiet: the badge/remote signal for the PANEL — the asker itself is
         // blocked right here on waitForAnswer and must not be woken by the
         // echo of its own question.
         ctx.events.push(
-          { type: 'user_question', questionId: pending.questionId, question },
+          {
+            type: 'user_question',
+            questionId: pending.questionId,
+            question,
+            ...(pending.choices && pending.choices.length > 0 ? { choices: pending.choices } : {})
+          },
           { quiet: true }
         )
       }
@@ -1113,12 +1123,15 @@ export function registerOrchestratorTools(
       const { applied } = retro.recordLearnings(learnings)
       const appliedNotes = repoNotes.length > 0 ? retro.recordRepoNotes?.(repoNotes)?.applied ?? 0 : 0
       // A3: the retro is the run's "work is done" — so it is where the
-      // profile's auto-PR is opened. Never able to fail the retro: a pull
-      // request that could not be opened is a line in the answer, not a lost
-      // retrospective.
+      // profile's auto-PR is opened and the orchestrator branch is
+      // auto-promoted (PR first, so the branch is still ahead). Never able
+      // to fail the retro: a pull request that could not be opened is a line
+      // in the answer, not a lost retrospective.
       let pullRequest: RunPullRequest | undefined
       try {
-        pullRequest = await ctx.host.openRunPullRequest?.({ summary })
+        pullRequest = ctx.host.finishRunAutomation
+          ? await ctx.host.finishRunAutomation({ summary })
+          : await ctx.host.openRunPullRequest?.({ summary })
       } catch (error) {
         pullRequest = { ok: false, branch: '', base: '', message: errorMessage(error) }
       }

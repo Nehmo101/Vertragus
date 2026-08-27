@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const settingsUi = vi.hoisted(() => ({
+  startMinimized: false,
+  cliWindowMode: 'per-agent' as 'per-agent' | 'tabs'
+}))
+
 /**
  * The seam between the CLI window registry and the placement layer: opening an
  * agent window with a `placement` asks for bounds, re-tiles the windows that
@@ -20,7 +25,7 @@ interface Bounds {
 
 class FakeBrowserWindow {
   static instances: FakeBrowserWindow[] = []
-  readonly webContents = { id: nextWebContentsId++ }
+  readonly webContents = { id: nextWebContentsId++, isDestroyed: (): boolean => false, send: vi.fn() }
   destroyed = false
   bounds: Bounds
 
@@ -51,8 +56,22 @@ class FakeBrowserWindow {
   getBounds(): Bounds {
     return this.bounds
   }
+  getContentBounds(): Bounds {
+    return this.bounds
+  }
   setBounds(bounds: Bounds): void {
     this.bounds = bounds
+  }
+  setTitle(_title: string): void {}
+  readonly childViews: unknown[] = []
+  readonly contentView = {
+    addChildView: (view: unknown): void => {
+      this.childViews.push(view)
+    },
+    removeChildView: (view: unknown): void => {
+      const index = this.childViews.indexOf(view)
+      if (index >= 0) this.childViews.splice(index, 1)
+    }
   }
   show(): void {}
   showInactive(): void {}
@@ -61,6 +80,7 @@ class FakeBrowserWindow {
   }
   focus(): void {}
   restore(): void {}
+  minimize(): void {}
   close(): void {
     this.destroyed = true
     this.emit('closed')
@@ -72,22 +92,44 @@ const DISPLAYS = [
   { id: 2, workArea: { x: 1920, y: 0, width: 1600, height: 900 } }
 ]
 
+class FakeWebContentsView {
+  readonly webContents = { id: nextWebContentsId++, isDestroyed: (): boolean => false, close: vi.fn() }
+  setBounds(_bounds: Bounds): void {}
+  setVisible(_visible: boolean): void {}
+}
+
 vi.mock('electron', () => ({
   BrowserWindow: FakeBrowserWindow,
+  WebContentsView: FakeWebContentsView,
+  ipcMain: { handle: vi.fn(), on: vi.fn() },
   screen: {
     getAllDisplays: () => DISPLAYS,
     getPrimaryDisplay: () => DISPLAYS[0]
   }
 }))
+vi.mock('@main/store/settings', () => ({
+  getSettings: () => ({ ui: settingsUi })
+}))
 vi.mock('./base', () => ({
   glassWindowOptions: () => ({ frame: false, transparent: true }),
+  baseWebPreferences: () => ({ sandbox: true }),
   loadRoute: vi.fn(),
-  secureWindow: vi.fn()
+  loadContentsRoute: vi.fn(),
+  secureWindow: vi.fn(),
+  secureWebContents: vi.fn()
 }))
 
 let panelBounds: Bounds | null = null
 vi.mock('./panel', () => ({
-  getPanelWindow: () => (panelBounds ? { getBounds: () => panelBounds } : null)
+  getPanelWindow: () =>
+    panelBounds
+      ? {
+          getBounds: () => panelBounds,
+          isDestroyed: () => false,
+          isFocused: () => false,
+          focus: () => {}
+        }
+      : null
 }))
 
 type CliModule = typeof import('./cliWindow')
@@ -105,6 +147,8 @@ beforeEach(async () => {
   FakeBrowserWindow.instances = []
   listeners.clear()
   panelBounds = null
+  settingsUi.startMinimized = false
+  settingsUi.cliWindowMode = 'per-agent'
   cli = await import('./cliWindow')
   placement = await import('./placement')
   now = 100_000
@@ -622,5 +666,132 @@ describe('layoutCliWindows', () => {
     expect(a1.bounds.x + a1.bounds.width).toBeLessThanOrEqual(zoneA.x + zoneA.width)
     expect(a2.bounds.x).toBeGreaterThanOrEqual(zoneA.x)
     expect(a2.bounds.x + a2.bounds.width).toBeLessThanOrEqual(zoneA.x + zoneA.width)
+  })
+
+  it('lands on the zone display, not where hide/show left the window', () => {
+    const win = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones: ZONES, workspaceId: 'W' }
+      })
+    )
+    // Windows hide()/show() often dumps the window on the primary.
+    win.setBounds({ x: 10, y: 10, width: 500, height: 400 })
+
+    cli.layoutCliWindows(['a'])
+
+    expect(win.bounds).toEqual(ZONE_BOUNDS)
+    expect(win.bounds.x).toBeGreaterThanOrEqual(DISPLAYS[1]!.workArea.x)
+  })
+
+  it('does not let a hide/show move rewrite zones onto the primary', () => {
+    placement.setReflowNeighborsGetter(() => true)
+    const persisted: Array<{ zones: typeof ZONES.zones }> = []
+    const win = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: {
+          roleId: 'worker',
+          zones: ZONES,
+          workspaceId: 'W',
+          onZonesChange: (next) => persisted.push(next)
+        }
+      })
+    )
+    placement.suppressMoveTracking('a')
+    win.setBounds({ x: 10, y: 10, width: 500, height: 400 })
+    win.emit('move')
+    now += placement.REFLOW_DEBOUNCE_MS
+    placement.flushLiveReflow()
+
+    expect(persisted).toEqual([])
+    cli.layoutCliWindows(['a'])
+    expect(win.bounds).toEqual(ZONE_BOUNDS)
+    expect(win.bounds.x).toBeGreaterThanOrEqual(DISPLAYS[1]!.workArea.x)
+  })
+
+  it('does not tile when the workspace is frozen in tabs mode', () => {
+    settingsUi.cliWindowMode = 'tabs'
+    const first = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: { roleId: 'worker', workspaceId: 'W' }
+      })
+    )
+    const before = { ...first.bounds }
+
+    cli.createCliWindow('b', {
+      ...WORKER,
+      placement: { roleId: 'worker', workspaceId: 'W' }
+    })
+    expect(first.bounds).toEqual(before)
+    expect(FakeBrowserWindow.instances).toHaveLength(1)
+
+    cli.layoutCliWindows(['a', 'b'])
+    expect(first.bounds).toEqual(before)
+  })
+})
+
+describe('layoutCliWindowsByWorkspace', () => {
+  it('tiles each workspace on its own so profile B cannot shove profile A', () => {
+    const zonesA = {
+      zones: [{ roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 1 } }]
+    }
+    const zonesB = {
+      zones: [{ roleId: 'worker', displayId: 2, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+    }
+    const a1 = fake(
+      cli.createCliWindow('a1', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones: zonesA, workspaceId: 'A' }
+      })
+    )
+    const b1 = fake(
+      cli.createCliWindow('b1', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones: zonesB, workspaceId: 'B' }
+      })
+    )
+    userDrags(a1)
+    a1.setBounds({ x: 10, y: 10, width: 500, height: 400 })
+    userDrags(b1)
+    b1.setBounds({ x: 30, y: 30, width: 500, height: 400 })
+
+    cli.layoutCliWindowsByWorkspace(['a1', 'b1'])
+
+    expect(a1.bounds).toEqual({ x: 0, y: 0, width: 960, height: 1040 })
+    expect(b1.bounds).toEqual({ x: 2720, y: 0, width: 800, height: 900 })
+  })
+
+  it('auto-tiles a zoneless workspace instead of stealing another profile\'s zones', () => {
+    const zonesB = {
+      zones: [{ roleId: 'worker', displayId: 2, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+    }
+    const zoneB = { x: 2720, y: 0, width: 800, height: 900 }
+
+    const a = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: { roleId: 'worker', workspaceId: 'A' }
+      })
+    )
+    const b = fake(
+      cli.createCliWindow('b', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones: zonesB, workspaceId: 'B' }
+      })
+    )
+    userDrags(a)
+    a.setBounds({ x: 10, y: 10, width: 500, height: 400 })
+    userDrags(b)
+    b.setBounds({ x: 30, y: 30, width: 500, height: 400 })
+
+    cli.layoutCliWindowsByWorkspace(['a', 'b'])
+
+    // A has no zones of its own — auto-tile on the primary, not B's display-2 zone.
+    expect(a.bounds).toEqual(DISPLAYS[0]!.workArea)
+    expect(a.bounds).not.toEqual(zoneB)
+    expect(b.bounds).toEqual(zoneB)
+    expect(b.bounds.x).toBeGreaterThanOrEqual(DISPLAYS[1]!.workArea.x)
   })
 })

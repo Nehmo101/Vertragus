@@ -93,6 +93,7 @@ export interface RemoteCopy {
   inboxJump: (name: string) => string
   inboxPillLabel: (count: number) => string
   answerQuestion: (name: string) => string
+  answerChoice: (choice: string) => string
   userQuestion: (question: string) => string
   answerPlaceholder: string
   answerSend: string
@@ -222,6 +223,7 @@ const de: RemoteCopy = {
   inboxPillLabel: (count) =>
     count === 1 ? 'Zu 1 offenen Frage springen' : `Zu ${count} offenen Fragen springen`,
   answerQuestion: (name) => `Frage von ${name} beantworten`,
+  answerChoice: (choice) => `Mit „${choice}“ antworten`,
   userQuestion: (question) => `Frage an dich: ${question}`,
   answerPlaceholder: 'Antwort …',
   answerSend: 'Antworten',
@@ -348,6 +350,7 @@ const en: RemoteCopy = {
   inboxPillLabel: (count) =>
     count === 1 ? 'Jump to 1 open question' : `Jump to ${count} open questions`,
   answerQuestion: (name) => `Answer ${name}’s question`,
+  answerChoice: (choice) => `Answer with “${choice}”`,
   userQuestion: (question) => `Question for you: ${question}`,
   answerPlaceholder: 'Answer …',
   answerSend: 'Answer',

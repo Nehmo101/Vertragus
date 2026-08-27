@@ -1,7 +1,18 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Profile } from '@shared/schema/profile'
 import type { VertragusAppApi } from '../../../preload'
+import {
+  ATTACHMENT_MAX_FILES,
+  applyAttachmentSave,
+  clearIdsWhenGoalEmpty,
+  clipboardDataLooksLikeImage,
+  droppedImageSources,
+  insertAttachmentText,
+  pasteImageSources,
+  type AttachmentSaveResult,
+  type AttachmentSource
+} from '../lib/imageAttach'
 import { BroomIcon, ChartIcon, ClockIcon, GearIcon, PlayIcon } from './icons'
 import { ArchivePanel } from './ArchivePanel'
 import { RetroPanel } from './RetroPanel'
@@ -15,7 +26,12 @@ interface Props {
   selected: boolean
   onSelect(profileId: string): void
   /** Start a workspace; a non-empty goal is seeded into the orchestrator (H2). */
-  onStart(profileId: string, goal?: string): void
+  onStart(profileId: string, goal?: string, attachmentIds?: string[]): void
+  /** Pre-start image save — stages under userData, never the profile checkout. */
+  onSaveAttachment?(
+    target: { profileId: string } | { workspaceId: string; agentId?: string },
+    source: AttachmentSource
+  ): Promise<AttachmentSaveResult | null>
   /** E3: start a workspace briefed on the profile's newest journaled run. */
   onResume(profileId: string): void
   onEdit(profileId: string): void
@@ -54,6 +70,7 @@ export function ProfileRow({
   selected,
   onSelect,
   onStart,
+  onSaveAttachment,
   onResume,
   onEdit,
   cleanupOpen,
@@ -69,13 +86,59 @@ export function ProfileRow({
   /** True while the goal field is folded out under the row (H2). */
   const [goalOpen, setGoalOpen] = useState(false)
   const [goal, setGoal] = useState('')
+  const attachmentIdsRef = useRef<string[]>([])
+  const goalRef = useRef<HTMLTextAreaElement>(null)
   const start = t('panel.startWorkspace', { profile: profile.name })
   const edit = t('panel.editProfile', { profile: profile.name })
 
+  const replaceIds = (ids: string[]): void => {
+    attachmentIdsRef.current = ids
+  }
+
   const startNow = (): void => {
-    onStart(profile.id, goal.trim() || undefined)
+    const ids = attachmentIdsRef.current
+    onStart(profile.id, goal.trim() || undefined, ids.length ? ids : undefined)
     setGoal('')
+    replaceIds([])
     setGoalOpen(false)
+  }
+
+  const insertSaved = (result: AttachmentSaveResult): void => {
+    const applied = applyAttachmentSave(attachmentIdsRef.current, result)
+    if (!applied) return
+    replaceIds(applied.ids)
+    setGoal((current) => {
+      const el = goalRef.current
+      const startAt = el?.selectionStart ?? current.length
+      const endAt = el?.selectionEnd ?? current.length
+      const next = insertAttachmentText(current, applied.relativePath, startAt, endAt)
+      queueMicrotask(() => el?.setSelectionRange(next.caret, next.caret))
+      return next.value
+    })
+  }
+
+  const saveSources = (sources: AttachmentSource[]): void => {
+    if (!onSaveAttachment) return
+    void (async () => {
+      for (const source of sources) {
+        if (attachmentIdsRef.current.length >= ATTACHMENT_MAX_FILES) break
+        const result = await onSaveAttachment({ profileId: profile.id }, source)
+        if (result) insertSaved(result)
+      }
+    })()
+  }
+
+  const onGoalPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    if (!onSaveAttachment) return
+    if (!clipboardDataLooksLikeImage(event.clipboardData)) return
+    event.preventDefault()
+    void pasteImageSources(event.clipboardData).then(saveSources)
+  }
+
+  const onGoalDrop = (event: React.DragEvent<HTMLTextAreaElement>): void => {
+    event.preventDefault()
+    if (!onSaveAttachment) return
+    void droppedImageSources(event.dataTransfer.files).then(saveSources)
   }
   const filter = t('panel.filterProfileWorkspaces', { profile: profile.name })
   const cleanup = t('panel.cleanupWorktrees', { profile: profile.name })
@@ -161,7 +224,10 @@ export function ProfileRow({
                   type="button"
                   className="panel-goal-playbook"
                   title={playbook.goal}
-                  onClick={() => setGoal(playbook.goal)}
+                  onClick={() => {
+                    setGoal(playbook.goal)
+                    replaceIds([])
+                  }}
                 >
                   {playbook.name}
                 </button>
@@ -169,12 +235,21 @@ export function ProfileRow({
             </div>
           ) : null}
           <textarea
+            ref={goalRef}
             className="panel-goal-input"
             rows={2}
             placeholder={t('panel.goalPlaceholder')}
+            title={t('panel.attachImagesHint')}
             value={goal}
             autoFocus
-            onChange={(event) => setGoal(event.target.value)}
+            onChange={(event) => {
+              const next = event.target.value
+              setGoal(next)
+              replaceIds(clearIdsWhenGoalEmpty(next, attachmentIdsRef.current))
+            }}
+            onPaste={onGoalPaste}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={onGoalDrop}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
@@ -183,6 +258,7 @@ export function ProfileRow({
               if (event.key === 'Escape') {
                 setGoalOpen(false)
                 setGoal('')
+                replaceIds([])
               }
             }}
           />
@@ -199,6 +275,7 @@ export function ProfileRow({
               onClick={() => {
                 onResume(profile.id)
                 setGoal('')
+                replaceIds([])
                 setGoalOpen(false)
               }}
             >

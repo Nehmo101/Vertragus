@@ -42,6 +42,7 @@
  */
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import HoundLogo from '@renderer/panel/HoundLogo'
+import { questionChoicesDisplay } from '@shared/questionChoices'
 import type {
   RemoteAgentSummary,
   RemoteProfileSummary,
@@ -1635,8 +1636,10 @@ function AnswerForm({
   const text = drafts[draftKey] ?? ''
   const promptId = `${idPrefix}-${entry.key}`
 
-  const submit = (): void => {
-    const trimmed = text.trim()
+  const display = questionChoicesDisplay(entry.question, entry.choices)
+
+  const submit = (value: string): void => {
+    const trimmed = value.trim()
     if (!trimmed || busy) return
     setSending(entry.key, true)
     setError(null)
@@ -1665,6 +1668,22 @@ function AnswerForm({
       <p className="answer-question" id={promptId}>
         {inboxPrompt(entry, copy)}
       </p>
+      {display.choices.length > 0 ? (
+        <div className="answer-choices">
+          {display.choices.map((choice) => (
+            <button
+              key={choice}
+              type="button"
+              className="answer-choice"
+              disabled={busy}
+              aria-label={copy.answerChoice(choice)}
+              onClick={() => submit(choice)}
+            >
+              {choice}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <LimitedTextarea
         className="goal-input"
         rows={3}
@@ -1677,7 +1696,12 @@ function AnswerForm({
       />
       {error ? <p className="form-error">{error}</p> : null}
       <div className="answer-actions">
-        <button className="primary" type="button" disabled={busy || !text.trim()} onClick={submit}>
+        <button
+          className="primary"
+          type="button"
+          disabled={busy || !text.trim()}
+          onClick={() => submit(text)}
+        >
           {busy ? copy.answerSending : copy.answerSend}
         </button>
         {onDismiss ? (

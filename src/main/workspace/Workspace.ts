@@ -105,6 +105,7 @@ import { buildReminderSuffix, type ReportingMode } from '@shared/prompts/contrac
 import {
   buildLeadSystemPrompt,
   buildOrchestratorSystemPrompt,
+  type OrchestratorPromptInput,
   type RoleWithLimit
 } from '@shared/prompts/orchestrator'
 import { buildSuccessorOrchestratorSystemPrompt } from '@shared/prompts/orchestratorHandoff'
@@ -331,6 +332,11 @@ export interface WorkspaceDeps {
    * nothing on disk means nothing to rename after the cutover.
    */
   writeSuccession?: (pkg: OrchestratorHandoffPackage) => void
+  /**
+   * Copy pre-start staged images into this orchestrator worktree. Called after
+   * `createWorktreeFor` and before spawn / assignGoal. Absent = no-op (tests).
+   */
+  materializeAttachments?: (ids: readonly string[], worktreePath: string) => Promise<void>
 }
 
 /** The slice of the retro sink a single workspace consumes (Electron-free). */
@@ -565,6 +571,17 @@ export class Workspace implements AgentHost {
   private pullRequest: RunPullRequest | undefined
   /** Set BEFORE the PR work starts, so two concurrent askers cannot race. */
   private pullRequestStarted = false
+  /**
+   * A3: end-of-run auto-promote of the orchestrator's own branch. Set BEFORE
+   * the merge starts, so `record_retro` and Stop cannot promote twice.
+   */
+  private orchestratorPromoteStarted = false
+  /**
+   * Shared wrap-up: `record_retro` and Stop both call {@link finishRunAutomation}.
+   * The second waiter joins this promise so it cannot promote while the first
+   * is still in {@link openRunPullRequest}.
+   */
+  private finishRunAutomationInFlight: Promise<RunPullRequest | undefined> | undefined
   /** C5 idle watchdog: when the orchestrator last called one of its tools. */
   private orchestratorLastToolAt = 0
   private orchestratorIdleTimer: ReturnType<typeof setTimeout> | undefined
@@ -694,6 +711,18 @@ export class Workspace implements AgentHost {
   /** True while a successor is being spawned to replace the live root. */
   successionInProgress(): boolean {
     return this.succession !== undefined
+  }
+
+  /**
+   * Worktree cwd of this agent, or the orchestrator's when `agentId` is omitted.
+   * Never the profile checkout.
+   */
+  worktreePathOf(agentId?: string): string | undefined {
+    if (!agentId) return this.orchestratorRecord?.worktreePath
+    if (this.orchestratorRecord?.agentId === agentId) return this.orchestratorRecord.worktreePath
+    const live = this.agents.get(agentId)
+    if (live) return live.worktreePath
+    return this.pendingStarts.get(agentId)?.worktreePath
   }
 
   /** The orchestrator, once started. Never part of {@link listAgents}. */
@@ -1255,7 +1284,8 @@ export class Workspace implements AgentHost {
    *
    * - only a `success` report: a blocked or failed agent's branch is precisely
    *   the work a human still has to look at,
-   * - never the orchestrator's own branch,
+   * - never the orchestrator's own branch (that lands at end of run via
+   *   {@link autoPromoteOrchestrator}, after autoPr),
    * - only agents that report to the ROOT queue: a lead's workers are the
    *   lead's business, and auto-merging them into the root's worktree would
    *   integrate an area behind its own lead's back,
@@ -1316,6 +1346,21 @@ export class Workspace implements AgentHost {
   }
 
   /**
+   * A3: at end of run, merge the ORCHESTRATOR's own branch into the repository
+   * checkout — the same Promote path as a subagent, including the dirty-checkout
+   * refusal. Off, already-run, or no orchestrator is a no-op. Never throws.
+   */
+  async autoPromoteOrchestrator(): Promise<void> {
+    if (!this.automation.autoPromote) return
+    if (this.orchestratorPromoteStarted) return
+    if (this.closed) return
+    const orch = this.orchestratorRecord
+    if (!orch) return
+    this.orchestratorPromoteStarted = true
+    await this.autoPromote(orch)
+  }
+
+  /**
    * The event of one automated adoption — the same two event types the manual
    * merge path pushes, plus `target`, which is the only thing that differs
    * between "into the orchestrator's worktree" and "into the checkout". Loud
@@ -1348,16 +1393,18 @@ export class Workspace implements AgentHost {
   /**
    * A3: open the run's pull request — the `automation.autoPr` path.
    *
-   * Called by `record_retro` (the orchestrator saying the work is done) and by
-   * the user stopping the workspace, whichever comes first; the second caller
-   * gets the recorded answer instead of a second pull request. Returns
+   * Called by {@link finishRunAutomation} (`record_retro` and Stop); kept
+   * public so unit tests can drive the PR path without promoting. The second
+   * caller gets the recorded answer instead of a second pull request. Returns
    * undefined when the profile never asked for one.
    *
    * The head branch is the run's own integration branch: the orchestrator's,
    * when it carries commits the base does not, otherwise the repository
    * checkout's branch when THAT is ahead (the shape an auto-promote run
    * leaves behind). Neither ahead means there is nothing to open a pull
-   * request for, and saying so is more useful than an empty PR.
+   * request for, and saying so is more useful than an empty PR. End-of-run
+   * autoPromote runs AFTER this, so the orchestrator branch is still ahead
+   * when the PR is opened.
    */
   async openRunPullRequest(options: { summary?: string } = {}): Promise<RunPullRequest | undefined> {
     const automation = this.automation
@@ -1438,6 +1485,41 @@ export class Workspace implements AgentHost {
             ...(outcome.compareUrl ? { url: outcome.compareUrl } : {})
           }
     )
+  }
+
+  /**
+   * A3: wrap up the run's host automation. Opens the pull request FIRST (so
+   * the orchestrator branch is still ahead of checkout), then promotes the
+   * orchestrator branch into the repository checkout. Either step is a no-op
+   * when its profile switch is off. At most once per side; never throws — a
+   * failed PR is a recorded answer, a failed promote is an `integrate_conflict`
+   * event. Concurrent callers share one in-flight promise (first caller's
+   * options win, same as {@link openRunPullRequest}) so Stop cannot promote
+   * while `record_retro` is still choosing the PR head.
+   */
+  async finishRunAutomation(options: { summary?: string } = {}): Promise<RunPullRequest | undefined> {
+    if (this.finishRunAutomationInFlight) return this.finishRunAutomationInFlight
+    const wrapUp = (async (): Promise<RunPullRequest | undefined> => {
+      let pullRequest: RunPullRequest | undefined
+      try {
+        pullRequest = await this.openRunPullRequest(options)
+      } catch (error) {
+        pullRequest = {
+          ok: false,
+          branch: this.orchestratorRecord?.branch ?? '',
+          base: '',
+          message: errorText(error)
+        }
+      }
+      try {
+        await this.autoPromoteOrchestrator()
+      } catch {
+        /* the promote reports as an event; never fail the wrap-up */
+      }
+      return pullRequest
+    })()
+    this.finishRunAutomationInFlight = wrapUp
+    return wrapUp
   }
 
   /**
@@ -1632,7 +1714,10 @@ export class Workspace implements AgentHost {
    * working directory (Kimi's `.kimi-code/mcp.json`), and two orchestrators
    * sharing the main checkout would overwrite each other's.
    */
-  async startOrchestrator(options?: { initialPrompt?: string }): Promise<StartedAgent> {
+  async startOrchestrator(options?: {
+    initialPrompt?: string
+    attachmentIds?: readonly string[]
+  }): Promise<StartedAgent> {
     this.assertOpen()
     if (this.succession) {
       throw new Error('A successor orchestrator is already starting.')
@@ -1645,7 +1730,8 @@ export class Workspace implements AgentHost {
       agentId,
       name,
       mcpUrl: this.requireMcp().orchestratorUrl,
-      ...(initialPrompt ? { initialPrompt } : {})
+      ...(initialPrompt ? { initialPrompt } : {}),
+      ...(options?.attachmentIds?.length ? { attachmentIds: options.attachmentIds } : {})
     })
     this.orchestratorRecord = record
     // C5: the idle clock starts at boot — an orchestrator that never makes
@@ -1729,15 +1815,18 @@ export class Workspace implements AgentHost {
     }
   }
 
-  private async orchestratorPrompt(): Promise<string> {
-    const input = {
+  /**
+   * Shared root-orchestrator prompt fields. Cold start and C6 recovery add a
+   * briefing on top; live succession reuses this so questionMode / automation
+   * do not snap back to the prompt defaults.
+   */
+  private orchestratorPromptInput(): OrchestratorPromptInput {
+    return {
       workspaceName: this.name,
       repoPath: this.repoPath,
       rolesWithLimits: this.rolesWithLimits(),
       maxSubagents: this.profile.maxSubagents,
       knowledge: this.deps.retro?.knowledge(this.profile) ?? [],
-      // E2: best-effort — a repo without docs or git history still boots.
-      briefing: await this.collectBriefing(),
       // A3: what the host now does without the orchestrator (and without the
       // user) — rendered only when something is actually switched on.
       ...(this.automation.autoIntegrate || this.automation.autoPromote || this.automation.autoPr
@@ -1748,7 +1837,16 @@ export class Workspace implements AgentHost {
               autoPr: this.automation.autoPr
             }
           }
-        : {})
+        : {}),
+      questionMode: this.profile.questionMode
+    }
+  }
+
+  private async orchestratorPrompt(): Promise<string> {
+    const input = {
+      ...this.orchestratorPromptInput(),
+      // E2: best-effort — a repo without docs or git history still boots.
+      briefing: await this.collectBriefing()
     }
     // C6 crash recovery: the resumed run left a frozen package behind. It is
     // strictly richer than the journal briefing (roster with branches, the
@@ -1803,6 +1901,7 @@ export class Workspace implements AgentHost {
     name: string
     mcpUrl: string
     initialPrompt?: string
+    attachmentIds?: readonly string[]
     /** Pre-built prompt (succession). Cold start collects it after the window opens. */
     systemPrompt?: string
   }): Promise<AgentRecord> {
@@ -1828,6 +1927,9 @@ export class Workspace implements AgentHost {
       const worktree = await this.createWorktreeFor(input.agentId, input.name)
       record.worktreePath = worktree.path
       record.branch = worktree.branch
+      if (input.attachmentIds?.length) {
+        await this.deps.materializeAttachments?.(input.attachmentIds, worktree.path)
+      }
       this.setBoot(record, 'mcp')
       const argvInitialPrompt = buildInitialPromptArgs(provider, input.initialPrompt)[0]
       spawned = await (this.deps.spawn ?? spawnAgent)(
@@ -1887,16 +1989,7 @@ export class Workspace implements AgentHost {
         name: pending.successorName,
         systemPrompt: this.systemPromptFor(
           ORCHESTRATOR_ROLE_ID,
-          buildSuccessorOrchestratorSystemPrompt(
-            {
-              workspaceName: this.name,
-              repoPath: this.repoPath,
-              rolesWithLimits: this.rolesWithLimits(),
-              maxSubagents: this.profile.maxSubagents,
-              knowledge: this.deps.retro?.knowledge(this.profile) ?? []
-            },
-            pending.pkg
-          )
+          buildSuccessorOrchestratorSystemPrompt(this.orchestratorPromptInput(), pending.pkg)
         ),
         mcpUrl: this.requireMcp().orchestratorUrl
       })
@@ -2080,7 +2173,8 @@ export class Workspace implements AgentHost {
     const openQuestions = (this.questions?.listOpen() ?? []).map((question) => ({
       questionId: question.questionId,
       agentId: question.agentId,
-      question: question.question
+      question: question.question,
+      ...(question.choices && question.choices.length > 0 ? { choices: question.choices } : {})
     }))
 
     // S4: the plan rides along — tombstones excluded (a successor's task_list

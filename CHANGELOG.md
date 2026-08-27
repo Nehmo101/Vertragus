@@ -12,6 +12,28 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **End-of-run auto-promote of the orchestrator branch.** With `autoPromote`
+  on, the host merges the orchestrator's own branch into the repository
+  checkout at `record_retro` or Stop — even if no subagent ran. `autoPr`
+  still runs first so the pull request sees the branch as ahead. Per-child
+  autoIntegrate / autoPromote and the panel's Promote button (stopped
+  subagents only) are unchanged.
+- **Per-profile orchestrator question volume.** Profiles now carry
+  `questionMode` (`none` / `few` / `thorough`, default `few`). The profile
+  editor has a picker after auto-submit. The root orchestrator prompt is
+  briefed accordingly — prompt-only, `ask_user` stays registered. `none`
+  still asks before a destructive action or a change of scope; `thorough`
+  closes the brief first (scout + four-line board brief). Leads are not
+  briefed; there is no remote-client picker.
+- **Choice buttons on agent and user questions.** `ask_user` and
+  `ask_orchestrator` take optional `choices` (at most 28 short labels).
+  The panel `?` badge and the phone answer form show one button per
+  choice plus the existing custom text field; tapping a button submits
+  that label on the same `answerQuestion` / `answer_question` path.
+  Questions without structured choices fall back to a conservative parse
+  of a consecutive numbered, lettered, or bulleted list (at least two
+  items) and otherwise stay text-only. MCP tool-contract version is now
+  `1.2.0`.
 - **Pi wrap exit plan.** The overlay leaves; host wins stay native
   (session chrome, first-turn hold, policy on real CLIs, sentinel
   Ollama). Not a first-party coding agent. Plan:

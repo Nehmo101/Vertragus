@@ -70,15 +70,22 @@ the terminal, just over Tailscale.
 
 ### H1 — "answering questions = terminal attach + typing" does not hold for MCP
 
-`ask_orchestrator` parks in `PendingQuestions`. The answer only comes
-through `send_to_agent{questionId}` (the orchestrator's MCP tool). Typing
-into the *subagent* TUI does not release the waiter. Typing into the
-*orchestrator* TUI while `await_events` is parked starts, depending on the
-CLI, a second turn — two brains, one process.
+`ask_orchestrator` parks in `PendingQuestions`. The answer comes through
+the one host path (`answerAgentQuestion`): the orchestrator's
+`send_to_agent{questionId}`, the panel badge, the phone `answer_question`
+command, and the CLI overlay (`terminal:answerQuestion`). The overlay is a
+first-class answer surface on the asking agent's CLI (and on that
+workspace's orchestrator CLI for `ask_user` plus child questions). Overlay
+keystrokes do not go to the PTY. Showing it must not `BrowserWindow.focus`
+/ `show()` the CLI.
 
-Subagent badges in `WorkspaceSummary` are the right display. To *answer*,
-the gateway needs **one** extra command that takes the same path as the MCP
-tool:
+Typing into the *subagent* TUI still does not release the waiter. Typing
+into the *orchestrator* TUI while `await_events` is parked starts,
+depending on the CLI, a second turn — two brains, one process.
+
+Subagent badges in `WorkspaceSummary` are the right display for the panel.
+To *answer* from the phone, the gateway needs **one** extra command that
+takes the same path as the MCP tool:
 
 ```
 answer_question { workspaceId, agentId, questionId, text }
@@ -87,7 +94,8 @@ answer_question { workspaceId, agentId, questionId, text }
 That is not new orchestration. That is the allow-list one line longer, and
 the panel can use the same host path (badge → text field). Without this
 line, the phone cannot answer MCP questions — only CLI permission dialogs,
-which really do live in the TUI.
+which really do live in the TUI. Escape on the CLI overlay hides it
+without answering; the panel badge remains.
 
 Sentinel ASK is the exception that almost belongs in the TUI
 (`deliverAnswer` types into the PTY). Still, the answer should go through
@@ -359,8 +367,18 @@ Orchestrator tool, blocking, ticket like `ask_orchestrator`.
 `user_question` on the workspace card. The prompt line "answer with the
 best-supported option" is dropped.
 
+Volume is a profile setting (`questionMode`: `none` / `few` /
+`thorough`), prompt-level only — the tool stays registered. Default
+`few` is today's behaviour (genuine user decisions). `none` still
+asks before a destructive action or a change of scope the goal did
+not already contain. `thorough` closes the brief first. Root only;
+leads are not briefed.
+
 Subagent questions: the same host path as H1 `answer_question`. User
-questions: resolving the `ask_user` waiter. One text field, two backends.
+questions: resolving the `ask_user` waiter. Choice buttons when the
+question carries structured `choices` (or a parseable numbered/lettered/
+bulleted list of at least two items); the custom text field stays
+visible underneath. Open-ended questions stay prompt + text field.
 
 ### D4 yolo as a policy
 
@@ -900,16 +918,22 @@ including its refusal on a dirty checkout. Both run through
 existing `integrate_ok` / `integrate_conflict` events (new optional field
 `target: worktree | checkout`), and neither ever throws into the report
 path: `report_done` and the sentinel done hand over to
-`Workspace.adoptOnDone` and are done with it. Narrow on purpose: only a
-`success`, never the orchestrator's own branch, and only agents that report
-to the root queue — a lead's workers are the lead's business.
+`Workspace.adoptOnDone` and are done with it. Per-child adoption still
+skips the orchestrator on `report_done` (only a `success`, only agents
+that report to the root queue — a lead's workers are the lead's
+business). At the end of the run `autoPromote` also adopts the
+orchestrator branch into checkout, after `autoPr` — so the pull request
+still sees the branch as ahead. `Workspace.finishRunAutomation` is the
+one host path: `record_retro` and Stop both call it, at most once.
 
 ### A3.2 auto-PR
 
 `autoPr` opens the run's pull request when the work is done: at
 `record_retro` (the orchestrator's own end-of-run call, which gets the URL
 back in its answer) or when the user stops the workspace — whichever comes
-first, at most once per run. Head is the run's own integration branch (the
+first, at most once per run. It runs before end-of-run autoPromote, so the
+orchestrator branch is still ahead of checkout. Head is the run's own
+integration branch (the
 orchestrator's, else the checkout's when that is the one ahead), base is
 `prBaseBranch` or the branch the checkout is on. `agents/pullRequest.ts`
 pushes with `git push -u` (never `--force`) and opens the PR with `gh`; a
@@ -976,7 +1000,7 @@ never names a filesystem path.
 | MCP questions from phone/panel | `answer_question` gateway verb + `workspaces:answerQuestion`, one path in `mcp/answerQuestion.ts` | **Track 0** |
 | Worker "never commit" + host snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` "cursor has no agent_done" | outdated (`none` = Ollama) | ignore |
-| Automation: adoption without a click, run pull request | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest`, `agents/pullRequest.ts` | **A3** |
+| Automation: adoption without a click, run pull request | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest` / `finishRunAutomation`, `agents/pullRequest.ts` | **A3** |
 | Worker helpers (one extra level) | `types.ts` `canSpawnHelpers` / `ensureNest` / `MAX_HELPERS_PER_WORKER` | **Phase H** |
 | Live `user_message` targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium `/browser` bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |

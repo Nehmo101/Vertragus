@@ -372,10 +372,12 @@ function VoiceSection({
  *
  * Deliberately small. App-wide settings rather than profile ones, with
  * Tailscale remote access first so enabling a phone does not mean scrolling
- * past glass sliders. Extra MCP servers, glass and the self-updater sit
- * further down. Everything a profile owns (providers, models, slots, zones)
- * lives in the profile editor, and putting either half into the other window
- * is how a settings dialog turns into a second, worse copy of the app.
+ * past glass sliders. Window-behavior (start minimized, CLI view) stays
+ * app-wide — never a profile field. Extra MCP servers, glass and the
+ * self-updater sit further down. Everything a profile owns (providers,
+ * models, slots, zones) lives in the profile editor, and putting either half
+ * into the other window is how a settings dialog turns into a second, worse
+ * copy of the app.
  *
  * Two fields carry a warning instead of being disabled: autostart in a dev run
  * and the hotkey the OS refused. A greyed-out control with no explanation is
@@ -512,6 +514,49 @@ export function SettingsApp(): React.JSX.Element {
               <span className="st-hint">{t('settings.reflowNeighborsHint')}</span>
             </span>
           </label>
+        </section>
+
+        <section className="st-field">
+          <label className="st-switch">
+            <input
+              type="checkbox"
+              className="st-switch-input"
+              checked={settings.snapToZones}
+              onChange={(event) => view.set('snapToZones', event.target.checked)}
+            />
+            <span className="st-switch-text">
+              <span className="st-switch-label">{t('settings.snapToZones')}</span>
+              <span className="st-hint">{t('settings.snapToZonesHint')}</span>
+            </span>
+          </label>
+        </section>
+
+        <section className="st-field">
+          <label className="st-switch">
+            <input
+              type="checkbox"
+              className="st-switch-input"
+              checked={settings.startMinimized}
+              onChange={(event) => view.set('startMinimized', event.target.checked)}
+            />
+            <span className="st-switch-text">
+              <span className="st-switch-label">{t('settings.startMinimized')}</span>
+              <span className="st-hint">{t('settings.startMinimizedHint')}</span>
+            </span>
+          </label>
+        </section>
+
+        <section className="st-field">
+          <span className="st-label">{t('settings.cliWindowMode')}</span>
+          <select
+            className="st-input"
+            value={settings.cliWindowMode}
+            onChange={(event) => view.set('cliWindowMode', event.target.value)}
+          >
+            <option value="per-agent">{t('settings.cliWindowModePerAgent')}</option>
+            <option value="tabs">{t('settings.cliWindowModeTabs')}</option>
+          </select>
+          <span className="st-hint">{t('settings.cliWindowModeHint')}</span>
         </section>
 
         <section className="st-field">

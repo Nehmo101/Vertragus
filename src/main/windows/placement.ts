@@ -618,6 +618,13 @@ export function forgetWindowPlacement(agentId: string): void {
 /** Ignore move/resize events for this window for the next grace period. */
 export function suppressMoveTracking(agentId: string, now?: () => number): void {
   programmaticUntil.set(agentId, (now ?? clock)() + PROGRAMMATIC_GRACE_MS)
+  // hide()/show()/restore() fire move events; a pending live reflow from
+  // those must not rewrite zones onto the screen Windows shoved the window to.
+  if (pendingReflowId === agentId) {
+    pendingReflowId = undefined
+    pendingReflowAt = 0
+    clearReflowTimer()
+  }
 }
 
 /**

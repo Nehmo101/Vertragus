@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { activeLocale, applyLocale } from '../i18n'
 import { LoreTip } from '../lore/LoreTip'
@@ -11,7 +11,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import type { Locale, Translate } from '../i18n'
-import type { TerminalAgentMeta, TerminalExitEvent } from '../../../preload'
+import type { TerminalAgentMeta, TerminalExitEvent, TerminalQuestionInbox } from '../../../preload'
 import HoundLogo from '../panel/HoundLogo'
 import {
   bootOverlayClickThrough,
@@ -31,6 +31,21 @@ import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
 import { shouldFocusTerminal, trackWindowFocus } from './windowFocus'
 import { XTERM_THEME } from './xtermTheme'
+import {
+  canSubmitAnswer,
+  isUserQuestion,
+  overlayKeyAction,
+  overlayShows,
+  shouldAutofocusOverlay,
+  shouldForwardKeyToPty
+} from './questionOverlay'
+import {
+  attachmentText,
+  clipboardDataLooksLikeImage,
+  droppedImageSources,
+  pasteImageSources,
+  type AttachmentSource
+} from '../lib/imageAttach'
 
 /**
  * WebGL is feature-detected exactly once per renderer process: a machine
@@ -113,6 +128,86 @@ function MaximizeGlyph({ maximized }: { maximized: boolean }): React.JSX.Element
 }
 
 /**
+ * One MCP question over xterm. Keyed by questionId so a new question remounts
+ * a blank draft; Escape hides without answering (parent keeps the question).
+ */
+function QuestionOverlay({
+  question,
+  onHide,
+  onSubmit
+}: {
+  question: TerminalQuestionInbox
+  onHide(): void
+  onSubmit(agentId: string, questionId: string, text: string): Promise<void>
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const [answer, setAnswer] = useState('')
+  const [answerError, setAnswerError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    // Same Windows trap as xterm: textarea.focus() activates the BrowserWindow
+    // even after showInactive(). Only grab the caret when this window already
+    // has the OS keyboard; a background worker overlay waits for the existing
+    // window 'focus' listener.
+    if (!shouldAutofocusOverlay(document.hasFocus())) return
+    inputRef.current?.focus()
+  }, [])
+
+  const submit = (): void => {
+    if (!canSubmitAnswer(answer)) return
+    const text = answer.trim()
+    void onSubmit(question.agentId, question.questionId, text).then(
+      () => setAnswer(''),
+      (cause: unknown) => setAnswerError(cause instanceof Error ? cause.message : String(cause))
+    )
+  }
+
+  return (
+    <div className="cli-question" role="dialog" aria-modal="true">
+      <form
+        className="cli-question-form"
+        onSubmit={(event) => {
+          event.preventDefault()
+          submit()
+        }}
+      >
+        {question.fromName ? <p className="cli-question-from">{question.fromName}</p> : null}
+        <p className="cli-question-text">
+          {isUserQuestion(question)
+            ? t('terminal.userQuestion', { question: question.question })
+            : question.question}
+        </p>
+        <textarea
+          ref={inputRef}
+          className="cli-question-input"
+          rows={3}
+          placeholder={t('terminal.answerPlaceholder')}
+          value={answer}
+          onChange={(event) => setAnswer(event.target.value)}
+          onKeyDown={(event) => {
+            const action = overlayKeyAction(event)
+            if (action === 'hide') {
+              event.preventDefault()
+              onHide()
+              return
+            }
+            if (action === 'submit') {
+              event.preventDefault()
+              submit()
+            }
+          }}
+        />
+        {answerError ? <p className="cli-question-error">{answerError}</p> : null}
+        <button type="submit" className="cli-question-send" disabled={!canSubmitAnswer(answer)}>
+          {t('terminal.answerSend')}
+        </button>
+      </form>
+    </div>
+  )
+}
+
+/**
  * The agent's terminal window. It owns nothing but the view: the PTY lives in
  * the main process, this attaches to it, replays the scrollback and streams.
  */
@@ -134,6 +229,14 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
   const [cliSurface, setCliSurface] = useState<CliSurface>(DEFAULT_CLI_SURFACE)
   const [peek, setPeek] = useState<CliSurface | null>(null)
   const sessionOpenRef = useRef(false)
+  const [question, setQuestion] = useState<TerminalQuestionInbox | null>(null)
+  const [dismissedQuestionId, setDismissedQuestionId] = useState<string | null>(null)
+  const overlayVisibleRef = useRef(false)
+  const overlayOpen = overlayShows(question, dismissedQuestionId)
+
+  useLayoutEffect(() => {
+    overlayVisibleRef.current = overlayOpen
+  }, [overlayOpen])
 
   // The bridge is injected by preload before the bundle runs — stable for the
   // lifetime of the window, so it is read during render, not in the effect.
@@ -187,6 +290,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
     // Ctrl+F belongs to the 5000-line scrollback, not to the PTY (where it is
     // merely cursor-forward). Everything else passes through untouched.
     term.attachCustomKeyEventHandler((event) => {
+      if (!shouldForwardKeyToPty(overlayVisibleRef.current)) return false
       if (event.type === 'keydown' && event.key === 'f' && (event.ctrlKey || event.metaKey)) {
         setSearchOpen(true)
         return false
@@ -195,6 +299,42 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
     })
     term.open(host)
     loadRenderer(term)
+
+    const typePath = (relativePath: string): void => {
+      bridge.input(attachmentText(relativePath))
+    }
+    const saveSource = async (source: AttachmentSource): Promise<void> => {
+      const result = await bridge.image(source).then(
+        (saved) => saved,
+        () => null
+      )
+      if (result) typePath(result.relativePath)
+    }
+    const onPaste = (event: ClipboardEvent): void => {
+      if (!clipboardDataLooksLikeImage(event.clipboardData)) return
+      event.preventDefault()
+      void (async () => {
+        for (const source of await pasteImageSources(event.clipboardData)) {
+          await saveSource(source)
+        }
+      })()
+    }
+    const onDragOver = (event: DragEvent): void => {
+      event.preventDefault()
+    }
+    const onDrop = (event: DragEvent): void => {
+      event.preventDefault()
+      const files = event.dataTransfer?.files
+      if (!files) return
+      void (async () => {
+        for (const source of await droppedImageSources(files)) {
+          await saveSource(source)
+        }
+      })()
+    }
+    host.addEventListener('paste', onPaste, true)
+    host.addEventListener('dragover', onDragOver)
+    host.addEventListener('drop', onDrop)
 
     const applyFit = (): void => {
       try {
@@ -222,7 +362,13 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       setBoot(isTerminalBootPhase(event.boot) ? event.boot : null)
     })
     const offSession = bridge.onSession((event) => setSession(event.session))
-    const offInput = term.onData((data) => bridge.input(data))
+    const offQuestion = bridge.onQuestion((event) => {
+      setQuestion(event.question)
+    })
+    const offInput = term.onData((data) => {
+      if (!shouldForwardKeyToPty(overlayVisibleRef.current)) return
+      bridge.input(data)
+    })
 
     const observer = new ResizeObserver(() => applyFit())
     observer.observe(host)
@@ -230,6 +376,15 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
     // Panel click / later OS focus after showInactive: attach skipped term.focus().
     const onWindowFocus = (): void => {
       if (disposed) return
+      if (overlayVisibleRef.current) {
+        // Same Windows trap as mount: textarea.focus() activates the window
+        // even after showInactive(). A spurious renderer focus must not yank
+        // the user out of another CLI.
+        if (shouldAutofocusOverlay(document.hasFocus())) {
+          document.querySelector<HTMLTextAreaElement>('textarea.cli-question-input')?.focus()
+        }
+        return
+      }
       if (sessionOpenRef.current) return
       if (shouldFocusTerminal(document.hasFocus())) term.focus()
     }
@@ -247,6 +402,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
         setMaximized(result.maximized)
         setBoot(isTerminalBootPhase(result.boot) ? result.boot : null)
         setSession(result.session)
+        setQuestion(result.question ?? null)
         if (result.cliSurface) setCliSurface(normalizeCliSurface(result.cliSurface))
         if (result.exit) setExit(result.exit)
         term.write(result.snapshot)
@@ -254,7 +410,9 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
         for (const chunk of queued) term.write(chunk)
         queued.length = 0
         applyFit()
-        if (!sessionOpenRef.current && shouldFocusTerminal(document.hasFocus())) term.focus()
+        if (!result.question && !sessionOpenRef.current && shouldFocusTerminal(document.hasFocus())) {
+          term.focus()
+        }
       })
       .catch((cause: unknown) => {
         if (disposed) return
@@ -263,6 +421,9 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
 
     return () => {
       disposed = true
+      host.removeEventListener('paste', onPaste, true)
+      host.removeEventListener('dragover', onDragOver)
+      host.removeEventListener('drop', onDrop)
       window.removeEventListener('focus', onWindowFocus)
       observer.disconnect()
       offData()
@@ -270,6 +431,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       offTask()
       offBoot()
       offSession()
+      offQuestion()
       offInput.dispose()
       searchRef.current = null
       termRef.current = null
@@ -305,6 +467,17 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       await bridge.answer(questionId, text)
     },
     [bridge, t]
+  )
+  const hideQuestionOverlay = useCallback(() => {
+    if (question) setDismissedQuestionId(question.questionId)
+    termRef.current?.focus()
+  }, [question])
+  const submitQuestionAnswer = useCallback(
+    (agentId: string, questionId: string, text: string): Promise<void> => {
+      if (!bridge?.answerQuestion) return Promise.resolve()
+      return bridge.answerQuestion(agentId, questionId, text)
+    },
+    [bridge]
   )
   const toggleSurface = useCallback(() => {
     setPeek((current) => {
@@ -422,7 +595,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
           </button>
         </div>
       ) : null}
-      {!sessionOpen && session?.pendingQuestion ? (
+      {!sessionOpen && !overlayOpen && session?.pendingQuestion ? (
         <div className="cli-raw-banner">
           <span>{t('terminal.sessionRawQuestion')}</span>
           <button type="button" onClick={() => setPeek('session')}>
@@ -452,6 +625,14 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
           </div>
           <p className="cli-boot-status">{t(`terminal.boot.${boot}`)}</p>
         </div>
+      ) : null}
+      {overlayOpen && question ? (
+        <QuestionOverlay
+          key={question.questionId}
+          question={question}
+          onHide={hideQuestionOverlay}
+          onSubmit={submitQuestionAnswer}
+        />
       ) : null}
     </div>
   )

@@ -70,6 +70,11 @@ export interface WorkspaceManagerDeps
    * `.vertragus/runs/<id>/tasks.json`.
    */
   taskBoard?: (repoPath: string, workspaceId: string) => TaskBoard
+  /**
+   * Drop pre-start staging after the orchestrator worktree exists and spawn
+   * succeeded. Copy itself is {@link WorkspaceDeps.materializeAttachments}.
+   */
+  consumeAttachments?: (ids: readonly string[]) => Promise<void>
 }
 
 export interface RunningWorkspace {
@@ -97,6 +102,11 @@ export interface StartWorkspaceOptions {
    * the card shows "no goal" until someone types one into the TUI.
    */
   goal?: string
+  /**
+   * Staging ids from a pre-start paste/drop. Copied into the orchestrator
+   * worktree after createWorktree and before spawn/assignGoal. Never bytes.
+   */
+  attachmentIds?: readonly string[]
   /**
    * E3: this start resumes an earlier run. The briefing (built by
    * `resume.buildResumeBriefing` from the old run's journal) lands in the new
@@ -137,6 +147,8 @@ export interface WorkspaceManager {
   stopWorkspace(workspaceId: string, options?: StopOptions): Promise<boolean>
   stopAll(options?: StopOptions): Promise<void>
   get(workspaceId: string): Workspace | undefined
+  /** Live worktree cwd; `agentId` omitted = orchestrator. Never profile.repoPath. */
+  worktreePathOf(workspaceId: string, agentId?: string): string | undefined
   list(): Workspace[]
   /** Workspaces of one profile, for the panel's per-profile grouping. */
   listForProfile(profileId: string): Workspace[]
@@ -156,6 +168,12 @@ export interface WorkspaceManager {
    * task only. Fires {@link onChange} when either field changes.
    */
   noteOrchestratorGoal(agentId: string, chunk: string): boolean
+  /**
+   * Live journal events for this workspace — the same stream `events.jsonl`
+   * appends (root queue plus lead subtrees). The timeline window is the
+   * consumer; the renderer never reads the file.
+   */
+  onTimelineEvent(workspaceId: string, listener: (event: AgentEvent) => void): () => void
 }
 
 function resolveValue<T>(source: T | (() => T)): T {
@@ -181,7 +199,15 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
    */
   const runMetas = new Map<string, { journal: RunJournal; meta: RunMeta }>()
   const changeListeners = new Set<() => void>()
+  /** Timeline windows tap the same events the journal appends. */
+  const timelineListeners = new Map<string, Set<(event: AgentEvent) => void>>()
   let notifyScheduled = false
+
+  function emitTimeline(workspaceId: string, event: AgentEvent): void {
+    const listeners = timelineListeners.get(workspaceId)
+    if (!listeners) return
+    for (const listener of [...listeners]) listener(event)
+  }
 
   /** Collapse same-tick bursts into one notification — no timers involved. */
   function notifyChange(): void {
@@ -302,7 +328,10 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     changeTaps.set(workspace.workspaceId, [
       workspace.events.onPush(() => notifyChange()),
       registered.runtime.questions.onMutate(() => notifyChange()),
-      ...(journal ? [workspace.events.onPush((event) => journal.append(event))] : [])
+      workspace.events.onPush((event) => {
+        journal?.append(event)
+        emitTimeline(workspace.workspaceId, event)
+      })
     ])
     // F: lead queues carry the subtrees' events past the root queue — the
     // retro and the journal need them for honest history, the panel needs
@@ -315,6 +344,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
           lead.events.onPush((event) => {
             tap?.events.push(event)
             journal?.append(event)
+            emitTimeline(workspace.workspaceId, event)
             notifyChange()
           })
         )
@@ -330,9 +360,12 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
 
     try {
       const goal = options?.goal?.trim()
-      const orchestrator = await workspace.startOrchestrator(
-        goal ? { initialPrompt: goal } : undefined
-      )
+      const attachmentIds = options?.attachmentIds?.filter((id) => id.trim()) ?? []
+      const orchestrator = await workspace.startOrchestrator({
+        ...(goal ? { initialPrompt: goal } : {}),
+        ...(attachmentIds.length ? { attachmentIds } : {})
+      })
+      if (attachmentIds.length) await deps.consumeAttachments?.(attachmentIds)
       notifyChange()
       // Providers that take a first user prompt at spawn (argv or a PTY
       // system-prompt paste that already folded the goal in) have goalText
@@ -353,6 +386,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       if (workspace.orchestratorAlive) throw error
       workspaces.delete(workspace.workspaceId)
       runMetas.delete(workspace.workspaceId)
+      timelineListeners.delete(workspace.workspaceId)
       dropTap(workspace.workspaceId)
       dropChangeTap(workspace.workspaceId)
       await workspace.close()
@@ -397,15 +431,16 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     )
     const endReason = workspace.pendingRetroSummary ? 'retro' : crashed ? 'crash' : 'user_stop'
     workspaces.delete(workspaceId)
+    timelineListeners.delete(workspaceId)
     // A3: the user pressing Stop is the other "the work is done" — open the
-    // pull request the profile asked for if record_retro never got around to
-    // it. Before close(), because the event queue dies in there; at most one
-    // pull request per run, so a retro that already opened it wins. A failure
-    // here must never keep a workspace running.
+    // pull request (if asked) then auto-promote the orchestrator branch.
+    // Before close(), because the event queue dies in there; at most once
+    // per run, so a retro that already ran this wins. A failure here must
+    // never keep a workspace running.
     try {
-      await workspace.openRunPullRequest?.({ summary: workspace.pendingRetroSummary })
+      await workspace.finishRunAutomation({ summary: workspace.pendingRetroSummary })
     } catch (error) {
-      console.warn('[automation] failed to open the run pull request:', error)
+      console.warn('[automation] failed to finish run automation:', error)
     }
     if (run) {
       const pullRequestUrl =
@@ -455,6 +490,10 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       for (const workspaceId of [...workspaces.keys()]) await stopWorkspace(workspaceId, options)
     },
 
+    worktreePathOf(workspaceId: string, agentId?: string): string | undefined {
+      return workspaces.get(workspaceId)?.worktreePathOf(agentId)
+    },
+
     get: (workspaceId) => workspaces.get(workspaceId),
     list: () => [...workspaces.values()],
     listForProfile: (profileId) =>
@@ -473,6 +512,19 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       if (!workspace.noteOrchestratorGoal(chunk)) return false
       notifyChange()
       return true
+    },
+
+    onTimelineEvent(workspaceId, listener) {
+      let set = timelineListeners.get(workspaceId)
+      if (!set) {
+        set = new Set()
+        timelineListeners.set(workspaceId, set)
+      }
+      set.add(listener)
+      return () => {
+        set!.delete(listener)
+        if (set!.size === 0) timelineListeners.delete(workspaceId)
+      }
     }
   }
 }

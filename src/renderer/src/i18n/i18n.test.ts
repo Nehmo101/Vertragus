@@ -48,8 +48,8 @@ function rendererFiles(dir = rendererSrc): string[] {
 /**
  * Literal keys as the components write them: `t('panel.hideAll')`, and
  * `t(['settings.updateStatus.idle', fallback])` for the array form. Template
- * literals (`` t(`profileEditor.effortLevel.${level}`) ``) cannot be resolved
- * statically and are covered by the dead-key check below instead.
+ * literals (`` t(`profileEditor.modelsFrom.${catalogue.source}`) ``) cannot be
+ * resolved statically and are covered by the dead-key check below instead.
  */
 const LITERAL_T_CALL = /\bt\(\s*\[?\s*'([A-Za-z][\w.-]*)'/g
 
@@ -79,8 +79,8 @@ function literalUsages(): Usage[] {
 const DYNAMIC_KEY_PREFIXES = [
   // settings/SettingsApp.tsx — indexed by UpdateStatus
   'settings.updateStatus.',
-  // profileEditor/fields.tsx — indexed by EffortLevel
-  'profileEditor.effortLevel.',
+  // profileEditor/fields.tsx — indexed by QuestionMode
+  'profileEditor.questionMode.',
   // profileEditor/model.ts — indexed by ModelDiscoveryResult['source']
   'profileEditor.modelsFrom.',
   // settings/SettingsApp.tsx — indexed by AppearanceSlider
@@ -89,7 +89,10 @@ const DYNAMIC_KEY_PREFIXES = [
   'terminal.boot.',
   // terminal/SessionPane.tsx — indexed by CliSessionState / CliLogKind
   'terminal.sessionState.',
-  'terminal.log.'
+  'terminal.log.',
+  // timeline/formatEvent.ts — indexed by AgentEventType
+  'timeline.event.'
+
 ]
 
 /** `panel.agentCount_one` / `_other` are one key to a caller: `panel.agentCount`. */

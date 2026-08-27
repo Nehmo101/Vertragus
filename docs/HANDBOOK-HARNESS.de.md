@@ -70,15 +70,22 @@ Terminal, nur eben über Tailscale.
 
 ### H1 — „Fragen beantworten = Terminal attach + tippen“ gilt nicht für MCP
 
-`ask_orchestrator` parkt in `PendingQuestions`. Die Antwort kommt nur
-über `send_to_agent{questionId}` (MCP-Tool des Orchestrators). Tippen in
-die *Subagent*-TUI löst den Waiter nicht. Tippen in die *Orchestrator*-TUI
-während `await_events` hängt, startet je nach CLI einen zweiten Turn —
-zwei Hirne, ein Prozess.
+`ask_orchestrator` parkt in `PendingQuestions`. Die Antwort kommt über
+den einen Host-Pfad (`answerAgentQuestion`): `send_to_agent{questionId}`
+des Orchestrators, das Panel-Badge, das Handy-Kommando `answer_question`
+und das CLI-Overlay (`terminal:answerQuestion`). Das Overlay ist eine
+erstklassige Antwortfläche auf der CLI des fragenden Agenten (und auf der
+Orchestrator-CLI dieses Workspace für `ask_user` plus Kinderfragen).
+Tasten im Overlay gehen nicht in die PTY. Es darf die CLI nicht mit
+`BrowserWindow.focus` / `show()` nach vorne holen.
 
-Subagent-Badges in `WorkspaceSummary` sind die richtige Anzeige. Zum
-*Beantworten* braucht das Gateway **einen** Extra-Befehl, der denselben
-Pfad wie das MCP-Tool geht:
+Tippen in die *Subagent*-TUI löst den Waiter weiterhin nicht. Tippen in
+die *Orchestrator*-TUI während `await_events` hängt, startet je nach CLI
+einen zweiten Turn — zwei Hirne, ein Prozess.
+
+Subagent-Badges in `WorkspaceSummary` sind die richtige Anzeige für das
+Panel. Zum *Beantworten* vom Handy braucht das Gateway **einen**
+Extra-Befehl, der denselben Pfad wie das MCP-Tool geht:
 
 ```
 answer_question { workspaceId, agentId, questionId, text }
@@ -87,7 +94,8 @@ answer_question { workspaceId, agentId, questionId, text }
 Das ist keine neue Orchestrierung. Das ist die Allow-List um eine Zeile
 länger, und das Panel kann denselben Host-Pfad nutzen (Badge → Textfeld).
 Ohne diese Zeile kann das Handy MCP-Fragen nicht beantworten — nur
-CLI-Permission-Dialoge, die wirklich in der TUI leben.
+CLI-Permission-Dialoge, die wirklich in der TUI leben. Escape auf dem
+CLI-Overlay blendet es aus, ohne zu antworten; das Panel-Badge bleibt.
 
 Sentinel-ASK ist die Ausnahme, die fast in die TUI gehört (`deliverAnswer`
 tippt in die PTY). Trotzdem sollte die Antwort über dieselbe Registry
@@ -364,9 +372,19 @@ Orchestrator-Tool, blockierend, Ticket wie `ask_orchestrator`.
 `user_question` auf der Workspace-Karte. Prompt-Zeile „answer with the
 best-supported option“ fällt.
 
+Das Volumen ist eine Profil-Einstellung (`questionMode`: `none` /
+`few` / `thorough`), nur Prompt-Ebene — das Tool bleibt registriert.
+Standard `few` ist das heutige Verhalten (echte User-Entscheidungen).
+`none` fragt trotzdem vor einer destruktiven Aktion oder einer
+Scope-Änderung, die das Ziel nicht schon enthält. `thorough` schließt
+zuerst das Briefing. Nur Root; Leads werden nicht briefed.
+
 Subagent-Fragen: derselbe Host-Pfad wie H1 `answer_question`.
-User-Fragen: Auflösen des `ask_user`-Waiters. Ein Textfeld, zwei
-Backends.
+User-Fragen: Auflösen des `ask_user`-Waiters. Auswahl-Buttons, wenn die
+Frage strukturierte `choices` trägt (oder eine parsebare nummerierte /
+buchstabierte / Aufzählungsliste mit mindestens zwei Einträgen); das
+freie Textfeld bleibt darunter sichtbar. Offene Fragen bleiben Prompt +
+Textfeld.
 
 ### D4 Yolo als Policy
 
@@ -914,18 +932,25 @@ beide schieben die bestehenden Events `integrate_ok` /
 `integrate_conflict` (neues optionales Feld
 `target: worktree | checkout`), und keines wirft je in den Melde-Pfad:
 `report_done` und das Sentinel-Done übergeben an
-`Workspace.adoptOnDone` und sind fertig. Absichtlich eng: nur ein
-`success`, nie der eigene Branch des Orchestrators, und nur Agenten, die
-in die Root-Queue melden — die Worker eines Leads sind Sache des Leads.
+`Workspace.adoptOnDone` und sind fertig. Die Übernahme pro Kind
+überspringt den Orchestrator weiterhin bei `report_done` (nur ein
+`success`, nur Agenten, die in die Root-Queue melden — die Worker eines
+Leads sind Sache des Leads). Am Ende des Laufs übernimmt `autoPromote`
+zusätzlich den Orchestrator-Branch ins Checkout, nach `autoPr` — damit
+der Pull Request den Branch noch als voraus sieht.
+`Workspace.finishRunAutomation` ist der eine Host-Pfad: `record_retro`
+und Stop rufen ihn beide auf, höchstens einmal.
 
 ### A3.2 Auto-PR
 
 `autoPr` öffnet den Pull Request des Laufs, wenn die Arbeit fertig ist:
 bei `record_retro` (dem eigenen Abschlussaufruf des Orchestrators, der die
 URL in seiner Antwort zurückbekommt) oder wenn der Nutzer den Workspace
-stoppt — was zuerst kommt, höchstens einmal pro Lauf. Head ist der
-Integrations-Branch des Laufs (der des Orchestrators, sonst der des
-Checkouts, wenn dieser vorn liegt), Base ist `prBaseBranch` oder der
+stoppt — was zuerst kommt, höchstens einmal pro Lauf. Es läuft vor dem
+Auto-Promote am Laufende, damit der Orchestrator-Branch dem Checkout noch
+voraus ist. Head ist der Integrations-Branch des Laufs (der des
+Orchestrators, sonst der des Checkouts, wenn dieser vorn liegt), Base ist
+`prBaseBranch` oder der
 Branch, auf dem das Checkout steht. `agents/pullRequest.ts` pusht mit
 `git push -u` (nie `--force`) und öffnet den PR mit `gh`; ein fehlendes
 oder ausgeloggtes `gh` ist kein gescheiterter Lauf, sondern ein
@@ -992,7 +1017,7 @@ Renderer nennt nie einen Dateisystempfad.
 | MCP-Fragen vom Handy/Panel | `answer_question` Gateway-Verb + `workspaces:answerQuestion`, ein Pfad in `mcp/answerQuestion.ts` | **Track 0** |
 | Worker „nie committen” + Host-Snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, Handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` „Cursor hat kein agent_done“ | veraltet (`none` = Ollama) | ignorieren |
-| Automatisierung: Übernahme ohne Klick, Pull Request des Laufs | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest`, `agents/pullRequest.ts` | **A3** |
+| Automatisierung: Übernahme ohne Klick, Pull Request des Laufs | `schema/profile.ts` `automation`, `Workspace.adoptOnDone` / `openRunPullRequest` / `finishRunAutomation`, `agents/pullRequest.ts` | **A3** |
 | Worker-Helper (eine Extra-Ebene) | `types.ts` `canSpawnHelpers` / `ensureNest` / `MAX_HELPERS_PER_WORKER` | **Phase H** |
 | Live-`user_message`-Targeting | `userMessageTarget.ts`, `Workspace.postUserMessage` | **Phase H** |
 | Chromium-`/browser`-Bridge | `browserBridge.ts`, `toolsBrowser.ts`, `extensions/chromium/` | **Phase H** |

@@ -309,6 +309,20 @@ describe('startMcpServer', () => {
     expect(handle.openQuestionCount()).toBe(1)
   })
 
+  it('copies choices onto openQuestion and never leaks deliverAnswer', () => {
+    const registered = handle.registerWorkspace(context({ workspaceId: 'w-choices' }))
+    const pending = registered.runtime.questions.create('agent-1', 'Which DB?', {
+      choices: ['Postgres', 'SQLite'],
+      deliverAnswer: async () => undefined
+    })
+    expect(handle.openQuestion('w-choices', 'agent-1')).toEqual({
+      questionId: pending.questionId,
+      question: 'Which DB?',
+      choices: ['Postgres', 'SQLite']
+    })
+    expect(handle.openQuestion('w-choices', 'agent-1')).not.toHaveProperty('deliverAnswer')
+  })
+
   it('F: serves the lead tool union on a lead URL and keeps the token domains apart', async () => {
     const ctx = context({ workspaceId: 'w-lead' })
     const registered = handle.registerWorkspace(ctx)

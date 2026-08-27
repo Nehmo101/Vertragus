@@ -24,13 +24,24 @@ import { DEFAULT_CLI_SURFACE, type CliSurface } from '@shared/cliSurface'
 import type { PtyAgentLike, PtyExitInfo } from './agents/PtyAgent'
 import { getSettings } from './store/settings'
 import {
+  authorizeCliAnswer,
+  inboxForCliWindow,
+  sameQuestionInbox,
+  type TerminalQuestionInbox,
+  type TerminalQuestionSource
+} from './terminalQuestion'
+import {
+  cliWebContents,
   closeCliWindow,
   getCliWindow,
   isCliWindowMaximized,
   isCliWindowSender,
   minimizeCliWindow,
+  registerCliTabIpc,
   toggleCliWindowMaximized
 } from './windows/cliWindow'
+
+export type { TerminalQuestionInbox, TerminalQuestionSource } from './terminalQuestion'
 
 export const TERMINAL_CHANNELS = {
   attach: 'terminal:attach',
@@ -43,6 +54,9 @@ export const TERMINAL_CHANNELS = {
   session: 'terminal:session',
   followup: 'terminal:followup',
   answer: 'terminal:answer',
+  image: 'terminal:image',
+  question: 'terminal:question',
+  answerQuestion: 'terminal:answerQuestion',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -102,6 +116,11 @@ export interface TerminalAttachResult {
    * {@link TERMINAL_CHANNELS.session}.
    */
   session?: CliSession
+  /**
+   * Open MCP question this window may answer, at attach time. Absent when
+   * none. Later changes arrive over {@link TERMINAL_CHANNELS.question}.
+   */
+  question?: TerminalQuestionInbox
   /** Stored CLI surface; CLI windows cannot query settings:get. */
   cliSurface?: CliSurface
 }
@@ -122,6 +141,12 @@ export interface TerminalBootEvent {
 export interface TerminalSessionEvent {
   agentId: string
   session?: CliSession
+}
+
+/** Push payload of {@link TERMINAL_CHANNELS.question} — `null` hides the overlay. */
+export interface TerminalQuestionEvent {
+  agentId: string
+  question: TerminalQuestionInbox | null
 }
 
 export interface TerminalDataEvent {
@@ -161,6 +186,11 @@ export interface AgentRegistry {
    * TUI. Unknown agents are no-ops; a detached window picks it up on attach.
    */
   setAgentSession(agentId: string, session: CliSession | undefined): void
+  /**
+   * Re-read the late-bound question source for every registered agent and
+   * push attached windows whose inbox changed. Does not focus a CLI window.
+   */
+  refreshQuestions(): void
   /** Window gone — stop pushing until it attaches again. */
   markDetached(agentId: string): void
   /**
@@ -254,6 +284,8 @@ interface AgentRecord {
   boot: TerminalBootPhase | null
   /** Host session chrome; rides on attach and is pushed on change. */
   session: CliSession | undefined
+  /** Inbox for this window; rides on attach and is pushed on change. */
+  question: TerminalQuestionInbox | null
   unsubscribe: (() => void)[]
 }
 
@@ -278,6 +310,24 @@ export function setTerminalInputSink(sink: TerminalInputSink | undefined): void 
 }
 
 /**
+ * Late-bound MCP-question source. `registerTerminalIpc()` runs before
+ * WorkspaceManager exists; ipc.ts must not import the manager. A missing
+ * source means attach carries no inbox and `terminal:answerQuestion` refuses.
+ */
+let terminalQuestionSource: TerminalQuestionSource | undefined
+
+export function setTerminalQuestionSource(source: TerminalQuestionSource | undefined): void {
+  terminalQuestionSource = source
+}
+
+function inboxFromSource(agentId: string): TerminalQuestionInbox | null {
+  if (!terminalQuestionSource) return null
+  const ctx = terminalQuestionSource.contextFor(agentId)
+  if (!ctx) return null
+  return inboxForCliWindow(ctx)
+}
+
+/**
  * Follow-up / answer from the session chrome. Same late-bind as the input sink:
  * ipc.ts must not import WorkspaceManager. The host path is the panel's
  * `postUserMessage` / `answerQuestion` — never a PTY write.
@@ -291,6 +341,48 @@ let terminalSessionActions: TerminalSessionActions | undefined
 
 export function setTerminalSessionActions(actions: TerminalSessionActions | undefined): void {
   terminalSessionActions = actions
+}
+
+/**
+ * Save a pasted/dropped image into THIS window's agent worktree. Late-bound
+ * like the input sink: registerTerminalIpc runs before WorkspaceManager exists.
+ * The renderer cannot pick an agentId — the sender window is the only address.
+ */
+export type TerminalImageSource =
+  | 'clipboard'
+  | { absPath: string }
+  | { bytes: Uint8Array; mime?: string }
+
+export type TerminalImageSaver = (
+  agentId: string,
+  source: TerminalImageSource
+) => Promise<{ relativePath: string } | null>
+
+let terminalImageSaver: TerminalImageSaver | undefined
+
+export function setTerminalImageSaver(saver: TerminalImageSaver | undefined): void {
+  terminalImageSaver = saver
+}
+
+function parseTerminalImageSource(payload: unknown): TerminalImageSource {
+  const source =
+    payload && typeof payload === 'object' && 'source' in payload
+      ? (payload as { source: unknown }).source
+      : payload
+  if (source === 'clipboard' || source === undefined || source === null) return 'clipboard'
+  if (typeof source !== 'object') throw new Error('terminal:image rejected — invalid source')
+  const body = source as { absPath?: unknown; bytes?: unknown; mime?: unknown }
+  if (typeof body.absPath === 'string' && body.absPath) return { absPath: body.absPath }
+  if (body.bytes instanceof Uint8Array) {
+    return {
+      bytes: body.bytes,
+      ...(typeof body.mime === 'string' ? { mime: body.mime } : {})
+    }
+  }
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(body.bytes)) {
+    return { bytes: body.bytes, ...(typeof body.mime === 'string' ? { mime: body.mime } : {}) }
+  }
+  throw new Error('terminal:image rejected — invalid source')
 }
 
 export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
@@ -352,6 +444,8 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
     }
     record.pending = ''
     record.attached = true
+    const question = inboxFromSource(agentId)
+    record.question = question
     return {
       snapshot: record.entry.pty.snapshot(),
       cols: record.entry.pty.cols,
@@ -362,6 +456,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       ...(record.task !== undefined ? { task: record.task } : {}),
       ...(record.boot ? { boot: record.boot } : {}),
       ...(record.session ? { session: record.session } : {}),
+      ...(question ? { question } : {}),
       ...(host.locale ? { locale: host.locale() } : {}),
       ...(host.theme ? { theme: host.theme() } : {}),
       ...(host.cliSurface ? { cliSurface: host.cliSurface() } : {})
@@ -382,6 +477,59 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
     const record = resolveRecord(event)
     if (!record || typeof data !== 'string' || !data) return
     writeUserInput(record, data)
+  }) as IpcListener)
+
+  host.ipcMain.handle(TERMINAL_CHANNELS.image, (async (
+    event: { sender: { id: number } },
+    payload?: unknown
+  ): Promise<{ relativePath: string } | null> => {
+    const record = resolveRecord(event)
+    if (!record) throw new Error('terminal:image rejected — sender is not a CLI window')
+    if (!terminalImageSaver) throw new Error('terminal:image rejected — not wired')
+    const source = parseTerminalImageSource(payload)
+    // Ignore any agentId the renderer might smuggle — sender-bound only.
+    return terminalImageSaver(record.entry.meta.agentId, source)
+  }) as IpcListener)
+
+  host.ipcMain.handle(TERMINAL_CHANNELS.answerQuestion, ((
+    event: { sender: { id: number } },
+    payload?: { agentId?: string; questionId?: string; text?: string }
+  ): Promise<void> => {
+    const senderAgentId = host.senderAgentId(event.sender.id)
+    if (!senderAgentId) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — sender is not a CLI window'))
+    }
+    const agentId = typeof payload?.agentId === 'string' ? payload.agentId : ''
+    const questionId = typeof payload?.questionId === 'string' ? payload.questionId : ''
+    const text = typeof payload?.text === 'string' ? payload.text : ''
+    if (!agentId) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — missing agent id'))
+    }
+    if (!questionId) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — missing question id'))
+    }
+    if (!text.trim()) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — missing answer text'))
+    }
+    if (!terminalQuestionSource) {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — no question source'))
+    }
+    const ctx = terminalQuestionSource.contextFor(senderAgentId)
+    if (!ctx) {
+      return Promise.reject(
+        new Error('terminal:answerQuestion rejected — sender is not in a workspace')
+      )
+    }
+    const refusal = authorizeCliAnswer(ctx, { agentId, questionId })
+    if (refusal === 'unknown_question') {
+      return Promise.reject(new Error('terminal:answerQuestion rejected — unknown question'))
+    }
+    if (refusal) {
+      return Promise.reject(
+        new Error('terminal:answerQuestion rejected — sender may not answer this question')
+      )
+    }
+    return terminalQuestionSource.answer(ctx.workspaceId, agentId, questionId, text.trim())
   }) as IpcListener)
 
   host.ipcMain.on(TERMINAL_CHANNELS.resize, ((
@@ -488,6 +636,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
         task: previous?.task,
         boot: previous?.boot ?? null,
         session: previous?.session,
+        question: previous?.question ?? null,
         unsubscribe: []
       }
       agents.set(agentId, record)
@@ -554,6 +703,21 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       }
       const payload: TerminalSessionEvent = { agentId, ...(session ? { session } : {}) }
       host.send(agentId, TERMINAL_CHANNELS.session, payload)
+    },
+    refreshQuestions(): void {
+      for (const record of agents.values()) {
+        const agentId = record.entry.meta.agentId
+        const next = inboxFromSource(agentId)
+        if (sameQuestionInbox(record.question, next)) continue
+        record.question = next
+        if (!record.attached) continue
+        if (host.hasWindow && !host.hasWindow(agentId)) {
+          record.attached = false
+          continue
+        }
+        const payload: TerminalQuestionEvent = { agentId, question: next }
+        host.send(agentId, TERMINAL_CHANNELS.question, payload)
+      }
     },
     markDetached(agentId: string): void {
       const record = agents.get(agentId)
@@ -636,8 +800,8 @@ export function registerTerminalIpc(): AgentRegistry {
     senderAgentId: (webContentsId) => isCliWindowSender(webContentsId),
     hasWindow: (agentId) => getCliWindow(agentId) !== null,
     send: (agentId, channel, payload) => {
-      const win = getCliWindow(agentId)
-      if (win && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)
+      const contents = cliWebContents(agentId)
+      if (contents && !contents.isDestroyed()) contents.send(channel, payload)
     },
     closeWindow: (agentId) => closeCliWindow(agentId),
     minimizeWindow: (agentId) => minimizeCliWindow(agentId),
@@ -647,6 +811,7 @@ export function registerTerminalIpc(): AgentRegistry {
     theme: () => getSettings().ui.theme,
     cliSurface: () => getSettings().ui.cliSurface ?? DEFAULT_CLI_SURFACE
   })
+  registerCliTabIpc()
   return registry
 }
 

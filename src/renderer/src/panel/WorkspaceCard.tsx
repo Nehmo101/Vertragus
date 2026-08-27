@@ -1,6 +1,15 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { questionChoicesDisplay } from '@shared/questionChoices'
 import type { VertragusAppApi, WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
+import {
+  clipboardDataLooksLikeImage,
+  droppedImageSources,
+  insertAttachmentText,
+  pasteImageSources,
+  type AttachmentSaveResult,
+  type AttachmentSource
+} from '../lib/imageAttach'
 import { activeLocale } from '../i18n'
 import { LoreTip } from '../lore/LoreTip'
 import { ChevronIcon, ClockIcon, CloseIcon, FolderIcon, StopIcon } from './icons'
@@ -50,12 +59,16 @@ function AgentRow({ agent, nested, onFocus, onCloseWindow, onAnswer, onPromote }
   const question = agent.pendingQuestion
   const questionId = agent.pendingQuestionId
 
-  const submit = (): void => {
-    if (!questionId || !answer.trim()) return
-    onAnswer(agent.agentId, questionId, answer.trim())
+  const submit = (text: string): void => {
+    if (!questionId || !text.trim()) return
+    onAnswer(agent.agentId, questionId, text.trim())
     setAnswer('')
     setAnswering(false)
   }
+  const display =
+    question && questionId
+      ? questionChoicesDisplay(question, agent.pendingQuestionChoices)
+      : { prompt: '', choices: [] as string[] }
 
   return (
     // F: children of a lead indent under it — flat list, no tree widget.
@@ -119,30 +132,18 @@ function AgentRow({ agent, nested, onFocus, onCloseWindow, onAnswer, onPromote }
       ) : null}
       {answering && question && questionId ? (
         <div className="panel-answer">
-          <p className="panel-answer-question">{question}</p>
-          <textarea
-            className="panel-answer-input"
-            rows={2}
+          <AnswerFields
+            prompt={display.prompt}
+            choices={display.choices}
+            answer={answer}
+            onAnswerChange={setAnswer}
+            onSubmit={submit}
+            onEscape={() => setAnswering(false)}
             placeholder={t('panel.answerPlaceholder')}
-            value={answer}
+            sendLabel={t('panel.answerSend')}
+            choiceLabel={(choice) => t('panel.answerChoice', { choice })}
             autoFocus
-            onChange={(event) => setAnswer(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                submit()
-              }
-              if (event.key === 'Escape') setAnswering(false)
-            }}
           />
-          <button
-            type="button"
-            className="panel-answer-send"
-            disabled={!answer.trim()}
-            onClick={submit}
-          >
-            {t('panel.answerSend')}
-          </button>
         </div>
       ) : null}
     </li>
@@ -170,6 +171,11 @@ interface Props {
   onOpenRunFolder(workspaceId: string): void
   /** Journal timeline; absent when preload never loaded. */
   bridge?: VertragusAppApi
+  /** Live image save into the target agent's worktree. */
+  onSaveAttachment?(
+    target: { profileId: string } | { workspaceId: string; agentId?: string },
+    source: AttachmentSource
+  ): Promise<AttachmentSaveResult | null>
 }
 
 /**
@@ -181,40 +187,113 @@ function UserQuestion({
   workspaceId,
   question,
   questionId,
+  choices,
   onAnswer
 }: {
   workspaceId: string
   question: string
   questionId: string
+  choices?: string[]
   onAnswer(workspaceId: string, agentId: string, questionId: string, text: string): void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [answer, setAnswer] = useState('')
-  const submit = (): void => {
-    if (!answer.trim()) return
-    onAnswer(workspaceId, 'user', questionId, answer.trim())
+  const display = questionChoicesDisplay(question, choices)
+  const submit = (text: string): void => {
+    if (!text.trim()) return
+    onAnswer(workspaceId, 'user', questionId, text.trim())
     setAnswer('')
   }
   return (
     <div className="panel-answer panel-user-question">
-      <p className="panel-answer-question">{t('panel.userQuestion', { question })}</p>
+      <AnswerFields
+        prompt={t('panel.userQuestion', { question: display.prompt })}
+        choices={display.choices}
+        answer={answer}
+        onAnswerChange={setAnswer}
+        onSubmit={submit}
+        placeholder={t('panel.answerPlaceholder')}
+        sendLabel={t('panel.answerSend')}
+        choiceLabel={(choice) => t('panel.answerChoice', { choice })}
+      />
+    </div>
+  )
+}
+
+/**
+ * Prompt, optional choice chips, always-visible custom textarea + Send.
+ * Tapping a chip submits that label immediately; Send stays disabled on blank
+ * custom text.
+ */
+function AnswerFields({
+  prompt,
+  choices,
+  answer,
+  onAnswerChange,
+  onSubmit,
+  onEscape,
+  placeholder,
+  sendLabel,
+  choiceLabel,
+  autoFocus
+}: {
+  prompt: string
+  choices: readonly string[]
+  answer: string
+  onAnswerChange(value: string): void
+  onSubmit(text: string): void
+  onEscape?(): void
+  placeholder: string
+  sendLabel: string
+  choiceLabel(choice: string): string
+  autoFocus?: boolean
+}): React.JSX.Element {
+  const submitCustom = (): void => {
+    if (!answer.trim()) return
+    onSubmit(answer.trim())
+  }
+  return (
+    <>
+      <p className="panel-answer-question">{prompt}</p>
+      {choices.length > 0 ? (
+        <div className="panel-answer-choices">
+          {choices.map((choice) => (
+            <button
+              key={choice}
+              type="button"
+              className="panel-answer-choice"
+              aria-label={choiceLabel(choice)}
+              onClick={() => onSubmit(choice)}
+            >
+              {choice}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <textarea
         className="panel-answer-input"
         rows={2}
-        placeholder={t('panel.answerPlaceholder')}
+        placeholder={placeholder}
         value={answer}
-        onChange={(event) => setAnswer(event.target.value)}
+        autoFocus={autoFocus}
+        onChange={(event) => onAnswerChange(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault()
-            submit()
+            submitCustom()
           }
+          if (event.key === 'Escape') onEscape?.()
         }}
       />
-      <button type="button" className="panel-answer-send" disabled={!answer.trim()} onClick={submit}>
-        {t('panel.answerSend')}
+      <button
+        type="button"
+        className="panel-answer-send"
+        disabled={!answer.trim()}
+        onClick={submitCustom}
+      >
+        {sendLabel}
       </button>
-    </div>
+    </>
   )
 }
 
@@ -279,20 +358,33 @@ function TaskBoardSection({ workspace }: { workspace: WorkspaceSummary }): React
 function GoalRefill({
   workspaceId,
   hint,
-  onAssign
+  onAssign,
+  onSaveAttachment
 }: {
   workspaceId: string
   hint: string
   onAssign(workspaceId: string, goal: string): void
+  onSaveAttachment?: Props['onSaveAttachment']
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [goal, setGoal] = useState('')
+  const goalRef = useRef<HTMLTextAreaElement>(null)
   const submit = (): void => {
     if (!goal.trim()) return
     onAssign(workspaceId, goal.trim())
     setGoal('')
     setOpen(false)
+  }
+  const insertSaved = (result: AttachmentSaveResult): void => {
+    setGoal((current) => {
+      const el = goalRef.current
+      const startAt = el?.selectionStart ?? current.length
+      const endAt = el?.selectionEnd ?? current.length
+      const next = insertAttachmentText(current, result.relativePath, startAt, endAt)
+      queueMicrotask(() => el?.setSelectionRange(next.caret, next.caret))
+      return next.value
+    })
   }
   return (
     <div className="panel-card-refill">
@@ -308,12 +400,36 @@ function GoalRefill({
       {open ? (
         <div className="panel-goal-late">
           <textarea
+            ref={goalRef}
             className="panel-goal-input"
             rows={2}
             placeholder={t('panel.goalPlaceholder')}
+            title={t('panel.attachImagesHint')}
             value={goal}
             autoFocus
             onChange={(event) => setGoal(event.target.value)}
+            onPaste={(event) => {
+              if (!onSaveAttachment) return
+              if (!clipboardDataLooksLikeImage(event.clipboardData)) return
+              event.preventDefault()
+              void (async () => {
+                for (const source of await pasteImageSources(event.clipboardData)) {
+                  const result = await onSaveAttachment({ workspaceId }, source)
+                  if (result) insertSaved(result)
+                }
+              })()
+            }}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault()
+              if (!onSaveAttachment) return
+              void (async () => {
+                for (const source of await droppedImageSources(event.dataTransfer.files)) {
+                  const result = await onSaveAttachment({ workspaceId }, source)
+                  if (result) insertSaved(result)
+                }
+              })()
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
@@ -340,20 +456,34 @@ function GoalRefill({
 function Composer({
   workspaceId,
   agents,
-  onSend
+  onSend,
+  onSaveAttachment
 }: {
   workspaceId: string
   agents: WorkspaceAgentSummary[]
   onSend(workspaceId: string, text: string, targetAgentId?: string): void
+  onSaveAttachment?: Props['onSaveAttachment']
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [text, setText] = useState('')
   const [target, setTarget] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
   const submit = (): void => {
     if (!text.trim()) return
     onSend(workspaceId, text.trim(), target || undefined)
     setText('')
   }
+  const insertSaved = (result: AttachmentSaveResult): void => {
+    setText((current) => {
+      const el = inputRef.current
+      const startAt = el?.selectionStart ?? current.length
+      const endAt = el?.selectionEnd ?? current.length
+      const next = insertAttachmentText(current, result.relativePath, startAt, endAt)
+      queueMicrotask(() => el?.setSelectionRange(next.caret, next.caret))
+      return next.value
+    })
+  }
+  const attachTarget = { workspaceId, ...(target ? { agentId: target } : {}) }
   const targets = agents.filter((agent) => agent.roleId !== 'orchestrator')
   return (
     <div className="panel-composer">
@@ -373,11 +503,35 @@ function Composer({
         </select>
       ) : null}
       <input
+        ref={inputRef}
         className="panel-answer-input"
         type="text"
         placeholder={t('panel.composerPlaceholder')}
+        title={t('panel.attachImagesHint')}
         value={text}
         onChange={(event) => setText(event.target.value)}
+        onPaste={(event) => {
+          if (!onSaveAttachment) return
+          if (!clipboardDataLooksLikeImage(event.clipboardData)) return
+          event.preventDefault()
+          void (async () => {
+            for (const source of await pasteImageSources(event.clipboardData)) {
+              const result = await onSaveAttachment(attachTarget, source)
+              if (result) insertSaved(result)
+            }
+          })()
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault()
+          if (!onSaveAttachment) return
+          void (async () => {
+            for (const source of await droppedImageSources(event.dataTransfer.files)) {
+              const result = await onSaveAttachment(attachTarget, source)
+              if (result) insertSaved(result)
+            }
+          })()
+        }}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
             event.preventDefault()
@@ -440,7 +594,8 @@ export function WorkspaceCard({
   onUserMessage,
   onPromoteAgent,
   onOpenRunFolder,
-  bridge
+  bridge,
+  onSaveAttachment
 }: Props): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const [timelineOpen, setTimelineOpen] = useState(false)
@@ -529,6 +684,7 @@ export function WorkspaceCard({
             workspaceId={workspace.workspaceId}
             hint={goalLine}
             onAssign={onAssignGoal}
+            onSaveAttachment={onSaveAttachment}
           />
         )
       ) : null}
@@ -558,6 +714,7 @@ export function WorkspaceCard({
               workspaceId={workspace.workspaceId}
               question={workspace.userQuestion.question}
               questionId={workspace.userQuestion.questionId}
+              choices={workspace.userQuestion.choices}
               onAnswer={onAnswerQuestion}
             />
           ) : null}
@@ -591,6 +748,7 @@ export function WorkspaceCard({
               workspaceId={workspace.workspaceId}
               agents={workspace.agents}
               onSend={onUserMessage}
+              onSaveAttachment={onSaveAttachment}
             />
           ) : null}
         </>

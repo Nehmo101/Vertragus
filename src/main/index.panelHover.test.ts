@@ -32,3 +32,11 @@ describe('panelDirectory hover mapping', () => {
     expect(source).toContain('...agentCurrentTaskFields(agentTask)')
   })
 })
+
+describe('workspace focus CLI restore', () => {
+  it('skips teammate restore and tiling when startMinimized or tabs', () => {
+    expect(source).toMatch(/restoreMinimized:\s*!startMinimized/)
+    expect(source).toMatch(/workspaceUsesTabChrome\(workspaceId\)/)
+    expect(source).toMatch(/suppressMoveTracking/)
+  })
+})

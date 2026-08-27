@@ -13,11 +13,13 @@ Deutsch | [English](README.md)
 
 Vertragus ist ein kleines Always-on-top-Glaspanel. Du definierst **Profile** —
 einen Repo-Pfad, eine Orchestrator-CLI (Claude, Codex, Kimi, Cursor, Grok
-Build, …) und einen Satz Subagenten-Rollen — und drückst Play. Der
-Orchestrator öffnet sich in einem eigenen transluzenten Terminalfenster und
-startet **sichtbare** Subagenten-Fenster nach Bedarf. Agenten und Orchestrator
-sprechen über einen schlanken In-App-MCP-Server mit echt blockierender
-Kommunikation: kein Polling, keine verhungernden Worker.
+Build, …) und einen Satz Subagenten-Rollen — und drückst Play. Das öffnet ein
+Timeline-Fenster für den Workspace und die transluzente CLI des
+Orchestrators; Subagenten starten nach Bedarf als eigene Fenster oder als
+Tabs in einem CLI-Fenster pro Workspace. Die Einstellungen können diese
+CLI-Fenster minimiert in der Taskleiste starten; das Panel bleibt sichtbar.
+Agenten und Orchestrator sprechen über einen schlanken In-App-MCP-Server mit
+echt blockierender Kommunikation: kein Polling, keine verhungernden Worker.
 
 Der Name ist *vertragus*, das antike gallisch-lateinische Wort für einen
 Windhund. Agenten sind nach der Göttlichen Komödie benannt — Orchestratoren
@@ -56,7 +58,11 @@ wirklich braucht, begrenzt durch die Slot-Caps und das profilweite
 über denselben Tastatur-Handshake in den Orchestrator getippt wie jede
 Assignment, sodass das, was die Karte zeigt, das ist, was der Orchestrator
 wirklich bekommen hat. **Playbooks** sind Ein-Klick-Zielvorlagen auf diesem
-Fold-out, nie eine vorkonfigurierte Crew. Das CLI-Fenster öffnet sofort
+Fold-out, nie eine vorkonfigurierte Crew. Play und Resume öffnen außerdem
+ein **Timeline**-Fenster für diesen Workspace: Übersicht (Agenten, Board,
+Ziel) plus ein Journal. Das Panel bleibt sichtbar. Das Timeline-Fenster zu
+schließen ist nur Ansicht; ein Klick auf die Workspace-Karte öffnet es
+wieder; den Workspace zu stoppen schließt es. Das CLI-Fenster öffnet sofort
 mit einem Windhund-Overlay, während der Host den Worktree anlegt, MCP
 anbindet und auf die Session wartet; der erste Turn geht erst raus, wenn
 MCP steht, damit ein Start ohne verbundene Session keine Tokens auf
@@ -73,7 +79,12 @@ Schleife oder den Reporting-Contract zu ersetzen. **Export** schreibt
 diesen Bauplan in eine JSON-Datei (Slots, Playbooks, Automatisierung,
 extra MCP, eigene Rollen, System-Prompts — keine Bildschirm-**Zonen**,
 die an diese Maschine gebunden sind). **Import** im Panel legt daraus
-ein neues Profil an; bestehende werden nie überschrieben.
+ein neues Profil an; bestehende werden nie überschrieben. Ein Profil legt
+außerdem fest, **wie viele Rückfragen** der Root-Orchestrator über
+`ask_user` stellt (`questionMode`: none / few / thorough; Standard few).
+Durchsetzung nur per Prompt — das Tool bleibt registriert. `none` fragt
+trotzdem vor destruktiver Arbeit oder einer Scope-Änderung, die das Ziel
+nicht schon enthält; `thorough` schließt zuerst das Briefing.
 
 Alles, was der Orchestrator kann, läuft über seine MCP-Tools — es gibt
 keinen zweiten Pfad:
@@ -86,7 +97,7 @@ keinen zweiten Pfad:
 | `list_agents` / `read_output` / `inspect_agent` | Snapshot, roher Terminal-Schwanz und **read-only Git-Fakten** (status/diff/log/file) aus dem Worktree eines Agenten — Verifikation ist Host-Wahrheit, nicht das Wort des Agenten. Übergroße Ausgaben spillen in eine Datei (Preview + Pfad) statt gekappt zu werden. |
 | `stop_agent` | Beendet einen Agenten; Dateien, Branch und Worktree bleiben. |
 | `integrate_branch{agentId, branch}` | Der eine sanktionierte Merge-Pfad: ein **host-seitiger** Merge in das Worktree des Ziel-Agenten. Konflikte brechen sauber ab und werden gemeldet (`integrate_conflict`); eine Gate-Warnung markiert das Integrieren unverifizierter Arbeit. |
-| `ask_user{question, ticket?}` | Fragt den Menschen und blockiert auf die Antwort (Panel-Badge und Handy); Ticket-Resume überlebt den MCP-Request-Timeout. |
+| `ask_user{question, choices?, ticket?}` | Fragt den Menschen und blockiert auf die Antwort (Panel-Badge, CLI-Overlay und Handy); `choices` sind kurze Labels, die der Mensch antippt; Ticket-Resume überlebt den MCP-Request-Timeout. Das Volumen ist pro Profil (`questionMode`: none / few / thorough; Standard few, nur Prompt). |
 | `start_orchestrator{area, task, …}` | Startet einen **Lead** (siehe unten). |
 | `record_retro{summary, learnings, repoNotes?}` | Die Lauf-Retrospektive, einmal am Ende. |
 | `request_succession{reason, …}` | Ersetzt einen kontextvollen Root durch einen Nachfolger, der dasselbe Team, dieselbe Queue und dieselben offenen Fragen behält. |
@@ -149,9 +160,13 @@ Cursors an; der Ring behält die letzten 1000, das On-Disk-Journal alles.
   Orchestrators. Ein Lauf, der bereits ein Ziel hat, lehnt ein zweites ab —
   dafür gibt es das Steuern.
 - **Fragen in beide Richtungen:** Die offene Frage eines Agenten erscheint
-  als `?`-Badge, beantwortbar von Panel oder Handy (ein Host-Pfad, eine
-  Fragen-Registry); das `ask_user` des Orchestrators erscheint auf der
-  Workspace-Karte genauso.
+- **Fragen in beide Richtungen:** Die offene Frage eines Agenten erscheint
+  als `?`-Badge, beantwortbar von Panel, Handy oder dem CLI-Overlay (ein
+  Host-Pfad, eine Fragen-Registry); das `ask_user` des Orchestrators erscheint
+  auf der Workspace-Karte und im Orchestrator-CLI genauso. Entscheidungsfragen
+  bieten kurze Auswahl-Buttons plus ein freies Textfeld; offene Fragen bleiben
+  Prompt + Textfeld. Wie oft der Orchestrator fragt, ist eine Profil-
+  Einstellung (`questionMode`: none / few / thorough; Standard few).
 - **Eine Session-Ansicht auf jedem CLI-Fenster.** Agent-Fenster zeigen
   standardmäßig ein Vertragus-Overlay — Status, kurzer Branch, Host-
   Event-Log, Fragen und Follow-up-Composer — sodass Cursor, Claude und
@@ -238,10 +253,20 @@ unter **Einstellungen → Browser-Erweiterung**. How-to:
 ## Desktop-Feinheiten
 
 Transluzente, theme-bewusste Fenster mit einstellbarem Glas; Fensterfarben je
-Rolle, passend zu den Status-Punkten des Panels; **Zonen** je Profil, die
-Rollen-Fenster an Bildschirmregionen pinnen; ein globaler
-Alles-ausblenden-Hotkey; Autostart und ein Self-Updater mit
-Stable/Main-Kanalwahl; deutsche und englische UI.
+Rolle, passend zu den Status-Punkten des Panels; ein **Timeline**-Fenster je
+laufendem Workspace (Übersicht plus Journal). Die Einstellung **Im
+Background starten** (`ui.startMinimized`, standardmäßig aus) startet neue
+Agent-CLI-Fenster minimiert in der Taskleiste — das Panel bleibt
+sichtbar, ein Klick auf den Agenten holt das Fenster zurück, und ein
+Umschalten der Einstellung schreibt bereits offene Fenster nicht um. Die
+Einstellung **CLI-Ansicht** (`ui.cliWindowMode`) ist standardmäßig ein
+Fenster pro Agent, wo **Zonen** je Profil Rollen-Fenster an
+Bildschirmregionen pinnen; **Tabs** ist ein CLI-Fenster pro Workspace mit
+Orchestrator und Subagenten als Tabs — Zonen und Tiling je Agent greifen
+nicht. Die Änderung gilt beim nächsten Play. Ein globaler
+Alles-ausblenden-Hotkey blendet CLI-, Timeline- und Editor-Fenster aus
+(`hide()`, nie `minimize()`) und nie das Panel; Autostart und ein
+Self-Updater mit Stable/Main-Kanalwahl; deutsche und englische UI.
 
 ## Fernzugriff (Tailscale)
 

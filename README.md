@@ -13,10 +13,12 @@ English | [Deutsch](README.de.md)
 
 Vertragus is a small always-on-top glass panel. You define **profiles** — a
 repo path, an orchestrator CLI (Claude, Codex, Kimi, Cursor, Grok Build, …) and a set of
-subagent roles — and press play. The orchestrator opens in its own translucent
-terminal window, and starts **visible** subagent windows on demand. Agents and
-orchestrator talk over a slim in-app MCP server with true blocking
-communication: no polling, no starving workers.
+subagent roles — and press play. That opens a Timeline window for the
+workspace and the orchestrator's translucent CLI; subagents start on demand
+as their own windows, or as tabs in one CLI window per workspace. Settings
+can start those CLI windows minimized in the taskbar; the panel stays
+visible. Agents and orchestrator talk over a slim in-app MCP server with
+true blocking communication: no polling, no starving workers.
 
 The name is *vertragus*, the ancient Gaulish-Latin word for a greyhound.
 Agents are named after the Divine Comedy — orchestrators get guides
@@ -53,10 +55,14 @@ slot caps and the profile-wide `maxSubagents`. The Play button folds out a
 **goal field** — the goal is typed into the orchestrator over the same
 keyboard handshake as any assignment, so what the card shows is what the
 orchestrator really received. **Playbooks** are one-click goal templates on
-that fold-out, never a pre-configured crew. The CLI window opens at once
-with a greyhound overlay while the host creates the worktree, attaches MCP
-and waits for the session; the first turn is submitted only once MCP is up,
-so a start without a connected server does not burn tokens on `await_events`.
+that fold-out, never a pre-configured crew. Play and resume also open a
+**Timeline** window for that workspace: overview (agents, board, goal) plus
+a journal. The panel stays visible. Closing the Timeline is view-only;
+clicking the workspace card reopens it; stopping the workspace closes it.
+The CLI window opens at once with a greyhound overlay while the host creates
+the worktree, attaches MCP and waits for the session; the first turn is
+submitted only once MCP is up, so a start without a connected server does
+not burn tokens on `await_events`.
 The profile editor also takes an optional **system prompt per identity**
 (Orchestrator, Lead, Worker, Tester, …). A new profile starts with short
 English starter texts (who reads the report, same language as the goal,
@@ -66,7 +72,12 @@ language, tone and how the agent reports back without replacing the loop
 or the reporting contract. **Export** writes that blueprint to a JSON file
 (slots, playbooks, automation, extra MCP, custom roles, system prompts —
 not screen **zones**, which are machine-local). **Import** on the panel
-adds it as a new profile; existing ones are never overwritten.
+adds it as a new profile; existing ones are never overwritten. A profile
+also sets **how many follow-up questions** the root orchestrator asks via
+`ask_user` (`questionMode`: none / few / thorough; default few).
+Enforcement is prompt-only — the tool stays registered. `none` still asks
+before destructive work or a change of scope the goal did not already
+contain; `thorough` closes the brief first.
 
 Everything the orchestrator can do goes through its MCP tools — there is no
 second path:
@@ -79,7 +90,7 @@ second path:
 | `list_agents` / `read_output` / `inspect_agent` | Snapshot, raw terminal tail, and **read-only git facts** (status/diff/log/file) from an agent's worktree — verification is host truth, not the agent's word. Oversized output spills to a file (preview + path) instead of being truncated. |
 | `stop_agent` | End an agent; files, branch and worktree stay. |
 | `integrate_branch{agentId, branch}` | The one sanctioned merge path: a **host-side** merge into the target agent's worktree. Conflicts abort cleanly and are reported (`integrate_conflict`); a gate warning flags integrating unverified work. |
-| `ask_user{question, ticket?}` | Ask the human and block for the answer (panel badge and phone); ticket-resume survives the MCP request timeout. |
+| `ask_user{question, choices?, ticket?}` | Ask the human and block for the answer (panel badge, CLI overlay, and phone); `choices` are short labels the human taps; ticket-resume survives the MCP request timeout. Volume is per profile (`questionMode`: none / few / thorough; default few, prompt-only). |
 | `start_orchestrator{area, task, …}` | Start a **lead** (see below). |
 | `record_retro{summary, learnings, repoNotes?}` | The run retrospective, once at the end. |
 | `request_succession{reason, …}` | Replace a context-full root with a successor that keeps the same team, queue and open questions. |
@@ -137,9 +148,13 @@ keeps the last 1000 and the on-disk journal keeps everything.
   user turn over the same handshake the start goal takes. A run that already
   has a goal refuses a second one — that is what steering is for.
 - **Questions in both directions:** an agent's open question shows as a `?`
-  badge answerable from panel or phone (one host path, one question
-  registry); the orchestrator's `ask_user` shows on the workspace card the
-  same way.
+- **Questions in both directions:** an agent's open question shows as a `?`
+  badge answerable from panel, phone, or the CLI overlay (one host path, one
+  question registry); the orchestrator's `ask_user` shows on the workspace
+  card and the orchestrator CLI the same way. Decision questions offer short
+  choice buttons plus a custom text field; open-ended questions stay prompt
+  + text field. How often the orchestrator asks is a per-profile setting
+  (`questionMode`: none / few / thorough; default few).
 - **One session view on every CLI window.** Agent windows default to a
   Vertragus overlay — status, short branch, host event log, questions and
   a follow-up composer — so Cursor, Claude and Codex look the same. The
@@ -218,9 +233,19 @@ skip. Load it from **Settings → Browser extension**. How-to:
 ## Desktop niceties
 
 Translucent, theme-aware windows with adjustable glass; per-role window
-colours that match the panel's status dots; per-profile **zones** that pin
-role windows to screen regions; a global hide-all hotkey; autostart and a
-self-updater with a stable/main channel switch; German and English UI.
+colours that match the panel's status dots; a **Timeline** window per
+running workspace (overview plus journal). Settings **Start in the
+background** (`ui.startMinimized`, off by default) starts new agent CLI
+windows OS-minimized in the taskbar — the panel stays visible, clicking an
+agent restores that window, and flipping the pref does not rewrite
+already-open windows. Settings **CLI view** (`ui.cliWindowMode`) defaults
+to one window per agent, where per-profile **zones** pin role windows to
+screen regions; **Tabs** is one CLI window per workspace with orchestrator
+and subagents as tabs — zones and per-agent tiling do not apply. That
+change takes effect on the next Play. A global hide-all hotkey hides CLI,
+Timeline and editor windows (`hide()`, never `minimize()`) and never the
+panel; autostart and a self-updater with a stable/main channel switch;
+German and English UI.
 
 ## Remote access (Tailscale)
 

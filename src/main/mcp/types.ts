@@ -105,6 +105,8 @@ export interface AgentSummary {
   kind?: 'lead'
   /** Text of the agent's currently unanswered question, when it has one. */
   pendingQuestion?: string
+  /** Short labels for that open question, when the asker passed `choices`. */
+  pendingQuestionChoices?: string[]
   /**
    * How this agent reports back. Drives the contract/reminder dialect on
    * follow-ups (`send_to_agent`). Derived from the provider's `mcp.kind`.
@@ -309,6 +311,16 @@ export interface AgentHost {
    * once per workspace. Undefined when the profile never asked for one.
    */
   openRunPullRequest?(options?: { summary?: string }): Promise<RunPullRequest | undefined>
+  /**
+   * A3: end-of-run host automation — open the pull request first (so the
+   * orchestrator branch is still ahead of checkout), then auto-promote that
+   * branch into the repository checkout. Called by `record_retro` and Stop,
+   * at most once per side. Implementations should call
+   * {@link openRunPullRequest} internally so callers that only look at PR
+   * bookkeeping still see it. Optional so older fakes still satisfy the
+   * interface.
+   */
+  finishRunAutomation?(options?: { summary?: string }): Promise<RunPullRequest | undefined>
 }
 
 /**
@@ -742,7 +754,15 @@ export function summarizeAgents(
       return {
         ...agent,
         ...(runtime.leads.has(agent.agentId) || childCount > 0 ? { childCount } : {}),
-        ...(open ? { pendingQuestion: open.question, pendingQuestionId: open.questionId } : {})
+        ...(open
+          ? {
+              pendingQuestion: open.question,
+              pendingQuestionId: open.questionId,
+              ...(open.choices && open.choices.length > 0
+                ? { pendingQuestionChoices: open.choices }
+                : {})
+            }
+          : {})
       }
     })
 }
@@ -777,7 +797,10 @@ export function slimAgentsSummary(
     ...(row.kind !== undefined ? { kind: row.kind } : {}),
     ...(row.childCount !== undefined ? { childCount: row.childCount } : {}),
     ...(row.pendingQuestion !== undefined ? { pendingQuestion: row.pendingQuestion } : {}),
-    ...(row.pendingQuestionId !== undefined ? { pendingQuestionId: row.pendingQuestionId } : {})
+    ...(row.pendingQuestionId !== undefined ? { pendingQuestionId: row.pendingQuestionId } : {}),
+    ...(row.pendingQuestionChoices !== undefined
+      ? { pendingQuestionChoices: row.pendingQuestionChoices }
+      : {})
   }))
 }
 

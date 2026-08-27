@@ -24,16 +24,18 @@ describe('orchestrator tool surface', () => {
 })
 
 describe('ask_user — D3', () => {
-  it('describes intake holes as user decisions and forbids guessing', () => {
+  it('defers ask volume to the system-prompt question-mode block', () => {
     const { tools } = setup()
     const description = tools.get('ask_user')!.description ?? ''
-    expect(description).toMatch(/acceptance criteria/i)
-    expect(description).toMatch(/Definition of Done/)
-    expect(description).toMatch(/Guessing is forbidden/)
-    expect(description).toMatch(/Scout/)
-    expect(description).toMatch(/HEAD Read/)
-    expect(description).not.toMatch(/Only for decisions that are genuinely the/)
+    expect(description).toMatch(/ask the HUMAN/i)
+    expect(description).toMatch(/question-mode block/i)
+    expect(description).toContain('ticket')
+    expect(description).toContain('unchanged question')
+    expect(description).toMatch(/choices/)
+    expect(description).not.toMatch(/product choices/i)
+    expect(description).not.toMatch(/Never guess the user/i)
   })
+
   it('parks a question for the human, pushes user_question once, and resumes by ticket', async () => {
     const { runtime, tools } = setup()
 
@@ -104,6 +106,69 @@ describe('ask_user — D3', () => {
     expect(wrong.isError).toBe(true)
     expect(wrong.json.error).toBe('question_agent_mismatch')
     expect(runtime.questions.openForAgent('user')?.questionId).toBe(ticket)
+  })
+
+  it('persists choices on create, carries them on user_question, and keeps them on ticket resume', async () => {
+    const { runtime, tools } = setup()
+    runtime.ctx.askTimeoutMs = 10
+    const first = await callTool(tools, 'ask_user', {
+      question: 'Ship v1 without dark mode?',
+      choices: ['Ship it', 'Wait']
+    })
+    const ticket = String(first.json.ticket)
+    const open = runtime.questions.openForAgent('user')
+    expect(open?.choices).toEqual(['Ship it', 'Wait'])
+    expect(runtime.events.all().filter((event) => event.type === 'user_question')[0]).toMatchObject({
+      questionId: ticket,
+      question: 'Ship v1 without dark mode?',
+      choices: ['Ship it', 'Wait']
+    })
+
+    const resumed = callTool(tools, 'ask_user', {
+      question: 'unchanged',
+      choices: ['Ignored'],
+      ticket
+    })
+    expect(runtime.questions.openForAgent('user')?.choices).toEqual(['Ship it', 'Wait'])
+    runtime.questions.answer(ticket, 'Ship it')
+    expect((await resumed).json).toMatchObject({ answer: 'Ship it', ticket })
+  })
+
+  it('resumes with ticket + empty choices and still waits for the answer', async () => {
+    const { runtime, tools } = setup()
+    runtime.ctx.askTimeoutMs = 10
+    const first = await callTool(tools, 'ask_user', {
+      question: 'Ship it?',
+      choices: ['Yes', 'No']
+    })
+    const ticket = String(first.json.ticket)
+    expect(first.json.answer).toBeNull()
+    expect(runtime.questions.openForAgent('user')?.choices).toEqual(['Yes', 'No'])
+
+    runtime.ctx.askTimeoutMs = 5_000
+    const resumed = callTool(tools, 'ask_user', {
+      question: 'Ship it?',
+      choices: [],
+      ticket
+    })
+    await vi.waitFor(() => {
+      expect(runtime.questions.openForAgent('user')?.questionId).toBe(ticket)
+    })
+    runtime.questions.answer(ticket, 'Yes')
+    expect((await resumed).json).toMatchObject({ answer: 'Yes', ticket })
+  })
+
+  it('rejects duplicate or oversized choices', async () => {
+    const { tools } = setup()
+    await expect(
+      callTool(tools, 'ask_user', { question: 'Q?', choices: ['Yes', 'Yes'] })
+    ).rejects.toThrow()
+    await expect(
+      callTool(tools, 'ask_user', {
+        question: 'Q?',
+        choices: Array.from({ length: 29 }, (_, i) => `c${i}`)
+      })
+    ).rejects.toThrow()
   })
 })
 

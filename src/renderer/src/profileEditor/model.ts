@@ -15,13 +15,14 @@ import {
   DEFAULT_PR_REMOTE,
   profileSchema,
   type Profile,
+  type QuestionMode,
   type RoleTemplate
 } from '@shared/schema/profile'
 import { LEAD_ROLE_ID, ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
 import { initialRolePromptDraft } from '@shared/prompts/rolePrompt'
-import type { EffortLevel } from '@shared/schema/provider'
-import { collapseModelVariants } from '@shared/models'
-import type { ModelDiscoveryResult } from '../../../preload'
+import { uniqueEffortLevels, type EffortLevel } from '@shared/schema/provider'
+import { collapseModelVariants, normalizeModelKey } from '@shared/models'
+import type { ModelDiscoveryResult, ProviderListEntry } from '../../../preload'
 import type { Translate } from '../i18n'
 
 /** `''` means "not set" for every optional field in the form. */
@@ -49,6 +50,8 @@ export interface ProfileDraft {
   maxSubagents: string
   /** Press Enter for the agent after an assignment was typed in. */
   autoSubmitTasks: boolean
+  /** How often the root orchestrator asks the user via ask_user. */
+  questionMode: QuestionMode
   /** A3: end-of-work automation — merges without a click, and the auto-PR. */
   automation: {
     autoIntegrate: boolean
@@ -79,6 +82,7 @@ export function emptyDraft(defaultProviderId: string, id = createLocalId('profil
     slots: [],
     maxSubagents: '',
     autoSubmitTasks: true,
+    questionMode: 'few',
     automation: emptyAutomationDraft(),
     rolePrompts: initialRolePromptDraft()
   }
@@ -116,6 +120,7 @@ export function draftFromProfile(profile: Profile): ProfileDraft {
     })),
     maxSubagents: profile.maxSubagents === undefined ? '' : String(profile.maxSubagents),
     autoSubmitTasks: profile.autoSubmitTasks,
+    questionMode: profile.questionMode,
     automation: {
       autoIntegrate: profile.automation.autoIntegrate,
       autoPromote: profile.automation.autoPromote,
@@ -185,6 +190,7 @@ export function toProfileInput(draft: ProfileDraft): unknown {
       ? {}
       : { maxSubagents: optionalNumber(draft.maxSubagents) }),
     autoSubmitTasks: draft.autoSubmitTasks,
+    questionMode: draft.questionMode,
     automation: {
       autoIntegrate: draft.automation.autoIntegrate,
       autoPromote: draft.automation.autoPromote,
@@ -342,6 +348,148 @@ export function modelComboStatus(
     tone: warn ? 'warn' : 'ok',
     text: warn ? withDetail(summary) : summary,
     title: withDetail(summary)
+  }
+}
+
+/**
+ * Discovered effort rungs for one model id. Exact spelling first, then a
+ * punctuation-folded match so `grok-4.6` and a twin key still line up.
+ */
+export function lookupModelEfforts(
+  discovered: Record<string, readonly string[]> | undefined,
+  model: string
+): EffortLevel[] {
+  const id = model.trim()
+  if (!id || !discovered) return []
+  const direct = discovered[id]
+  if (direct && direct.length > 0) return uniqueEffortLevels([...direct])
+  const key = normalizeModelKey(id)
+  for (const [name, list] of Object.entries(discovered)) {
+    if (normalizeModelKey(name) === key && list.length > 0) return uniqueEffortLevels([...list])
+  }
+  return []
+}
+
+/**
+ * Dropdown rungs: the selected model's discovered list, else the provider
+ * fallback. Empty = only Standard (CLI default).
+ */
+export function effortSelectOptions(
+  model: string,
+  providerLevels: readonly string[] | undefined,
+  discovered: Record<string, readonly string[]> | undefined
+): EffortLevel[] {
+  const fromModel = lookupModelEfforts(discovered, model)
+  if (fromModel.length > 0) return fromModel
+  return uniqueEffortLevels(providerLevels ?? [])
+}
+
+export function rowEffortOptions(
+  model: string,
+  providerId: string,
+  providers: readonly ProviderListEntry[],
+  catalogue: ModelDiscoveryResult | undefined
+): EffortLevel[] {
+  const levels = providers.find((entry) => entry.config.id === providerId)?.config.effortLevels
+  return effortSelectOptions(model, levels, catalogue?.efforts)
+}
+
+/**
+ * `undefined` while this row is not ready to coerce — the stored token must
+ * not be wiped first. Discovery still in flight, or the catalogue missing,
+ * waits. A missing provider entry (list still loading, or this id not in it)
+ * also waits, unless the model already has a discovered list: that catalogue
+ * wins even when the provider fallback is empty. `effortLevels: []` on a
+ * present provider (Cursor, custom) is ready and Standard-only.
+ */
+export function knownEffortOptions(
+  model: string,
+  providerLevels: readonly string[] | undefined,
+  catalogue: ModelDiscoveryResult | undefined,
+  loading: boolean,
+  providerReady: boolean
+): EffortLevel[] | undefined {
+  if (loading || catalogue === undefined) return undefined
+  const fromModel = lookupModelEfforts(catalogue.efforts, model)
+  if (fromModel.length > 0) return fromModel
+  if (!providerReady) return undefined
+  return uniqueEffortLevels(providerLevels ?? [])
+}
+
+export function coerceEffort(
+  effort: EffortChoice,
+  options: readonly string[] | undefined
+): EffortChoice {
+  if (options === undefined) return effort
+  if (!effort) return ''
+  return options.includes(effort) ? effort : ''
+}
+
+export function coerceRowEffort(
+  effort: EffortChoice,
+  model: string,
+  providerId: string,
+  providers: readonly ProviderListEntry[],
+  catalogues: Record<string, ModelDiscoveryResult>,
+  loading: Record<string, boolean>,
+  providersLoading = false
+): EffortChoice {
+  const entry = providersLoading
+    ? undefined
+    : providers.find((item) => item.config.id === providerId)
+  const levels = entry === undefined ? undefined : (entry.config.effortLevels ?? [])
+  return coerceEffort(
+    effort,
+    knownEffortOptions(
+      model,
+      levels,
+      catalogues[providerId],
+      loading[providerId] ?? false,
+      entry !== undefined
+    )
+  )
+}
+
+/** Drop a stored effort that the new model/provider list does not offer. */
+export function resetInvalidEfforts(
+  draft: ProfileDraft,
+  providers: readonly ProviderListEntry[],
+  catalogues: Record<string, ModelDiscoveryResult>,
+  loading: Record<string, boolean>,
+  providersLoading = false
+): ProfileDraft {
+  const nextOrch = coerceRowEffort(
+    draft.orchestrator.effort,
+    draft.orchestrator.model,
+    draft.orchestrator.providerId,
+    providers,
+    catalogues,
+    loading,
+    providersLoading
+  )
+  let changed = nextOrch !== draft.orchestrator.effort
+  const slots = draft.slots.map((slot) => {
+    const next = coerceRowEffort(
+      slot.effort,
+      slot.model,
+      slot.providerId,
+      providers,
+      catalogues,
+      loading,
+      providersLoading
+    )
+    if (next === slot.effort) return slot
+    changed = true
+    return { ...slot, effort: next }
+  })
+  if (!changed) return draft
+  return {
+    ...draft,
+    orchestrator:
+      nextOrch === draft.orchestrator.effort
+        ? draft.orchestrator
+        : { ...draft.orchestrator, effort: nextOrch },
+    slots
   }
 }
 

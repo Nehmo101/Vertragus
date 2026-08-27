@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -9,7 +10,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * modules are mocked away wholesale and never actually run here.
  */
 vi.mock('electron', () => ({
-  app: { quit: vi.fn() },
+  app: { quit: vi.fn(), getPath: vi.fn(() => '/userData') },
+  clipboard: {
+    readImage: vi.fn(() => ({ isEmpty: () => true, toPNG: () => Buffer.alloc(0) }))
+  },
   ipcMain: { handle: vi.fn(), on: vi.fn(), removeHandler: vi.fn(), removeAllListeners: vi.fn() },
   dialog: { showOpenDialog: vi.fn(), showSaveDialog: vi.fn(), showMessageBox: vi.fn() },
   BrowserWindow: { getAllWindows: () => [] }
@@ -25,7 +29,8 @@ vi.mock('@main/providers/health', () => ({ checkAllProviders: vi.fn() }))
 vi.mock('@main/providers/authStatus', () => ({ checkAllProviderAuth: vi.fn() }))
 vi.mock('@main/windows/cliWindow', () => ({
   focusCliWindow: vi.fn(),
-  listCliWindows: vi.fn(() => [])
+  listCliWindows: vi.fn(() => []),
+  listCliTabWebContents: vi.fn(() => [])
 }))
 vi.mock('@main/windows/panel', () => ({
   getPanelWindow: vi.fn(() => null),
@@ -48,6 +53,13 @@ vi.mock('@main/windows/settingsWindow', () => ({
   openSettingsWindow: vi.fn(),
   closeSettingsWindow: vi.fn(),
   getSettingsWindow: vi.fn(() => null)
+}))
+vi.mock('@main/windows/timelineWindow', () => ({
+  isTimelineWindowSender: vi.fn(() => null),
+  openTimelineWindow: vi.fn(),
+  closeTimelineWindow: vi.fn(),
+  getTimelineWindow: vi.fn(() => null),
+  listTimelineWindows: vi.fn(() => [])
 }))
 vi.mock('@main/updater', () => ({
   appUpdater: vi.fn(() => ({
@@ -84,7 +96,9 @@ import { settings } from '@main/store/settings'
 import {
   APP_CHANNELS,
   agentCurrentTaskFields,
+  capTimelineEvents,
   createAppIpc,
+  TIMELINE_EVENTS_MAX,
   createStubWorkspaceDirectory,
   disposeAppIpc,
   mergeMcpServersPatch,
@@ -118,6 +132,11 @@ import { DEFAULT_APPEARANCE } from '@shared/appearance'
 import type { AppSettings } from './store/settings'
 import type { ProviderConfig, ProviderConfigInput } from '@shared/schema/provider'
 import { extraMcpServerSchema, type ExtraMcpServer } from '@shared/schema/mcpServer'
+import {
+  ATTACHMENT_MAX_BYTES,
+  createStagingStore,
+  stagingDirFor
+} from './attachments'
 import { mergeProviderConfigs, providerConfigSchema } from '@shared/schema/provider'
 import type { ProviderHealth } from './providers/health'
 
@@ -157,6 +176,8 @@ const OVERLAY_A_ID = 4
 const OVERLAY_B_ID = 5
 const SETTINGS_ID = 6
 const PROVIDER_EDITOR_ID = 7
+const TIMELINE_ID = 8
+const OTHER_TIMELINE_ID = 9
 
 function profile(id: string, name = id): Profile {
   return profileSchema.parse({
@@ -179,6 +200,9 @@ const SETTINGS: AppSettings = {
     appearance: DEFAULT_APPEARANCE,
     cliSurface: 'session',
     reflowNeighbors: true,
+    snapToZones: true,
+    startMinimized: false,
+    cliWindowMode: 'per-agent',
     onboardingDismissed: false
   },
   remote: { enabled: false, bindAddress: '', port: 9482 },
@@ -334,7 +358,8 @@ interface Harness {
   store: ReturnType<typeof createFakeStore>
   broadcasts: { channel: string; payload: unknown }[]
   directory: WorkspaceDirectory & {
-    started: Array<{ profileId: string; goal?: string }>
+    started: Array<{ profileId: string; goal?: string; attachmentIds?: string[] }>
+    worktrees: Record<string, string>
     goalsAssigned: Array<{ workspaceId: string; goal: string }>
     resumed: string[]
     sentToOrchestrator: Array<{ workspaceId: string; text: string }>
@@ -350,7 +375,11 @@ interface Harness {
     removedWorktrees: Array<{ profileId: string; path: string }>
     staleWorktrees: { path: string; branch?: string }[]
     change?: () => void
+    timelineEvents: unknown[]
+    timelineListener?: (event: unknown) => void
   }
+  timelineSent: Array<{ workspaceId: string; event: unknown }>
+  timelineClosed: number[]
   health: ReturnType<typeof vi.fn>
   /** WP-7: the login probe behind `providers:authStatus`. */
   auth: ReturnType<typeof vi.fn>
@@ -456,6 +485,8 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     now: 1_000,
     settingsOpened: 0,
     settingsClosed: 0,
+    timelineSent: [] as Array<{ workspaceId: string; event: unknown }>,
+    timelineClosed: [] as number[],
     registeredHotkeys: [] as string[],
     hotkeyRegisters: true,
     autostartWrites: [] as boolean[],
@@ -477,7 +508,8 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
   }
 
   const directory = {
-    started: [] as Array<{ profileId: string; goal?: string }>,
+    started: [] as Array<{ profileId: string; goal?: string; attachmentIds?: string[] }>,
+    worktrees: {} as Record<string, string>,
     goalsAssigned: [] as Array<{ workspaceId: string; goal: string }>,
     resumed: [] as string[],
     sentToOrchestrator: [] as Array<{ workspaceId: string; text: string }>,
@@ -495,8 +527,15 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
       { path: '/repo/.vertragus/worktrees/old-1', branch: 'vertragus/paradiso/caronte' }
     ] as { path: string; branch?: string }[],
     list: () => state.workspaces,
-    start(profileId: string, goal?: string) {
-      this.started.push({ profileId, ...(goal !== undefined ? { goal } : {}) })
+    start(profileId: string, goal?: string, attachmentIds?: readonly string[]) {
+      this.started.push({
+        profileId,
+        ...(goal !== undefined ? { goal } : {}),
+        ...(attachmentIds?.length ? { attachmentIds: [...attachmentIds] } : {})
+      })
+    },
+    worktreePathOf(workspaceId: string, agentId?: string) {
+      return this.worktrees[`${workspaceId}:${agentId ?? ''}`]
     },
     async assignGoal(workspaceId: string, goal: string) {
       this.goalsAssigned.push({ workspaceId, goal })
@@ -548,6 +587,17 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
       result.directory.change = listener
       return () => {
         result.directory.change = undefined
+      }
+    },
+    timelineEvents: [] as unknown[],
+    timelineListener: undefined as ((event: unknown) => void) | undefined,
+    async readTimelineEvents() {
+      return this.timelineEvents
+    },
+    onTimelineEvent(_workspaceId: string, listener: (event: unknown) => void) {
+      this.timelineListener = listener
+      return () => {
+        this.timelineListener = undefined
       }
     }
   }
@@ -623,6 +673,15 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     now: () => result.now,
 
     isSettingsSender: (id) => id === SETTINGS_ID,
+    timelineSender: (id) =>
+      id === TIMELINE_ID ? 'w1' : id === OTHER_TIMELINE_ID ? 'w2' : null,
+    sendTimelineEvent: (workspaceId, event) => {
+      result.timelineSent.push({ workspaceId, event })
+      return true
+    },
+    closeTimeline: (webContentsId) => {
+      result.timelineClosed.push(webContentsId)
+    },
     openSettings: () => {
       result.settingsOpened += 1
     },
@@ -1092,6 +1151,151 @@ describe('workspaces', () => {
     ])
   })
 
+  it('forwards attachmentIds on start and never treats them as bytes', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesStart, PANEL_ID, {
+      profileId: 'p1',
+      goal: 'see .vertragus/attachments/screenshot-aa.png',
+      attachmentIds: ['id1', 'id2']
+    })
+    expect(h.directory.started).toEqual([
+      {
+        profileId: 'p1',
+        goal: 'see .vertragus/attachments/screenshot-aa.png',
+        attachmentIds: ['id1', 'id2']
+      }
+    ])
+  })
+})
+
+describe('attachments:save', () => {
+  const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
+  let userData: string
+  let worktree: string
+
+  beforeEach(() => {
+    userData = mkdtempSync(join(tmpdir(), 'vertragus-ipc-ud-'))
+    worktree = mkdtempSync(join(tmpdir(), 'vertragus-ipc-wt-'))
+  })
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+    rmSync(worktree, { recursive: true, force: true })
+  })
+
+  function attachHarness() {
+    const live = harness({
+      stagingStore: createStagingStore({ dir: stagingDirFor(userData) }),
+      readClipboardImage: () => ({ isEmpty: () => false, toPNG: () => PNG })
+    })
+    live.directory.worktrees['w1:'] = worktree
+    live.directory.worktrees['w1:agent-w'] = worktree
+    return live
+  }
+
+  it('stages a clipboard image for a profile without touching repoPath', async () => {
+    const live = attachHarness()
+    const result = (await live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, {
+      profileId: 'p1',
+      source: 'clipboard'
+    })) as { relativePath: string; stagingId: string }
+    expect(result.relativePath).toMatch(/^\.vertragus\/attachments\/screenshot-[a-z0-9]+\.png$/)
+    expect(result.stagingId).toBeTruthy()
+    expect(existsSync(join(userData, 'attachment-staging', result.stagingId, 'payload'))).toBe(true)
+    expect(existsSync(join('C:/git/demo', '.vertragus'))).toBe(false)
+    expect(existsSync(join('C:/git/demo', ...result.relativePath.split('/')))).toBe(false)
+  })
+
+  it('writes a live workspace image into the agent worktree', async () => {
+    const live = attachHarness()
+    const result = (await live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, {
+      workspaceId: 'w1',
+      source: { bytes: PNG, mime: 'image/png' }
+    })) as { relativePath: string }
+    expect(result.relativePath).toMatch(/^\.vertragus\/attachments\//)
+    expect(existsSync(join(worktree, ...result.relativePath.split('/')))).toBe(true)
+    expect(readFileSync(join(worktree, '.vertragus', '.gitignore'), 'utf8')).toBe('*\n')
+  })
+
+  it('empty clipboard is a no-op', async () => {
+    const live = harness({
+      stagingStore: createStagingStore({ dir: stagingDirFor(userData) }),
+      readClipboardImage: () => ({ isEmpty: () => true, toPNG: () => PNG })
+    })
+    expect(
+      await live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, {
+        profileId: 'p1',
+        source: 'clipboard'
+      })
+    ).toBeNull()
+  })
+
+  it('rejects a missing target and an unknown workspace', async () => {
+    const live = attachHarness()
+    await expect(
+      Promise.resolve(live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, { source: 'clipboard' }))
+    ).rejects.toThrow(/missing target/)
+    await expect(
+      Promise.resolve(
+        live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, {
+          workspaceId: 'ghost',
+          source: 'clipboard'
+        })
+      )
+    ).rejects.toThrow(/unknown workspace/)
+  })
+
+  it('saves from an absolute path into a selected worker worktree', async () => {
+    const live = attachHarness()
+    const file = join(worktree, 'drop.jpg')
+    const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])
+    writeFileSync(file, jpeg)
+    const result = (await live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, {
+      workspaceId: 'w1',
+      agentId: 'agent-w',
+      source: { absPath: file }
+    })) as { relativePath: string }
+    expect(result.relativePath).toMatch(/\.jpg$/)
+    expect(existsSync(join(worktree, ...result.relativePath.split('/')))).toBe(true)
+  })
+
+  it('rejects oversized and non-image payloads before any write', async () => {
+    const live = attachHarness()
+    await expect(
+      Promise.resolve(
+        live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, {
+          profileId: 'p1',
+          source: { bytes: new Uint8Array(ATTACHMENT_MAX_BYTES + 1), mime: 'image/png' }
+        })
+      )
+    ).rejects.toThrow(/8 MiB/)
+    await expect(
+      Promise.resolve(
+        live.ipc.invoke(APP_CHANNELS.attachmentsSave, PANEL_ID, {
+          workspaceId: 'w1',
+          source: { bytes: Uint8Array.from(Buffer.from('not-an-image!!!!')), mime: 'text/plain' }
+        })
+      )
+    ).rejects.toThrow(/Bild/)
+    expect(existsSync(join('C:/git/demo', '.vertragus'))).toBe(false)
+    expect(existsSync(join(worktree, '.vertragus'))).toBe(false)
+  })
+
+  it('is panel-only and keeps bytes off workspaces:goal', async () => {
+    const live = attachHarness()
+    expect(() =>
+      live.ipc.invoke(APP_CHANNELS.attachmentsSave, CLI_ID, { profileId: 'p1', source: 'clipboard' })
+    ).toThrow(/not the panel window/)
+    await live.ipc.invoke(APP_CHANNELS.workspacesGoal, PANEL_ID, {
+      workspaceId: 'w1',
+      goal: '.vertragus/attachments/screenshot-aa.png'
+    })
+    expect(live.directory.goalsAssigned[0]).toEqual({
+      workspaceId: 'w1',
+      goal: '.vertragus/attachments/screenshot-aa.png'
+    })
+  })
+})
+
+describe('workspaces (goal refill and after)', () => {
   it('H2 refill: hands a running workspace its goal and refuses a blank one', async () => {
     await h.ipc.invoke(APP_CHANNELS.workspacesGoal, PANEL_ID, {
       workspaceId: 'w1',
@@ -1303,7 +1507,8 @@ describe('workspaces', () => {
         closeAgentWindow() {},
         focusWorkspace() {},
         listStaleWorktrees: async () => refuse(),
-        removeWorktree: async () => refuse()
+        removeWorktree: async () => refuse(),
+        worktreePathOf: () => undefined
       }
     })
     await expect(
@@ -1461,6 +1666,9 @@ describe('settings and windows', () => {
       appearance: DEFAULT_APPEARANCE,
       cliSurface: 'session',
       reflowNeighbors: true,
+      snapToZones: true,
+      startMinimized: false,
+      cliWindowMode: 'per-agent',
       voiceEnabled: false,
       voiceWakePhrase: 'Hey Vertragus',
       voiceVoiceId: 'eve',
@@ -1703,6 +1911,9 @@ describe('settings:set', () => {
       'appearance',
       'cliSurface',
       'reflowNeighbors',
+      'snapToZones',
+      'startMinimized',
+      'cliWindowMode',
       'voice',
       'agentPolicy',
       'onboardingDismissed',
@@ -2184,6 +2395,9 @@ describe('settings:set', () => {
       appearance: DEFAULT_APPEARANCE,
       cliSurface: 'session',
       reflowNeighbors: true,
+      snapToZones: true,
+      startMinimized: false,
+      cliWindowMode: 'per-agent',
       onboardingDismissed: false
     })
   })
@@ -2228,6 +2442,76 @@ describe('settings:set', () => {
       h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'cliSurface', value: 'native' })
     ).rejects.toThrow(/expects session or raw/)
     expect(h.store.settings.ui.cliSurface).toBe('session')
+  })
+
+  it('patches snapToZones into ui and rejects a non-boolean', async () => {
+    h.broadcasts.length = 0
+    const off = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'snapToZones',
+      value: false
+    })) as PanelSettings
+    expect(off.snapToZones).toBe(false)
+    expect(h.store.settings.ui.snapToZones).toBe(false)
+    expect(h.store.settings.ui.reflowNeighbors).toBe(true)
+    expect(h.store.settings.ui.theme).toBe('dark')
+    expect(
+      (h.broadcasts.find((entry) => entry.channel === APP_CHANNELS.eventSettings)
+        ?.payload as PanelSettings).snapToZones
+    ).toBe(false)
+    expect(off).not.toHaveProperty('apiKey')
+
+    const on = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'snapToZones',
+      value: true
+    })) as PanelSettings
+    expect(on.snapToZones).toBe(true)
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'snapToZones', value: 'ja' })
+    ).rejects.toThrow(/expects a boolean/)
+    expect(h.store.settings.ui.snapToZones).toBe(true)
+  })
+
+  it('patches startMinimized into ui and rejects a non-boolean', async () => {
+    const on = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'startMinimized',
+      value: true
+    })) as PanelSettings
+    expect(on.startMinimized).toBe(true)
+    expect(h.store.settings.ui.startMinimized).toBe(true)
+    expect(h.store.settings.ui.theme).toBe('dark')
+
+    const off = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'startMinimized',
+      value: false
+    })) as PanelSettings
+    expect(off.startMinimized).toBe(false)
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'startMinimized', value: 'ja' })
+    ).rejects.toThrow(/expects a boolean/)
+    expect(h.store.settings.ui.startMinimized).toBe(false)
+  })
+
+  it('patches cliWindowMode into ui and rejects an invented mode', async () => {
+    const tabs = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'cliWindowMode',
+      value: 'tabs'
+    })) as PanelSettings
+    expect(tabs.cliWindowMode).toBe('tabs')
+    expect(h.store.settings.ui.cliWindowMode).toBe('tabs')
+    expect(h.store.settings.ui.theme).toBe('dark')
+
+    const perAgent = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'cliWindowMode',
+      value: 'per-agent'
+    })) as PanelSettings
+    expect(perAgent.cliWindowMode).toBe('per-agent')
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'cliWindowMode', value: 'windows' })
+    ).rejects.toThrow(/expects per-agent or tabs/)
+    expect(h.store.settings.ui.cliWindowMode).toBe('per-agent')
   })
 
   it('lets the panel close the first-run card for good (WP-7)', async () => {
@@ -2432,6 +2716,7 @@ describe('sender authorization', () => {
   const panelOnly = [
     APP_CHANNELS.workspacesList,
     APP_CHANNELS.workspacesStart,
+    APP_CHANNELS.attachmentsSave,
     APP_CHANNELS.workspacesSendToOrchestrator,
     APP_CHANNELS.workspacesGoal,
     APP_CHANNELS.workspacesStop,
@@ -2791,7 +3076,8 @@ describe('production registration', () => {
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
       listStaleWorktrees: vi.fn(async () => []),
-      removeWorktree: vi.fn(async () => [])
+      removeWorktree: vi.fn(async () => []),
+      worktreePathOf: vi.fn()
     }
     const second: WorkspaceDirectory = {
       list: () => [],
@@ -2809,7 +3095,8 @@ describe('production registration', () => {
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
       listStaleWorktrees: vi.fn(async () => []),
-      removeWorktree: vi.fn(async () => [])
+      removeWorktree: vi.fn(async () => []),
+      worktreePathOf: vi.fn()
     }
     const first = registerAppIpc(real)
     expect(registerAppIpc(second)).toBe(first)
@@ -2877,7 +3164,7 @@ describe('preload parity', () => {
     }
     const found = [
       ...source.matchAll(
-        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|runs|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|remote|voice|ev):[a-zA-Z]+)'/g
+        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|runs|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|remote|voice|ev|attachments|timeline):[a-zA-Z]+)'/g
       )
     ].map((match) => match[1])
     expect(new Set(found)).toEqual(expected)
@@ -2890,6 +3177,137 @@ describe('preload parity', () => {
     const toPreload: PreloadWorkspaceSummary = fromMain
     const backAgain: WorkspaceSummary = toPreload
     expect(backAgain).toBe(fromMain)
+  })
+})
+
+describe('timeline broadcast membership', () => {
+  it('includes timeline windows in appWindows so they receive ev:workspaces', () => {
+    const source = readFileSync(join(__dirname, 'appIpc.ts'), 'utf8')
+    expect(source).toMatch(/listTimelineWindows\(\)\.map\(\(entry\) => entry\.window\)/)
+    expect(source).toMatch(/eventTimeline: 'ev:timeline'/)
+    expect(source).not.toMatch(/eventWorkspaces: 'ev:timeline'/)
+  })
+})
+
+describe('capTimelineEvents', () => {
+  it('keeps a suffix at the EventQueue ring size', () => {
+    const events = Array.from({ length: TIMELINE_EVENTS_MAX + 5 }, (_, i) => i)
+    expect(capTimelineEvents(events)).toEqual(
+      Array.from({ length: TIMELINE_EVENTS_MAX }, (_, i) => i + 5)
+    )
+    expect(capTimelineEvents([1, 2, 3])).toEqual([1, 2, 3])
+  })
+})
+
+describe('requirePanelOrOwnTimeline', () => {
+  it('lets the bound timeline stop its own workspace and refuses another', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesStop, TIMELINE_ID, { workspaceId: 'w1' })
+    expect(h.directory.stopped).toEqual(['w1'])
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesStop, TIMELINE_ID, { workspaceId: 'w2' })
+    ).toThrow(/not bound to that workspace/)
+    expect(h.directory.stopped).toEqual(['w1'])
+  })
+
+  it('never lets timeline-A focus an agent of workspace-B', () => {
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesFocusAgent, OTHER_TIMELINE_ID, { agentId: 'w1-orch' })
+    ).toThrow(/does not belong to this timeline/)
+    expect(h.directory.focused).toEqual([])
+    h.ipc.invoke(APP_CHANNELS.workspacesFocusAgent, TIMELINE_ID, { agentId: 'w1-orch' })
+    expect(h.directory.focused).toEqual(['w1-orch'])
+  })
+
+  it('lets the bound timeline refill the goal, answer, promote and open the run folder', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesGoal, TIMELINE_ID, {
+      workspaceId: 'w1',
+      goal: 'ship it'
+    })
+    await h.ipc.invoke(APP_CHANNELS.workspacesAnswerQuestion, TIMELINE_ID, {
+      workspaceId: 'w1',
+      agentId: 'w1-orch',
+      questionId: 'q1',
+      text: 'yes'
+    })
+    await h.ipc.invoke(APP_CHANNELS.workspacesPromoteAgent, TIMELINE_ID, {
+      workspaceId: 'w1',
+      agentId: 'w1-orch'
+    })
+    await h.ipc.invoke(APP_CHANNELS.workspacesOpenRunFolder, TIMELINE_ID, { workspaceId: 'w1' })
+    expect(h.directory.goalsAssigned).toEqual([{ workspaceId: 'w1', goal: 'ship it' }])
+    expect(h.directory.answered).toEqual([
+      { workspaceId: 'w1', agentId: 'w1-orch', questionId: 'q1', text: 'yes' }
+    ])
+    expect(h.directory.promoted).toEqual([{ workspaceId: 'w1', agentId: 'w1-orch' }])
+    expect(h.directory.runFolders).toEqual(['w1'])
+  })
+
+  it('still rejects a CLI window on those channels', () => {
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesStop, CLI_ID, { workspaceId: 'w1' })
+    ).toThrow(/not the panel window/)
+  })
+
+  it('lets a timeline list workspaces (it filters client-side)', () => {
+    expect(h.ipc.invoke(APP_CHANNELS.workspacesList, TIMELINE_ID)).toHaveLength(1)
+  })
+})
+
+describe('timeline:attach', () => {
+  it('answers a host-read snapshot and pushes live events to that window only', async () => {
+    const event = {
+      type: 'agent_started' as const,
+      seq: 1,
+      ts: 1,
+      agentId: 'a1',
+      name: 'Virgilio',
+      roleId: 'orchestrator'
+    }
+    h.directory.timelineEvents = [event]
+    const snapshot = (await h.ipc.invoke(APP_CHANNELS.timelineAttach, TIMELINE_ID)) as {
+      workspaceId: string
+      events: unknown[]
+    }
+    expect(snapshot).toEqual({ workspaceId: 'w1', events: [event] })
+
+    h.directory.timelineListener?.(event)
+    expect(h.timelineSent).toEqual([{ workspaceId: 'w1', event }])
+    expect(h.broadcasts.map((entry) => entry.channel)).not.toContain(APP_CHANNELS.eventTimeline)
+  })
+
+  it('refuses a foreign workspace id and a non-timeline sender', async () => {
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.timelineAttach, TIMELINE_ID, { workspaceId: 'w2' }))
+    ).rejects.toThrow(/own workspace/)
+    expect(() => h.ipc.invoke(APP_CHANNELS.timelineAttach, PANEL_ID)).toThrow(
+      /not a timeline window/
+    )
+    expect(() => h.ipc.invoke(APP_CHANNELS.timelineAttach, CLI_ID)).toThrow(
+      /not a timeline window/
+    )
+  })
+
+  it('caps the snapshot at the EventQueue ring size', async () => {
+    h.directory.timelineEvents = Array.from({ length: TIMELINE_EVENTS_MAX + 3 }, (_, i) => ({
+      type: 'agent_progress' as const,
+      seq: i + 1,
+      ts: i,
+      agentId: 'a1',
+      name: 'Virgilio',
+      roleId: 'orchestrator',
+      note: String(i)
+    }))
+    const snapshot = (await h.ipc.invoke(APP_CHANNELS.timelineAttach, TIMELINE_ID)) as {
+      events: Array<{ seq: number }>
+    }
+    expect(snapshot.events).toHaveLength(TIMELINE_EVENTS_MAX)
+    expect(snapshot.events[0]!.seq).toBe(4)
+  })
+
+  it('closes only the sender timeline', () => {
+    h.ipc.send(APP_CHANNELS.timelineClose, TIMELINE_ID)
+    h.ipc.send(APP_CHANNELS.timelineClose, PANEL_ID)
+    expect(h.timelineClosed).toEqual([TIMELINE_ID])
   })
 })
 

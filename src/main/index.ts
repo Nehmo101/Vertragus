@@ -1,6 +1,6 @@
 import { homedir, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, nativeImage, safeStorage, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, clipboard, nativeImage, safeStorage, ipcMain, shell } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { mainMessages, readLocale } from '@shared/mainMessages'
 import { allRoleTemplates, roleColor } from '@shared/prompts/roles'
@@ -9,6 +9,7 @@ import { resolveLaunch } from './agents/resolveCommand'
 import {
   agentCurrentTaskFields,
   APP_CHANNELS,
+  capTimelineEvents,
   createStubWorkspaceDirectory,
   PANEL_TASKS_MAX,
   registerAppIpc,
@@ -18,8 +19,24 @@ import {
 } from './appIpc'
 import { createAppVoice, installDefaultVoicePermissions, type AppVoice } from './appVoice'
 import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
-import { getAgentRegistry, registerTerminalIpc, setTerminalInputSink, setTerminalSessionActions } from './ipc'
+import {
+  getAgentRegistry,
+  registerTerminalIpc,
+  setTerminalImageSaver,
+  setTerminalInputSink,
+  setTerminalSessionActions,
+  setTerminalQuestionSource
+} from './ipc'
 import { cliChromeForWorkspace, workspaceOwningAgent } from './workspace/cliSessionFeed'
+import { cliQuestionContext } from './terminalQuestion'
+import {
+  assertImageBytes,
+  bytesFromAbsPath,
+  bytesFromClipboard,
+  coerceBytes,
+  localizedAttachmentError,
+  writeAttachment
+} from './attachments'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import {
   getProfile,
@@ -35,9 +52,11 @@ import {
   focusCliWindow,
   getCliWindow,
   layoutCliWindows,
-  onCliWindowClosed
+  onCliWindowClosed,
+  workspaceUsesTabChrome
 } from './windows/cliWindow'
 import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
+import { focusTimelineWindow } from './windows/timelineWindow'
 import {
   forgetHideAll,
   hideAllHotkeyStatus,
@@ -75,6 +94,7 @@ import {
   buildResumeBriefing,
   latestRun,
   markSuccessionConsumed,
+  readRunEvents,
   readRunTasks,
   readSuccessionPackage,
   successionSuperseded
@@ -97,15 +117,42 @@ function armScreenshotHook(win: Electron.BrowserWindow, envVar: string, delayMs 
   armWindowCapture(win, envVar, envVar, delayMs)
 }
 
+function worktreePathForAgent(manager: WorkspaceManager, agentId: string): string | undefined {
+  for (const workspace of manager.list()) {
+    const path = workspace.worktreePathOf(agentId)
+    if (path) return path
+  }
+  return undefined
+}
+
+async function bytesFromTerminalSource(
+  source: 'clipboard' | { absPath: string } | { bytes: Uint8Array; mime?: string }
+): Promise<Uint8Array | null> {
+  if (source === 'clipboard') return bytesFromClipboard(clipboard.readImage())
+  if ('absPath' in source) return bytesFromAbsPath(source.absPath)
+  const bytes = coerceBytes(source.bytes)
+  if (!bytes) return null
+  assertImageBytes(bytes)
+  return bytes
+}
+
 /** Adapter: WorkspaceManager → the view the panel draws. */
 function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): WorkspaceDirectory {
   const roleLabel = (roleId: string): string =>
     allRoleTemplates(getRoleTemplates()).find((role) => role.id === roleId)?.name ?? roleId
 
-  const pendingOf = (
-    workspaceId: string,
-    agentId: string
-  ): { questionId: string; question: string } | undefined => mcp.openQuestion(workspaceId, agentId)
+  const pendingOf = (workspaceId: string, agentId: string) => mcp.openQuestion(workspaceId, agentId)
+
+  const pendingFields = (open: ReturnType<McpServerHandle['openQuestion']>) =>
+    open
+      ? {
+          pendingQuestion: open.question,
+          pendingQuestionId: open.questionId,
+          ...(open.choices && open.choices.length > 0
+            ? { pendingQuestionChoices: open.choices }
+            : {})
+        }
+      : {}
 
   // Active paths across ALL workspaces, not just the asking profile's: two
   // profiles may point at the same repository, and an agent of either must
@@ -181,12 +228,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     // Latest user CLI submit — not the last delegated start_agent.
                     ...agentCurrentTaskFields(ws.orchestratorTaskText),
                     ...(windowOpenOf(orchestrator.agentId) ? { windowOpen: true } : {}),
-                    ...(orchestratorQuestion
-                      ? {
-                          pendingQuestion: orchestratorQuestion.question,
-                          pendingQuestionId: orchestratorQuestion.questionId
-                        }
-                      : {})
+                    ...pendingFields(orchestratorQuestion)
                   }
                 ]
               : []),
@@ -215,24 +257,29 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                 ...(parentId ? { parentId } : {}),
                 ...agentCurrentTaskFields(agentTask),
                 ...(windowOpenOf(agent.agentId) ? { windowOpen: true } : {}),
-                ...(pendingQuestion
-                  ? {
-                      pendingQuestion: pendingQuestion.question,
-                      pendingQuestionId: pendingQuestion.questionId
-                    }
-                  : {})
+                ...pendingFields(pendingQuestion)
               }
             })
           ]
         }
       }),
-    start(profileId, goal) {
+    async start(profileId, goal, attachmentIds) {
       const profile = getProfile(profileId)
+      const locale = readLocale(() => getSettings().ui.locale)
       if (!profile) {
-        const locale = readLocale(() => getSettings().ui.locale)
         throw new Error(mainMessages(locale).unknownProfile(profileId))
       }
-      return manager.startWorkspace(profile, goal ? { goal } : undefined)
+      try {
+        return await manager.startWorkspace(profile, {
+          ...(goal ? { goal } : {}),
+          ...(attachmentIds?.length ? { attachmentIds } : {})
+        })
+      } catch (error) {
+        throw localizedAttachmentError(error, locale)
+      }
+    },
+    worktreePathOf(workspaceId, agentId) {
+      return manager.worktreePathOf(workspaceId, agentId)
     },
     async assignGoal(workspaceId, goal) {
       try {
@@ -397,7 +444,11 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       // intact) reopens so the last task is not a tooltip-only memory.
       if (!getAgentRegistry().getAgent(agentId)) return
       for (const workspace of manager.list()) {
-        if (workspace.showAgentWindow(agentId)) return
+        if (workspace.showAgentWindow(agentId)) {
+          // Cancel startMinimized on this first-show: the click asked to see it.
+          focusCliWindow(agentId)
+          return
+        }
       }
     },
     closeAgentWindow: (agentId) => closeCliWindow(agentId),
@@ -409,16 +460,41 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         ...(workspace.orchestrator ? [workspace.orchestrator.agentId] : []),
         ...workspace.listAgents().map((agent) => agent.agentId)
       ]
-      if (agentIds.length === 0) return
       // Workspace click replaced hide-all's snapshot: forget it so the next
       // toggle hides what is visible instead of restoring foreign windows.
       forgetHideAll()
-      focusWorkspaceAgents(agentIds, {
-        windows: cliFocusTargets,
-        beforeRestore: suppressMoveTracking
-      })
-      // After show: restore can fire move events that wreck bounds (Windows).
-      layoutCliWindows(agentIds)
+      if (agentIds.length > 0) {
+        let startMinimized = false
+        try {
+          startMinimized = getSettings().ui.startMinimized === true
+        } catch {
+          startMinimized = false
+        }
+        focusWorkspaceAgents(agentIds, {
+          windows: cliFocusTargets,
+          beforeHide: suppressMoveTracking,
+          beforeRestore: suppressMoveTracking,
+          beforeShow: suppressMoveTracking,
+          restoreMinimized: !startMinimized
+        })
+        // After show: restore can fire move events that wreck bounds (Windows).
+        // Tabs do not tile; startMinimized must not snap still-minimized teammates.
+        if (!startMinimized && !workspaceUsesTabChrome(workspaceId)) {
+          layoutCliWindows(agentIds)
+        }
+      }
+      // Overview sheet: show this workspace's timeline, hide the others.
+      // Never minimize — hide() only. A user-closed sheet is reopened here.
+      focusTimelineWindow(workspaceId)
+    },
+    async readTimelineEvents(workspaceId) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) return []
+      const events = (await readRunEvents(workspace.repoPath, workspaceId)) ?? []
+      return capTimelineEvents(events)
+    },
+    onTimelineEvent(workspaceId, listener) {
+      return manager.onTimelineEvent(workspaceId, listener)
     },
     listStaleWorktrees: (profileId) => cleanup.listStale(profileId),
     removeWorktree: (profileId, worktreePath) => cleanup.remove(profileId, worktreePath),
@@ -440,7 +516,9 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
 /**
  * Feed every agent's current task note and host session snapshot into the
  * terminal registry, so the CLI window's hover card and session chrome follow
- * the same change feed as the panel. `setAgentTask` / `setAgentSession` dedupe.
+ * the same change feed as the panel. `setAgentTask` / `setAgentSession` /
+ * `refreshQuestions` dedupe, so a burst of unrelated events costs nothing
+ * and never focuses a CLI window.
  */
 function armTerminalChromeFeed(manager: WorkspaceManager, mcp: McpServerHandle): void {
   const registry = getAgentRegistry()
@@ -451,6 +529,7 @@ function armTerminalChromeFeed(manager: WorkspaceManager, mcp: McpServerHandle):
         registry.setAgentSession(row.agentId, row.session)
       }
     }
+    registry.refreshQuestions()
   }
   manager.onChange(push)
 }
@@ -659,6 +738,11 @@ app.whenReady().then(async () => {
     setTerminalInputSink((agentId, data) => {
       manager.noteOrchestratorGoal(agentId, data)
     })
+    setTerminalQuestionSource({
+      contextFor: (senderAgentId) => cliQuestionContext(senderAgentId, directory.list()),
+      answer: (workspaceId, agentId, questionId, text) =>
+        directory.answerQuestion(workspaceId, agentId, questionId, text)
+    })
     setTerminalSessionActions({
       followUp: async (agentId, text) => {
         const ws = workspaceOwningAgent(manager.list(), agentId)
@@ -674,6 +758,18 @@ app.whenReady().then(async () => {
         const userQuestion = mcp.openQuestion(ws.workspaceId, 'user')
         const target = userQuestion?.questionId === questionId ? 'user' : agentId
         await directory.answerQuestion(ws.workspaceId, target, questionId, text)
+      }
+    })
+    setTerminalImageSaver(async (agentId, source) => {
+      const locale = readLocale(() => getSettings().ui.locale)
+      try {
+        const bytes = await bytesFromTerminalSource(source)
+        if (!bytes) return null
+        const cwd = worktreePathForAgent(manager, agentId)
+        if (!cwd) throw localizedAttachmentError(new Error('attachment_worktree_missing'), locale)
+        return await writeAttachment(cwd, bytes)
+      } catch (error) {
+        throw localizedAttachmentError(error, locale)
       }
     })
     const broadcastSettings = (channel: string, payload: unknown): void => {

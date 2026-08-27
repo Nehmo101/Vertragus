@@ -7,6 +7,7 @@
  * an orchestrator that starts coding instead of delegating.
  */
 import type { SlotKnowledge } from '../retro/runStats'
+import type { QuestionMode } from '../schema/profile'
 
 export interface RoleWithLimit {
   /** Role id exactly as `start_agent` expects it. */
@@ -51,6 +52,12 @@ export interface OrchestratorPromptInput {
   briefing?: string
   /** A3: absent, or every switch off, renders no automation block at all. */
   automation?: AutomationBriefing
+  /**
+   * How often to call ask_user. Absent = `few` (today's behaviour). Always
+   * rendered — unlike automation, which omits when every switch is off — so
+   * the default is explicit too. Root only; leads are not briefed.
+   */
+  questionMode?: QuestionMode
 }
 
 /**
@@ -69,7 +76,7 @@ function renderAutomation(automation: AutomationBriefing | undefined): string[] 
   }
   if (automation.autoPromote) {
     lines.push(
-      '- Every branch a subagent reports as a clean success is also merged into the repository’s own checkout by the host. The user asked for that: never tell them to merge the branch in the panel, and never treat a promote as your decision.'
+      '- Every branch a subagent reports as a clean success is also merged into the repository’s own checkout by the host. YOUR own branch is merged into the checkout at record_retro or when the user stops the workspace, even if no subagent ran. Never start an agent to merge or to open a pull request. The user asked for that: never tell them to merge the branch in the panel, and never treat a promote as your decision.'
     )
   }
   if (automation.autoPr) {
@@ -81,6 +88,55 @@ function renderAutomation(automation: AutomationBriefing | undefined): string[] 
   return [
     'Automation the user switched on for this run (the HOST does these — they are not your work):',
     ...lines,
+    ''
+  ]
+}
+
+/**
+ * Always rendered (even for the default `few`) so the model is never left
+ * guessing how often to call ask_user. This block is authoritative — the
+ * ask_user tool line points here rather than restating a volume that would
+ * contradict none/thorough.
+ */
+function renderQuestionMode(mode: QuestionMode | undefined): string[] {
+  const resolved = mode ?? 'few'
+  const body =
+    resolved === 'none'
+      ? '- Mode none: the goal text is authoritative. Decide product choices, missing acceptance criteria and definition-of-done holes yourself with best knowledge and conscience, and start work. STILL call ask_user for a destructive action and for a change of scope the goal did not already contain. Do not fish for extra requirements. Do not run intake.'
+      : resolved === 'thorough'
+        ? '- Mode thorough: before starting the team, close the brief. Diff the goal against acceptance criteria (observable happy path, non-goals, design-flip edge cases) and Definition of Done. Every hole is one numbered ask_user, batched. Another round only if the answer opens a new hole. If there are no holes, do not call ask_user. Never guess a product or scope decision the goal does not settle.'
+        : '- Mode few: only genuine user decisions — a change of scope the goal did not already contain, a destructive action, or a product choice the goal does not settle. No intake round of clarifying questions. If there are no such holes, do not call ask_user.'
+  return [
+    `Question mode for this run (how often you ask the HUMAN via ask_user; this block is authoritative): ${resolved}.`,
+    body,
+    ''
+  ]
+}
+
+function renderAskUserToolLine(): string {
+  return '- ask_user{question, choices?, ticket?} — ask the HUMAN and wait for the answer (they see it in the panel and on their phone). When to call it is the question-mode block above — that block is authoritative. For a decision, pass 2–8 short labels in choices (at most 28); question is the prompt only — never dump numbered options into it. Do not ask what a scout (when that role is listed) or a HEAD Read can answer from the code, which model to pick, or whether to use MCP tools. If it returns answer: null with a ticket, call it again with that ticket and the unchanged question (choices stay).'
+}
+
+function renderAgentQuestionLine(mode: QuestionMode): string {
+  if (mode === 'none') {
+    return '- agent_question: answer it promptly with send_to_agent{agentId, text, questionId}. A waiting agent burns time and blocks the whole run. If it is a product choice, missing acceptance criteria or a definition-of-done hole, answer it yourself. Escalate with ask_user only for a destructive action or a change of scope the goal did not already contain.'
+  }
+  return '- agent_question: answer it promptly with send_to_agent{agentId, text, questionId}. A waiting agent burns time and blocks the whole run. If the question needs a genuine user decision, get it with ask_user and relay the answer.'
+}
+
+function renderLoop(mode: QuestionMode): string[] {
+  const stepZero =
+    mode === 'thorough'
+      ? [
+          '0. Close the brief: intake before the team starts. Extract what the goal already specifies. If scout is listed under Available roles and you still lack code facts (where this lives, what the code actually does), start_agent{role:scout} on a cheap slot, wait for agent_done, and quote its findings — never paste the transcript. Pass a resultSchema of findings[{file, symbol?, note}], unknowns[], summary. No other role may start during intake. Diff the goal plus scout findings against acceptance criteria (observable happy path, non-goals, design-flip edge cases) and Definition of Done (named verify command, review?, docs twins if docs change, PR/promote/leave-branch, what inspect_agent must show). Every hole is one numbered ask_user, batched — do not drip tickets. Another round only if the answer opens a new hole. If there are no holes, do not call ask_user. Never guess a product or scope decision. Then write a four-line brief onto the task board (the ask; Where: paths actually seen; Done means: observable result plus the proving command; Out of scope: named temptations). A goal refill is a first turn — run intake on it. A later user_message is steering, not a second intake, unless the user explicitly changes scope. Scout is the only agent that may start during intake; leads and workers wait. If scout is not in Available roles, a small HEAD Read (or explorer, if listed) covers code facts; still ask_user for product and scope holes. Never start a worker to "just look around".'
+        ]
+      : []
+  return [
+    'Your loop, without exception:',
+    ...stepZero,
+    '1. Break the goal into tasks and start the agents you need. Each start_agent task is the brief sliced for that agent: goal, files, this slice’s acceptance criteria, how to verify, out of scope. Do not write HOW and do not address the harness inside the task.',
+    '2. Call await_events with the cursor you last received. It blocks for up to ~50 seconds and returns everything that happened.',
+    '3. Handle every event, then call await_events again with the new cursor. Repeat until the goal is reached. Never sit idle without an open await_events call, and never poll list_agents in a loop instead of waiting.',
     ''
   ]
 }
@@ -115,8 +171,10 @@ export function buildOrchestratorSystemPrompt({
   maxSubagents,
   knowledge = [],
   briefing,
-  automation
+  automation,
+  questionMode
 }: OrchestratorPromptInput): string {
+  const resolvedQuestionMode = questionMode ?? 'few'
   const roleLines =
     rolesWithLimits.length > 0
       ? rolesWithLimits.map(renderRole).join('\n')
@@ -151,6 +209,7 @@ export function buildOrchestratorSystemPrompt({
     'Isolation: you and every agent you start each work in a separate git worktree of this repository, on a separate vertragus/* branch. Agents therefore never see each other’s uncommitted files. When an agent reports done, Vertragus itself commits its work onto its branch (a snapshot commit — agents do not commit themselves). To hand work from one agent to the next, start the next one with baseBranch set to the first agent’s branch (start_agent reports every agent’s branch back to you); the new agent’s task automatically carries a handoff block with the first agent’s report, files and HEAD. To combine several results, start an agent with baseBranch on one of the branches and task it with merging the other branches into its own — the branches merge like any other git branches.',
     '',
     ...renderAutomation(automation),
+    ...renderQuestionMode(questionMode),
     'Available roles:',
     roleLines,
     totalLine,
@@ -166,23 +225,18 @@ export function buildOrchestratorSystemPrompt({
     '- read_output{agentId, lines?} — the raw terminal tail of an agent. Use it after an unconfirmed agent_exited, not to verify code.',
     '- stop_agent{agentId} — end an agent and close its window.',
     '- integrate_branch{agentId, branch} — HOST-side merge of another agent’s branch into the target agent’s worktree; the one sanctioned merge path (you still never run git yourself). A conflict is aborted and reported (integrate_conflict) — task an agent with resolving it. Heed the gate warning: integrate only work that was reported done, reviewed and tested; promoting the final result into the repository’s own branch is the USER’s click in the panel, never yours.',
-    '- ask_user{question, ticket?} — ask the HUMAN and wait for the answer (they see it in the panel and on their phone). Use it for acceptance-criteria and Definition-of-Done holes, plus scope changes, destructive actions and product choices. Never guess those. Do not ask what a scout (when that role is listed) or a HEAD Read can answer from the code, which model to pick, or whether to use MCP tools. If it returns answer: null with a ticket, call it again with that ticket and the unchanged question.',
+    renderAskUserToolLine(),
     '- task_create{subject, description?, blockedBy?} / task_update{taskId, expectedRevision, action, …} / task_list{status?} — the shared task board. It is host state: it survives your succession and a resume of the run, and leads see the same board.',
     '- record_retro{summary, learnings} — your run retrospective, called exactly once at the end of the run — never as part of a context handoff.',
     '- request_succession{reason, goal?, decisions?, risks?, nextActions?, agentNotes?, note?} — replace yourself with a successor orchestrator that continues this run with a fresh context. Call it EARLY and proactively — while you still have room to write down goal, decisions and next actions; a late handoff loses exactly those. Do not wait for a provider context warning. Do not call it when the goal is done (that is record_retro). After you call it, stop: further mutating tools may fail. This is serial replacement of you, not a second concurrent orchestrator and not a nested lead.',
     '',
     'Task board: maintain your plan on the task board instead of in your head — one task per unit of work, one task per start_agent assignment as the normal case (pass taskId and the host claims the task for the new agent and appends its text to the seed). task_update needs the revision you last saw; on stale_revision the error carries the current task — reconcile, do not re-read. Mark a task completed only after you verified the work, never on the agent’s word alone.',
     '',
-    'Your loop, without exception:',
-    '0. Intake — close the brief before the team starts. Extract what the goal already specifies. If scout is listed under Available roles and you still lack code facts (where this lives, what the code actually does), start_agent{role:scout} on a cheap slot, wait for agent_done, and quote its findings — never paste the transcript. Pass a resultSchema of findings[{file, symbol?, note}], unknowns[], summary. No other role may start during intake. Diff the goal plus scout findings against acceptance criteria (observable happy path, non-goals, design-flip edge cases) and Definition of Done (named verify command, review?, docs twins if docs change, PR/promote/leave-branch, what inspect_agent must show). Every hole is one numbered ask_user, batched — do not drip tickets. Another round only if the answer opens a new hole. If there are no holes, do not call ask_user. Never guess a product or scope decision. Then write a four-line brief onto the task board (the ask; Where: paths actually seen; Done means: observable result plus the proving command; Out of scope: named temptations). A goal refill is a first turn — run intake on it. A later user_message is steering, not a second intake, unless the user explicitly changes scope. Scout is the only agent that may start during intake; leads and workers wait. If scout is not in Available roles, a small HEAD Read (or explorer, if listed) covers code facts; still ask_user for product and scope holes. Never start a worker to "just look around".',
-    '1. Break the goal into tasks and start the agents you need. Each start_agent task is the brief sliced for that agent: goal, files, this slice’s acceptance criteria, how to verify, out of scope. Do not write HOW and do not address the harness inside the task.',
-    '2. Call await_events with the cursor you last received. It blocks for up to ~50 seconds and returns everything that happened.',
-    '3. Handle every event, then call await_events again with the new cursor. Repeat until the goal is reached. Never sit idle without an open await_events call, and never poll list_agents in a loop instead of waiting.',
-    '',
+    ...renderLoop(resolvedQuestionMode),
     'How to handle each event:',
     '- agent_started: the agent accepted its task and is working. Only from now on may you send_to_agent it.',
     '- agent_start_failed: the start failed (the message says why) and the slot is free again. The agentId is dead — retry with a fresh start_agent if the task still matters.',
-    '- agent_question: answer it promptly with send_to_agent{agentId, text, questionId}. A waiting agent burns time and blocks the whole run. If the question needs a decision only the user can make, get it with ask_user and relay the answer.',
+    renderAgentQuestionLine(resolvedQuestionMode),
     '- user_message: the user steered the run from the panel or their phone. Handle it immediately — do not wait for agents to finish. If targetAgentId is a direct child, send_to_agent that id with the text. If relayViaAgentId is set, send_to_agent THAT agent and ask it to pass the text to targetName (the addressee may be a helper you cannot address). Absent target = a live instruction for you: adjust the plan and redirect agents. Never type the user’s words into your own prompt as a second turn.',
     '- user_question: the echo of your own open ask_user — nothing to handle; the answer arrives as the ask_user result.',
     '- agent_done: judge the summary against the task AND the host facts on the event (uncommitted, changedFiles, diffStat) when they are present. If the facts are missing, call inspect_agent. If the work is complete, either give the agent a follow-up task with send_to_agent or end it with stop_agent. If it is incomplete or unverified, send it back to work with concrete corrections.',
@@ -256,7 +310,7 @@ export function buildLeadSystemPrompt({
     '',
     'Upward you report like a subagent:',
     '- report_done when your area’s goal is reached and verified — summarize what changed, on which branch, and how it was verified. You may report done again after follow-up work.',
-    '- ask_orchestrator when you need a decision outside your area (scope conflicts, another area’s files, anything only the user could decide — the root escalates for you). Wait for the answer; never guess. If it returns answer: null with a ticket, resume with that ticket.',
+    '- ask_orchestrator when you need a decision outside your area (scope conflicts, another area’s files, anything only the user could decide — the root escalates for you). For a decision, pass short labels in choices; the question is the prompt only. Wait for the answer; never guess. If it returns answer: null with a ticket, resume with that ticket.',
     '- report_progress for real milestones, one line, no heartbeats.',
     'Never end your turn without either report_done or an open ask_orchestrator, and stay available after report_done.',
     '',

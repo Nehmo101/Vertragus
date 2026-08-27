@@ -46,6 +46,15 @@ export const MAX_EXTRA_MCP = 4
  */
 export const MAX_ROLE_PROMPTS = 32
 
+/**
+ * How many follow-up questions the root orchestrator asks the user via
+ * `ask_user`. Prompt-only: the tool stays registered. Default `few` is
+ * today's behaviour (genuine user decisions — scope / destructive / product).
+ */
+export const QUESTION_MODES = ['none', 'few', 'thorough'] as const
+export type QuestionMode = (typeof QUESTION_MODES)[number]
+export const questionModeSchema = z.enum(QUESTION_MODES)
+
 export const rolePromptEntrySchema = z
   .object({
     roleId: idSchema,
@@ -120,9 +129,10 @@ export const automationSchema = z
     autoIntegrate: z.boolean().default(false),
     /**
      * Merge every cleanly reported agent branch into the REPOSITORY's own
-     * checkout — the panel's Promote button, without the click. This is the
-     * "merge the branch in the panel to get the fix" step automated; a dirty
-     * checkout still refuses (never overwrite the user's own work).
+     * checkout — the panel's Promote button, without the click. At the end of
+     * the run (`record_retro` or Stop) this also adopts the orchestrator's own
+     * branch, even if no subagent ran. A dirty checkout still refuses (never
+     * overwrite the user's own work).
      */
     autoPromote: z.boolean().default(false),
     /**
@@ -198,6 +208,12 @@ export const profileSchema = z
      * field so a human can redact it before it runs.
      */
     autoSubmitTasks: z.boolean().default(true),
+    /**
+     * How often the root orchestrator calls `ask_user`. Prompt-only — the
+     * tool stays registered. Default `few` so old profiles (and every new
+     * one) keep today's behaviour: genuine user decisions only, no intake.
+     */
+    questionMode: questionModeSchema.default('few'),
     /**
      * E4: wall-clock budget — the sum of agent-seconds a run may burn before
      * new starts are refused (`budget_warning` fires at 80% and at 100%).

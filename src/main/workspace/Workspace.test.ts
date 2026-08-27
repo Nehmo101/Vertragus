@@ -816,6 +816,46 @@ describe('readOutput', () => {
   })
 })
 
+describe('image attachments at orchestrator start', () => {
+  it('materializes staged files after createWorktree and before spawn/seed', async () => {
+    const order: string[] = []
+    const seen: Array<{ ids: readonly string[]; dest: string }> = []
+    const trees = fakeWorktrees()
+    const spawner = fakeSpawn({ ptySystemPrompt: true })
+    const profile = testProfile()
+    const { workspace } = harness({
+      profile,
+      deps: {
+        createWorktree: async (repoPath, agentId, branchName, options) => {
+          order.push('worktree')
+          return trees.createWorktree(repoPath, agentId, branchName, options)
+        },
+        materializeAttachments: async (ids, dest) => {
+          order.push('materialize')
+          seen.push({ ids, dest })
+        },
+        spawn: (async (input, spawnDeps) => {
+          order.push('spawn')
+          return spawner.spawn(input, spawnDeps)
+        }) as unknown as WorkspaceDeps['spawn'],
+        seed: async (write, _snapshot, prompt) => {
+          order.push('seed')
+          write(prompt)
+          return true
+        }
+      }
+    })
+    const started = await workspace.startOrchestrator({
+      initialPrompt: 'see this',
+      attachmentIds: ['stg-1']
+    })
+    expect(order).toEqual(['worktree', 'materialize', 'spawn', 'seed'])
+    expect(seen).toEqual([{ ids: ['stg-1'], dest: started.worktreePath }])
+    expect(started.worktreePath).not.toBe(profile.repoPath)
+    expect(seen[0]!.dest).not.toBe(profile.repoPath)
+  })
+})
+
 describe('startOrchestrator', () => {
   it('starts a bronze, never-yolo orchestrator with its system prompt', async () => {
     const { workspace, registry, windows, spawns } = harness()
@@ -857,6 +897,18 @@ describe('startOrchestrator', () => {
     expect(prompt).toContain('You are the orchestrator of the Vertragus workspace')
     expect(prompt).toContain('Speak German to the user.')
     expect(prompt).toMatch(/never override the reporting contract/i)
+  })
+
+  it('briefs the orchestrator with the profile questionMode', async () => {
+    const none = harness({ profile: testProfile({ questionMode: 'none' }) })
+    await none.workspace.startOrchestrator()
+    expect(none.spawns[0]!.input.systemPrompt).toContain('the goal text is authoritative')
+    expect(none.spawns[0]!.input.systemPrompt).toContain('Do not fish for extra requirements')
+
+    const thorough = harness({ profile: testProfile({ questionMode: 'thorough' }) })
+    await thorough.workspace.startOrchestrator()
+    expect(thorough.spawns[0]!.input.systemPrompt).toContain('before starting the team, close the brief')
+    expect(thorough.spawns[0]!.input.systemPrompt).toContain('one numbered ask_user, batched')
   })
 
   it('opens the CLI window before spawn so the overlay covers MCP attach', async () => {
@@ -1049,7 +1101,7 @@ describe('requestSuccession', () => {
     })
     const predecessor = await workspace.startOrchestrator()
     const worker = await workspace.startAgent({ role: 'worker', task: 'Implement the parser.' })
-    questions.create(worker.agentId, 'which interface?')
+    questions.create(worker.agentId, 'which interface?', { choices: ['REST', 'GraphQL'] })
 
     const begun = workspace.requestSuccession({
       reason: 'context_full',
@@ -1079,8 +1131,12 @@ describe('requestSuccession', () => {
     expect(prompts.at(-1)).toContain(`cursor ${begun.eventCursor}`)
     expect(prompts.at(-1)).toContain('which interface?')
 
-    const pkg = packages[0] as { openQuestions: Array<{ question: string }>; eventCursor: number }
+    const pkg = packages[0] as {
+      openQuestions: Array<{ question: string; choices?: string[] }>
+      eventCursor: number
+    }
     expect(pkg.openQuestions[0]?.question).toBe('which interface?')
+    expect(pkg.openQuestions[0]?.choices).toEqual(['REST', 'GraphQL'])
     expect(pkg.eventCursor).toBe(begun.eventCursor)
   })
 
@@ -1185,6 +1241,15 @@ describe('requestSuccession', () => {
     const seed = prompts.at(-1)!
     expect(seed).toContain('Your team right now')
     expect(seed).toContain(`[${worker.agentId}] (worker`)
+  })
+
+  it('briefs the live successor with the profile questionMode', async () => {
+    const { workspace, spawns } = harness({ profile: testProfile({ questionMode: 'none' }) })
+    await workspace.startOrchestrator()
+    await workspace.requestSuccession({ reason: 'context_full' }).ready
+    const successor = spawns.at(-1)!.input.systemPrompt
+    expect(successor).toContain('the goal text is authoritative')
+    expect(successor).toContain('Do not fish for extra requirements')
   })
 
   it('refuses a second succession while one is in flight', async () => {
@@ -3056,5 +3121,138 @@ describe('automation', () => {
     expect(prompt).toContain('merged into YOUR worktree')
     expect(prompt).toContain('never tell them to merge the branch in the panel')
     expect(prompt).toContain('record_retro')
+    expect(prompt).toContain('YOUR own branch is merged into the checkout at record_retro')
+    expect(prompt).toContain('even if no subagent ran')
+    expect(prompt).toContain('Never start an agent to merge or to open a pull request')
+  })
+
+  it('promotes the orchestrator branch into checkout at end of run with no subagent', async () => {
+    const { git, calls } = automationGit()
+    const { workspace } = harness({
+      profile: automationProfile({ autoPromote: true }),
+      deps: { worktreeDeps: { git } }
+    })
+    const orch = await workspace.startOrchestrator()
+
+    await workspace.finishRunAutomation()
+
+    const merge = merges(calls)[0]!
+    expect(merge.cwd).toBe('/repo')
+    expect(merge.args).toContain(orch.branch)
+    expect(workspace.events.all().find((entry) => entry.type === 'integrate_ok')).toMatchObject({
+      target: 'checkout',
+      branch: orch.branch
+    })
+  })
+
+  it('does not merge from finishRunAutomation when autoPromote is off', async () => {
+    const { git, calls } = automationGit()
+    const { workspace } = harness({ deps: { worktreeDeps: { git } } })
+    await workspace.startOrchestrator()
+
+    await workspace.finishRunAutomation()
+
+    expect(merges(calls)).toEqual([])
+  })
+
+  it('refuses end-of-run promote over uncommitted work in the checkout', async () => {
+    const { git, calls } = automationGit({ dirtyCheckout: true })
+    const { workspace } = harness({
+      profile: automationProfile({ autoPromote: true }),
+      deps: { worktreeDeps: { git } }
+    })
+    await workspace.startOrchestrator()
+
+    await workspace.finishRunAutomation()
+
+    expect(merges(calls)).toEqual([])
+    expect(workspace.events.all().find((entry) => entry.type === 'integrate_conflict')).toMatchObject({
+      target: 'checkout',
+      message: expect.stringContaining('uncommitted')
+    })
+  })
+
+  it('opens the pull request with the orchestrator head before promoting, and a second wrap-up is a no-op', async () => {
+    const order: string[] = []
+    const openPullRequest = vi.fn().mockImplementation(async (input: { head: string }) => {
+      order.push(`pr:${input.head}`)
+      return { ok: true, url: 'https://github.com/o/r/pull/9', created: true }
+    })
+    const { git, calls } = automationGit()
+    const sequencedGit: typeof git = async (args, cwd) => {
+      if (args.includes('merge')) order.push(`merge:${cwd}`)
+      return git(args, cwd)
+    }
+    const { workspace } = harness({
+      profile: automationProfile({ autoPr: true, autoPromote: true }),
+      deps: { worktreeDeps: { git: sequencedGit }, openPullRequest }
+    })
+    const orch = await workspace.startOrchestrator()
+
+    await workspace.finishRunAutomation({ summary: 'Done.' })
+    await workspace.finishRunAutomation({ summary: 'Again.' })
+
+    expect(openPullRequest).toHaveBeenCalledTimes(1)
+    expect(openPullRequest.mock.calls[0]![0]).toMatchObject({ head: orch.branch })
+    expect(order[0]).toBe(`pr:${orch.branch}`)
+    expect(order).toContain('merge:/repo')
+    expect(order.indexOf(`pr:${orch.branch}`)).toBeLessThan(order.indexOf('merge:/repo'))
+    expect(merges(calls)).toHaveLength(1)
+    expect(merges(calls)[0]!.args).toContain(orch.branch)
+  })
+
+  it('serializes overlapping wrap-ups so a second caller cannot promote during the PR', async () => {
+    const order: string[] = []
+    let releaseOpen!: (outcome: { ok: true; url: string; created: boolean }) => void
+    const openHeld = new Promise<{ ok: true; url: string; created: boolean }>((resolve) => {
+      releaseOpen = resolve
+    })
+    const openPullRequest = vi.fn().mockImplementation(async (input: { head: string }) => {
+      order.push(`pr:${input.head}`)
+      return openHeld
+    })
+    const { git, calls } = automationGit()
+    const sequencedGit: typeof git = async (args, cwd) => {
+      if (args.includes('merge')) order.push(`merge:${cwd}`)
+      return git(args, cwd)
+    }
+    const { workspace } = harness({
+      profile: automationProfile({ autoPr: true, autoPromote: true }),
+      deps: { worktreeDeps: { git: sequencedGit }, openPullRequest }
+    })
+    const orch = await workspace.startOrchestrator()
+
+    const first = workspace.finishRunAutomation({ summary: 'Done.' })
+    const second = workspace.finishRunAutomation({ summary: 'Again.' })
+    await vi.waitFor(() => {
+      expect(openPullRequest).toHaveBeenCalledTimes(1)
+    })
+    expect(merges(calls)).toEqual([])
+
+    releaseOpen({ ok: true, url: 'https://github.com/o/r/pull/9', created: true })
+    const [fromFirst, fromSecond] = await Promise.all([first, second])
+
+    expect(fromFirst).toEqual(fromSecond)
+    expect(openPullRequest).toHaveBeenCalledTimes(1)
+    expect(openPullRequest.mock.calls[0]![0]).toMatchObject({ head: orch.branch })
+    expect(order[0]).toBe(`pr:${orch.branch}`)
+    expect(order).toContain('merge:/repo')
+    expect(order.indexOf(`pr:${orch.branch}`)).toBeLessThan(order.indexOf('merge:/repo'))
+    expect(merges(calls)).toHaveLength(1)
+    expect(merges(calls)[0]!.args).toContain(orch.branch)
+  })
+
+  it('still skips the orchestrator on per-child adoptOnDone', async () => {
+    const { git, calls } = automationGit()
+    const { workspace } = harness({
+      profile: automationProfile({ autoPromote: true }),
+      deps: { worktreeDeps: { git } }
+    })
+    const orch = await workspace.startOrchestrator()
+
+    await workspace.adoptOnDone(orch.agentId, 'success')
+
+    expect(merges(calls)).toEqual([])
+    expect(workspace.events.all().filter((event) => event.type === 'integrate_ok')).toEqual([])
   })
 })

@@ -8,7 +8,7 @@ const MCP_CONTRACT_SNAPSHOT = [
   'You report to an orchestrator agent through MCP tools. Follow these rules for every task:',
   '1. Do the work yourself. Read the repository, change the files, run the checks.',
   '2. When the task is finished, call report_done with a short factual summary of what you changed and how you verified it. Use status "success" only when you verified it, "blocked" when something outside your control stops you, "failed" when you tried and it does not work.',
-  '3. If you need a decision, a permission, an interface, or information you cannot obtain yourself, call ask_orchestrator and wait for the answer. Do not guess, do not pick a random option, and do not idle.',
+  '3. If you need a decision, a permission, an interface, or information you cannot obtain yourself, call ask_orchestrator and wait for the answer. For a decision, pass 2–8 short labels in choices — question is the prompt only, never a numbered list. Do not guess, do not pick a random option, and do not idle.',
   '4. If ask_orchestrator returns answer: null and a ticket, call it again with that same ticket. Do not rephrase the question and do not open a second question.',
   '5. Send a one-line report_progress on real milestones only, not as a heartbeat.',
   '6. Never stop working silently and never end your turn without either report_done or an open ask_orchestrator.',

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   absToRelRect,
+  displayForZone,
   MAX_ZONES,
   MIN_ZONE_FRACTION,
   relRectSchema,
@@ -75,6 +76,14 @@ describe('resolveZoneRect', () => {
   it('returns null when the display is not attached (auto-tiling takes over)', () => {
     expect(resolveZoneRect({ displayId: 99, rect: { x: 0, y: 0, w: 1, h: 1 } }, displays)).toBeNull()
     expect(resolveZoneRect({ displayId: 1, rect: { x: 0, y: 0, w: 1, h: 1 } }, [])).toBeNull()
+  })
+
+  it('picks zone.displayId, not the primary, when several monitors are attached', () => {
+    expect(displayForZone({ displayId: 2 }, displays)?.id).toBe(2)
+    expect(displayForZone({ displayId: 1 }, displays)?.id).toBe(1)
+    expect(displayForZone({ displayId: 99 }, displays)).toBeUndefined()
+    const rect = resolveZoneRect({ displayId: 2, rect: { x: 0, y: 0, w: 1, h: 1 } }, displays)
+    expect(rect?.x).toBe(displays[1]!.workArea.x)
   })
 
   it('rematches a stale Electron display id when only one monitor is attached', () => {

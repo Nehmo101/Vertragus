@@ -13,6 +13,31 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Auto-Promote des Orchestrator-Branches am Laufende.** Bei
+  eingeschaltetem `autoPromote` mergt der Host den eigenen Branch des
+  Orchestrators am Ende des Laufs (`record_retro` oder Stop) ins
+  Repository-Checkout — auch ohne Subagent. `autoPr` läuft davor, damit
+  der Pull Request den Branch noch als voraus sieht. Per-Kind
+  autoIntegrate / autoPromote und der Promote-Knopf im Panel (nur
+  gestoppte Subagenten) bleiben unverändert.
+- **Orchestrator-Fragevolumen pro Profil.** Profile tragen jetzt
+  `questionMode` (`none` / `few` / `thorough`, Standard `few`). Der
+  Profil-Editor hat einen Picker nach Auto-Submit. Der Root-Orchestrator-
+  Prompt wird entsprechend briefed — nur Prompt-Ebene, `ask_user` bleibt
+  registriert. `none` fragt trotzdem vor einer destruktiven Aktion oder
+  einer Scope-Änderung; `thorough` schließt zuerst das Briefing (Scout +
+  vierzeiliges Board-Brief). Leads werden nicht briefed; es gibt keinen
+  Picker im Remote-Client.
+- **Auswahl-Buttons bei Agenten- und User-Fragen.** `ask_user` und
+  `ask_orchestrator` nehmen optionale `choices` (höchstens 28 kurze
+  Labels). Das `?`-Badge im Panel und das Antwortformular auf dem Handy
+  zeigen einen Button pro Wahl plus das bestehende freie Textfeld; ein
+  Tippen sendet das Label über denselben `answerQuestion` /
+  `answer_question`-Pfad. Fragen ohne strukturierte `choices` fallen auf
+  ein konservatives Parsen einer aufeinanderfolgenden nummerierten,
+  buchstabierten oder Aufzählungsliste (mindestens zwei Einträge) zurück
+  und bleiben sonst nur Text. MCP-Tool-Contract-Version ist jetzt
+  `1.2.0`.
 - **Pi-Wrap-Exit-Plan.** Das Overlay geht; Host-Gewinne bleiben nativ
   (Session-Chrome, First-Turn-Hold, Policy auf echten CLIs,
   Sentinel-Ollama). Kein First-Party-Coding-Agent. Plan:

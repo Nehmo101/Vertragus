@@ -11,6 +11,7 @@
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { parseNewAskChoices, questionChoicesToolFieldSchema } from '@shared/questionChoices'
 import { AGENT_DONE_STATUSES, type JsonValue } from '@shared/schema/events'
 import { RESULT_MAX_CHARS, validateResult } from '@shared/schema/resultSchema'
 import {
@@ -172,14 +173,18 @@ export function registerSubagentTools(
     {
       description:
         'Ask the orchestrator a concrete question and wait for the answer. This call blocks until the ' +
-        'answer arrives. If it returns answer: null, call it again with the returned ticket and the ' +
-        'unchanged question. Never guess an answer and never continue without one.',
+        'answer arrives. For a decision, pass 2–8 short labels in choices (at most 28); question is the ' +
+        'prompt only — do not dump numbered options into it. If it returns answer: null, call it again ' +
+        'with the returned ticket and the unchanged question. Never guess an answer and never continue without one.',
       inputSchema: {
         question: z
           .string()
           .min(1)
           .max(4_000)
-          .describe('One concrete question, with the context needed to answer it'),
+          .describe('The prompt only — do not dump numbered options into this string'),
+        choices: questionChoicesToolFieldSchema.describe(
+          'Short labels for a decision (typically 2–8, at most 28, each ≤ 200 chars). The human taps one to answer. Omit for open-ended questions.'
+        ),
         ticket: z
           .string()
           .min(1)
@@ -187,7 +192,7 @@ export function registerSubagentTools(
           .describe('Only when resuming: the ticket from a previous answer: null response')
       }
     },
-    async ({ question, ticket }): Promise<ToolText> => {
+    async ({ question, ticket, choices }): Promise<ToolText> => {
       // Per CALLER, not per workspace: the window an agent may block is bounded
       // by ITS OWN CLI's MCP tool timeout, and a run happily mixes a claude
       // worker (raised) with a codex worker (60 s default). Resolved per call —
@@ -199,6 +204,7 @@ export function registerSubagentTools(
       )
 
       if (ticket) {
+        // Ignore leftover/empty/invalid `choices` — they must not block resume.
         const resumed = await runtime.questions.waitForAnswer(ticket, agentId, timeoutMs)
         if (resumed.state === 'answered') return toolJson({ answer: resumed.answer, ticket })
         if (resumed.state === 'timeout') return toolJson({ answer: null, ticket, note: TICKET_NOTE })
@@ -219,7 +225,12 @@ export function registerSubagentTools(
       // A second open question would give the orchestrator two things to answer
       // for one blocked agent; reuse the open one instead.
       const alreadyOpen = runtime.questions.openForAgent(agentId)
-      const pending = alreadyOpen ?? runtime.questions.create(agentId, question)
+      const newChoices = alreadyOpen ? undefined : parseNewAskChoices(choices)
+      const pending =
+        alreadyOpen ??
+        runtime.questions.create(agentId, question, {
+          ...(newChoices ? { choices: newChoices } : {})
+        })
       if (!alreadyOpen) {
         // F: questions climb exactly ONE level — the event goes to the
         // asking agent's parent (lead or root), never skip-level.
@@ -227,7 +238,8 @@ export function registerSubagentTools(
           type: 'agent_question',
           ...identity(),
           questionId: pending.questionId,
-          question
+          question,
+          ...(pending.choices && pending.choices.length > 0 ? { choices: pending.choices } : {})
         })
       }
 

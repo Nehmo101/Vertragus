@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { EFFORT_LEVELS } from '@shared/schema/provider'
+import { QUESTION_MODES, type QuestionMode } from '@shared/schema/profile'
 import type { ModelDiscoveryResult, ProviderListEntry } from '../../../preload'
 import { NEW_PROVIDER_VALUE } from '../providerEditor/model'
 import { filterModelOptions, modelComboStatus, modelOptions, type EffortChoice } from './model'
@@ -146,12 +146,20 @@ function PencilIcon(): React.JSX.Element {
 
 interface EffortSelectProps {
   value: EffortChoice
+  /** Native CLI tokens for the selected model (or the provider fallback). */
+  options: readonly string[]
   onChange(value: EffortChoice): void
   className?: string
 }
 
-export function EffortSelect({ value, onChange, className }: EffortSelectProps): React.JSX.Element {
+export function EffortSelect({
+  value,
+  options,
+  onChange,
+  className
+}: EffortSelectProps): React.JSX.Element {
   const { t } = useTranslation()
+  const shown = value && !options.includes(value) ? [value, ...options] : options
   return (
     <select
       className={className ?? 'pe-input'}
@@ -159,9 +167,37 @@ export function EffortSelect({ value, onChange, className }: EffortSelectProps):
       onChange={(event) => onChange(event.target.value as EffortChoice)}
     >
       <option value="">{t('profileEditor.effortDefault')}</option>
-      {EFFORT_LEVELS.map((level) => (
+      {shown.map((level) => (
         <option key={level} value={level}>
-          {t(`profileEditor.effortLevel.${level}`)}
+          {level}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+interface QuestionModeSelectProps {
+  value: QuestionMode
+  onChange(value: QuestionMode): void
+  className?: string
+}
+
+/** Always one of none / few / thorough — no empty option, unlike EffortSelect. */
+export function QuestionModeSelect({
+  value,
+  onChange,
+  className
+}: QuestionModeSelectProps): React.JSX.Element {
+  const { t } = useTranslation()
+  return (
+    <select
+      className={className ?? 'pe-input'}
+      value={value}
+      onChange={(event) => onChange(event.target.value as QuestionMode)}
+    >
+      {QUESTION_MODES.map((mode) => (
+        <option key={mode} value={mode}>
+          {t(`profileEditor.questionMode.${mode}`)}
         </option>
       ))}
     </select>

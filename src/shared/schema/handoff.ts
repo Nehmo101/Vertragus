@@ -7,6 +7,7 @@
  * hints and are truncated first when the package hits the size cap.
  */
 import { z } from 'zod'
+import { questionChoicesFieldSchema } from '../questionChoices'
 
 export const SUCCESSION_REASONS = [
   'context_full',
@@ -105,7 +106,8 @@ export const handoffOpenQuestionSchema = z
   .object({
     questionId: z.string().min(1),
     agentId: z.string().min(1),
-    question: cappedString(QUESTION_MAX_CHARS)
+    question: cappedString(QUESTION_MAX_CHARS),
+    choices: questionChoicesFieldSchema.optional()
   })
   .strict()
 export type HandoffOpenQuestion = z.infer<typeof handoffOpenQuestionSchema>
