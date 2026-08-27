@@ -43,7 +43,7 @@ describe('effectiveCliSurface', () => {
     expect(effectiveCliSurface({ setting: 'raw', boot: 'waiting' })).toBe('raw')
   })
 
-  it('does not force raw for the other boot phases — the greyhound overlay covers those', () => {
+  it('does not force raw for the other boot phases', () => {
     expect(effectiveCliSurface({ setting: 'session', boot: 'preparing' })).toBe('session')
     expect(effectiveCliSurface({ setting: 'session', boot: 'handshake' })).toBe('session')
     expect(effectiveCliSurface({ setting: 'session', boot: null })).toBe('session')

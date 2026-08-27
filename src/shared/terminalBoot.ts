@@ -1,14 +1,19 @@
 /**
- * Boot overlay on an agent's CLI window.
+ * Boot UI on an agent's CLI window.
  *
  * The window opens as soon as the host has a PTY to attach, which is *before*
- * the worktree, MCP attach and first-turn seed finish. The overlay (greyhound
- * + status) sits on top of that window so the user sees progress instead of a
- * CLI that is still loading servers — and so the first `await_events` turn
- * is not submitted until the Vertragus MCP session is actually up.
+ * the worktree, MCP attach and first-turn seed finish. Live xterm/session
+ * output is visible for every phase except `waiting`; a compact titlebar
+ * status names the phase so an empty terminal is not silent. The full
+ * greyhound overlay appears only while waiting for a late MCP session
+ * (click-through, so a leftover Cursor approval can still be answered).
+ *
+ * Overlay visibility does not change the seed hold: the first
+ * `await_events` turn is still not submitted until the Vertragus MCP
+ * session is actually up.
  *
  * Main sends these phase ids over `terminal:boot`; the renderer translates
- * them. `null` means the overlay is gone.
+ * them. `null` means no overlay and no boot status.
  */
 export const TERMINAL_BOOT_PHASES = [
   'preparing',
@@ -21,9 +26,21 @@ export const TERMINAL_BOOT_PHASES = [
 
 export type TerminalBootPhase = (typeof TERMINAL_BOOT_PHASES)[number]
 
-/** True while the CLI window should keep the greyhound overlay up. */
-export function bootOverlayVisible(phase: TerminalBootPhase | null | undefined): boolean {
-  return phase != null
+/** True only while waiting for a late MCP session — full greyhound overlay. */
+export function bootOverlayVisible(
+  phase: TerminalBootPhase | null | undefined
+): phase is 'waiting' {
+  return phase === 'waiting'
+}
+
+/**
+ * Compact titlebar phase line while xterm/session is live (every boot phase
+ * except `waiting`). `null` / `undefined` show nothing.
+ */
+export function bootStatusVisible(
+  phase: TerminalBootPhase | null | undefined
+): phase is Exclude<TerminalBootPhase, 'waiting'> {
+  return phase != null && phase !== 'waiting'
 }
 
 /** Waiting-for-MCP is click-through so a leftover Cursor approval can be answered. */
