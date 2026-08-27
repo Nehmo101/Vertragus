@@ -11,7 +11,7 @@
  * Pure on purpose — the aggregation is the part that can silently drop a
  * question, and it is the part a unit test can hold.
  */
-import { questionChoicesDisplay } from '@shared/questionChoices'
+import { questionChoicesDisplay } from '@shared/questionChoicesDisplay'
 import type { RemoteWorkspaceSummary } from '@shared/remote/protocol'
 
 /**

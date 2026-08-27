@@ -42,7 +42,7 @@
  */
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import HoundLogo from '@renderer/panel/HoundLogo'
-import { questionChoicesDisplay } from '@shared/questionChoices'
+import { questionChoicesDisplay } from '@shared/questionChoicesDisplay'
 import type {
   RemoteAgentSummary,
   RemoteProfileSummary,
