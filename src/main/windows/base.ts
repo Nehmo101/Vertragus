@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { BrowserWindow, shell, type WebContents } from 'electron'
+import { BrowserWindow, shell } from 'electron'
+import type { WebContents } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { getSettings } from '@main/store/settings'
 import { glassSurface, type GlassEnvironment, type GlassTheme } from './glassSurface'

@@ -5,6 +5,7 @@ vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn(), on: vi.fn(), removeHandler: vi.fn(), removeAllListeners: vi.fn() },
   dialog: { showOpenDialog: vi.fn(), showMessageBox: vi.fn() },
   BrowserWindow: { getAllWindows: () => [] },
+  shell: { openExternal: vi.fn() },
   session: {
     defaultSession: {
       setPermissionRequestHandler: vi.fn(),
@@ -41,6 +42,13 @@ vi.mock('@main/windows/settingsWindow', () => ({
   openSettingsWindow: vi.fn(),
   closeSettingsWindow: vi.fn(),
   getSettingsWindow: vi.fn(() => null)
+}))
+vi.mock('@main/windows/timelineWindow', () => ({
+  isTimelineWindowSender: vi.fn(() => null),
+  openTimelineWindow: vi.fn(),
+  closeTimelineWindow: vi.fn(),
+  getTimelineWindow: vi.fn(() => null),
+  listTimelineWindows: vi.fn(() => [])
 }))
 vi.mock('@main/updater', () => ({
   appUpdater: vi.fn(() => ({

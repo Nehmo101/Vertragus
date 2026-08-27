@@ -482,7 +482,7 @@ describe('startMinimized', () => {
     const suppress = vi.spyOn(placement, 'suppressMoveTracking')
     const win = fake(cli.createCliWindow('agent-a', META))
     win.emit('ready-to-show')
-    expect(win.calls).toEqual(['show', 'minimize'])
+    expect(win.calls).toEqual(['showInactive', 'minimize'])
     expect(win.minimized).toBe(true)
     expect(suppress).toHaveBeenCalledWith('agent-a')
   })
@@ -490,7 +490,7 @@ describe('startMinimized', () => {
   it('does not minimize when the pref is off', () => {
     const win = fake(cli.createCliWindow('agent-a', META))
     win.emit('ready-to-show')
-    expect(win.calls).toEqual(['show'])
+    expect(win.calls).toEqual(['showInactive'])
     expect(win.minimized).toBe(false)
   })
 
@@ -499,7 +499,7 @@ describe('startMinimized', () => {
     win.emit('ready-to-show')
     settingsUi.startMinimized = true
     expect(win.minimized).toBe(false)
-    expect(win.calls).toEqual(['show'])
+    expect(win.calls).toEqual(['showInactive'])
   })
 
   it('skips minimize when focusCliWindow ran before ready-to-show', () => {
