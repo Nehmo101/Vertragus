@@ -836,7 +836,12 @@ class FakePty implements AgentPty {
     this.spawnOptions = options
   }
   write(): void {}
-  resize(): void {}
+  resize(cols: number, rows: number): void {
+    if (cols > 0 && rows > 0) {
+      this.cols = cols
+      this.rows = rows
+    }
+  }
   onData(): () => void {
     return () => undefined
   }
@@ -874,6 +879,25 @@ describe('spawnAgent', () => {
       args: launch.args,
       cwd: '/repo/.vertragus/worktrees/a1'
     })
+  })
+
+  it('spawns a pre-resized PTY at its current size', async () => {
+    const pty = new FakePty()
+    pty.resize(160, 50)
+    await spawnAgent(launchInput(), { resolve, createPty: () => pty })
+    expect(pty.spawnOptions).toMatchObject({ cols: 160, rows: 50 })
+  })
+
+  it('lets deps.cols/rows override the PTY current size', async () => {
+    const pty = new FakePty()
+    pty.resize(160, 50)
+    await spawnAgent(launchInput(), {
+      resolve,
+      createPty: () => pty,
+      cols: 80,
+      rows: 24
+    })
+    expect(pty.spawnOptions).toMatchObject({ cols: 80, rows: 24 })
   })
 
   it('pre-approves Cursor MCP servers at spawn so the TUI does not stop on each one', async () => {
