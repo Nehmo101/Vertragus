@@ -29,8 +29,10 @@ import { reflowNeighbors } from '@shared/layout/reflow'
 import { ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
 import {
   absToRelRect,
+  matchDisplay,
   resolveZoneRect,
   zonesForRole,
+  type AbsRect,
   type Zone,
   type ZoneLayout
 } from '@shared/schema/zones'
@@ -128,18 +130,19 @@ function areaOf(rect: Rect): number {
  * A profile that picked a target screen (the zone overlay's display picker)
  * is pinned to that monitor: auto-tiling must not spill onto the other one,
  * and zones drawn on a different display are ignored until that display is
- * chosen again. A stale id (unplugged, Windows Display.id churn) degrades
- * the same way {@link resolveZoneRect} does — sole remaining monitor wins,
- * otherwise every attached display (do not guess).
+ * chosen again. A stale id rematches from the saved work area (Windows
+ * Display.id churn) the same way {@link matchDisplay} does — unique geometry
+ * or the sole remaining monitor wins, otherwise every attached display
+ * (do not guess).
  */
 export function displaysForPlacement(
   displays: readonly DisplayInfo[],
-  targetDisplayId: number | undefined
+  targetDisplayId: number | undefined,
+  targetWorkArea?: AbsRect
 ): DisplayInfo[] {
   if (targetDisplayId === undefined || displays.length === 0) return [...displays]
-  const match = displays.find((display) => display.id === targetDisplayId)
+  const match = matchDisplay({ displayId: targetDisplayId, workArea: targetWorkArea }, displays)
   if (match) return [match]
-  if (displays.length === 1) return [...displays]
   return [...displays]
 }
 
@@ -172,14 +175,29 @@ function resolvableZones(
   displays: readonly DisplayInfo[]
 ): Rect[] {
   // A live target screen must not inherit leftover zones from a different
-  // monitor: `resolveZoneRect` rematches a stale id when only one display is
-  // in the list, and `displaysForPlacement` already narrowed to the target.
-  const target = layout?.targetDisplayId
-  const targetAttached = target !== undefined && displays.some((display) => display.id === target)
+  // monitor. After Display.id churn the saved target id may not appear in
+  // `displays`; rematch it and rewrite those zones onto the live id so
+  // `resolveZoneRect` does not apply leftover-primary zones via the
+  // sole-display fallback.
+  const savedTarget = layout?.targetDisplayId
+  const resolvedTarget =
+    savedTarget === undefined
+      ? undefined
+      : matchDisplay({ displayId: savedTarget, workArea: layout?.targetWorkArea }, displays)
   const rects: Rect[] = []
   for (const zone of zonesForRole(layout, roleId)) {
-    if (targetAttached && zone.displayId !== target) continue
-    const rect = resolveZoneRect(zone, displays)
+    if (
+      resolvedTarget &&
+      zone.displayId !== savedTarget &&
+      zone.displayId !== resolvedTarget.id
+    ) {
+      continue
+    }
+    const mapped =
+      resolvedTarget && zone.displayId === savedTarget
+        ? { ...zone, displayId: resolvedTarget.id }
+        : zone
+    const rect = resolveZoneRect(mapped, displays, { workArea: layout?.targetWorkArea })
     if (rect) rects.push(rect)
   }
   return rects
@@ -196,10 +214,15 @@ function resolvableZones(
  */
 export function planWindowLayout(input: PlanWindowLayoutInput): PlacedWindow[] {
   const participants = input.windows.filter((window) => !window.movedByUser)
-  const displays = displaysForPlacement(input.displays, input.profile?.zones?.targetDisplayId)
+  const layoutZones = input.profile?.zones
+  const displays = displaysForPlacement(
+    input.displays,
+    layoutZones?.targetDisplayId,
+    layoutZones?.targetWorkArea
+  )
   if (participants.length === 0 || displays.length === 0) return []
 
-  const layout = input.profile?.zones
+  const layout = layoutZones
   const placements = new Map<string, Rect>()
 
   // --- zoned roles: one mini grid per zone ---------------------------------
@@ -381,7 +404,13 @@ export function mergeLiveReflowZones(
   const incoming = live.zones.filter((zone) => reflowed.has(zone.displayId))
   const taken = new Set(incoming.map(zoneRoleDisplayKey))
   const kept = (existing?.zones ?? []).filter((zone) => !taken.has(zoneRoleDisplayKey(zone)))
-  return { zones: [...kept, ...incoming] }
+  return {
+    zones: [...kept, ...incoming],
+    ...(existing?.targetDisplayId !== undefined
+      ? { targetDisplayId: existing.targetDisplayId }
+      : {}),
+    ...(existing?.targetWorkArea ? { targetWorkArea: existing.targetWorkArea } : {})
+  }
 }
 
 function withPlacements(
@@ -531,6 +560,9 @@ export function planLiveReflow(input: PlanLiveReflowInput): LiveReflowPlan | nul
 export interface MovableWindow {
   on(event: 'move' | 'resize', handler: () => void): unknown
   setBounds(bounds: Rect): void
+  /** Needed to jump a window onto another display; Electron often ignores a lone setBounds. */
+  setPosition?(x: number, y: number): void
+  getBounds?(): Rect
   isDestroyed?(): boolean
 }
 
@@ -541,6 +573,12 @@ export interface MovableWindow {
  * mark our own tiling as a user drag.
  */
 export const PROGRAMMATIC_GRACE_MS = 800
+/**
+ * Hide/show and zone-snap fire a burst of delayed move events (Windows dumps
+ * the window on the primary, compositors remap after `show`). Longer than
+ * {@link PROGRAMMATIC_GRACE_MS} so that burst cannot rewrite saved zones.
+ */
+export const SNAP_GRACE_MS = 2000
 
 const movedByUser = new Set<string>()
 const programmaticUntil = new Map<string, number>()
@@ -604,9 +642,14 @@ export function markMovedByUser(agentId: string): void {
   movedByUser.add(agentId)
 }
 
+/** Drop the user-drag pin so a snap-to-zones pass may move the window again. */
+export function forgetMovedByUser(agentId: string): void {
+  movedByUser.delete(agentId)
+}
+
 /** Drop a closed window's bookkeeping so a reopened agent tiles again. */
 export function forgetWindowPlacement(agentId: string): void {
-  movedByUser.delete(agentId)
+  forgetMovedByUser(agentId)
   programmaticUntil.delete(agentId)
   if (pendingReflowId === agentId) {
     pendingReflowId = undefined
@@ -616,8 +659,14 @@ export function forgetWindowPlacement(agentId: string): void {
 }
 
 /** Ignore move/resize events for this window for the next grace period. */
-export function suppressMoveTracking(agentId: string, now?: () => number): void {
-  programmaticUntil.set(agentId, (now ?? clock)() + PROGRAMMATIC_GRACE_MS)
+export function suppressMoveTracking(
+  agentId: string,
+  now?: () => number,
+  graceMs = PROGRAMMATIC_GRACE_MS
+): void {
+  const until = (now ?? clock)() + graceMs
+  const previous = programmaticUntil.get(agentId) ?? 0
+  programmaticUntil.set(agentId, Math.max(previous, until))
   // hide()/show()/restore() fire move events; a pending live reflow from
   // those must not rewrite zones onto the screen Windows shoved the window to.
   if (pendingReflowId === agentId) {
@@ -662,7 +711,32 @@ export function applyWindowBounds(
 ): void {
   if (win.isDestroyed?.()) return
   suppressMoveTracking(agentId, now)
+  pinWindowBounds(win, bounds)
+}
+
+/**
+ * Electron on Windows/Linux often clamps a single `setBounds` to the display
+ * the window currently sits on. Jumping to the target origin first, then
+ * applying the full rect (and retrying if the compositor ignored it) is what
+ * actually lands a hide-all restore on a secondary monitor.
+ */
+function pinWindowBounds(win: MovableWindow, bounds: Rect): void {
+  const current = win.getBounds?.()
+  if (current && (current.x !== bounds.x || current.y !== bounds.y)) {
+    win.setPosition?.(bounds.x, bounds.y)
+  }
   win.setBounds(bounds)
+  const after = win.getBounds?.()
+  if (
+    after &&
+    (after.x !== bounds.x ||
+      after.y !== bounds.y ||
+      after.width !== bounds.width ||
+      after.height !== bounds.height)
+  ) {
+    win.setPosition?.(bounds.x, bounds.y)
+    win.setBounds(bounds)
+  }
 }
 
 /** Test seam — the registry is module state by design (it outlives windows). */

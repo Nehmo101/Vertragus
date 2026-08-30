@@ -16,6 +16,7 @@ import {
   resetPlacementStateForTesting,
   setLiveReflowHandler,
   setReflowNeighborsGetter,
+  SNAP_GRACE_MS,
   suppressMoveTracking,
   trackWindowMoves,
   type DisplayInfo,
@@ -280,6 +281,42 @@ describe('placeAgentWindow — auto-tiling', () => {
     expect(bounds).not.toEqual({ x: 960, y: 0, width: 960, height: 1080 })
   })
 
+  it('places on the saved screen after Display.id churn', () => {
+    const profile = {
+      zones: zoneLayoutSchema.parse({
+        targetDisplayId: 99,
+        targetWorkArea: SECOND.workArea,
+        zones: [{ roleId: 'worker', displayId: 99, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+      })
+    }
+    const bounds = placeAgentWindow({
+      profile,
+      roleId: 'worker',
+      displays: [PRIMARY, SECOND]
+    })
+    expect(contains(SECOND.workArea, bounds)).toBe(true)
+  })
+
+  it('ignores leftover primary zones after Display.id rematch', () => {
+    const profile = {
+      zones: zoneLayoutSchema.parse({
+        targetDisplayId: 99,
+        targetWorkArea: SECOND.workArea,
+        zones: [
+          { roleId: 'worker', displayId: PRIMARY.id, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } },
+          { roleId: 'worker', displayId: SECOND.id, rect: { x: 0, y: 0, w: 0.25, h: 1 } }
+        ]
+      })
+    }
+    const bounds = placeAgentWindow({
+      profile,
+      roleId: 'worker',
+      displays: [PRIMARY, SECOND]
+    })
+    expect(bounds).toEqual({ x: 1920, y: 0, width: 400, height: 900 })
+    expect(bounds).not.toEqual({ x: 960, y: 0, width: 960, height: 1080 })
+  })
+
   it('returns a usable rect when there is no display at all', () => {
     const bounds = placeAgentWindow({ roleId: 'worker', displays: [] })
     expect(bounds.width).toBeGreaterThan(0)
@@ -293,6 +330,14 @@ describe('displaysForPlacement', () => {
     expect(displaysForPlacement([PRIMARY, SECOND], 99)).toEqual([PRIMARY, SECOND])
     expect(displaysForPlacement([PRIMARY], 99)).toEqual([PRIMARY])
     expect(displaysForPlacement([PRIMARY, SECOND], undefined)).toEqual([PRIMARY, SECOND])
+  })
+
+  it('rematches a stale target id from the saved work area', () => {
+    expect(displaysForPlacement([PRIMARY, SECOND], 99, SECOND.workArea)).toEqual([SECOND])
+    expect(displaysForPlacement([PRIMARY, SECOND], 99, { x: 50, y: 50, width: 10, height: 10 })).toEqual(
+      [PRIMARY, SECOND]
+    )
+    expect(displaysForPlacement([], 2, SECOND.workArea)).toEqual([])
   })
 })
 
@@ -397,6 +442,131 @@ describe('windows the user moved', () => {
     }
     applyWindowBounds('gone', win, { x: 0, y: 0, width: 100, height: 100 })
     expect(called).toBe(0)
+  })
+
+  it('jumps to the target origin before setBounds so a cross-display move sticks', () => {
+    let bounds: Rect = { x: 10, y: 10, width: 400, height: 300 }
+    let originPinned = false
+    const win: MovableWindow = {
+      on: () => undefined,
+      getBounds: () => bounds,
+      setPosition(x, y) {
+        bounds = { ...bounds, x, y }
+        originPinned = true
+      },
+      setBounds(next) {
+        // Windows: a lone setBounds onto another display is ignored.
+        if (!originPinned && next.x !== bounds.x) return
+        bounds = next
+        originPinned = false
+      }
+    }
+    applyWindowBounds('a', win, { x: 2000, y: 10, width: 700, height: 500 })
+    expect(win.getBounds?.()).toEqual({ x: 2000, y: 10, width: 700, height: 500 })
+  })
+
+  it('retries setPosition+setBounds when the compositor ignores the first jump', () => {
+    let bounds: Rect = { x: 10, y: 10, width: 400, height: 300 }
+    let setBoundsCalls = 0
+    const win: MovableWindow = {
+      on: () => undefined,
+      getBounds: () => bounds,
+      setPosition(x, y) {
+        bounds = { ...bounds, x, y }
+      },
+      setBounds(next) {
+        setBoundsCalls += 1
+        if (setBoundsCalls === 1) {
+          // Hide/show dump: compositor puts the window back on the primary.
+          bounds = { x: 10, y: 10, width: 400, height: 300 }
+          return
+        }
+        bounds = next
+      }
+    }
+    applyWindowBounds('a', win, { x: 2000, y: 50, width: 700, height: 500 })
+    expect(setBoundsCalls).toBe(2)
+    expect(win.getBounds?.()).toEqual({ x: 2000, y: 50, width: 700, height: 500 })
+  })
+
+  it('pins by y when x already matches the target origin', () => {
+    let bounds: Rect = { x: 2000, y: 0, width: 400, height: 300 }
+    let positioned = 0
+    const win: MovableWindow = {
+      on: () => undefined,
+      getBounds: () => bounds,
+      setPosition(x, y) {
+        positioned += 1
+        bounds = { ...bounds, x, y }
+      },
+      setBounds(next) {
+        bounds = next
+      }
+    }
+    applyWindowBounds('a', win, { x: 2000, y: 80, width: 700, height: 500 })
+    expect(positioned).toBe(1)
+    expect(bounds).toEqual({ x: 2000, y: 80, width: 700, height: 500 })
+  })
+
+  it('skips setPosition when the window is already at the target origin', () => {
+    let bounds: Rect = { x: 2000, y: 10, width: 400, height: 300 }
+    let positioned = 0
+    const win: MovableWindow = {
+      on: () => undefined,
+      getBounds: () => bounds,
+      setPosition() {
+        positioned += 1
+      },
+      setBounds(next) {
+        bounds = next
+      }
+    }
+    applyWindowBounds('a', win, { x: 2000, y: 10, width: 700, height: 500 })
+    expect(positioned).toBe(0)
+    expect(bounds).toEqual({ x: 2000, y: 10, width: 700, height: 500 })
+  })
+
+  it('still setBounds when the window cannot report its origin', () => {
+    let applied: Rect | undefined
+    const win: MovableWindow = {
+      on: () => undefined,
+      setBounds(next) {
+        applied = next
+      }
+    }
+    applyWindowBounds('a', win, { x: 2000, y: 10, width: 700, height: 500 })
+    expect(applied).toEqual({ x: 2000, y: 10, width: 700, height: 500 })
+  })
+
+  it('still setBounds when setPosition is missing', () => {
+    let bounds: Rect = { x: 10, y: 10, width: 400, height: 300 }
+    const win: MovableWindow = {
+      on: () => undefined,
+      getBounds: () => bounds,
+      setBounds(next) {
+        bounds = next
+      }
+    }
+    applyWindowBounds('a', win, { x: 2000, y: 10, width: 700, height: 500 })
+    expect(bounds).toEqual({ x: 2000, y: 10, width: 700, height: 500 })
+  })
+
+  it('does not shrink an in-flight snap grace with a shorter suppress', () => {
+    let clock = 1_000
+    const events = new Map<string, () => void>()
+    const win: MovableWindow = {
+      on: (event, handler) => events.set(event, handler),
+      setBounds: () => undefined
+    }
+    trackWindowMoves('a', win, () => clock)
+    suppressMoveTracking('a', () => clock, SNAP_GRACE_MS)
+    suppressMoveTracking('a', () => clock, PROGRAMMATIC_GRACE_MS)
+    clock += PROGRAMMATIC_GRACE_MS + 1
+    events.get('move')!()
+    expect(isMovedByUser('a')).toBe(false)
+    clock = 1_000 + SNAP_GRACE_MS
+    events.get('move')!()
+    expect(isMovedByUser('a')).toBe(true)
   })
 })
 
@@ -505,6 +675,31 @@ describe('live neighbor reflow', () => {
     ).toEqual(['orchestrator:1', 'reviewer:1', 'worker:1', 'worker:2'])
   })
 
+  it('keeps the profile’s chosen screen when live reflow rewrites rectangles', () => {
+    const existing = zoneLayoutSchema.parse({
+      targetDisplayId: SECOND.id,
+      targetWorkArea: SECOND.workArea,
+      zones: [{ roleId: 'worker', displayId: 2, rect: { x: 0, y: 0, w: 0.5, h: 1 } }]
+    })
+    const live = layout({ roleId: 'worker', displayId: 2, rect: { x: 0, y: 0, w: 0.4, h: 1 } })
+    const merged = mergeLiveReflowZones(existing, live, [SECOND.id])
+    expect(merged.targetDisplayId).toBe(SECOND.id)
+    expect(merged.targetWorkArea).toEqual(SECOND.workArea)
+
+    const plan = planLiveReflow({
+      displays: [PRIMARY, SECOND],
+      previousDisplayId: SECOND.id,
+      existingZones: existing,
+      movedId: 'left',
+      nextRect: { x: 1920, y: 0, width: 600, height: 900 },
+      windows: [
+        { agentId: 'left', roleId: 'worker', bounds: { x: 1920, y: 0, width: 800, height: 900 } }
+      ]
+    })
+    expect(plan!.zones.targetDisplayId).toBe(SECOND.id)
+    expect(plan!.zones.targetWorkArea).toEqual(SECOND.workArea)
+  })
+
   it('pins a window that crossed displays and lets the remainder fill the origin', () => {
     const plan = planLiveReflow({
       displays: [PRIMARY, SECOND],
@@ -589,6 +784,27 @@ describe('live neighbor reflow', () => {
     clock += 5_000
     events.get('move')!()
     suppressMoveTracking('a', () => clock)
+    clock += REFLOW_DEBOUNCE_MS
+    flushLiveReflow()
+    expect(seen).toEqual([])
+  })
+
+  it('cancels a pending live reflow when the window is forgotten', () => {
+    let clock = 1_000
+    resetPlacementStateForTesting(() => clock)
+    setReflowNeighborsGetter(() => true)
+    const seen: string[] = []
+    setLiveReflowHandler((agentId) => seen.push(agentId))
+
+    const events = new Map<string, () => void>()
+    const win: MovableWindow = {
+      on: (event, handler) => events.set(event, handler),
+      setBounds: () => undefined
+    }
+    trackWindowMoves('a', win, () => clock)
+    clock += 5_000
+    events.get('move')!()
+    forgetWindowPlacement('a')
     clock += REFLOW_DEBOUNCE_MS
     flushLiveReflow()
     expect(seen).toEqual([])

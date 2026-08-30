@@ -32,6 +32,7 @@ import { getPanelWindow } from './panel'
 import {
   applyWindowBounds,
   displayFor,
+  forgetMovedByUser,
   forgetWindowPlacement,
   isMovedByUser,
   markMovedByUser,
@@ -39,6 +40,7 @@ import {
   planWindowLayout,
   rectsEqual,
   setLiveReflowHandler,
+  SNAP_GRACE_MS,
   suppressMoveTracking,
   trackWindowMoves,
   type AgentWindowInfo,
@@ -596,10 +598,11 @@ export function layoutCliWindows(agentIds: readonly string[]): void {
 
   for (const entry of scoped) {
     if (isCliWindowMaximized(entry.agentId)) continue
-    // forget clears the programmatic grace; put it back before setBounds so a
-    // hide/show move event in flight is not read as a user drag.
-    forgetWindowPlacement(entry.agentId)
-    suppressMoveTracking(entry.agentId)
+    // Clear the user-drag pin so hide-all can send the window home. Do not
+    // drop an in-flight programmatic grace — forgetWindowPlacement would, and
+    // a delayed hide/show move would then rewrite zones onto the primary.
+    forgetMovedByUser(entry.agentId)
+    suppressMoveTracking(entry.agentId, undefined, SNAP_GRACE_MS)
   }
 
   const displays = currentDisplays()
@@ -637,6 +640,21 @@ export function layoutCliWindowsByWorkspace(agentIds: readonly string[]): void {
     else groups.set(key, [agentId])
   }
   for (const ids of groups.values()) layoutCliWindows(ids)
+}
+
+/**
+ * Overlay save / display pick: running CLI windows of this workspace must
+ * adopt the new layout so the next hide-all snap uses the saved screen, not
+ * the copy captured when the window opened.
+ */
+export function applyCliWindowZones(workspaceId: string, zones: ZoneLayout): void {
+  for (const { agentId } of listCliWindows()) {
+    if (windowWorkspaceId(agentId) !== workspaceId) continue
+    const entry = windows.get(agentId)
+    const placement = entry?.options.placement
+    if (!placement) continue
+    entry.options.placement = { ...placement, zones }
+  }
 }
 
 export function createCliWindow(agentId: string, options: CliWindowOptions): BrowserWindow {

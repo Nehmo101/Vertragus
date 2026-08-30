@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   absToRelRect,
   displayForZone,
+  matchDisplay,
   MAX_ZONES,
   MIN_ZONE_FRACTION,
   relRectSchema,
@@ -47,6 +48,13 @@ describe('zoneSchema / zoneLayoutSchema', () => {
         targetDisplayId: 7
       }).targetDisplayId
     ).toBe(7)
+    expect(
+      zoneLayoutSchema.parse({
+        targetDisplayId: 7,
+        targetWorkArea: { x: 1920, y: 0, width: 1600, height: 900 },
+        zones: []
+      }).targetWorkArea
+    ).toEqual({ x: 1920, y: 0, width: 1600, height: 900 })
     const zones = Array.from({ length: MAX_ZONES + 1 }, () => ({
       roleId: 'worker',
       displayId: 1,
@@ -96,6 +104,15 @@ describe('resolveZoneRect', () => {
     expect(rect).toEqual({ x: 960, y: 0, width: 960, height: 1040 })
   })
 
+  it('rematches a stale id onto the screen with the saved work-area origin', () => {
+    const rect = resolveZoneRect(
+      { displayId: 99, rect: { x: 0, y: 0, w: 1, h: 1 } },
+      displays,
+      { workArea: displays[1]!.workArea }
+    )
+    expect(rect).toEqual(displays[1]!.workArea)
+  })
+
   it('keeps a rect that would overflow inside the work area', () => {
     const rect = resolveZoneRect({ displayId: 1, rect: { x: 0.9, y: 0.9, w: 0.5, h: 0.5 } }, displays)
     expect(rect).toEqual({ x: 960, y: 520, width: 960, height: 520 })
@@ -128,6 +145,31 @@ describe('absToRelRect', () => {
   it('degrades to a minimal rect for a zero-sized work area', () => {
     const rel = absToRelRect({ x: 0, y: 0, width: 10, height: 10 }, { x: 0, y: 0, width: 0, height: 0 })
     expect(relRectSchema.safeParse(rel).success).toBe(true)
+  })
+})
+
+describe('matchDisplay', () => {
+  it('prefers Electron id, then unique origin, then unique size, then sole display', () => {
+    expect(matchDisplay({ displayId: 2 }, displays)?.id).toBe(2)
+    expect(
+      matchDisplay({ displayId: 99, workArea: displays[1]!.workArea }, displays)?.id
+    ).toBe(2)
+    const sameOrigin = [
+      { id: 10, workArea: { x: 0, y: 0, width: 800, height: 600 } },
+      { id: 11, workArea: { x: 800, y: 0, width: 800, height: 600 } }
+    ]
+    expect(
+      matchDisplay({ displayId: 99, workArea: { x: 50, y: 50, width: 800, height: 600 } }, sameOrigin)
+        ?.id
+    ).toBeUndefined()
+    expect(
+      matchDisplay(
+        { displayId: 99, workArea: { x: 50, y: 50, width: 1920, height: 1040 } },
+        displays
+      )?.id
+    ).toBe(1)
+    expect(matchDisplay({ displayId: 99 }, [{ id: 7, workArea: displays[0]!.workArea }])?.id).toBe(7)
+    expect(matchDisplay({ displayId: 99 }, displays)).toBeUndefined()
   })
 })
 

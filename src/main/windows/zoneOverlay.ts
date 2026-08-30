@@ -47,6 +47,9 @@ export interface ZoneDisplayInfo {
   label: string
   width: number
   height: number
+  /** Work-area origin — saved with the zone layout so Display.id churn can rematch. */
+  x: number
+  y: number
   primary: boolean
 }
 
@@ -88,6 +91,8 @@ export function listZoneDisplays(): ZoneDisplayInfo[] {
       label: label && label.length > 0 ? label : `Display ${index + 1}`,
       width: display.workArea.width,
       height: display.workArea.height,
+      x: display.workArea.x,
+      y: display.workArea.y,
       primary: display.id === primaryId
     }
   })

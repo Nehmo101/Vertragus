@@ -605,6 +605,15 @@ export class Workspace implements AgentHost {
     return this.currentProfile
   }
 
+  /**
+   * Overlay save / display pick: keep this run's layout in sync with the
+   * stored profile so later spawns (and hide-all snap via the window layer)
+   * use the chosen screen, not the copy captured at Play.
+   */
+  applyZoneLayout(zones: ZoneLayout): void {
+    this.currentProfile = { ...this.currentProfile, zones }
+  }
+
   get profileId(): string {
     return this.currentProfile.id
   }

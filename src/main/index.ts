@@ -52,6 +52,7 @@ import {
   focusCliWindow,
   getCliWindow,
   layoutCliWindows,
+  applyCliWindowZones,
   onCliWindowClosed,
   workspaceUsesTabChrome
 } from './windows/cliWindow'
@@ -452,6 +453,12 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       }
     },
     closeAgentWindow: (agentId) => closeCliWindow(agentId),
+    applyProfileZones(profileId, zones) {
+      for (const workspace of manager.listForProfile(profileId)) {
+        workspace.applyZoneLayout(zones)
+        applyCliWindowZones(workspace.workspaceId, zones)
+      }
+    },
     focusWorkspace(workspaceId) {
       const workspace = manager.get(workspaceId)
       if (!workspace) return

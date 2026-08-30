@@ -215,6 +215,21 @@ describe('startAgent', () => {
     expect(workspace.profile.zones).toEqual(zones)
   })
 
+  it('adopts an overlay-saved layout including the target screen', async () => {
+    const { workspace, windows } = harness()
+    await workspace.startAgent({ role: 'worker', task: 'x' })
+    const zones = {
+      targetDisplayId: 2,
+      targetWorkArea: { x: 1920, y: 0, width: 1600, height: 900 },
+      zones: [{ roleId: 'worker', displayId: 2, rect: { x: 0.25, y: 0, w: 0.5, h: 1 } }]
+    }
+    workspace.applyZoneLayout(zones)
+    expect(workspace.profile.zones).toEqual(zones)
+    const started = await workspace.startAgent({ role: 'reviewer', task: 'y' })
+    const opened = windows.opened.find((entry) => entry.agentId === started.agentId)
+    expect(opened?.placement?.zones).toEqual(zones)
+  })
+
   it('types the assignment in — exactly as the MCP layer composed it', async () => {
     const { workspace, prompts } = harness()
     await workspace.startAgent({ role: 'worker', task: 'Task text\n\n--- Contract ---' })

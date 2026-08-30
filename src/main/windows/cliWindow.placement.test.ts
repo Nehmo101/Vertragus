@@ -62,6 +62,9 @@ class FakeBrowserWindow {
   setBounds(bounds: Bounds): void {
     this.bounds = bounds
   }
+  setPosition(x: number, y: number): void {
+    this.bounds = { ...this.bounds, x, y }
+  }
   setTitle(_title: string): void {}
   readonly childViews: unknown[] = []
   readonly contentView = {
@@ -708,6 +711,16 @@ describe('layoutCliWindows', () => {
     cli.layoutCliWindows(['a'])
     expect(win.bounds).toEqual(ZONE_BOUNDS)
     expect(win.bounds.x).toBeGreaterThanOrEqual(DISPLAYS[1]!.workArea.x)
+
+    // A delayed hide/show dump onto the primary must not rewrite saved zones.
+    now += placement.PROGRAMMATIC_GRACE_MS + 1
+    win.setBounds({ x: 10, y: 10, width: 500, height: 400 })
+    win.emit('move')
+    now += placement.REFLOW_DEBOUNCE_MS
+    placement.flushLiveReflow()
+    expect(persisted).toEqual([])
+    cli.layoutCliWindows(['a'])
+    expect(win.bounds).toEqual(ZONE_BOUNDS)
   })
 
   it('does not tile when the workspace is frozen in tabs mode', () => {
@@ -793,5 +806,24 @@ describe('layoutCliWindowsByWorkspace', () => {
     expect(a.bounds).not.toEqual(zoneB)
     expect(b.bounds).toEqual(zoneB)
     expect(b.bounds.x).toBeGreaterThanOrEqual(DISPLAYS[1]!.workArea.x)
+  })
+
+  it('adopts overlay-saved zones so the next snap uses the chosen screen', () => {
+    const win = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: { roleId: 'worker', workspaceId: 'W' }
+      })
+    )
+    win.setBounds({ x: 10, y: 10, width: 500, height: 400 })
+
+    cli.applyCliWindowZones('W', {
+      targetDisplayId: 2,
+      targetWorkArea: DISPLAYS[1]!.workArea,
+      zones: [{ roleId: 'worker', displayId: 2, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+    })
+    cli.layoutCliWindows(['a'])
+
+    expect(win.bounds).toEqual({ x: 2720, y: 0, width: 800, height: 900 })
   })
 })
