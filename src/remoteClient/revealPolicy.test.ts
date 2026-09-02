@@ -1,8 +1,12 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   decideReveal,
   keyboardInsetPx,
   revealScrollDelta,
+  SUBMIT_CLUSTER_SELECTOR,
+  unionRect,
   viewportDisplacementPx,
   MAX_ANCESTOR_DEPTH,
   MIN_TARGET_PX,
@@ -83,6 +87,32 @@ describe('decideReveal — the visible band', () => {
     expect(decisionOf(ask(field({ rect: covered }), [DOCUMENT_SCROLLER]))).toBe('reveal')
   })
 
+  it('reveals when the field is in the band but its Send button is not', () => {
+    // Field 200–244 in a 0–320 band clears the 16 px margin; the 44 px
+    // composer-actions strip at 252–296 would too — park it at 300–344 and
+    // the button sits under the keys. Revealing only the field is the bug.
+    const inBand = field({ rect: { top: 200, bottom: 244, width: 300, height: 44 } })
+    const sendUnderKeys = { top: 300, bottom: 344, width: 300, height: 44 }
+    expect(decisionOf(ask(inBand, [DOCUMENT_SCROLLER]))).toBe('already-visible')
+    expect(
+      decideReveal({
+        ...ask(inBand, [DOCUMENT_SCROLLER]),
+        companion: sendUnderKeys
+      }).decision
+    ).toBe('reveal')
+  })
+
+  it('leaves the pair alone when field and Send both clear the margin', () => {
+    const inBand = field({ rect: { top: 180, bottom: 224, width: 300, height: 44 } })
+    const sendInBand = { top: 232, bottom: 276, width: 300, height: 44 }
+    expect(
+      decideReveal({
+        ...ask(inBand, [DOCUMENT_SCROLLER]),
+        companion: sendInBand
+      }).decision
+    ).toBe('already-visible')
+  })
+
   it('reveals a field pushed above the band by an iOS viewport shift', () => {
     const request = {
       target: field({ rect: { top: 4, bottom: 48, width: 300, height: 44 } }),
@@ -98,6 +128,17 @@ describe('decideReveal — can a scroll actually move it', () => {
     // input → form.input-bar → .terminal-view (fixed) → #root → body → html.
     const chain = [box(), FIXED_OVERLAY, box(), box(), DOCUMENT_SCROLLER]
     expect(decisionOf(ask(field(), chain))).toBe('pinned')
+  })
+
+  it('does not scroll the parked overview to reveal a Send in a fixed overlay', () => {
+    const inBand = field({ rect: { top: 200, bottom: 244, width: 300, height: 44 } })
+    const sendUnderKeys = { top: 300, bottom: 344, width: 300, height: 44 }
+    expect(
+      decideReveal({
+        ...ask(inBand, [box(), FIXED_OVERLAY, DOCUMENT_SCROLLER]),
+        companion: sendUnderKeys
+      }).decision
+    ).toBe('pinned')
   })
 
   it('reveals inside a fixed overlay that is itself a scroller', () => {
@@ -219,6 +260,52 @@ describe('decideReveal — which box the caller may scroll', () => {
     ]) {
       expect(decideReveal(request).scrollportIndex).toBeNull()
     }
+  })
+})
+
+describe('unionRect', () => {
+  const fieldBox = { top: 200, bottom: 244, width: 300, height: 44 }
+  const send = { top: 252, bottom: 296, width: 280, height: 44 }
+
+  it('returns the field when there is no companion', () => {
+    expect(unionRect(fieldBox, null)).toEqual(fieldBox)
+    expect(unionRect(fieldBox, undefined)).toEqual(fieldBox)
+  })
+
+  it('spans field through Send so the delta can land both in the band', () => {
+    expect(unionRect(fieldBox, send)).toEqual({ top: 200, bottom: 296, width: 300, height: 96 })
+    expect(revealScrollDelta(unionRect(fieldBox, send), BAND)).toBe(
+      (200 + 296) / 2 - (BAND.top + BAND.bottom) / 2
+    )
+  })
+})
+
+describe('the reveal wiring keeps Send in the band without scrollIntoView', () => {
+  const wiring = readFileSync(
+    fileURLToPath(new URL('./useVisualViewport.ts', import.meta.url)),
+    'utf8'
+  )
+
+  it('finds the file it is about to police', () => {
+    expect(wiring).toContain('function revealFocus(')
+    expect(wiring).toContain('function submitClusterOf(')
+  })
+
+  it('unions the submit cluster into the rect it scrolls', () => {
+    expect(wiring).toContain('SUBMIT_CLUSTER_SELECTOR')
+    expect(wiring).toContain('unionRect(fieldRect, companion)')
+    expect(wiring).toContain('revealScrollDelta(rect, band)')
+    expect(wiring).toContain('companion')
+    expect(SUBMIT_CLUSTER_SELECTOR).toContain('composer-actions')
+    expect(SUBMIT_CLUSTER_SELECTOR).toContain('answer-actions')
+    expect(SUBMIT_CLUSTER_SELECTOR).toContain('start-actions')
+    expect(SUBMIT_CLUSTER_SELECTOR).toContain('goal-actions')
+    expect(SUBMIT_CLUSTER_SELECTOR).not.toContain('.primary')
+  })
+
+  it('still does not call scrollIntoView', () => {
+    // Comments name the method they refuse; a call is `node.scrollIntoView(`.
+    expect(wiring).not.toMatch(/\w\.scrollIntoView\s*\(/)
   })
 })
 

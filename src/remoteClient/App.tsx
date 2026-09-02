@@ -42,7 +42,6 @@
  */
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import HoundLogo from '@renderer/panel/HoundLogo'
-import { questionChoicesDisplay } from '@shared/questionChoicesDisplay'
 import type {
   RemoteAgentSummary,
   RemoteProfileSummary,
@@ -90,6 +89,7 @@ import {
   writeThemePreference,
   type ThemePreference
 } from './themePreference'
+import { shouldSubmitSendInput, shouldSubmitSendKey } from './sendKey'
 import { useRemote, type RemoteApi } from './useRemote'
 import { pullIndicatorHeight, pullLabel, usePullToRefresh } from './usePullToRefresh'
 import { useVisualViewport } from './useVisualViewport'
@@ -1135,9 +1135,11 @@ function StartForm({
               onChange={(value) => setDraft(GOAL_DRAFT_KEY, value)}
             />
             {error ? <p className="form-error">{error}</p> : null}
-            <button className="primary" type="button" disabled={busy} onClick={start}>
-              {busy ? copy.starting : goal.trim() ? copy.startWithGoal : copy.startWithoutGoal}
-            </button>
+            <div className="start-actions">
+              <button className="primary" type="button" disabled={busy} onClick={start}>
+                {busy ? copy.starting : goal.trim() ? copy.startWithGoal : copy.startWithoutGoal}
+              </button>
+            </div>
           </>
         ) : null}
       </div>
@@ -1165,7 +1167,7 @@ function LimitedTextarea({
   copy,
   enterKeyHint,
   onChange,
-  onKeyDown
+  onSubmit
 }: {
   className?: string
   rows: number
@@ -1176,8 +1178,29 @@ function LimitedTextarea({
   copy: Copy
   enterKeyHint: 'enter' | 'send'
   onChange: (value: string) => void
-  onKeyDown?: React.KeyboardEventHandler<HTMLTextAreaElement>
+  /**
+   * Send-hinted fields only. Return/Send submits instead of inserting a
+   * newline; Shift+Enter still breaks the line. Start and goal omit this.
+   */
+  onSubmit?: () => void
 }): React.JSX.Element {
+  const shiftHeld = useRef(false)
+  const submitOnce = useRef(false)
+  const send = enterKeyHint === 'send' && onSubmit != null
+
+  const fireSubmit = (): void => {
+    if (!onSubmit || submitOnce.current) return
+    // keydown and beforeinput both fire for one Return on some engines;
+    // one submit per turn, not two `user_message` / `answer_question`.
+    // A microtask checkpoint runs after each listener, so queueMicrotask
+    // would clear this lock between those two events.
+    submitOnce.current = true
+    onSubmit()
+    window.setTimeout(() => {
+      submitOnce.current = false
+    }, 0)
+  }
+
   return (
     <>
       <textarea
@@ -1190,7 +1213,51 @@ function LimitedTextarea({
         maxLength={ARG_MAX_CHARS}
         enterKeyHint={enterKeyHint}
         onChange={(event) => onChange(event.target.value)}
-        onKeyDown={onKeyDown}
+        onKeyDown={
+          send
+            ? (event) => {
+                shiftHeld.current = event.shiftKey
+                if (
+                  shouldSubmitSendKey({
+                    key: event.key,
+                    shiftKey: event.shiftKey,
+                    isComposing: event.isComposing || event.nativeEvent.isComposing,
+                    keyCode: event.nativeEvent.keyCode
+                  })
+                ) {
+                  event.preventDefault()
+                  fireSubmit()
+                }
+                // InputEvent has no shiftKey. Honour Shift only for this turn
+                // so a later beforeinput-only Send does not inherit it.
+                window.setTimeout(() => {
+                  shiftHeld.current = false
+                }, 0)
+              }
+            : undefined
+        }
+        onBeforeInput={
+          send
+            ? (event) => {
+                const native = event.nativeEvent
+                const inputType =
+                  'inputType' in native && typeof native.inputType === 'string'
+                    ? native.inputType
+                    : ''
+                const isComposing = 'isComposing' in native && native.isComposing === true
+                if (
+                  shouldSubmitSendInput({
+                    inputType,
+                    isComposing,
+                    shiftKey: shiftHeld.current
+                  })
+                ) {
+                  event.preventDefault()
+                  fireSubmit()
+                }
+              }
+            : undefined
+        }
       />
       {/*
        * Two different facts, so two different sentences. At the cap the field
@@ -1579,14 +1646,16 @@ function GoalRefillForm({
             onChange={setGoal}
           />
           {error ? <p className="form-error">{error}</p> : null}
-          <button
-            className="primary"
-            type="button"
-            disabled={busy || !goal.trim()}
-            onClick={submit}
-          >
-            {copy.assignGoalSend}
-          </button>
+          <div className="goal-actions">
+            <button
+              className="primary"
+              type="button"
+              disabled={busy || !goal.trim()}
+              onClick={submit}
+            >
+              {copy.assignGoalSend}
+            </button>
+          </div>
         </>
       ) : null}
     </div>
@@ -1635,12 +1704,17 @@ function AnswerForm({
   const draftKey = answerDraftKey(entry.key)
   const text = drafts[draftKey] ?? ''
   const promptId = `${idPrefix}-${entry.key}`
+  const submitLock = useRef(false)
 
-  const display = questionChoicesDisplay(entry.question, entry.choices)
-
-  const submit = (value: string): void => {
-    const trimmed = value.trim()
+  const submit = (): void => {
+    if (submitLock.current) return
+    const trimmed = text.trim()
     if (!trimmed || busy) return
+    // Same-turn lock: Return can hit both LimitedTextarea and form onSubmit.
+    submitLock.current = true
+    window.setTimeout(() => {
+      submitLock.current = false
+    }, 0)
     setSending(entry.key, true)
     setError(null)
     api
@@ -1664,26 +1738,15 @@ function AnswerForm({
   }
 
   return (
-    <>
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        submit()
+      }}
+    >
       <p className="answer-question" id={promptId}>
         {inboxPrompt(entry, copy)}
       </p>
-      {display.choices.length > 0 ? (
-        <div className="answer-choices">
-          {display.choices.map((choice) => (
-            <button
-              key={choice}
-              type="button"
-              className="answer-choice"
-              disabled={busy}
-              aria-label={copy.answerChoice(choice)}
-              onClick={() => submit(choice)}
-            >
-              {choice}
-            </button>
-          ))}
-        </div>
-      ) : null}
       <LimitedTextarea
         className="goal-input"
         rows={3}
@@ -1693,15 +1756,11 @@ function AnswerForm({
         copy={copy}
         enterKeyHint="send"
         onChange={(value) => setDraft(draftKey, value)}
+        onSubmit={submit}
       />
       {error ? <p className="form-error">{error}</p> : null}
       <div className="answer-actions">
-        <button
-          className="primary"
-          type="button"
-          disabled={busy || !text.trim()}
-          onClick={() => submit(text)}
-        >
+        <button className="primary" type="submit" disabled={busy || !text.trim()}>
           {busy ? copy.answerSending : copy.answerSend}
         </button>
         {onDismiss ? (
@@ -1715,7 +1774,7 @@ function AnswerForm({
           </button>
         ) : null}
       </div>
-    </>
+    </form>
   )
 }
 
@@ -1741,12 +1800,19 @@ function Composer({
   const sentTimer = useRef<number | undefined>(undefined)
   const draftKey = composerDraftKey(workspaceId)
   const text = drafts[draftKey] ?? ''
+  const submitLock = useRef(false)
 
   useEffect(() => () => window.clearTimeout(sentTimer.current), [])
 
   const submit = (): void => {
+    if (submitLock.current) return
     const trimmed = text.trim()
     if (!trimmed) return
+    // Same-turn lock: Return can hit both LimitedTextarea and form onSubmit.
+    submitLock.current = true
+    window.setTimeout(() => {
+      submitLock.current = false
+    }, 0)
     setError(null)
     api
       .runCommand('user_message', undefined, {
@@ -1773,7 +1839,13 @@ function Composer({
 
 
   return (
-    <div className="composer">
+    <form
+      className="composer"
+      onSubmit={(event) => {
+        event.preventDefault()
+        submit()
+      }}
+    >
       {targets.length > 0 ? (
         <select
           className="composer-target"
@@ -1797,15 +1869,10 @@ function Composer({
         copy={copy}
         enterKeyHint="send"
         onChange={(value) => setDraft(draftKey, value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault()
-            submit()
-          }
-        }}
+        onSubmit={submit}
       />
       <div className="composer-actions">
-        <button className="primary" type="button" disabled={!text.trim()} onClick={submit}>
+        <button className="primary" type="submit" disabled={!text.trim()}>
           {copy.composerSend}
         </button>
         <span className="sent-note" role="status">
@@ -1813,7 +1880,7 @@ function Composer({
         </span>
       </div>
       {error ? <p className="form-error">{error}</p> : null}
-    </div>
+    </form>
   )
 }
 

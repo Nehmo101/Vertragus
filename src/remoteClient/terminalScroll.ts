@@ -41,15 +41,24 @@ export interface ScrollPosition {
 
 /**
  * Total travel below this stays a tap and is left to xterm (selection, focus,
- * the long-press callout). Apple's own drag slop is in this range.
+ * the long-press callout). Apple's own drag slop is in this range. Once the
+ * gesture commits, this distance is applied, not discarded — the slop is a
+ * discriminator, not a tax.
  */
 export const DRAG_SLOP_PX = 8
 
 /** Only the last stretch of a drag decides the fling — see the docblock. */
-export const VELOCITY_WINDOW_MS = 90
+export const VELOCITY_WINDOW_MS = 160
 
 /** A flick slower than this is a placement, not a throw; and it ends momentum. */
-export const MIN_FLING_PX_PER_MS = 0.05
+export const MIN_FLING_PX_PER_MS = 0.02
+
+/**
+ * A finger that has come to rest in this tail is a placement, even when the
+ * longer velocity window still holds samples from the motion before the stop.
+ */
+const SETTLE_MS = 40
+const SETTLE_PX = 2
 
 /** A bad timestamp pair must not launch the buffer into orbit. */
 export const MAX_FLING_PX_PER_MS = 6
@@ -85,6 +94,27 @@ export function linesFromPixels(deltaPx: number, cellHeight: number, carry: numb
 /** Has this gesture committed to scrolling? `travelPx` is summed, not net. */
 export function isDrag(travelPx: number): boolean {
   return travelPx >= DRAG_SLOP_PX
+}
+
+/**
+ * Pixel delta to apply for this move once the gesture is a drag.
+ *
+ * `appliedY` is the last `clientY` already written into scrollTop. Before the
+ * first committed move it is `null`, and the delta is measured from `originY`
+ * so the slop pixels ride along instead of being thrown away.
+ *
+ * Returns `null` while travel is still a tap.
+ */
+export function committedFingerDelta(
+  originY: number,
+  appliedY: number | null,
+  currentY: number,
+  travelPx: number
+): number | null {
+  if (!isDrag(travelPx)) return null
+  if (!Number.isFinite(originY) || !Number.isFinite(currentY)) return null
+  const from = appliedY === null || !Number.isFinite(appliedY) ? originY : appliedY
+  return currentY - from
 }
 
 /** What a drag needs to know about the buffer under it before it takes over. */
@@ -197,8 +227,30 @@ export function pushSample(
 }
 
 /**
+ * True when the tail of the drag has come to rest — a placement, not a throw.
+ * The longer velocity window would otherwise keep a flick's samples alive
+ * through a pause and launch the buffer after the reader had already stopped.
+ */
+export function fingerHasSettled(samples: readonly TouchSample[]): boolean {
+  if (samples.length < 2) return true
+  const last = samples[samples.length - 1]
+  const settleFrom = last.t - SETTLE_MS
+  let origin = samples[0]
+  for (const sample of samples) {
+    if (sample.t <= settleFrom) origin = sample
+    else break
+  }
+  if (last.t - origin.t < SETTLE_MS / 2) return false
+  return Math.abs(last.y - origin.y) <= SETTLE_PX
+}
+
+/**
  * Scroll velocity (px/ms, positive = toward newer output) for a lifted finger,
  * or 0 when the gesture does not deserve momentum.
+ *
+ * The window is long enough that a flick which slowed in the last samples
+ * still has its moving stretch. A finger that then came to rest is filtered
+ * out by {@link fingerHasSettled} so "stop, then lift" still means stop.
  */
 export function flingVelocity(samples: readonly TouchSample[]): number {
   if (samples.length < 2) return 0
@@ -206,6 +258,7 @@ export function flingVelocity(samples: readonly TouchSample[]): number {
   const last = samples[samples.length - 1]
   const elapsed = last.t - first.t
   if (elapsed <= 0) return 0
+  if (fingerHasSettled(samples)) return 0
   const velocity = -(last.y - first.y) / elapsed
   if (Math.abs(velocity) < MIN_FLING_PX_PER_MS) return 0
   return Math.max(-MAX_FLING_PX_PER_MS, Math.min(MAX_FLING_PX_PER_MS, velocity))

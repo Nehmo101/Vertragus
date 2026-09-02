@@ -9,8 +9,10 @@ import {
   applyWheelDelta,
   bufferCanScroll,
   clampScrollTop,
+  committedFingerDelta,
   COMPACT_MAX_WIDTH_PX,
   decayVelocity,
+  fingerHasSettled,
   flingVelocity,
   isCompactChrome,
   isDrag,
@@ -74,6 +76,47 @@ describe('isDrag', () => {
   })
 })
 
+describe('committedFingerDelta', () => {
+  it('returns null below the slop so a tap is not a pan', () => {
+    expect(committedFingerDelta(100, null, 107, DRAG_SLOP_PX - 0.01)).toBeNull()
+    expect(committedFingerDelta(100, null, 100, 0)).toBeNull()
+  })
+
+  it('includes the slop on the first committed move', () => {
+    // Finger up 12 px from origin: the 8 px slop is travel, not a tax.
+    expect(committedFingerDelta(100, null, 88, 12)).toBe(-12)
+    expect(committedFingerDelta(100, null, 108, DRAG_SLOP_PX)).toBe(8)
+  })
+
+  it('steps from the last applied point after that', () => {
+    expect(committedFingerDelta(100, 88, 80, 20)).toBe(-8)
+    expect(committedFingerDelta(100, 108, 110, 12)).toBe(2)
+  })
+
+  it('is 1:1 across a slow drag that crosses the slop one pixel at a time', () => {
+    const origin = 200
+    let applied: number | null = null
+    let y = origin
+    let travel = 0
+    let appliedTotal = 0
+    for (let i = 0; i < 15; i += 1) {
+      y += 1
+      travel += 1
+      const delta = committedFingerDelta(origin, applied, y, travel)
+      if (delta === null) continue
+      appliedTotal += delta
+      applied = y
+    }
+    expect(appliedTotal).toBe(15)
+    expect(applied).toBe(origin + 15)
+  })
+
+  it('refuses a broken coordinate', () => {
+    expect(committedFingerDelta(Number.NaN, null, 80, 20)).toBeNull()
+    expect(committedFingerDelta(100, null, Number.NaN, 20)).toBeNull()
+  })
+})
+
 describe('pushSample', () => {
   it('appends in order and keeps samples inside the window', () => {
     const samples = pushSample([{ y: 100, t: 1000 }], { y: 80, t: 1040 })
@@ -134,6 +177,40 @@ describe('flingVelocity', () => {
         { y: 299, t: 1080 }
       ])
     ).toBe(0)
+  })
+
+  it('keeps inertia when a flick slows in the last samples', () => {
+    const samples = [
+      { y: 300, t: 1000 },
+      { y: 120, t: 1080 },
+      { y: 90, t: 1160 }
+    ]
+    expect(fingerHasSettled(samples)).toBe(false)
+    expect(flingVelocity(samples)).toBeGreaterThan(MIN_FLING_PX_PER_MS)
+  })
+
+  it('treats a settled tail as a placement even when the window still holds the flick', () => {
+    const samples = [
+      { y: 300, t: 1000 },
+      { y: 100, t: 1080 },
+      { y: 99, t: 1160 }
+    ]
+    expect(fingerHasSettled(samples)).toBe(true)
+    expect(flingVelocity(samples)).toBe(0)
+  })
+
+  it('does not call a short flick settled', () => {
+    expect(
+      fingerHasSettled([
+        { y: 300, t: 1000 },
+        { y: 200, t: 1015 }
+      ])
+    ).toBe(false)
+  })
+
+  it('treats a missing tail as settled', () => {
+    expect(fingerHasSettled([])).toBe(true)
+    expect(fingerHasSettled([{ y: 10, t: 1 }])).toBe(true)
   })
 
   it('clamps an implausible velocity', () => {
