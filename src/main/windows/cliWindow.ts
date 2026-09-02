@@ -657,6 +657,20 @@ export function applyCliWindowZones(workspaceId: string, zones: ZoneLayout): voi
   }
 }
 
+/**
+ * Windows `setBounds` with the constructor size is often a no-op, so a
+ * transparent frameless first paint can stay stretched until WM_MOVE. Nudge
+ * one pixel and restore through {@link applyWindowBounds} so DWM/xterm see a
+ * real size change without a user drag or a neighbor reflow.
+ */
+function pulseFirstPaintLayout(agentId: string, win: BrowserWindow, target: Rect): void {
+  if (process.platform !== 'win32') return
+  if (win.isDestroyed()) return
+  if (!rectsEqual(win.getBounds(), target)) return
+  applyWindowBounds(agentId, win, { ...target, width: target.width + 1 })
+  applyWindowBounds(agentId, win, target)
+}
+
 export function createCliWindow(agentId: string, options: CliWindowOptions): BrowserWindow {
   const existing = getCliWindow(agentId)
   if (existing) {
@@ -733,12 +747,14 @@ function createPerAgentWindow(agentId: string, options: CliWindowOptions): Brows
       bounds.width !== undefined &&
       bounds.height !== undefined
     ) {
-      applyWindowBounds(agentId, win, {
+      const target = {
         x: bounds.x,
         y: bounds.y,
         width: bounds.width,
         height: bounds.height
-      })
+      }
+      applyWindowBounds(agentId, win, target)
+      pulseFirstPaintLayout(agentId, win, target)
     }
     maybeMinimizeAfterFirstShow(agentId, win)
   })

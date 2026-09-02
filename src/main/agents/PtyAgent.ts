@@ -115,8 +115,11 @@ export class PtyAgent implements PtyAgentLike {
 
   spawn(options: PtySpawnOptions): void {
     if (this.proc) throw new Error('PtyAgent is already spawned')
-    this.currentCols = options.cols && options.cols > 0 ? options.cols : DEFAULT_COLS
-    this.currentRows = options.rows && options.rows > 0 ? options.rows : DEFAULT_ROWS
+    // The CLI window often fits the still-unspawned PTY. Keep that geometry
+    // unless the caller passed a positive override; DEFAULT_* remain the
+    // initial currentCols/currentRows, not a reset at spawn.
+    if (options.cols && options.cols > 0) this.currentCols = options.cols
+    if (options.rows && options.rows > 0) this.currentRows = options.rows
 
     const proc = this.spawnFn(options.file, options.args ?? [], {
       name: 'xterm-256color',

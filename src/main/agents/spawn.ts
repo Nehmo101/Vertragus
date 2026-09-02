@@ -517,6 +517,10 @@ export async function spawnAgent(
     }
   }
   const pty = deps.createPty ? deps.createPty() : new PtyAgent()
+  // The window may already have fitted this PTY. Pass that size unless the
+  // caller set an explicit override.
+  const cols = deps.cols && deps.cols > 0 ? deps.cols : pty.cols
+  const rows = deps.rows && deps.rows > 0 ? deps.rows : pty.rows
   try {
     pty.spawn({
       file: launch.file,
@@ -526,8 +530,8 @@ export async function spawnAgent(
       // no environment, so an untouched dialect keeps spawning byte-identically.
 
       ...(launch.env ? { env: launch.env } : {}),
-      ...(deps.cols ? { cols: deps.cols } : {}),
-      ...(deps.rows ? { rows: deps.rows } : {})
+      ...(cols > 0 ? { cols } : {}),
+      ...(rows > 0 ? { rows } : {})
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
