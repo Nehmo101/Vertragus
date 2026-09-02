@@ -57,10 +57,9 @@
  */
 import {
   buildCodexMcpArgs,
+  buildGrokMcpArgs,
   claudeMcpTimeoutEnv,
   CURSOR_APPROVE_MCPS_FLAG,
-  grokAllowMcpArgs,
-  grokOrchestratorArgv,
   grokOrchestratorEnv,
   codexDeveloperInstructionsArgs,
   leadAllowedTools,
@@ -69,8 +68,6 @@ import {
   orchestratorMcpTools,
   writeClaudeMcpConfigFile,
   writeCursorProjectMcpConfig,
-  writeGrokOrchestratorAgentFile,
-  writeGrokProjectMcpConfig,
   writeKimiAgentFile,
   writeKimiProjectMcpConfig
 } from '@main/mcp/attach'
@@ -265,19 +262,21 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       // - the flag also approves the user's own project servers for this run.
       writeCursorProjectMcpConfig(input.mcpUrl, input.cwd, extras)
       return [CURSOR_APPROVE_MCPS_FLAG]
-    case 'grok-project': {
+    case 'grok-project':
       // Grok reads `<cwd>/.grok/config.toml` and has no config-file flag.
       // `--tools` / `--disallowed-tools` are headless-only (ignored in TUI).
       // Orchestrator: URL + permission deny/allow, plus `--no-subagents` /
       // `--deny` / `--allow` / `--agent` matching the TOML. Subagent/lead:
       // URL + `--allow MCPTool(vertragus__*)` so loopback tools skip the TUI
       // prompt. extras is already empty for orchestrator/lead.
-      const orchestrator = input.kind === 'orchestrator'
-      writeGrokProjectMcpConfig(input.mcpUrl, input.cwd, extras, { orchestrator })
-      if (!orchestrator) return grokAllowMcpArgs()
-      writeGrokOrchestratorAgentFile(input.cwd)
-      return grokOrchestratorArgv()
-    }
+      // `--session-id <uuid>` starts a TUI conversation so MCP connects
+      // even with no positional first prompt (welcome screen otherwise).
+      return buildGrokMcpArgs({
+        url: input.mcpUrl,
+        workspaceDir: input.cwd,
+        orchestrator: input.kind === 'orchestrator',
+        extraMcpServers: extras
+      })
     case 'none':
       return []
   }

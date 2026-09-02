@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BRACKETED_PASTE_ON, PASTE_BEGIN, PASTE_END } from '@main/agents/interactiveReady'
 import { buildAgentArgv } from '@main/agents/spawn'
+import { GROK_SESSION_ID_FLAG } from '@main/mcp/attach'
 import { slugifyRef, worktreePathFor } from '@main/agents/worktree'
 import { EventQueue } from '@main/mcp/eventQueue'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
@@ -1073,6 +1074,27 @@ describe('startOrchestrator', () => {
     expect(prompts).toEqual([])
   })
 
+  it('a grok start without a goal leaves goalText unset and still forces a TUI session', async () => {
+    const { workspace, spawns, prompts } = harness({
+      profile: testProfile({ orchestrator: { providerId: 'grok' } })
+    })
+    await workspace.startOrchestrator()
+    expect(workspace.goalText).toBeUndefined()
+    expect(spawns[0]!.input.initialPrompt).toBeUndefined()
+    expect(prompts).toEqual([])
+
+    const cwd = mkdtempSync(join(tmpdir(), 'vertragus-ws-grok-bare-'))
+    try {
+      const { argv } = buildAgentArgv({ ...spawns[0]!.input, cwd })
+      expect(argv.indexOf(GROK_SESSION_ID_FLAG)).toBeGreaterThanOrEqual(0)
+      expect(argv).not.toContain('-p')
+      expect(argv).not.toContain('--single')
+      expect(argv).not.toContain('--max-turns')
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
   it('does not put a start-goal on argv when the provider has no initialPrompt surface', async () => {
     const { workspace, spawns } = harness()
     await workspace.startOrchestrator({ initialPrompt: 'Fix the login bug' })
@@ -1240,6 +1262,7 @@ describe('requestSuccession', () => {
       const { argv } = buildAgentArgv({ ...successor.input, cwd })
       expect(argv.at(-1)).not.toBe('Fix the login bug')
       expect(argv).not.toContain('Fix the login bug')
+      expect(argv.indexOf(GROK_SESSION_ID_FLAG)).toBeGreaterThanOrEqual(0)
     } finally {
       rmSync(cwd, { recursive: true, force: true })
     }

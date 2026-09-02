@@ -230,6 +230,12 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Fixed
 
+- **Ein Play ohne Ziel startete Grok ohne MCP.** `grok` ohne trailing Prompt
+  öffnet den Welcome-Screen, daher wird `.grok/config.toml` nie geladen und
+  `waitForSession` läuft in den Timeout. Jeder native Grok-Start übergibt
+  jetzt `--session-id <uuid>` (neue TUI-Conversation, kein erfundener
+  erster Turn). Ein Start ohne Ziel lässt `goalText` weiter ungesetzt;
+  H2-Nachtrag funktioniert. Nie `-p` / `--single` / `--max-turns`.
 - **Start-mit-Ziel unter Cursor/Ollama schickte zwei Turns.** Provider, die
   den Orchestrator-Prompt ins PTY tippen (kein Launch-Flag), haben zuerst
   diesen Prompt abgeschickt und danach das Ziel als zweites Enter — genau

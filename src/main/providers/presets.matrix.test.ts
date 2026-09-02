@@ -17,10 +17,11 @@
  *   - `full+yolo`    — the same with yolo on (which by rule reaches subagents
  *                      only — the orchestrator snapshots prove that too).
  *
- * Transient file paths (Claude's MCP config, Kimi's agent file) are normalized
- * to placeholders so the snapshots stay machine-independent; the files
- * themselves are covered by spawn.test.ts. Only the argv is pinned here — the
- * PTY-delivered prompt (Cursor, Ollama) is by definition not in it.
+ * Transient file paths (Claude's MCP config, Kimi's agent file) and Grok's
+ * per-launch `--session-id` UUID are normalized to placeholders so the
+ * snapshots stay machine-independent; the files themselves are covered by
+ * spawn.test.ts. Only the argv is pinned here — the PTY-delivered prompt
+ * (Cursor, Ollama) is by definition not in it.
  */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -29,6 +30,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { EffortLevel, ProviderConfig, ProviderPresetId } from '@shared/schema/provider'
 import { PROVIDER_PRESET_IDS } from '@shared/schema/provider'
 import { buildAgentArgv, type AgentLaunchInput, type AgentLaunchKind } from '@main/agents/spawn'
+import { GROK_SESSION_ID_FLAG } from '@main/mcp/attach'
 import { providerPreset } from './presets'
 
 let configDir: string
@@ -68,12 +70,26 @@ function preset(id: ProviderPresetId): ProviderConfig {
   return config
 }
 
-/** Replace transient file paths so expectations stay machine-independent. */
+const GROK_SESSION_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Replace transient file paths and Grok's per-launch session UUID so
+ * expectations stay machine-independent. The `--session-id` pair stays in
+ * argv (unlike spawn.test `peelGrokSession`); a missing flag still fails the
+ * Grok snapshot, and a non-UUID value fails the regex instead of being
+ * silently rewritten.
+ */
 function normalize(argv: string[]): string[] {
-  return argv.map((arg) => {
+  const rewritten = argv.map((arg) => {
     if (!arg.startsWith(configDir)) return arg
     return arg.endsWith('.agent.md') ? '<agent-file.md>' : '<mcp-config.json>'
   })
+  const i = rewritten.indexOf(GROK_SESSION_ID_FLAG)
+  if (i < 0) return rewritten
+  const sessionId = rewritten[i + 1] ?? ''
+  expect(sessionId).toMatch(GROK_SESSION_UUID)
+  return rewritten.map((arg, index) => (index === i + 1 ? '<session-uuid>' : arg))
 }
 
 function build(
@@ -415,6 +431,8 @@ describe('preset argv matrix', () => {
           "Read",
           "--allow",
           "Grep",
+          "--session-id",
+          "<session-uuid>",
           "--append-system-prompt",
           "SYSTEM PROMPT",
         ],
@@ -438,6 +456,8 @@ describe('preset argv matrix', () => {
           "Read",
           "--allow",
           "Grep",
+          "--session-id",
+          "<session-uuid>",
           "--append-system-prompt",
           "SYSTEM PROMPT",
         ],
@@ -461,12 +481,16 @@ describe('preset argv matrix', () => {
           "Read",
           "--allow",
           "Grep",
+          "--session-id",
+          "<session-uuid>",
           "--append-system-prompt",
           "SYSTEM PROMPT",
         ],
         "subagent bare": [
           "--allow",
           "MCPTool(vertragus__*)",
+          "--session-id",
+          "<session-uuid>",
           "--append-system-prompt",
           "SYSTEM PROMPT",
         ],
@@ -477,6 +501,8 @@ describe('preset argv matrix', () => {
           "high",
           "--allow",
           "MCPTool(vertragus__*)",
+          "--session-id",
+          "<session-uuid>",
           "--append-system-prompt",
           "SYSTEM PROMPT",
         ],
@@ -488,6 +514,8 @@ describe('preset argv matrix', () => {
           "--always-approve",
           "--allow",
           "MCPTool(vertragus__*)",
+          "--session-id",
+          "<session-uuid>",
           "--append-system-prompt",
           "SYSTEM PROMPT",
         ],
