@@ -321,6 +321,9 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Changed
 
+- **Starting a workspace or clicking its card no longer opens the overview.**
+  Play, Resume, remote start, and `VERTRAGUS_DEV_RUN` leave the glass timeline
+  sheet closed. A button on the workspace card opens or focuses it.
 - **The app version is `1.0.0`** — the first tagged release. The committed
   version is a patch BASE (`X.Y.0`): main-channel prereleases add the run
   number to it, so main is opened at `X.(Y+1).0` right after a tag. Those

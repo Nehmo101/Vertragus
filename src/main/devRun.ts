@@ -20,7 +20,7 @@ import { createStagingStore, stagingDirFor } from './attachments'
 import { getAgentRegistry } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { closeCliWindow, createCliWindow } from './windows/cliWindow'
-import { closeTimelineWindow, openTimelineWindow } from './windows/timelineWindow'
+import { closeTimelineWindow } from './windows/timelineWindow'
 import { setReflowNeighborsGetter } from './windows/placement'
 import { enabledExtraMcpServers } from '@shared/schema/mcpServer'
 import {
@@ -112,13 +112,6 @@ export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManage
   })
   return {
     ...manager,
-    async startWorkspace(profile, options) {
-      const running = await manager.startWorkspace(profile, options)
-      // After the workspace is listed (startWorkspace notifies on register).
-      // Not a CLI window — never opened minimized to the taskbar.
-      openTimelineWindow(running.workspace.workspaceId)
-      return running
-    },
     async stopWorkspace(workspaceId, options) {
       const result = await manager.stopWorkspace(workspaceId, options)
       closeTimelineWindow(workspaceId)

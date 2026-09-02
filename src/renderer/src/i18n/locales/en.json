@@ -106,6 +106,7 @@
     "taskMore_one": "+{{count}} more task — the whole plan is in tasks.json",
     "taskMore_other": "+{{count}} more tasks — the whole plan is in tasks.json",
     "openRunFolder": "Open the run folder — spill/, tasks.json and events.jsonl in the file manager",
+    "openTimeline": "Open overview — the workspace keeps running",
     "archiveToggle": "Archived runs of “{{profile}}” — Stop left these journals on disk",
     "archiveLoading": "Loading archived runs …",
     "archiveEmpty": "No runs yet — Stop keeps the journal here.",

@@ -12,7 +12,7 @@ import {
 } from '../lib/imageAttach'
 import { activeLocale } from '../i18n'
 import { LoreTip } from '../lore/LoreTip'
-import { ChevronIcon, ClockIcon, CloseIcon, FolderIcon, StopIcon } from './icons'
+import { ChevronIcon, ClockIcon, CloseIcon, FolderIcon, OverviewIcon, StopIcon } from './icons'
 import {
   agentCanCloseWindow,
   agentCountLabel,
@@ -169,6 +169,11 @@ interface Props {
   onPromoteAgent(workspaceId: string, agentId: string): void
   /** Reveal this run's artefact folder in the OS file manager (desktop only). */
   onOpenRunFolder(workspaceId: string): void
+  /**
+   * Open (or refocus) this run's overview sheet. Panel-only — the timeline
+   * window is already the sheet, so it omits this.
+   */
+  onOpenTimeline?(workspaceId: string): void
   /** Journal timeline; absent when preload never loaded. */
   bridge?: VertragusAppApi
   /** Live image save into the target agent's worktree. */
@@ -594,6 +599,7 @@ export function WorkspaceCard({
   onUserMessage,
   onPromoteAgent,
   onOpenRunFolder,
+  onOpenTimeline,
   bridge,
   onSaveAttachment
 }: Props): React.JSX.Element {
@@ -603,6 +609,7 @@ export function WorkspaceCard({
   const succession = workspaceSuccessionLabel(t, workspace)
   const replace = t('panel.replaceOrchestrator', { workspace: workspace.name })
   const runFolder = t('panel.openRunFolder')
+  const overview = t('panel.openTimeline')
   const timeline = t('panel.timelineToggle', { workspace: workspace.name })
   const toggle = expanded
     ? t('panel.collapseWorkspace', { workspace: workspace.name })
@@ -652,6 +659,17 @@ export function WorkspaceCard({
         >
           <ClockIcon size={11} />
         </button>
+        {onOpenTimeline ? (
+          <button
+            type="button"
+            className="panel-icon-button panel-open-timeline"
+            title={overview}
+            aria-label={overview}
+            onClick={() => onOpenTimeline(workspace.workspaceId)}
+          >
+            <OverviewIcon size={11} />
+          </button>
+        ) : null}
         <button
           type="button"
           className="panel-icon-button panel-run-folder"

@@ -40,3 +40,13 @@ describe('workspace focus CLI restore', () => {
     expect(source).toMatch(/suppressMoveTracking/)
   })
 })
+
+describe('focusWorkspace does not open the overview', () => {
+  it('leaves the sheet to openTimeline / focusTimelineWindow', () => {
+    const match = source.match(/focusWorkspace\(workspaceId\) \{[\s\S]*?\n\s{4}\},/)
+    expect(match?.[0]).toBeTruthy()
+    expect(match![0]).toContain('layoutCliWindows')
+    expect(match![0]).not.toContain('focusTimelineWindow')
+    expect(source).toMatch(/openTimeline\(workspaceId\) \{[\s\S]*?focusTimelineWindow\(workspaceId\)/)
+  })
+})

@@ -320,6 +320,7 @@ const APP = {
   workspacesUserMessage: 'workspaces:userMessage',
   workspacesPromoteAgent: 'workspaces:promoteAgent',
   workspacesOpenRunFolder: 'workspaces:openRunFolder',
+  workspacesOpenTimeline: 'workspaces:openTimeline',
   attachmentsSave: 'attachments:save',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
@@ -815,6 +816,12 @@ const app = {
    */
   openRunFolder: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesOpenRunFolder, { workspaceId }),
+  /**
+   * Open (or refocus) this run's overview sheet. A card click does not; the
+   * dedicated button on the workspace card does.
+   */
+  openTimeline: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesOpenTimeline, { workspaceId }),
   /** Stale worktrees of this profile's repo — the panel's cleanup list. */
   listStaleWorktrees: (profileId: string): Promise<StaleWorktreeSummary[]> =>
     ipcRenderer.invoke(APP.worktreesList, { profileId }),
