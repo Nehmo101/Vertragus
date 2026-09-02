@@ -347,3 +347,9 @@ No release has been tagged yet; everything lives under Unreleased.
 - The Docs role prompt now states the new language policy: docs are
   English-canonical with maintained German `.de.md` twins — write both when
   touching docs.
+- The Worker role prompt prefers surgical file edits and keeps scratch
+  checks out of the tree unless the task or repo already wants tests. The
+  subagent contract batches independent reads in one response. The
+  orchestrator system prompt (and the lead) treats a plan or promise in the
+  last paragraph as unfinished work; the orchestrator also writes a
+  stand-alone recap before the next `await_events`.

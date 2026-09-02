@@ -384,3 +384,9 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 - Der Prompt der Docs-Rolle nennt jetzt die neue Sprachpolicy: Doku ist
   englisch-kanonisch mit gepflegten deutschen `.de.md`-Zwillingen — wer
   Doku anfasst, schreibt beide.
+- Der Worker-Rollenprompt bevorzugt chirurgische Datei-Edits und lässt
+  Scratch-Checks draußen, außer Task oder Repo wollen dafür Tests. Der
+  Subagent-Contract bündelt unabhängige Reads in einer Response.
+  Orchestrator- und Lead-Systemprompt werten einen Plan oder ein Versprechen
+  im letzten Absatz als unerledigte Arbeit; der Orchestrator schreibt vor
+  dem nächsten `await_events` einen Recap, der allein steht.
