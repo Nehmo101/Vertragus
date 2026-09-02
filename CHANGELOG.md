@@ -212,6 +212,12 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Fixed
 
+- **Bare Play with Grok never attached MCP.** `grok` with no trailing prompt
+  opens the welcome screen, so project `.grok/config.toml` is never loaded
+  and `waitForSession` times out. Every native Grok launch now passes
+  `--session-id <uuid>` (a new TUI conversation, not a fake first turn). A
+  start without a goal still leaves `goalText` unset; H2 refill still
+  works. Never `-p` / `--single` / `--max-turns`.
 - **Start-with-goal on Cursor/Ollama submitted two turns.** Providers that
   type the orchestrator prompt into the PTY (no launch flag) used to submit
   that prompt, then PTY-seed the user's goal as a second Enter — the extra

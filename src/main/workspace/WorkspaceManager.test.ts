@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { buildAgentArgv } from '@main/agents/spawn'
+import { GROK_SESSION_ID_FLAG } from '@main/mcp/attach'
 import type { McpServerHandle, RegisteredWorkspace } from '@main/mcp/server'
 import type { BrowserBridge } from '@main/mcp/browserBridge'
 import type { WorkspaceMcpContext } from '@main/mcp/types'
@@ -456,6 +457,21 @@ describe('startWorkspace', () => {
     expect(running.workspace.goalText).toBeUndefined()
     expect(spawns[0]!.input.initialPrompt).toBeUndefined()
     expect(spawns[0]!.pty.written).toEqual([])
+
+    const cwd = mkdtempSync(join(tmpdir(), 'vertragus-ws-grok-bare-'))
+    try {
+      const { argv } = buildAgentArgv({ ...spawns[0]!.input, cwd })
+      const sessionAt = argv.indexOf(GROK_SESSION_ID_FLAG)
+      expect(sessionAt).toBeGreaterThanOrEqual(0)
+      expect(argv[sessionAt + 1]).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      )
+      expect(argv).not.toContain('-p')
+      expect(argv).not.toContain('--single')
+      expect(argv).not.toContain('--max-turns')
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
 
     const blank = await manager.startWorkspace(
       testProfile({ orchestrator: { providerId: 'grok' } }),

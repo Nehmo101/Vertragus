@@ -36,6 +36,7 @@ import {
   GROK_ORCHESTRATOR_ALLOW,
   GROK_ORCHESTRATOR_DENY,
   GROK_PROJECT_DIR,
+  GROK_SESSION_ID_FLAG,
   assertWrittenGrokMcpConfig,
   buildGrokMcpArgs,
   buildGrokOrchestratorArgs,
@@ -45,6 +46,7 @@ import {
   grokOrchestratorAgentFileText,
   grokOrchestratorArgv,
   grokOrchestratorEnv,
+  grokSessionIdArgs,
   mergeGrokConfigToml,
   renderGrokProjectMcpConfig,
   writeGrokOrchestratorAgentFile,
@@ -497,9 +499,10 @@ describe('grok attach', () => {
   })
 
   it('pre-allows the Vertragus MCP tools on the command line', () => {
-    const args = buildGrokMcpArgs({ url: URL, workspaceDir })
-    expect(args).toEqual([GROK_ALLOW_MCP_FLAG, grokAllowMcpRule()])
-    expect(args).toEqual(['--allow', 'MCPTool(vertragus__*)'])
+    const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const args = buildGrokMcpArgs({ url: URL, workspaceDir, sessionId })
+    expect(args).toEqual([GROK_ALLOW_MCP_FLAG, grokAllowMcpRule(), ...grokSessionIdArgs(sessionId)])
+    expect(args).toEqual(['--allow', 'MCPTool(vertragus__*)', GROK_SESSION_ID_FLAG, sessionId])
     expect(existsSync(join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE))).toBe(true)
   })
 
@@ -581,13 +584,18 @@ describe('grok attach', () => {
   })
 
   it('gives the orchestrator cage argv and env, and does not yolo', () => {
-    const args = buildGrokOrchestratorArgs({ url: URL, workspaceDir })
+    const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const args = buildGrokOrchestratorArgs({ url: URL, workspaceDir, sessionId })
     expect(args[0]).toBe(GROK_NO_SUBAGENTS_FLAG)
-    expect(args).toEqual(grokOrchestratorArgv())
+    expect(grokOrchestratorArgv()).not.toContain(GROK_SESSION_ID_FLAG)
+    expect(args).toEqual([...grokOrchestratorArgv(), ...grokSessionIdArgs(sessionId)])
     expect(args).not.toContain('--always-approve')
     expect(args).not.toContain('--yolo')
     expect(args).not.toContain('--tools')
     expect(args).not.toContain('--disallowed-tools')
+    expect(args).not.toContain('-p')
+    expect(args).not.toContain('--single')
+    expect(args).not.toContain('--max-turns')
     expect(grokOrchestratorEnv()).toEqual({
       GROK_SUBAGENTS: '0',
       GROK_WORKFLOWS: '0',
@@ -596,9 +604,28 @@ describe('grok attach', () => {
     expect(existsSync(join(workspaceDir, GROK_PROJECT_DIR, 'agents', GROK_AGENT_FILE))).toBe(true)
   })
 
+  it('passes a fresh --session-id UUID so the TUI skips the welcome screen', () => {
+    const first = buildGrokMcpArgs({ url: URL, workspaceDir })
+    const second = buildGrokOrchestratorArgs({ url: URL, workspaceDir })
+    const firstId = first[first.indexOf(GROK_SESSION_ID_FLAG) + 1]
+    const secondId = second[second.indexOf(GROK_SESSION_ID_FLAG) + 1]
+    expect(firstId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    )
+    expect(secondId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    )
+    expect(firstId).not.toBe(secondId)
+    expect(grokSessionIdArgs('11111111-1111-4111-8111-111111111111')).toEqual([
+      GROK_SESSION_ID_FLAG,
+      '11111111-1111-4111-8111-111111111111'
+    ])
+  })
+
   it('attaches a subagent without a cage, without the orchestrator agent file', () => {
-    const args = buildGrokSubagentArgs({ url: URL, workspaceDir })
-    expect(args).toEqual([GROK_ALLOW_MCP_FLAG, grokAllowMcpRule()])
+    const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const args = buildGrokSubagentArgs({ url: URL, workspaceDir, sessionId })
+    expect(args).toEqual([GROK_ALLOW_MCP_FLAG, grokAllowMcpRule(), ...grokSessionIdArgs(sessionId)])
     const raw = readFileSync(join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE), 'utf8')
     expect(raw).toContain(tomlString(URL))
     expect(raw).not.toContain('[permission]')

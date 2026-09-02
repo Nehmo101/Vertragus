@@ -12,6 +12,7 @@ import {
   buildKimiOrchestratorArgs,
   buildKimiSubagentArgs,
   GROK_AGENT_NAME,
+  GROK_SESSION_ID_FLAG,
   grokAllowMcpArgs,
   grokOrchestratorArgv,
   grokOrchestratorEnv,
@@ -78,6 +79,24 @@ function normalize(argv: string[]): string[] {
     if (!arg.startsWith(configDir)) return arg
     return arg.endsWith('.agent.md') ? '<agent-file.md>' : '<mcp-config.json>'
   })
+}
+
+const GROK_SESSION_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Strip `--session-id <uuid>` so cage snapshots stay exact; pin the UUID. */
+function peelGrokSession(argv: string[]): { rest: string[]; sessionId: string } {
+  const i = argv.indexOf(GROK_SESSION_ID_FLAG)
+  expect(i, 'native Grok argv must pass --session-id').toBeGreaterThanOrEqual(0)
+  const sessionId = argv[i + 1] ?? ''
+  expect(sessionId).toMatch(GROK_SESSION_UUID)
+  return { rest: [...argv.slice(0, i), ...argv.slice(i + 2)], sessionId }
+}
+
+function normalizeGrokSession(argv: string[]): string[] {
+  const i = argv.indexOf(GROK_SESSION_ID_FLAG)
+  if (i < 0) return argv
+  return argv.map((arg, index) => (index === i + 1 ? '<session-uuid>' : arg))
 }
 
 describe('buildAgentArgv — per preset', () => {
@@ -358,7 +377,7 @@ describe('buildAgentArgv — per preset', () => {
       })
     )
 
-    expect(argv).toEqual([
+    expect(peelGrokSession(argv).rest).toEqual([
       '--model',
       'grok-build',
       '--effort',
@@ -391,7 +410,7 @@ describe('buildAgentArgv — per preset', () => {
       })
     )
 
-    expect(argv).toEqual([
+    expect(peelGrokSession(argv).rest).toEqual([
       ...grokOrchestratorArgv(),
       '--append-system-prompt',
       'You orchestrate.'
@@ -427,7 +446,7 @@ describe('buildAgentArgv — per preset', () => {
     )
 
     expect(argv.at(-1)).toBe('Fix the login bug')
-    expect(argv).toEqual([
+    expect(peelGrokSession(argv).rest).toEqual([
       ...grokOrchestratorArgv(),
       '--append-system-prompt',
       'You orchestrate.',
@@ -450,6 +469,12 @@ describe('buildAgentArgv — per preset', () => {
       })
     ).argv
     expect(grokBare.at(-1)).toBe('You orchestrate.')
+    const peeled = peelGrokSession(grokBare)
+    expect(peeled.rest.at(-1)).toBe('You orchestrate.')
+    expect(peeled.rest).not.toContain('   ')
+    expect(grokBare).not.toContain('-p')
+    expect(grokBare).not.toContain('--single')
+    expect(grokBare).not.toContain('--max-turns')
 
     const claude = buildAgentArgv(
       launchInput({
@@ -460,6 +485,26 @@ describe('buildAgentArgv — per preset', () => {
     ).argv
     expect(claude).not.toContain('Fix the login bug')
     expect(claude.at(-1)).toBe('You orchestrate.')
+  })
+
+  it('a grok launch without a goal still opens a TUI session via --session-id', () => {
+    const { argv } = buildAgentArgv(
+      launchInput({
+        provider: preset('grok'),
+        kind: 'orchestrator',
+        cwd,
+        systemPrompt: 'You orchestrate.'
+      })
+    )
+    const peeled = peelGrokSession(argv)
+    expect(peeled.rest).toEqual([
+      ...grokOrchestratorArgv(),
+      '--append-system-prompt',
+      'You orchestrate.'
+    ])
+    expect(argv).not.toContain('-p')
+    expect(argv).not.toContain('--single')
+    expect(argv).not.toContain('--max-turns')
   })
 
   it('omits model and effort args when the launch does not set them', () => {
@@ -539,7 +584,9 @@ describe('MCP attach — the regression that killed the old repo', () => {
         )
         // Only the attach + prompt tail is comparable; the head is model/effort.
         const tail = built.argv.slice(built.argv.length - expected.length)
-        expect(normalize(tail), `${provider.id} ${kind}`).toEqual(normalize(expected))
+        expect(normalizeGrokSession(normalize(tail)), `${provider.id} ${kind}`).toEqual(
+          normalizeGrokSession(normalize(expected))
+        )
       }
     }
   })
@@ -1099,6 +1146,7 @@ describe('spawnAgent', () => {
     )
     expect(pty.spawnOptions?.env).toEqual(grokOrchestratorEnv())
     expect(pty.spawnOptions?.args).toContain('--no-subagents')
+    expect(pty.spawnOptions?.args).toContain(GROK_SESSION_ID_FLAG)
     expect(pty.spawnOptions?.args).not.toContain('--always-approve')
   })
 
@@ -1110,6 +1158,7 @@ describe('spawnAgent', () => {
     })
     expect(pty.spawnOptions && 'env' in pty.spawnOptions).toBe(false)
     expect(pty.spawnOptions?.args).toContain('--always-approve')
+    expect(pty.spawnOptions?.args).toContain(GROK_SESSION_ID_FLAG)
     expect(pty.spawnOptions?.args).not.toContain('--no-subagents')
   })
 
