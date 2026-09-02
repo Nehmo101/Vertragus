@@ -1221,7 +1221,9 @@ function LimitedTextarea({
                   shouldSubmitSendKey({
                     key: event.key,
                     shiftKey: event.shiftKey,
-                    isComposing: event.isComposing || event.nativeEvent.isComposing,
+                    // React 18's KeyboardEvent type has no isComposing;
+                    // the DOM event does.
+                    isComposing: event.nativeEvent.isComposing,
                     keyCode: event.nativeEvent.keyCode
                   })
                 ) {

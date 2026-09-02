@@ -17,7 +17,7 @@
 export interface SendKeyFacts {
   key: string
   shiftKey: boolean
-  /** `event.isComposing` / `nativeEvent.isComposing`. */
+  /** DOM `KeyboardEvent.isComposing`. */
   isComposing: boolean
   /**
    * 229 = IME still composing on some engines, even when `isComposing` is
