@@ -13,10 +13,22 @@
  * have reloaded the page and lost the user's place, rather than competing
  * with it.
  *
- * The pure half (distance curve, phase, label, and the rule deciding whether a
- * gesture belongs to the pull at all) lives here as plain functions: this
- * project has no DOM test runner, so everything but the two-line DOM read is
- * held by a test, and the listeners are kept thin enough to read.
+ * The pure half (distance curve, phase, label, axis lock, and the rule
+ * deciding whether a gesture belongs to the pull at all) lives here as plain
+ * functions: this project has no DOM test runner, so everything but the
+ * two-line DOM read is held by a test, and the listeners are kept thin enough
+ * to read.
+ *
+ * Scroll lives on the document (`html { overflow-y: auto }`). A window-level
+ * `{ passive: false }` `touchmove` — even one that returns without
+ * `preventDefault` — janks or kills that pan on iOS Safari. The lifetime
+ * listener therefore stays `{ passive: true }`. An eligible `touchstart`
+ * (scroll top, not a field/control/scroller) arms a *second*, cancelable
+ * `touchmove` before the first move of that gesture: WebKit ignores
+ * `preventDefault` on a listener added mid-move (184250), and a passive
+ * delivery cannot cancel its own event. That cancelable listener still only
+ * `preventDefault`s once `pullIntent` is `pull`; slop and list pans are
+ * never cancelled. It is removed on lift.
  */
 import { useEffect, useRef, useState } from 'react'
 import { LIVENESS_PROBE_TIMEOUT_MS, LIVENESS_TICK_MS } from './connection'
@@ -36,17 +48,73 @@ const PULL_RESISTANCE = 0.5
 /**
  * Slop before the gesture is claimed from the document. Under it the user may
  * still be starting an ordinary flick, and stealing that would make the list
- * feel stuck.
+ * feel stuck. The first axis that exceeds this wins forever: downward at the
+ * top is a pull, anything else is a list pan — including an upward flick that
+ * began with a few downward pixels of noise.
  */
-const PULL_CLAIM_PX = 8
+export const PULL_CLAIM_PX = 8
 
 /**
- * The listener is on `window`, so every touch in the app passes through it —
- * including ones that belong to something else. `window.scrollY <= 0` is not
- * enough of a filter: at the top of a short document a text field, a
- * horizontally scrolling strip and the composer's textarea are all *at* scroll
- * zero, and each of them would have its own gesture cancelled by our
- * `preventDefault`.
+ * What a candidate pull has decided to be.
+ *
+ * `undecided` — still inside the slop; native document pan must keep working.
+ * `pull` — first significant axis is downward at scroll top; we may claim.
+ * `list` — first significant axis is an ordinary list pan (including a
+ *          mostly-horizontal swipe); refused forever, even if later motion
+ *          looks like a pull.
+ */
+export type PullIntent = 'undecided' | 'pull' | 'list'
+
+/**
+ * Lock the gesture to pull or list on the first significant axis.
+ *
+ * Once decided, never reopened: a downward noise at the start of an upward
+ * flick must not become a pull when the finger later reverses, and an
+ * already-claimed pull must not be re-read as a list pan mid-gesture.
+ * A mostly-horizontal swipe is a list pan even at scroll top — claiming it
+ * as a pull would `preventDefault` and kill the swipe.
+ *
+ * `rawDeltaX` is optional so existing vertical-only callers stay valid; the
+ * hook passes the finger's horizontal travel.
+ */
+export function pullIntent(
+  rawDelta: number,
+  scrollY: number,
+  current: PullIntent,
+  rawDeltaX = 0
+): PullIntent {
+  if (current !== 'undecided') return current
+  if (!Number.isFinite(rawDelta) || !Number.isFinite(scrollY) || !Number.isFinite(rawDeltaX)) {
+    return 'undecided'
+  }
+  const absY = Math.abs(rawDelta)
+  const absX = Math.abs(rawDeltaX)
+  if (absY <= PULL_CLAIM_PX && absX <= PULL_CLAIM_PX) return 'undecided'
+  // First significant axis is horizontal: not a pull, forever.
+  if (absX > absY) return 'list'
+  // First significant axis is upward: the list, forever.
+  if (rawDelta < 0) return 'list'
+  // Downward, but the document has already left the top.
+  if (scrollY > 0) return 'list'
+  return 'pull'
+}
+
+/**
+ * Only a claimed pull may `preventDefault`. A list pan, and the slop before
+ * either axis has won, must not — that is what used to leave the overview
+ * stuck until lift.
+ */
+export function shouldPreventPullMove(intent: PullIntent): boolean {
+  return intent === 'pull'
+}
+
+/**
+ * The tracking listener is on `window`, so every touch in the app passes
+ * through it — including ones that belong to something else. `window.scrollY
+ * <= 0` is not enough of a filter: at the top of a short document a text
+ * field, a horizontally scrolling strip and the composer's textarea are all
+ * *at* scroll zero, and each of them would have its own gesture cancelled by
+ * our `preventDefault`.
  *
  * So the start is also filtered by where the finger landed: the chain from the
  * touched element up to the root is walked once, at `touchstart`, and the pull
@@ -88,6 +156,18 @@ export function ownsTouchAsField(node: GestureNode): boolean {
 }
 
 /**
+ * Interactive controls own the gesture the same way a field does. A tap on
+ * Composer Send (`.primary`, `type="button"`) at `scrollY <= 0` with a few
+ * pixels of finger noise used to be claimed as a pull; `preventDefault` on
+ * that `touchmove` cancelled the click, so the follow-up never left.
+ */
+const CONTROL_TAGS = new Set(['BUTTON', 'A', 'SUMMARY', 'LABEL'])
+
+export function ownsTouchAsControl(node: GestureNode): boolean {
+  return CONTROL_TAGS.has(node.tagName)
+}
+
+/**
  * An element that can pan under the finger itself, in either axis. Horizontal
  * matters as much as vertical: a swipe across a scrolling strip starts with a
  * few vertical pixels of noise, and claiming those would leave the strip stuck
@@ -106,11 +186,14 @@ export function ownsTouchAsScroller(node: GestureNode): boolean {
 /**
  * Whether the pull may claim a gesture that started inside this ancestor chain
  * (touched element first, root last). One owner anywhere in the chain is
- * enough to refuse: the strip is what scrolls, not the element inside it that
- * the finger happened to land on.
+ * enough to refuse: a field, a control (Composer Send), or a nested scroller
+ * keeps the gesture; the strip is what scrolls, not the element inside it
+ * that the finger happened to land on.
  */
 export function claimsGesture(chain: readonly GestureNode[]): boolean {
-  return !chain.some((node) => ownsTouchAsField(node) || ownsTouchAsScroller(node))
+  return !chain.some(
+    (node) => ownsTouchAsField(node) || ownsTouchAsControl(node) || ownsTouchAsScroller(node)
+  )
 }
 
 /** Read the chain out of the DOM. Live values only — no cache to go stale. */
@@ -283,6 +366,7 @@ export function usePullToRefresh(
   const [stage, setStage] = useState<RefreshStage>('idle')
   const [timedOut, setTimedOut] = useState(false)
   const startY = useRef<number | null>(null)
+  const startX = useRef<number | null>(null)
   const distanceRef = useRef(0)
   const armedRef = useRef(false)
   const refreshRef = useRef(onRefresh)
@@ -302,10 +386,40 @@ export function usePullToRefresh(
   }, [onRefresh])
 
   useEffect(() => {
+    let intent: PullIntent = 'undecided'
+    /**
+     * The tracking `touchmove` is passive for the lifetime of the overview.
+     * iOS Safari janks or kills document pan for a window-level non-passive
+     * `touchmove` even when the handler returns without `preventDefault`.
+     * A second, cancelable listener is armed from an *eligible* `touchstart`
+     * (before the first `touchmove` of that gesture) and only
+     * `preventDefault`s once the intent is `pull`.
+     */
+    let cancelableBound = false
+
+    function onCancelableMove(event: TouchEvent): void {
+      if (shouldPreventPullMove(intent) && event.cancelable) event.preventDefault()
+    }
+
+    function armCancelableMove(): void {
+      if (cancelableBound) return
+      window.addEventListener('touchmove', onCancelableMove, { passive: false })
+      cancelableBound = true
+    }
+
+    function disarmCancelableMove(): void {
+      if (!cancelableBound) return
+      window.removeEventListener('touchmove', onCancelableMove)
+      cancelableBound = false
+    }
+
     const reset = (): void => {
       startY.current = null
+      startX.current = null
       distanceRef.current = 0
       armedRef.current = false
+      intent = 'undecided'
+      disarmCancelableMove()
       setDistance(0)
     }
     if (!enabled) {
@@ -335,21 +449,37 @@ export function usePullToRefresh(
         return
       }
       startY.current = event.touches[0]?.clientY ?? null
+      startX.current = event.touches[0]?.clientX ?? null
+      intent = 'undecided'
+      armCancelableMove()
     }
 
-    const onMove = (event: TouchEvent): void => {
+    function onMove(event: TouchEvent): void {
       const start = startY.current
       const touch = event.touches[0]
       if (start === null || !touch || event.touches.length !== 1) return
       const raw = touch.clientY - start
-      // An upward move, a second finger, or a document that has scrolled away
-      // from the top all mean this was never a pull.
-      if (raw <= 0 || window.scrollY > 0) {
+      const originX = startX.current
+      const rawX = originX === null ? 0 : touch.clientX - originX
+      intent = pullIntent(raw, window.scrollY, intent, rawX)
+
+      if (intent === 'list') {
         reset()
         return
       }
-      if (raw > PULL_CLAIM_PX && event.cancelable) event.preventDefault()
-      track(pullDistance(raw))
+
+      if (intent === 'pull') {
+        if (raw <= 0 || window.scrollY > 0) {
+          reset()
+          return
+        }
+        track(pullDistance(raw))
+        return
+      }
+
+      // Still inside the slop: preview the indicator at the top, never claim.
+      if (raw > 0 && window.scrollY <= 0) track(pullDistance(raw))
+      else track(0)
     }
 
     const onEnd = (): void => {
@@ -366,12 +496,13 @@ export function usePullToRefresh(
     }
 
     window.addEventListener('touchstart', onStart, { passive: true })
-    window.addEventListener('touchmove', onMove, { passive: false })
+    window.addEventListener('touchmove', onMove, { passive: true })
     window.addEventListener('touchend', onEnd, { passive: true })
     window.addEventListener('touchcancel', reset, { passive: true })
     return () => {
       window.removeEventListener('touchstart', onStart)
       window.removeEventListener('touchmove', onMove)
+      window.removeEventListener('touchmove', onCancelableMove)
       window.removeEventListener('touchend', onEnd)
       window.removeEventListener('touchcancel', reset)
     }

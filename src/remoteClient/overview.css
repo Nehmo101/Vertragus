@@ -681,6 +681,18 @@
 }
 
 
+.composer {
+  margin: 0;
+}
+
+.inbox-entry > form,
+.answer-form > form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+
 .composer-target {
   width: 100%;
   box-sizing: border-box;
@@ -693,13 +705,17 @@
 }
 
 
-.composer-actions {
+.composer-actions,
+.start-actions,
+.goal-actions {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.composer-actions .primary {
+.composer-actions .primary,
+.start-actions .primary,
+.goal-actions .primary {
   flex: 1 1 auto;
 }
 

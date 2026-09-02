@@ -61,6 +61,7 @@ import {
   applyWheelDelta,
   bufferCanScroll,
   clampScrollTop,
+  committedFingerDelta,
   COMPACT_MAX_WIDTH_PX,
   flingVelocity,
   isCompactChrome,
@@ -732,6 +733,8 @@ export function RemoteTerminal({
     }
 
     interface Drag {
+      origin: number
+      applied: number | null
       last: number
       travel: number
       samples: readonly TouchSample[]
@@ -752,6 +755,8 @@ export function RemoteTerminal({
       }
       event.stopPropagation()
       drag = {
+        origin: touch.clientY,
+        applied: null,
         last: touch.clientY,
         travel: 0,
         samples: [{ y: touch.clientY, t: event.timeStamp }]
@@ -767,12 +772,14 @@ export function RemoteTerminal({
         drag = null
         return
       }
-      const delta = touch.clientY - drag.last
+      const step = touch.clientY - drag.last
       drag.last = touch.clientY
-      drag.travel += Math.abs(delta)
+      drag.travel += Math.abs(step)
       drag.samples = pushSample(drag.samples, { y: touch.clientY, t: event.timeStamp })
       // Below the slop this is still a tap: leave it to xterm's selection.
-      if (!isDrag(drag.travel)) return
+      // Once it commits, the slop is included (origin → current), not dropped.
+      const delta = committedFingerDelta(drag.origin, drag.applied, touch.clientY, drag.travel)
+      if (delta === null) return
       const port = viewportEl()
       if (!port) return
       const max = maxScrollTop(port.scrollHeight, port.clientHeight)
@@ -782,6 +789,7 @@ export function RemoteTerminal({
       // here was a dead finger (no JS pan, and pinch-zoom grants no native one).
       if (event.cancelable) event.preventDefault()
       const next = applyFingerDelta(readTop(), delta, max)
+      drag.applied = touch.clientY
       if (next.moved) paintScroll(next.scrollTop)
     }
 

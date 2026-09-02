@@ -120,6 +120,23 @@ describe('the touch stream is taken from xterm, not shared with it', () => {
     expect(source).toContain("querySelector('.xterm-screen')")
   })
 
+  it('applies the slop once the drag commits instead of discarding it', () => {
+    const start = source.indexOf('const onTouchMove = (event: TouchEvent): void => {')
+    expect(start).toBeGreaterThan(-1)
+    const body = source.slice(start, source.indexOf('\n    }\n', start))
+    expect(body).toContain('committedFingerDelta(')
+    expect(body).toContain('drag.origin')
+    expect(body).toContain('drag.applied')
+    // The discarded-slop shape: bail on `!isDrag` after consuming the delta
+    // into `last`, so the first committed move is only the current pixel.
+    expect(body).not.toMatch(/if \(!isDrag\(drag\.travel\)\) return/)
+    const init = source.indexOf('drag = {')
+    expect(init).toBeGreaterThan(-1)
+    const initBody = source.slice(init, source.indexOf('}', source.indexOf('samples:', init)))
+    expect(initBody).toContain('origin: touch.clientY')
+    expect(initBody).toContain('applied: null')
+  })
+
   it('takes the wheel on the same pixel path so a laptop trackpad pans', () => {
     const start = source.indexOf('const onWheel = (event: WheelEvent): void => {')
     expect(start).toBeGreaterThan(-1)

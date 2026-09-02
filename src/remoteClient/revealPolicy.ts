@@ -50,6 +50,16 @@
 export const EDITABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"]'
 
 /**
+ * Submit cluster that must stay in the visible band with the focused field.
+ * Composer and answer send live in `.composer-actions` / `.answer-actions`;
+ * start and goal-refill primaries live in `.start-actions` / `.goal-actions`.
+ * Revealing only the field with a 16 px margin parks that 44 px button under
+ * the keyboard. The selector names those clusters — not a random `.primary`.
+ */
+export const SUBMIT_CLUSTER_SELECTOR =
+  '.composer-actions, .answer-actions, .start-actions, .goal-actions'
+
+/**
  * Below this, an "input" is not something a human is typing into: xterm parks
  * a transparent, near-zero-size textarea at the cursor to receive key events.
  */
@@ -84,6 +94,14 @@ export interface AncestorBox {
   clientHeight: number
 }
 
+/** Border-box, viewport-relative. */
+export interface BoxRect {
+  top: number
+  bottom: number
+  width: number
+  height: number
+}
+
 /** Facts about the focused element itself. */
 export interface FocusTarget {
   /** `element.matches(EDITABLE_SELECTOR)`. */
@@ -93,7 +111,7 @@ export interface FocusTarget {
   /** Computed `visibility` — inherited, so the element's own value is enough. */
   visibility: string
   /** Border-box rect, viewport-relative. */
-  rect: { top: number; bottom: number; width: number; height: number }
+  rect: BoxRect
 }
 
 /** The band of the screen the keyboard has not covered, viewport-relative. */
@@ -112,6 +130,30 @@ export interface RevealRequest {
    * `getComputedStyle`. Tests pass a plain array.
    */
   ancestors: Iterable<AncestorBox>
+  /**
+   * Rect of the submit cluster (composer/answer/start/goal-refill actions)
+   * that has to stay in the band with the field. Absent when the focused
+   * field has no such neighbour — a search box, xterm's helper.
+   */
+  companion?: BoxRect | null
+}
+
+/**
+ * The rect the reveal has to keep in the band: the field, unioned with its
+ * submit cluster when there is one. Decorative checks still use the field
+ * alone — a tiny transparent helper does not become worth revealing because
+ * a button happens to sit under it.
+ */
+export function unionRect(field: BoxRect, companion: BoxRect | null | undefined): BoxRect {
+  if (!companion) return field
+  const top = Math.min(field.top, companion.top)
+  const bottom = Math.max(field.bottom, companion.bottom)
+  return {
+    top,
+    bottom,
+    width: Math.max(field.width, companion.width),
+    height: bottom - top
+  }
 }
 
 /**
@@ -175,9 +217,10 @@ export function decideReveal(request: RevealRequest): RevealVerdict {
   if (target.rect.width < MIN_TARGET_PX || target.rect.height < MIN_TARGET_PX) {
     return { decision: 'decorative', ...NO_SCROLLPORT }
   }
+  const rect = unionRect(target.rect, request.companion)
   if (
-    target.rect.top >= band.top + REVEAL_MARGIN_PX &&
-    target.rect.bottom <= band.bottom - REVEAL_MARGIN_PX
+    rect.top >= band.top + REVEAL_MARGIN_PX &&
+    rect.bottom <= band.bottom - REVEAL_MARGIN_PX
   ) {
     return { decision: 'already-visible', ...NO_SCROLLPORT }
   }
@@ -197,8 +240,9 @@ export function decideReveal(request: RevealRequest): RevealVerdict {
 }
 
 /**
- * How far the proven scrollport has to move to put the field in the middle of
- * the visible band. Positive means "scroll down" (content moves up).
+ * How far the proven scrollport has to move to put the field (unioned with
+ * its submit cluster, when the caller has one) in the middle of the visible
+ * band. Positive means "scroll down" (content moves up).
  *
  * Centring rather than merely clearing the margin: the keyboard is still
  * animating when this lands, the band shrinks a little further after it, and

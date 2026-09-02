@@ -39,8 +39,10 @@ import {
   decideReveal,
   keyboardInsetPx,
   revealScrollDelta,
+  unionRect,
   viewportDisplacementPx,
   EDITABLE_SELECTOR,
+  SUBMIT_CLUSTER_SELECTOR,
   type AncestorBox
 } from './revealPolicy'
 
@@ -99,10 +101,26 @@ function* ancestorBoxes(element: HTMLElement, chain: HTMLElement[]): Generator<A
 }
 
 /**
- * Scroll the focused field back into the visible viewport. The overview is
- * document-scrolled, so when the keyboard opens over a field near the bottom
- * the browser's own "scroll focused element into view" has already run against
- * the *old*, taller viewport and left the field under the keys.
+ * Nearest submit cluster (composer / answer / start / goal-refill actions)
+ * that belongs to this field. Walks from the parent so a sibling cluster is
+ * found; stops at the first hit so a card with both an answer form and a
+ * composer does not steal the other one's button.
+ */
+function submitClusterOf(field: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = field.parentElement
+  for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+    const cluster = node.querySelector<HTMLElement>(SUBMIT_CLUSTER_SELECTOR)
+    if (cluster) return cluster
+  }
+  return null
+}
+
+/**
+ * Scroll the focused field — and its Send cluster, when it has one — back
+ * into the visible viewport. The overview is document-scrolled, so when the
+ * keyboard opens over a field near the bottom the browser's own "scroll
+ * focused element into view" has already run against the *old*, taller
+ * viewport and left the field under the keys.
  *
  * Every reason NOT to scroll lives in `revealPolicy.ts` — including the one
  * that matters most, that the terminal's composer sits in a `position: fixed`
@@ -120,7 +138,13 @@ function revealFocus(geometry: Geometry): void {
   const element = document.activeElement
   if (!(element instanceof HTMLElement)) return
   const style = window.getComputedStyle(element)
-  const rect = element.getBoundingClientRect()
+  const box = element.getBoundingClientRect()
+  const fieldRect = { top: box.top, bottom: box.bottom, width: box.width, height: box.height }
+  const clusterBox = submitClusterOf(element)?.getBoundingClientRect()
+  const companion = clusterBox
+    ? { top: clusterBox.top, bottom: clusterBox.bottom, width: clusterBox.width, height: clusterBox.height }
+    : null
+  const rect = unionRect(fieldRect, companion)
   const band = { top: geometry.offsetTop, bottom: geometry.offsetTop + geometry.height }
   const chain: HTMLElement[] = []
   const verdict = decideReveal({
@@ -128,10 +152,11 @@ function revealFocus(geometry: Geometry): void {
       editable: element.matches(EDITABLE_SELECTOR),
       opacity: style.opacity,
       visibility: style.visibility,
-      rect: { top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height }
+      rect: fieldRect
     },
     band,
-    ancestors: ancestorBoxes(element, chain)
+    ancestors: ancestorBoxes(element, chain),
+    companion
   })
   if (verdict.decision !== 'reveal') return
   const delta = revealScrollDelta(rect, band)
