@@ -42,6 +42,7 @@
  */
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import HoundLogo from '@renderer/panel/HoundLogo'
+import { questionChoicesDisplay } from '@shared/questionChoicesDisplay'
 import type {
   RemoteAgentSummary,
   RemoteProfileSummary,
@@ -1707,10 +1708,11 @@ function AnswerForm({
   const text = drafts[draftKey] ?? ''
   const promptId = `${idPrefix}-${entry.key}`
   const submitLock = useRef(false)
+  const display = questionChoicesDisplay(entry.question, entry.choices)
 
-  const submit = (): void => {
+  const submit = (value?: string): void => {
     if (submitLock.current) return
-    const trimmed = text.trim()
+    const trimmed = (value ?? text).trim()
     if (!trimmed || busy) return
     // Same-turn lock: Return can hit both LimitedTextarea and form onSubmit.
     submitLock.current = true
@@ -1749,6 +1751,22 @@ function AnswerForm({
       <p className="answer-question" id={promptId}>
         {inboxPrompt(entry, copy)}
       </p>
+      {display.choices.length > 0 ? (
+        <div className="answer-choices">
+          {display.choices.map((choice) => (
+            <button
+              key={choice}
+              type="button"
+              className="answer-choice"
+              disabled={busy}
+              aria-label={copy.answerChoice(choice)}
+              onClick={() => submit(choice)}
+            >
+              {choice}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <LimitedTextarea
         className="goal-input"
         rows={3}
