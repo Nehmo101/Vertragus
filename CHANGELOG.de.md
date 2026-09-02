@@ -354,6 +354,10 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Changed
 
+- **Ein Workspace-Start und ein Klick auf die Karte öffnen die Übersicht
+  nicht mehr.** Play, Resume, Remote-Start und `VERTRAGUS_DEV_RUN` lassen
+  das Glas-Timeline-Blatt geschlossen. Ein Button auf der Workspace-Karte
+  öffnet oder fokussiert es.
 - **Die App-Version ist `1.0.0`** — das erste getaggte Release. Die
   eingecheckte Version ist eine Patch-BASIS (`X.Y.0`): Prereleases des
   `main`-Kanals addieren die Run-Nummer darauf, main wird deshalb direkt nach

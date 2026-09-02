@@ -2,11 +2,12 @@
  * The timeline window — one glass overview sheet per running workspace.
  *
  * Built like the settings window (glass, frameless, resizable, never
- * always-on-top) with one difference: there is one per `workspaceId`. Play and
- * resume open it; a second open of the same workspace refocuses. User close is
- * view-only — the workspace keeps running; clicking the workspace card (or
- * `openTimelineWindow`) shows it again. `stopWorkspace` is what actually
- * closes it.
+ * always-on-top) with one difference: there is one per `workspaceId`. The sheet
+ * is opened by the workspace card's overview button (`focusTimelineWindow` /
+ * `openTimelineWindow`), not by Play, resume, or a card click; a second open
+ * of the same workspace refocuses. User close is view-only — the workspace
+ * keeps running; the overview button (or `openTimelineWindow`) shows it again.
+ * `stopWorkspace` is what actually closes it.
  *
  * The registry is an authorization root for the app IPC:
  * `isTimelineWindowSender` turns a webContents id into exactly one workspaceId,
@@ -67,7 +68,7 @@ export function isTimelineWindowSender(webContentsId: number): string | null {
 
 /**
  * Open (or refocus) the overview window for this workspace. Identity: a second
- * Play of the same workspaceId does not twin the sheet.
+ * open of the same workspaceId does not twin the sheet.
  *
  * The CLI "start in the background" flag does not apply here.
  */
@@ -103,10 +104,10 @@ export function openTimelineWindow(workspaceId: string): BrowserWindow {
 }
 
 /**
- * Focus-workspace: hide every other timeline (`hide()`, never minimize), then
- * restore if the sheet is taskbar-minimized, `showInactive` this one and steal
- * focus once. A closed sheet is reopened — clicking the workspace card is how
- * a view-only close comes back.
+ * Hide every other timeline (`hide()`, never minimize), then restore if the
+ * sheet is taskbar-minimized, `showInactive` this one and steal focus once. A
+ * closed sheet is reopened — the workspace card's overview button is how a
+ * view-only close comes back.
  */
 export function focusTimelineWindow(workspaceId: string): void {
   for (const { workspaceId: otherId, window } of listTimelineWindows()) {

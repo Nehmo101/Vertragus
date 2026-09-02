@@ -189,6 +189,13 @@ export const APP_CHANNELS = {
    */
   workspacesOpenRunFolder: 'workspaces:openRunFolder',
   /**
+   * Open (or refocus) this run's glass overview sheet. Panel-only: Play,
+   * resume and a workspace-card click do not open it; the dedicated button
+   * does. Deliberately absent from the remote gateway — there is no Electron
+   * window to raise in a paired browser.
+   */
+  workspacesOpenTimeline: 'workspaces:openTimeline',
+  /**
    * Save one image into staging (pre-start `{profileId}`) or a live agent's
    * worktree (`{workspaceId, agentId?}`). Clipboard is read in main — the
    * renderer sends no bytes for Ctrl+V. Returns `{relativePath, stagingId?}`.
@@ -535,6 +542,11 @@ export interface WorkspaceDirectory {
    * the workspace is unknown or the OS refused to open the path.
    */
   openRunFolder(workspaceId: string): Promise<void>
+  /**
+   * Open (or refocus) this run's overview sheet. Unknown workspace is a quiet
+   * no-op, like {@link focusWorkspace}.
+   */
+  openTimeline(workspaceId: string): void
   /** Panel-only: type a follow-up into the running orchestrator (voice). */
   sendToOrchestrator(workspaceId: string, text: string): void | Promise<unknown>
   /** Bring an agent's CLI window to the front. */
@@ -615,6 +627,7 @@ export function createStubWorkspaceDirectory(
     closeAgentWindow: (agentId) => closeCliWindow(agentId),
     // No manager → no workspace→agent map; quiet no-op like focusAgent on a ghost.
     focusWorkspace() {},
+    openTimeline() {},
     listStaleWorktrees: async () => refuse(),
     removeWorktree: async () => refuse()
   }
@@ -1920,6 +1933,13 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
       typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
     if (!workspaceId) throw new Error('workspaces:openRunFolder rejected — missing workspace id')
     await host.directory.openRunFolder(workspaceId)
+  })
+
+  handle(APP_CHANNELS.workspacesOpenTimeline, requirePanel, (_event, payload) => {
+    const workspaceId =
+      typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
+    if (!workspaceId) throw new Error('workspaces:openTimeline rejected — missing workspace id')
+    host.directory.openTimeline(workspaceId)
   })
 
   // --- worktree cleanup ----------------------------------------------------

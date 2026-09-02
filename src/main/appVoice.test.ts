@@ -111,6 +111,7 @@ function stubDirectory(): WorkspaceDirectory & {
     postUserMessage: vi.fn(),
     promoteAgentBranch: vi.fn(async () => undefined),
     openRunFolder: vi.fn(async () => undefined),
+    openTimeline: vi.fn(),
     focusAgent: vi.fn(),
     closeAgentWindow: vi.fn(),
     focusWorkspace: vi.fn(),

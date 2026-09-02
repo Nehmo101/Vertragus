@@ -106,6 +106,7 @@
     "taskMore_one": "+{{count}} weitere Aufgabe — der ganze Plan steht in tasks.json",
     "taskMore_other": "+{{count}} weitere Aufgaben — der ganze Plan steht in tasks.json",
     "openRunFolder": "Lauf-Ordner öffnen — spill/, tasks.json und events.jsonl im Dateimanager",
+    "openTimeline": "Übersicht öffnen — der Workspace läuft weiter",
     "archiveToggle": "Archivierte Läufe von „{{profile}}“ — Stop hat diese Journale auf der Platte gelassen",
     "archiveLoading": "Lade archivierte Läufe …",
     "archiveEmpty": "Noch keine Läufe — Stop behält das Journal hier.",

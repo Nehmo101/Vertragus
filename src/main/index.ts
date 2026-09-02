@@ -490,8 +490,10 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           layoutCliWindows(agentIds)
         }
       }
-      // Overview sheet: show this workspace's timeline, hide the others.
-      // Never minimize — hide() only. A user-closed sheet is reopened here.
+    },
+    openTimeline(workspaceId) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) return
       focusTimelineWindow(workspaceId)
     },
     async readTimelineEvents(workspaceId) {

@@ -39,6 +39,17 @@ describe('WorkspaceCard goal visibility', () => {
     expect(source).toContain('<ClockIcon')
     expect(source).toContain('<RunTimeline')
   })
+
+  it('opens the overview from a dedicated button, not the card toggle', () => {
+    const source = readFileSync(join(__dirname, 'WorkspaceCard.tsx'), 'utf8')
+    expect(source).toContain("t('panel.openTimeline')")
+    expect(source).toMatch(/onOpenTimeline\(workspace\.workspaceId\)/)
+    expect(source).toContain('OverviewIcon')
+    const toggle = source.indexOf('className="panel-card-toggle"')
+    const overview = source.indexOf('onOpenTimeline(workspace.workspaceId)')
+    expect(toggle).toBeGreaterThan(-1)
+    expect(overview).toBeGreaterThan(toggle)
+  })
 })
 
 describe('WorkspaceCard question choices', () => {
