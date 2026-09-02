@@ -406,6 +406,12 @@ export interface WorkspaceSummary {
    */
   goalText?: string
   /**
+   * Host compile preview ("Compiled · recipe · …"). Absent when compile is
+   * off or the run has no compiled contract. The card shows this under the
+   * raw {@link goalText}.
+   */
+  compiledPreview?: string
+  /**
    * C5: the orchestrator process lives but has stopped calling its tools —
    * the card shows an idle hint distinct from the greyed-out exited state.
    */

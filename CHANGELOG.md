@@ -12,6 +12,13 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **Goal compile on every Play.** A short goal field is no longer a
+  pass-through. The host classifies a recipe, probes the repo, and writes
+  `.vertragus/runs/<id>/brief.md` (plus `brief.json`) before the
+  orchestrator's first turn. The card keeps the user's sentence and shows
+  a one-line preview. Profile picker `goalCompile`: `scout` (default),
+  `cheap`, or `off`. Playbooks may name a recipe. Not RAG, not a second
+  orchestrator, not a pre-started scout agent.
 - **End-of-run auto-promote of the orchestrator branch.** With `autoPromote`
   on, the host merges the orchestrator's own branch into the repository
   checkout at `record_retro` or Stop — even if no subagent ran. `autoPr`

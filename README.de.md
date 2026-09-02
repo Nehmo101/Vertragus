@@ -54,10 +54,11 @@ Repository-Pfad, ein Orchestrator (Provider, Modell, Effort) und **Slots**
 („ein Reviewer läuft auf Codex, höchstens zwei davon“). **Play** startet
 einen Workspace nur mit dem Orchestrator; er entscheidet, welche Agenten er
 wirklich braucht, begrenzt durch die Slot-Caps und das profilweite
-`maxSubagents`. Der Play-Button klappt ein **Zielfeld** aus — das Ziel wird
-über denselben Tastatur-Handshake in den Orchestrator getippt wie jede
-Assignment, sodass das, was die Karte zeigt, das ist, was der Orchestrator
-wirklich bekommen hat. **Playbooks** sind Ein-Klick-Zielvorlagen auf diesem
+`maxSubagents`. Der Play-Button klappt ein **Zielfeld** aus — ein kurzer Satz reicht. Der
+Host kompiliert ihn vor dem ersten Turn zu einem Laufvertrag
+(`.vertragus/runs/<id>/brief.md`); die Karte zeigt weiter, was du getippt
+hast, plus eine Preview-Zeile. Profile können `goalCompile` auf `off`
+setzen und den Rohtext durchreichen. **Playbooks** sind Ein-Klick-Zielvorlagen auf diesem
 Fold-out, nie eine vorkonfigurierte Crew. Play und Resume öffnen außerdem
 ein **Timeline**-Fenster für diesen Workspace: Übersicht (Agenten, Board,
 Ziel) plus ein Journal. Das Panel bleibt sichtbar. Das Timeline-Fenster zu

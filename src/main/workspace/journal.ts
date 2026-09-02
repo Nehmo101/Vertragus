@@ -55,11 +55,20 @@ export function runDir(repoPath: string, workspaceId: string): string {
   return join(runsDir(repoPath), workspaceId)
 }
 
+/** Host-written run contract files. Anything else is a bug, not a feature. */
+export const BRIEF_ARTIFACTS = ['brief.md', 'brief.json'] as const
+export type BriefArtifactName = (typeof BRIEF_ARTIFACTS)[number]
+
 export interface RunJournal {
   /** Append one event; serialized internally, never throws. */
   append(event: AgentEvent): void
   /** Write the run's `meta.json` once; same fail-soft chain as append. */
   writeMeta(meta: RunMeta): void
+  /**
+   * Write `brief.md` / `brief.json` next to meta. Same fail-soft chain.
+   * Unknown names are ignored so a typo cannot dump arbitrary files.
+   */
+  writeArtifact?(name: BriefArtifactName, contents: string): void
   /** Absolute path of the journal file (for logs and tests). */
   path: string
 }
@@ -104,6 +113,10 @@ export function createRunJournal(
     },
     writeMeta(meta) {
       enqueue(() => write(join(dir, 'meta.json'), JSON.stringify(meta, null, 2), 'utf8'))
+    },
+    writeArtifact(name, contents) {
+      if (!(BRIEF_ARTIFACTS as readonly string[]).includes(name)) return
+      enqueue(() => write(join(dir, name), contents, 'utf8'))
     }
   }
 }

@@ -53,6 +53,25 @@ describe('createRunJournal — E3 (write-only half)', () => {
     expect(JSON.parse(writes[0]!.data)).not.toHaveProperty('endedAt')
   })
 
+  it('writes brief.md next to meta and ignores unknown artifact names', async () => {
+    const writes: Array<{ path: string; data: string }> = []
+    const journal = createRunJournal('/repo', 'ws-1', {
+      mkdir: vi.fn(async () => undefined),
+      appendFile: vi.fn(async () => undefined) as never,
+      writeFile: (async (path: unknown, data: unknown) => {
+        writes.push({ path: String(path), data: String(data) })
+      }) as never,
+      warn: vi.fn()
+    })
+    journal.writeArtifact?.('brief.md', '# Run contract\n')
+    journal.writeArtifact?.('brief.json', '{"recipe":"fix-and-verify"}\n')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(writes.map((row) => row.path)).toEqual([
+      join('/repo', '.vertragus', 'runs', 'ws-1', 'brief.md'),
+      join('/repo', '.vertragus', 'runs', 'ws-1', 'brief.json')
+    ])
+  })
+
   it('A1: optional end fields parse on new metas and stay absent on old ones', () => {
     expect(
       runMetaSchema.parse({

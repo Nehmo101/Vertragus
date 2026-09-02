@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -386,6 +386,37 @@ describe('startWorkspace', () => {
     const pastes = spawns[0]!.pty.written.filter((chunk) => chunk.includes('Fix the login bug'))
     expect(pastes).toHaveLength(1)
     expect(pastes[0]).toMatch(/\n\nFix the login bug$/)
+  })
+
+  it('compiles a cheap goal into a contract, keeps the card on the raw sentence', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'vertragus-compile-'))
+    writeFileSync(join(repo, 'AGENTS.md'), '# Demo\n\n- Never rewrite auth\n')
+    writeFileSync(join(repo, 'package.json'), JSON.stringify({ scripts: { test: 'vitest' } }))
+    mkdirSync(join(repo, 'src'))
+    const artifacts: Array<{ name: string; body: string }> = []
+    try {
+      const { manager, spawns } = harness({
+        journal: () => ({
+          path: join(repo, '.vertragus', 'runs', 'x', 'events.jsonl'),
+          append: () => {},
+          writeMeta: () => {},
+          writeArtifact: (name, contents) => artifacts.push({ name, body: contents })
+        })
+      })
+      const running = await manager.startWorkspace(
+        testProfile({ repoPath: repo, goalCompile: 'cheap' }),
+        { goal: 'Fix the login bug' }
+      )
+      expect(running.workspace.goalText).toBe('Fix the login bug')
+      expect(running.workspace.compiledPreview).toMatch(/Compiled · fix-and-verify/)
+      expect(spawns[0]!.pty.written.some((chunk) => chunk.includes('Recipe: fix-and-verify'))).toBe(
+        true
+      )
+      expect(artifacts.map((row) => row.name)).toEqual(['brief.md', 'brief.json'])
+      expect(artifacts[0]!.body).toContain('Never rewrite auth')
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
   })
 
   it('delivers a grok start-goal as a trailing positional argv, without PTY-seeding it', async () => {

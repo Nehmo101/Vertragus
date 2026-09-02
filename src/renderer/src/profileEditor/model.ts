@@ -16,6 +16,7 @@ import {
   profileSchema,
   type Profile,
   type QuestionMode,
+  type GoalCompileMode,
   type RoleTemplate
 } from '@shared/schema/profile'
 import { LEAD_ROLE_ID, ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
@@ -52,6 +53,8 @@ export interface ProfileDraft {
   autoSubmitTasks: boolean
   /** How often the root orchestrator asks the user via ask_user. */
   questionMode: QuestionMode
+  /** Host compile of the Play goal into a run contract. */
+  goalCompile: GoalCompileMode
   /** A3: end-of-work automation — merges without a click, and the auto-PR. */
   automation: {
     autoIntegrate: boolean
@@ -83,6 +86,7 @@ export function emptyDraft(defaultProviderId: string, id = createLocalId('profil
     maxSubagents: '',
     autoSubmitTasks: true,
     questionMode: 'few',
+    goalCompile: 'scout',
     automation: emptyAutomationDraft(),
     rolePrompts: initialRolePromptDraft()
   }
@@ -121,6 +125,7 @@ export function draftFromProfile(profile: Profile): ProfileDraft {
     maxSubagents: profile.maxSubagents === undefined ? '' : String(profile.maxSubagents),
     autoSubmitTasks: profile.autoSubmitTasks,
     questionMode: profile.questionMode,
+    goalCompile: profile.goalCompile,
     automation: {
       autoIntegrate: profile.automation.autoIntegrate,
       autoPromote: profile.automation.autoPromote,
@@ -191,6 +196,7 @@ export function toProfileInput(draft: ProfileDraft): unknown {
       : { maxSubagents: optionalNumber(draft.maxSubagents) }),
     autoSubmitTasks: draft.autoSubmitTasks,
     questionMode: draft.questionMode,
+    goalCompile: draft.goalCompile,
     automation: {
       autoIntegrate: draft.automation.autoIntegrate,
       autoPromote: draft.automation.autoPromote,

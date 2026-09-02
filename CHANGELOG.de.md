@@ -13,6 +13,13 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Goal-Compile bei jedem Play.** Das kurze Zielfeld ist kein
+  Durchreichekanal mehr. Der Host klassifiziert ein Rezept, sondiert das
+  Repo und schreibt `.vertragus/runs/<id>/brief.md` (plus `brief.json`)
+  vor dem ersten Turn. Die Karte behält den Satz des Users und zeigt eine
+  Preview-Zeile. Profil-Picker `goalCompile`: `scout` (Standard), `cheap`
+  oder `off`. Playbooks dürfen ein Rezept nennen. Kein RAG, kein zweiter
+  Orchestrator, kein vorstarteter Scout-Agent.
 - **Auto-Promote des Orchestrator-Branches am Laufende.** Bei
   eingeschaltetem `autoPromote` mergt der Host den eigenen Branch des
   Orchestrators am Ende des Laufs (`record_retro` oder Stop) ins

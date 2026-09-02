@@ -8,6 +8,7 @@ import {
   parseProfiles,
   profileRoleIds,
   profileSchema,
+  GOAL_COMPILE_MODES,
   QUESTION_MODES,
   ROLE_PROMPT_MAX_CHARS,
   rolePromptFor,
@@ -156,6 +157,45 @@ describe('profileSchema', () => {
         questionMode: 'all'
       }).success
     ).toBe(false)
+  })
+
+  it('defaults goalCompile to scout, parses all three, and rejects garbage', () => {
+    expect(GOAL_COMPILE_MODES).toEqual(['off', 'cheap', 'scout'])
+    expect(baseProfile().goalCompile).toBe('scout')
+    expect(createEmptyProfile().goalCompile).toBe('scout')
+    expect(baseProfile({ goalCompile: 'off' }).goalCompile).toBe('off')
+    expect(baseProfile({ goalCompile: 'cheap' }).goalCompile).toBe('cheap')
+    expect(
+      profileSchema.safeParse({
+        id: 'p',
+        name: 'P',
+        orchestrator: { providerId: 'c' },
+        goalCompile: 'full'
+      }).success
+    ).toBe(false)
+  })
+
+  it('accepts an optional playbook recipe', () => {
+    const profile = baseProfile({
+      playbooks: [{ name: 'AAA', goal: 'make it look AAA', recipe: 'presence-gauntlet' }]
+    })
+    expect(profile.playbooks?.[0]).toEqual({
+      name: 'AAA',
+      goal: 'make it look AAA',
+      recipe: 'presence-gauntlet'
+    })
+    expect(
+      profileSchema.safeParse({
+        id: 'p',
+        name: 'P',
+        orchestrator: { providerId: 'c' },
+        playbooks: [{ name: 'X', goal: 'y', recipe: 'nope' }]
+      }).success
+    ).toBe(false)
+  })
+
+  it('carries goalCompile off into a duplicate', () => {
+    expect(duplicateProfile(baseProfile({ goalCompile: 'off' })).goalCompile).toBe('off')
   })
 
   it('A3: every automation switch is off for a profile that never named one', () => {
