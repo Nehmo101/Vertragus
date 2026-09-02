@@ -170,8 +170,8 @@ function buildMcpContract({
 }: TaskContractInput): string {
   const rules = [
     helpers
-      ? 'Do the work yourself when it fits in one pass. For an isolated slice you would otherwise block on (a parallel area, a review, a browser check) you MAY start_agent a helper, loop await_events until it reports, verify with inspect_agent, integrate_branch onto YOUR branch, and you still report_done for the whole assignment. Helpers cannot spawn further. Do not nest for small single-file tasks.'
-      : 'Do the work yourself. Read the repository, change the files, run the checks.',
+      ? 'Do the work yourself when it fits in one pass. For an isolated slice you would otherwise block on (a parallel area, a review, a browser check) you MAY start_agent a helper, loop await_events until it reports, verify with inspect_agent, integrate_branch onto YOUR branch, and you still report_done for the whole assignment. Helpers cannot spawn further. Do not nest for small single-file tasks. When several reads or searches do not depend on each other, request them together in one response.'
+      : 'Do the work yourself. Read the repository, change the files, run the checks. When several reads or searches do not depend on each other, request them together in one response.',
     'When the task is finished, call report_done with a short factual summary of what you changed and how you verified it. Use status "success" only when you verified it, "blocked" when something outside your control stops you, "failed" when you tried and it does not work.',
     'If you need a decision, a permission, an interface, or information you cannot obtain yourself, call ask_orchestrator and wait for the answer. For a decision, pass 2–8 short labels in choices — question is the prompt only, never a numbered list. Do not guess, do not pick a random option, and do not idle.',
     ...(approvals === 'ask-orchestrator'
@@ -204,7 +204,7 @@ function buildMcpContract({
  */
 function buildSentinelContract({ agentName, role, approvals }: TaskContractInput): string {
   const rules = [
-    'Do the work yourself. Read the repository, change the files, run the checks.',
+    'Do the work yourself. Read the repository, change the files, run the checks. When several reads or searches do not depend on each other, request them together in one response.',
     'When the task is finished, print one DONE report line of at most 700 characters. Build the start marker by writing `@@VERT` immediately followed by `RAGUS:DONE@@` (no space, no other characters between them). Then print compact JSON like {"summary":"what you changed and verified","status":"success"} — status may be success, blocked, or failed; omit status to mean success. Then terminate by writing `@@` immediately followed by `END@@`. Never write the joined start marker anywhere except in an actual report line.',
     'If you need a decision, a permission, an interface, or information you cannot obtain yourself, print one ASK report line the same way: build the start marker by writing `@@VERT` immediately followed by `RAGUS:ASK@@`, then compact JSON {"question":"…"}, then `@@` immediately followed by `END@@`. Wait for the orchestrator to type an answer into your terminal. Do not guess, do not pick a random option, and do not idle.',
     ...(approvals === 'ask-orchestrator'

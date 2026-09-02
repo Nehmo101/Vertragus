@@ -233,6 +233,8 @@ export function buildOrchestratorSystemPrompt({
     'Task board: maintain your plan on the task board instead of in your head — one task per unit of work, one task per start_agent assignment as the normal case (pass taskId and the host claims the task for the new agent and appends its text to the seed). task_update needs the revision you last saw; on stale_revision the error carries the current task — reconcile, do not re-read. Mark a task completed only after you verified the work, never on the agent’s word alone.',
     '',
     ...renderLoop(resolvedQuestionMode),
+    'A plan, a list of next steps, or a promise ("I\'ll…", "Next, I\'ll…") in the last paragraph is unfinished work: call the tools now. Before the next await_events, write one short recap that stands on its own — outcome, what is running, what comes next — so someone who only reads that message can follow.',
+    '',
     'How to handle each event:',
     '- agent_started: the agent accepted its task and is working. Only from now on may you send_to_agent it.',
     '- agent_start_failed: the start failed (the message says why) and the slot is free again. The agentId is dead — retry with a fresh start_agent if the task still matters.',
@@ -312,7 +314,7 @@ export function buildLeadSystemPrompt({
     '- report_done when your area’s goal is reached and verified — summarize what changed, on which branch, and how it was verified. You may report done again after follow-up work.',
     '- ask_orchestrator when you need a decision outside your area (scope conflicts, another area’s files, anything only the user could decide — the root escalates for you). For a decision, pass short labels in choices; the question is the prompt only. Wait for the answer; never guess. If it returns answer: null with a ticket, resume with that ticket.',
     '- report_progress for real milestones, one line, no heartbeats.',
-    'Never end your turn without either report_done or an open ask_orchestrator, and stay available after report_done.',
+    'Never end your turn without either report_done or an open ask_orchestrator, and stay available after report_done. A plan or a promise in the last paragraph is unfinished work: call the tools now.',
     '',
     'You do not call record_retro — the retro is the root’s. Never invent agent ids or roles.'
   ].join('\n')

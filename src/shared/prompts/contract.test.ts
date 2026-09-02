@@ -6,7 +6,7 @@ const MCP_CONTRACT_SNAPSHOT = [
   '--- Contract (Vertragus) ---',
   'You are the "worker" agent of this Vertragus workspace.',
   'You report to an orchestrator agent through MCP tools. Follow these rules for every task:',
-  '1. Do the work yourself. Read the repository, change the files, run the checks.',
+  '1. Do the work yourself. Read the repository, change the files, run the checks. When several reads or searches do not depend on each other, request them together in one response.',
   '2. When the task is finished, call report_done with a short factual summary of what you changed and how you verified it. Use status "success" only when you verified it, "blocked" when something outside your control stops you, "failed" when you tried and it does not work.',
   '3. If you need a decision, a permission, an interface, or information you cannot obtain yourself, call ask_orchestrator and wait for the answer. For a decision, pass 2–8 short labels in choices — question is the prompt only, never a numbered list. Do not guess, do not pick a random option, and do not idle.',
   '4. If ask_orchestrator returns answer: null and a ticket, call it again with that same ticket. Do not rephrase the question and do not open a second question.',
@@ -27,6 +27,17 @@ describe('buildTaskContract', () => {
     const contract = buildTaskContract({ role: 'reviewer' })
     expect(contract).toContain('You are the "reviewer" agent')
     expect(contract).not.toContain('undefined')
+  })
+
+  it('asks every dialect to batch independent reads in one response', () => {
+    for (const reporting of ['mcp', 'sentinel'] as const) {
+      expect(buildTaskContract({ role: 'worker', reporting })).toMatch(
+        /request them together in one response/i
+      )
+    }
+    expect(buildTaskContract({ role: 'worker', helpers: true })).toMatch(
+      /request them together in one response/i
+    )
   })
 
   it('names the three subagent tools and forbids guessing and idling', () => {
