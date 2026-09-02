@@ -1217,6 +1217,11 @@
   font-style: italic;
 }
 
+.panel-card-goal.is-compiled {
+  color: var(--text-4, var(--text-3));
+  font-style: italic;
+}
+
 /*
  * H2 refill: the "no goal" line of a RUNNING workspace is a button — pressing
  * it folds the goal field out. It keeps the line's look; only the pointer and

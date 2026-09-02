@@ -75,6 +75,7 @@
     "assignGoalTitle": "Hand this run its goal now — it becomes the orchestrator’s first user turn.",
     "assignGoalSend": "Set goal",
     "workspaceGoal": "Goal: {{goal}}",
+    "compiledPreview": "{{preview}}",
     "answerQuestion": "Answer {{agent}}’s question",
     "answerChoice": "Answer with “{{choice}}”",
     "answerPlaceholder": "Answer …",
@@ -230,6 +231,13 @@
       "none": "None",
       "few": "Few",
       "thorough": "Thorough"
+    },
+    "goalCompileLabel": "Goal compile",
+    "goalCompileHint": "The host turns a short Play sentence into a run contract (architecture, verification, invariants) before the first turn. Scout (default): read the repo more deeply. Cheap: AGENTS.md / README / scripts only. Off: seed the raw text, today’s behaviour.",
+    "goalCompile": {
+      "off": "Off — raw goal",
+      "cheap": "Cheap — docs and scripts",
+      "scout": "Scout — deeper probe"
     },
     "rolePrompts": "System prompts",
     "rolePromptsHint": "Starter text for a new profile — edit or clear per identity. A communication overlay on the built-in prompt (language, who reads the report, how they hand off). It never replaces the reporting contract or the orchestrator loop.",

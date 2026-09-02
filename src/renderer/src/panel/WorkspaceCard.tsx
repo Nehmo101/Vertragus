@@ -26,6 +26,7 @@ import {
   taskRows,
   workspaceCanReplaceOrchestrator,
   workspaceCardClass,
+  workspaceCompileLine,
   workspaceGoalLine,
   workspaceHasWaitingSubagent,
   workspaceSuccessionLabel,
@@ -615,6 +616,7 @@ export function WorkspaceCard({
     ? t('panel.collapseWorkspace', { workspace: workspace.name })
     : t('panel.expandWorkspace', { workspace: workspace.name })
   const goalLine = workspaceGoalLine(t, workspace)
+  const compileLine = workspaceCompileLine(t, workspace)
   return (
     <article className={workspaceCardClass(workspace)}>
       <header className="panel-card-head">
@@ -705,6 +707,11 @@ export function WorkspaceCard({
             onSaveAttachment={onSaveAttachment}
           />
         )
+      ) : null}
+      {compileLine ? (
+        <p className="panel-card-goal is-compiled" title={compileLine}>
+          {compileLine}
+        </p>
       ) : null}
       {expanded ? (
         <>

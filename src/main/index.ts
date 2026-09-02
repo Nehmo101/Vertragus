@@ -190,6 +190,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           // must grey the card out even though its record (and window) stay.
           active: ws.orchestratorAlive,
           ...(ws.goalText ? { goalText: ws.goalText } : {}),
+          ...(ws.compiledPreview ? { compiledPreview: ws.compiledPreview } : {}),
           ...(ws.orchestratorIdle ? { orchestratorIdle: true } : {}),
           // C6: a successor is spawning — the seat is mid-cutover, which is
           // neither "working" nor the greyed-out dead state.

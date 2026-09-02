@@ -461,6 +461,8 @@ export interface WorkspaceSummary {
   taskText?: string
   /** User's workspace goal (full text); absent = "no goal" hint on the card. */
   goalText?: string
+  /** Host compile preview; absent when compile is off. */
+  compiledPreview?: string
   /** C5: orchestrator alive but silent on its tools — the card shows a hint. */
   orchestratorIdle?: boolean
   /** C6: a successor orchestrator is spawning — the card shows a badge. */

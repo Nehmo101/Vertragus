@@ -123,6 +123,15 @@ describe('draft ⇄ profile', () => {
     }
   })
 
+  it('carries goalCompile both ways, scout by default', () => {
+    expect(emptyDraft('claude', 'profile-x').goalCompile).toBe('scout')
+    expect(draftFromProfile(SAVED).goalCompile).toBe('scout')
+    const input = toProfileInput(draft({ goalCompile: 'off' })) as Record<string, unknown>
+    expect(input.goalCompile).toBe('off')
+    const result = validateDraft(t, draft({ goalCompile: 'cheap' }))
+    expect(result.ok && result.profile.goalCompile).toBe('cheap')
+  })
+
   it('A3: carries every automation switch both ways, all off by default', () => {
     expect(emptyDraft('claude', 'profile-x').automation).toEqual({
       autoIntegrate: false,
