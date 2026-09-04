@@ -60,6 +60,7 @@ server.
 | F multi-orch (Lead, depth 1) | **implemented** (Track 5) — third identity `lead=`, own queues, `start_orchestrator`, fan-in of direct children only, reparent (`subtree_adopted`), caps host-side |
 | H nested workers / live steer / browser | **implemented** — workers may spawn one helper level; composer targeting on `user_message`; first-party `/browser` loopback (not a second MCP) |
 | I intake / Scout / run archive timeline | **implemented** — intake loop (prompt + `ask_user`), Scout builtin, `parentId` on `agent_started`, archive fold-out + timeline over the journal. See [`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md) |
+| CLI-recorded token usage | **implemented** — overview card only; claude/codex consumption, grok context occupancy, cursor/kimi/ollama nothing. See E4. |
 
 ---
 
@@ -451,7 +452,34 @@ tickets after a crash = dead, say it honestly. Late.
 ### E4 budget as a wall clock
 
 `maxSubagents` is concurrency. Sum of agent-seconds + `maxRuntimeMin` →
-`budget_warning` / no new starts. No guessed token counters.
+`budget_warning` / no new starts. **No guessed token counters** now means
+**CLI-recorded only**: the budget stays a wall clock, succession stays
+self-declared, and the overview may show a number only when the agent's
+own CLI wrote one on disk. The number never drives a host decision.
+
+| Preset | `usageSource` | What the overview shows |
+| --- | --- | --- |
+| claude | `claude-jsonl` at `~/.claude/projects/<slug>/<id>.jsonl`, pinned by `--session-id` (agent id) | consumption |
+| codex | `codex-rollout` under `~/.codex/sessions/YYYY/MM/DD/`, matched by recorded `session_meta.cwd` (no launch pin); last cumulative `thread_token_usage` wins | consumption |
+| grok | `grok-session` under `~/.grok/sessions/<encoded cwd>/<id>/`, pinned by `--session-id`; occupancy only | labelled `context` — not consumption |
+| cursor, kimi, ollama | none | nothing |
+
+The host reads at `report_done` (awaited before the event is pushed), at
+`stop_agent` (Workspace reads before the kill), and at process exit
+(cached value on the event, then an async refresh). Readers live in
+`src/main/providers/usage.ts` and fail soft: missing file, oversize, or
+parse failure omits the field. `AgentHost.readTokenUsage` is optional; a
+host without the method is a no-op.
+
+The field rides `agent_done`, `agent_stopped`, `agent_exited`, and
+`orchestrator_exited` into `events.jsonl`. `list_agents` keeps it;
+`await_events` slim rows drop it. Only the overview paints it:
+`TimelineApp` passes `showUsage` into `WorkspaceCard`; the compact panel
+does not. Presence of `tokenUsage` is the state. The `agent_done` journal
+line appends the compact count. The phone forwards the field and does not
+draw it.
+
+Design record: [`plans/token-usage-overview.md`](./plans/token-usage-overview.md).
 
 ### E5 loop eval
 
@@ -1008,3 +1036,4 @@ never names a filesystem path.
 | Per-identity extra system prompt | `schema/profile.ts` `rolePrompts`, `prompts/rolePrompt.ts`, profile editor | **this** |
 | Profile export / import | `schema/profileBundle.ts`, `profiles:export` / `profiles:import`, profile editor + panel | **this** |
 | Unified CLI session chrome | `cliSurface.ts`, `cliSession.ts`, `cliSessionFeed.ts`, `terminal/SessionPane.tsx` | **this** |
+| CLI-recorded token usage | `providers/usage.ts`, `usageSource` on presets, `tokenUsage` on `agent_done` / `agent_stopped` / `agent_exited` / `orchestrator_exited`; overview `WorkspaceCard showUsage` | **this** |

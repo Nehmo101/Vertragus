@@ -1,9 +1,14 @@
 # Token usage per agent in the workspace overview
 
-Status: design, 5 September 2026. Nothing below is implemented yet.
+Status: implemented, 5 September 2026.
 On-disk formats were verified by a scout on this machine against
 claude 2.1.261, codex 0.153.3, grok 1.0.13 and cursor-agent 2026.08.11
 (kimi and ollama not installed).
+
+Worker deviations from this design: `tokenUsage` also rides
+`orchestrator_exited` (the schema in §3.1 listed only `agent_done` /
+`agent_stopped` / `agent_exited`); `AgentHost.readTokenUsage` stays
+optional, so a harness without the method is a no-op at report/stop.
 
 User request (verbatim, German): *"In der Workspace Übersicht (Button
 Übersicht öffnen) möchte ich sehen wieviele Tokens ein Agent verbraucht hat

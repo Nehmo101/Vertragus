@@ -60,9 +60,11 @@ Assignment, sodass das, was die Karte zeigt, das ist, was der Orchestrator
 wirklich bekommen hat. **Playbooks** sind Ein-Klick-Zielvorlagen auf diesem
 Fold-out, nie eine vorkonfigurierte Crew. Play und Resume öffnen außerdem
 ein **Timeline**-Fenster für diesen Workspace: Übersicht (Agenten, Board,
-Ziel) plus ein Journal. Das Panel bleibt sichtbar. Das Timeline-Fenster zu
-schließen ist nur Ansicht; ein Klick auf die Workspace-Karte öffnet es
-wieder; den Workspace zu stoppen schließt es. Das CLI-Fenster öffnet sofort
+Ziel) plus ein Journal. Sobald ein Agent fertig ist, zeigt die Übersicht
+seinen Token-Verbrauch, wenn seine CLI ihn aufgezeichnet hat. Das Panel
+bleibt sichtbar. Das Timeline-Fenster zu schließen ist nur Ansicht; ein
+Klick auf die Workspace-Karte öffnet es wieder; den Workspace zu stoppen
+schließt es. Das CLI-Fenster öffnet sofort
 mit einem Windhund-Overlay, während der Host den Worktree anlegt, MCP
 anbindet und auf die Session wartet; der erste Turn geht erst raus, wenn
 MCP steht, damit ein Start ohne verbundene Session keine Tokens auf
