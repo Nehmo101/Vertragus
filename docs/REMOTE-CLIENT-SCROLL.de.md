@@ -528,6 +528,45 @@ Tailscale:
    Dev, oder am Gateway-Log).
 6. Das Desktop-Terminal zeichnet nie neu wegen einer Handy-Aktion.
 
+**Status: umgesetzt** auf diesem Branch, mit diesen Abweichungen vom Plan
+oben.
+
+- `isCompactChrome` und `COMPACT_MAX_WIDTH_PX` wanderten aus dem gelöschten
+  `terminalScroll.ts` in ein neues `terminalChrome.ts` (mit Test); der
+  Chrome-Fold braucht sie weiter.
+- `@xterm/xterm`, `addon-fit` und `addon-search` bleiben in `package.json`
+  für das Desktop-Terminal; das Handy-Bundle importiert keines davon. Der
+  Terminal-Chunk trägt stattdessen `@xterm/headless` und misst 43 kB gzippt;
+  der Entry-Chunk misst 67 kB gegen das 72-kB-Budget.
+- Der Reader behält zwei passive Listener, `touchstart` und `touchend`, die
+  nur merken, ob ein Finger unten ist: der Follow-Snap nach einem
+  Ausgabe-Burst wartet, solange das der Fall ist. Es gibt keinen
+  `touchmove`-Listener und kein `preventDefault` irgendwo im Reader.
+- Ein pausierter Reader behält Kopfzeilen, die der Puffer schon getrimmt hat
+  (bis 5000), statt `scrollTop` zu kompensieren, sodass JavaScript die
+  Scroll-Position an genau einer Stelle schreibt; die veralteten Zeilen
+  fallen beim nächsten Folgen weg.
+- Die Sprung-zum-Anfang-Pille, die Nav-Zeile und ihre fünf Textschlüssel
+  (`toTop`, `toBottom`, `pageUp`, `pageDown`, `historyControls`) sind in
+  beiden Locales weg. Das `has-jumps`-Host-Padding ist mit ihnen weg; der
+  Reader hat ein dauerhaftes unteres Padding, über dem die
+  Sprung-zur-neuesten-Pille schwebt.
+- Suche hebt die Trefferzeile hervor und zentriert sie mit `scrollTo` auf
+  dem Reader, ein vom Benutzer angefordertes Scrollen wie
+  Sprung-zur-neuesten-Ausgabe.
+- `RemoteApi.resize` ist aus der Handy-API entfernt; der Leitungstyp bleibt,
+  und der Server akzeptiert den Frame weiter von älteren Clients.
+- Die Compact-Regeln des Chrome (Eingabeleiste weg, bis die Tasten öffnen)
+  sind unverändert; WP4 besitzt sie.
+
+Abnahme, hier geprüft: Punkte 5 und 6 gelten konstruktionsbedingt und sind
+durch `RemoteTerminal.test.ts` festgenagelt (kein `resize` zum Senden, kein
+Fit zum Laufen); das Zeichnen der Zeilen, die Scrollback-Buchhaltung, das
+Folgen und die Suche deckt `terminalRows.test.ts`; Bau und Bundle-Wächter
+laufen durch. Punkte 1 bis 4 (natives Gefühl des Pans, Long-Press-Auswahl,
+Halten bei Pause, Ink-Zeichnung in der Spaltenzahl des Desktops) brauchen
+ein Handy und bleiben auf dem Gerät zu prüfen.
+
 ### WP2: Tastatur, fixes Overlay, kein Hinterherlaufen
 
 Dateien: `terminal.css` (`.terminal-view { inset: 0 }`, kein `var(--vv-`),
@@ -547,6 +586,14 @@ Android schrumpft der Reader und die Leiste bleibt über den Tasten; die
 Tastatur zu schließen stellt den Kopf wieder her; in keinem der beiden Fälle
 ist ein Puffer-Reflow sichtbar.
 
+**Status: umgesetzt** auf diesem Branch. `.terminal-view` und
+`.terminal-pending` sind `inset: 0`; `useVisualViewport.ts` veröffentlicht
+nur `--keyboard-inset` und behält `revealFocus`; `styles.css` behält den
+einen Fallback. Kein Sheet und kein Modul referenziert die zwei
+zurückgezogenen Variablen, und `RemoteTerminal.test.ts` nagelt das fest. Das
+Tastaturverhalten selbst (Eingabeleiste über den Tasten im selben Frame,
+kein Schwimmen, kein Reflow) bleibt auf dem Gerät zu prüfen.
+
 ### WP3: Übersicht, Pull löschen, Paint beruhigen
 
 Dateien: `usePullToRefresh.ts` und seinen Test löschen; `App.tsx:702-735`
@@ -565,6 +612,32 @@ mit dem nativen Gummiband; kein React-Commit während einer Scroll-Geste
 (prüfen mit dem React-Profiler in Dev); zehn arbeitende Agenten verlieren
 während eines Scrolls auf einem mittleren Android-Handy keine Frames.
 
+**Status: umgesetzt** auf diesem Branch als der in 3.4 beschriebene Neubau,
+nicht als Löschung.
+
+- `usePullToRefresh.ts` bleibt. Jeder Window-Listener ist für seine
+  Lebenszeit `{ passive: true }`; der Indikator ist `position: fixed` und
+  wird mit `transform` / `opacity` über CSS-Custom-Properties am Element
+  bewegt (`--pull-shown`, `--pull-opacity`), nicht per React-State pro Move.
+  Die Aktualisierungsentscheidung fällt auf `touchend`. React-Phasen-State
+  ändert sich nur an Gestengrenzen (Claim, Arm, Release, Refreshing, Done).
+  Die vier Textschlüssel bleiben in beiden Locales.
+- Gesten-Zugehörigkeit ist ein `closest()` gegen `PULL_REFUSE_SELECTOR`,
+  nicht der `getComputedStyle`-Vorfahrenlauf aus O2.
+- Pulse (`vg-pulse`) animieren `transform` und `opacity` auf einem
+  Pseudo-Element. Kein Keyframe in den drei Sheets animiert `box-shadow`.
+- `.app-header` und `.to-top` nutzen eine solide `--surface` und
+  `backdrop-filter: none` unter `(pointer: coarse)`.
+
+Abnahme, hier geprüft: der passive Window-`touchmove`, der fixe Indikator,
+der keine Layout-Höhe einschiebt, compositor-only Keyframes und der solide
+Kopf auf grobem Zeiger sind durch `overviewPaint.test.ts` festgenagelt; die
+Distanzkurve, die Intent-Sperre, die Phasenmaschine und das Urteil deckt
+`usePullToRefresh.test.ts`; `i18n.test.ts` verlangt weiter die vier
+Pull-Schlüssel. Das iOS-Gummiband beim Flick vom Anfang, „kein React-Commit
+während einer Scroll-Geste“ und das Frame-Budget mit zehn arbeitenden
+Agenten brauchen ein Handy und bleiben auf dem Gerät zu prüfen.
+
 ### WP4: Terminal-Chrome für den Daumen
 
 Dateien: `RemoteTerminal.tsx` (Kopf reduziert auf Zurück, Titel, Statuspunkt
@@ -581,6 +654,28 @@ kompaktem Chrome nicht versteckt ist.
 Abnahme: der Composer ist mit einem Daumen erreichbar, ohne den oberen
 Schirmrand zu berühren; ein Tap auf eine Agentenzeile blitzt und zeigt
 innerhalb eines Frames einen benannten, nicht leeren Schirm.
+
+**Status: umgesetzt** auf diesem Branch.
+
+- Der Kopf ist Zurück, Titel, Statuspunkt und ein Overflow-Menü
+  (`copy.terminalMenu`) mit Suche, Kopieren und dem Schriftpaar. Das Menü
+  schließt bei einem Tipp außerhalb und bei Escape; es ist keine Focus-Trap.
+- Die Eingabeleiste ist eine permanente `.terminal-bar` auf `--touch`-Höhe
+  mit `env(safe-area-inset-bottom)`: Tasten-Schalter, Feld und Senden.
+  Kompaktes Chrome versteckt `.input-bar` nicht mehr.
+- `.agent-row:active` skaliert die Zeile (`transform: scale(0.97)`), und die
+  Zeile nimmt das Tap-Highlight wieder an.
+- Ein Terminal zu öffnen zeichnet `TerminalPending` im selben Frame wie den
+  Tipp (es lebt in `App.tsx`, nicht im Terminal-Chunk): Zurück, den
+  Agentennamen und `copy.terminalConnecting`.
+
+Abnahme, hier geprüft: die Kopf-Zusammensetzung, die nicht versteckte
+kompakte Eingabeleiste, `.agent-row:active` und der benannte Pending-Schirm
+sind durch `RemoteTerminal.test.ts` und `App.test.ts` festgenagelt; die
+neuen Schlüssel (`terminalMenu`, `terminalConnecting`) verlangt
+`i18n.test.ts` in beiden Locales. Die Daumen-Erreichbarkeit des Composers
+und „benannter Schirm innerhalb eines Frames“ über Tailscale brauchen ein
+Handy und bleiben auf dem Gerät zu prüfen.
 
 ### WP5: Übersichtskopf und Kartendichte (zurückgestellt)
 
@@ -604,9 +699,9 @@ Zwei-Zeilen-Änderung, und keines hebt die Obergrenze in T1.
 - Das Dokument ist der Scroller der Übersicht: `html { overflow-y: auto }`,
   kein Overflow auf `body`, kein inneres Overflow auf der Liste, sticky Kopf
   (`styles.css:183-215`, `overview.css:164-173`).
-- Jeder `touchmove`-Listener auf Window-Ebene, sollte einer zurückkehren,
-  bleibt `{ passive: true }` für seine Lebenszeit
-  (`usePullToRefresh.ts:22-31`); mit WP3 gibt es keinen.
+- Jeder `touchmove`-Listener auf Window-Ebene bleibt `{ passive: true }` für
+  seine Lebenszeit (`usePullToRefresh.ts:22-31`). WP3 hat den Pull in dieser
+  Form neu gebaut; `overviewPaint.test.ts` nagelt die Registrierung fest.
 - Die Übersicht ist unter dem Terminal versteckt, nicht abgehängt, und bleibt
   gelegt (`App.tsx:421-428`, `overview.css:42-58`, `useDocumentScrollLock`).
 - Ein History-Eintrag pro offenem Terminal, ohne URL geschoben, geschlossen
