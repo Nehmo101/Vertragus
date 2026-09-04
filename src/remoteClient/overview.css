@@ -66,16 +66,55 @@
 
 /*
  * The terminal chunk is loaded on demand (App.tsx). The overview is already
- * hidden by then, so the fallback's only job is to be the page's own colour
- * for the moment between the tap and the first frame of the terminal —
- * anything more would be a spinner that is usually gone before it is seen.
+ * hidden by then. This sheet, not terminal.css, styles the fallback so the
+ * named header is on screen in the same frame as the tap — the terminal
+ * chunk has not arrived, so none of its rules have either.
  */
 .terminal-pending {
+  display: flex;
+  flex-direction: column;
   position: fixed;
   /* The layout viewport, like `.terminal-view` itself (terminal.css). */
   inset: 0;
   z-index: 9;
   background: var(--bg);
+}
+
+.terminal-pending-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--touch);
+  padding: max(6px, env(safe-area-inset-top)) 8px 6px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+}
+
+.terminal-pending-back {
+  min-width: var(--touch);
+  min-height: var(--touch);
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 2rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.terminal-pending-title {
+  flex: 1 1 auto;
+  min-width: 8rem;
+  font-weight: 650;
+  color: var(--role, var(--text));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-pending-note {
+  margin: 0;
+  padding: 16px 18px;
+  color: var(--text-2);
 }
 
 /* --- header controls --- */
@@ -499,6 +538,15 @@
   border-radius: 12px;
   background: var(--surface-2);
   text-align: left;
+  transition: transform 90ms ease-out;
+  /* html kills the page-level flash; buttons opt back in (styles.css). Restate
+     it here so a tap on the most-tapped control is never a dead surface. */
+  -webkit-tap-highlight-color: color-mix(in srgb, var(--bronze) 18%, transparent);
+}
+
+/* A press has to answer instantly: over Tailscale the round-trip does not. */
+.agent-row:active {
+  transform: scale(0.97);
 }
 
 .agent-row.state-stopped {

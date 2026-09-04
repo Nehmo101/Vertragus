@@ -148,6 +148,8 @@ export interface RemoteCopy {
   copyBuffer: string
   copyDone: string
   copyFailed: string
+  terminalMenu: string
+  terminalConnecting: string
 }
 
 const de: RemoteCopy = {
@@ -270,7 +272,9 @@ const de: RemoteCopy = {
   keysHide: 'Steuertasten verbergen',
   copyBuffer: 'Verlauf kopieren',
   copyDone: 'kopiert',
-  copyFailed: 'Kopieren fehlgeschlagen'
+  copyFailed: 'Kopieren fehlgeschlagen',
+  terminalMenu: 'Weitere Aktionen',
+  terminalConnecting: 'verbinde …'
 }
 
 const en: RemoteCopy = {
@@ -392,7 +396,9 @@ const en: RemoteCopy = {
   keysHide: 'Hide control keys',
   copyBuffer: 'Copy the history',
   copyDone: 'copied',
-  copyFailed: 'Copying failed'
+  copyFailed: 'Copying failed',
+  terminalMenu: 'More actions',
+  terminalConnecting: 'connecting …'
 }
 
 /**

@@ -36,7 +36,7 @@ import {
 /** How long a "copied" / "copy failed" note stays on screen. */
 const NOTE_MS = 2400
 
-type IconName = 'search' | 'close' | 'copy' | 'prev' | 'next' | 'latest' | 'keys'
+type IconName = 'search' | 'close' | 'copy' | 'prev' | 'next' | 'latest' | 'keys' | 'more'
 
 /**
  * Inline paths rather than glyphs: the CSP forbids an icon font, and the
@@ -50,12 +50,20 @@ const ICON_PATHS: Record<IconName, string> = {
   prev: 'M6 15l6-6 6 6',
   next: 'M6 9l6 6 6-6',
   latest: 'M12 5v13M6 12l6 6 6-6',
-  keys: 'M3 7h18v11H3zM6 10h2v2H6zm4 0h2v2h-2zm4 0h2v2h-2zm4 0h1v2h-1zM6 14h12'
+  keys: 'M3 7h18v11H3zM6 10h2v2H6zm4 0h2v2h-2zm4 0h2v2h-2zm4 0h1v2h-1zM6 14h12',
+  // Filled circles: the overflow glyph. Stroke-only paths render as hollow
+  // rings here, and a unicode ⋮ is tofu on the phones this client is for.
+  more: 'M12 6.5a1.75 1.75 0 1 1 0-3.5 1.75 1.75 0 0 1 0 3.5zm0 7.25a1.75 1.75 0 1 1 0-3.5 1.75 1.75 0 0 1 0 3.5zm0 7.25a1.75 1.75 0 1 1 0-3.5 1.75 1.75 0 0 1 0 3.5z'
 }
 
 function Icon({ name }: { name: IconName }): React.JSX.Element {
   return (
-    <svg className="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <svg
+      className={name === 'more' ? 'icon icon-fill' : 'icon'}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+    >
       <path d={ICON_PATHS[name]} />
     </svg>
   )
@@ -295,6 +303,7 @@ export function RemoteTerminal({
 }): React.JSX.Element {
   const readerRef = useRef<TerminalReaderHandle>(null)
   const searchFieldRef = useRef<HTMLInputElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const [title, setTitle] = useState(agentId)
   const [roleColor, setRoleColor] = useState(DEFAULT_ROLE_COLOR)
@@ -303,6 +312,7 @@ export function RemoteTerminal({
   const [fontSize, setFontSize] = useState(() => readFontSize(localFontStore()))
   const [following, setFollowing] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [matches, setMatches] = useState<{ index: number; count: number } | null>(null)
   /**
@@ -317,8 +327,8 @@ export function RemoteTerminal({
    * Control keys cost a 44 px strip the reader is hungrier for. A phone
    * starts with them folded so reading is the full stage; focusing the
    * composer unfolds them (the keyboard is already up). A laptop has room and
-   * a physical keyboard, so they start open. The header toggle is the way to
-   * reach Esc / Ctrl-C without opening the composer.
+   * a physical keyboard, so they start open. The toggle in the bottom bar is
+   * the way to reach Esc / Ctrl-C without opening the composer.
    */
   const [keysOverride, setKeysOverride] = useState<boolean | null>(null)
   const [compact, setCompact] = useState(() => compactChromeNow())
@@ -368,6 +378,29 @@ export function RemoteTerminal({
   useEffect(() => {
     if (searchOpen) searchFieldRef.current?.focus()
   }, [searchOpen])
+
+  /**
+   * The overflow menu is a disclosure, not a focus trap: it must not steal the
+   * composer. Close on a tap outside or Escape; do not `.focus()` anything.
+   */
+  useEffect(() => {
+    if (!menuOpen) return
+    const onPointerDown = (event: PointerEvent): void => {
+      if (menuRef.current?.contains(event.target as Node)) return
+      setMenuOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [menuOpen])
 
   const jumpToLatest = (): void => {
     readerRef.current?.jumpToLatest()
@@ -426,7 +459,8 @@ export function RemoteTerminal({
    * collapses and the layout jumps under the finger mid-sentence.
    *
    * It belongs on every control that is *reachable* with the keyboard up — the
-   * key row, the search bar, the header, the jump-to-latest pill.
+   * key row, the search bar, the header, the overflow menu, the jump-to-latest
+   * pill, the keys toggle.
    */
   const keepFocus = (event: React.MouseEvent): void => event.preventDefault()
 
@@ -482,57 +516,77 @@ export function RemoteTerminal({
           aria-label={exited === null ? copy.terminalLive : copy.terminalDead}
           title={exited === null ? copy.terminalLive : copy.terminalDead}
         />
-        <div className="header-tools">
+        <div className="header-menu" ref={menuRef}>
           <button
             type="button"
             className="icon-btn"
-            aria-label={searchOpen ? copy.searchClose : copy.searchOpen}
-            aria-expanded={searchOpen}
-            onMouseDown={keepFocus}
-            onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
-          >
-            <Icon name={searchOpen ? 'close' : 'search'} />
-          </button>
-          <button
-            type="button"
-            className="icon-btn"
-            aria-label={copy.copyBuffer}
-            onMouseDown={keepFocus}
-            onClick={copyBuffer}
-          >
-            <Icon name="copy" />
-          </button>
-          <button
-            type="button"
-            className="font-btn"
-            onMouseDown={keepFocus}
-            onClick={() => bumpFont(-1)}
-            aria-label={copy.fontSmaller}
-          >
-            A−
-          </button>
-          <button
-            type="button"
-            className="font-btn"
-            onMouseDown={keepFocus}
-            onClick={() => bumpFont(1)}
-            aria-label={copy.fontLarger}
-          >
-            A+
-          </button>
-          <button
-            type="button"
-            className="icon-btn keys-toggle"
-            aria-label={keysOpen ? copy.keysHide : copy.keysShow}
-            aria-pressed={keysOpen}
+            aria-label={copy.terminalMenu}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
             onMouseDown={keepFocus}
             onClick={() => {
-              setKeysOverride(!(keysOverride ?? !compact))
+              setMenuOpen((open) => !open)
               haptic('tap')
             }}
           >
-            <Icon name="keys" />
+            <Icon name="more" />
           </button>
+          {menuOpen ? (
+            <div className="header-menu-list" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                className="header-menu-item"
+                aria-label={searchOpen ? copy.searchClose : copy.searchOpen}
+                aria-expanded={searchOpen}
+                onMouseDown={keepFocus}
+                onClick={() => {
+                  setMenuOpen(false)
+                  if (searchOpen) closeSearch()
+                  else setSearchOpen(true)
+                }}
+              >
+                <Icon name={searchOpen ? 'close' : 'search'} />
+                {searchOpen ? copy.searchClose : copy.searchOpen}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="header-menu-item"
+                aria-label={copy.copyBuffer}
+                onMouseDown={keepFocus}
+                onClick={() => {
+                  setMenuOpen(false)
+                  copyBuffer()
+                }}
+              >
+                <Icon name="copy" />
+                {copy.copyBuffer}
+              </button>
+              <div className="header-menu-fonts">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="font-btn"
+                  onMouseDown={keepFocus}
+                  onClick={() => bumpFont(-1)}
+                  aria-label={copy.fontSmaller}
+                >
+                  A−
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="font-btn"
+                  onMouseDown={keepFocus}
+                  onClick={() => bumpFont(1)}
+                  aria-label={copy.fontLarger}
+                >
+                  A+
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </header>
 
@@ -564,7 +618,7 @@ export function RemoteTerminal({
             <span aria-hidden="true">{matchDigits}</span>
             <span className="terminal-sr">{matchSpoken}</span>
           </span>
-          {/* Closing lives on the header toggle; the bar spends its width on
+          {/* Closing lives in the overflow menu; the bar spends its width on
               the field, which is the part a thumb has to hit. */}
           <button
             type="button"
@@ -686,12 +740,25 @@ export function RemoteTerminal({
       </div>
 
       <form
-        className="input-bar"
+        className="input-bar terminal-bar"
         onSubmit={(event) => {
           event.preventDefault()
           sendLine()
         }}
       >
+        <button
+          type="button"
+          className="icon-btn keys-toggle"
+          aria-label={keysOpen ? copy.keysHide : copy.keysShow}
+          aria-pressed={keysOpen}
+          onMouseDown={keepFocus}
+          onClick={() => {
+            setKeysOverride(!(keysOverride ?? !compact))
+            haptic('tap')
+          }}
+        >
+          <Icon name="keys" />
+        </button>
         <input
           value={line}
           onChange={(event) => setLine(event.target.value)}
