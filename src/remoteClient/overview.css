@@ -52,8 +52,8 @@
  * was when the terminal closes, instead of every dot in the list restarting
  * its cycle together.
  */
-.app.is-under-terminal .card-attention,
-.app.is-under-terminal .dot-live {
+.app.is-under-terminal .card-attention::after,
+.app.is-under-terminal .dot-live::after {
   animation-play-state: paused;
 }
 
@@ -135,12 +135,21 @@
 
 /* --- pull to refresh --- */
 .pull-indicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 8;
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 34px;
   overflow: hidden;
   font-size: 0.85rem;
   color: var(--text-3);
+  pointer-events: none;
+  transform: translate3d(0, calc(-100% + var(--pull-shown, 0px)), 0);
+  opacity: var(--pull-opacity, 0);
 }
 
 /* was var(--bronze) — 3.09:1 on --bg in light, under AA for 0.85rem text.
@@ -360,11 +369,11 @@
 }
 
 .card-attention {
+  position: relative;
   width: 10px;
   height: 10px;
   border-radius: 50%;
   background: var(--warn);
-  animation: vg-pulse 2.4s ease-out infinite;
 }
 
 .stop {
@@ -503,6 +512,7 @@
 }
 
 .dot-live {
+  position: relative;
   flex: 0 0 auto;
   width: 10px;
   height: 10px;
@@ -510,12 +520,15 @@
   background: var(--role, var(--verdigris));
 }
 
-.dot-live.is-working {
+.card-attention::after,
+.dot-live.is-working::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  pointer-events: none;
   animation: vg-pulse 2.4s ease-out infinite;
-}
-
-.dot-live.is-working.is-orchestrator {
-  animation-name: vg-pulse-bronze;
 }
 
 .dot-live.is-idle {
@@ -830,4 +843,11 @@
   backdrop-filter: blur(16px) saturate(1.1);
   color: var(--text-2);
   font-size: 1.2rem;
+}
+
+@media (pointer: coarse) {
+  .to-top {
+    background: var(--surface);
+    backdrop-filter: none;
+  }
 }
