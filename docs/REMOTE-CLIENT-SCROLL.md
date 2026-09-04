@@ -671,12 +671,18 @@ ceiling in T1.
 ## 6. Questions for the orchestrator
 
 1. Does the phone need to click inside a TUI (mouse reporting)? Assumed no.
+   **Decided: no mouse reporting.**
 2. May WP1 add a `size` server-to-client message so a desktop resize reaches
    an attached phone, or is "parsed at the old width until the next
    reconnect" acceptable for the first cut? Assumed acceptable for the first
    cut.
+   **Decided: no `size` message in this cut.** The reader resizes its parser
+   only when a snapshot names a different size.
 3. Delete pull-to-refresh outright (recommended) or rebuild it in the
    passive, fixed-indicator shape described in 3.4?
+   **Decided: rebuilt passive, not deleted.** WP3 shipped that shape.
 4. Is `@xterm/headless` an acceptable new devDependency? If not, the
    unopened `Terminal` from `@xterm/xterm` parses without `open()` at the
    cost of shipping the renderer the reader never uses.
+   **Decided: `@xterm/headless` accepted.** The phone bundle imports it;
+   `@xterm/xterm` stays for the desktop terminal.
