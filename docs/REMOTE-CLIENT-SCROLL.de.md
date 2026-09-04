@@ -726,12 +726,19 @@ Zwei-Zeilen-Änderung, und keines hebt die Obergrenze in T1.
 
 1. Muss das Handy in einer TUI klicken können (Maus-Reporting)? Annahme:
    nein.
+   **Entschieden: kein Maus-Reporting.**
 2. Darf WP1 eine `size`-Nachricht Server-zu-Client hinzufügen, sodass ein
    Desktop-Resize ein angehängtes Handy erreicht, oder ist "in der alten
    Breite geparst bis zur nächsten Neuverbindung" für den ersten Schnitt
    akzeptabel? Annahme: für den ersten Schnitt akzeptabel.
+   **Entschieden: keine `size`-Nachricht in diesem Schnitt.** Der Reader
+   ändert seinen Parser nur, wenn ein Snapshot eine andere Größe nennt.
 3. Pull-to-Refresh ganz löschen (empfohlen) oder in der passiven Form mit
    fixem Indikator aus 3.4 neu bauen?
+   **Entschieden: passiv neu gebaut, nicht gelöscht.** WP3 hat diese Form
+   ausgeliefert.
 4. Ist `@xterm/headless` eine akzeptable neue devDependency? Wenn nicht,
    parst das nicht geöffnete `Terminal` aus `@xterm/xterm` ohne `open()`, zum
    Preis, den Renderer mitzuschicken, den der Reader nie benutzt.
+   **Entschieden: `@xterm/headless` akzeptiert.** Das Handy-Bundle importiert
+   es; `@xterm/xterm` bleibt für das Desktop-Terminal.

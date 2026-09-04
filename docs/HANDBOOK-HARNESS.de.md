@@ -106,9 +106,11 @@ laufen, sonst gibt es zwei Wahrheiten.
 
 Play startet heute einen leeren Orchestrator; das Ziel wird in die TUI
 getippt (`devRun.ts`, `workspaces:start(profileId)`). Am Desktop schon
-die Klasse von Bug, die `autoSubmitTasks` lösen sollte. Am Handy mit
-xterm + Software-Tastatur ist es der schlechteste Pfad im ganzen Remote-
-Plan.
+die Klasse von Bug, die `autoSubmitTasks` lösen sollte. Am Handy ist es
+der schlechteste Pfad im ganzen Remote-Plan: der Client zeichnet die PTY
+über einen kopflosen xterm-Parser in einen nativen DOM-Scroller und ändert
+die PTY nie in der Größe, sodass ein Start-Ziel, in eine Vendor-TUI getippt,
+kein Gitter hat, das das Handy besitzt.
 
 Billig in B1/B2:
 
@@ -417,9 +419,11 @@ Default `ui.cliSurface: session`. Titelleisten-Peek auf raw
 (Berechtigungsdialoge leben in der TUI). Boot-Phase `waiting` erzwingt
 raw, damit übrig gebliebene Cursor-MCP-Freigaben klickbar bleiben.
 Follow-ups und Antworten laufen über `postUserMessage` /
-`answerQuestion` — nie ein PTY-Write. Phone-xterm ist out of scope. Das
-ist kein TUI-Parser. Hide-all (Panel-Auge und globaler Hotkey) blendet
-CLI-, Timeline- und Editor-Fenster mit `hide()` aus, nie das Panel.
+`answerQuestion` — nie ein PTY-Write. Das Handy zeichnet die PTY über
+einen kopflosen xterm-Parser in einen nativen DOM-Scroller und ändert die
+PTY nie in der Größe. Das ist kein TUI-Parser. Hide-all (Panel-Auge und
+globaler Hotkey) blendet CLI-, Timeline- und Editor-Fenster mit `hide()`
+aus, nie das Panel.
 Restore öffnet die Agenten des zuletzt gewählten Workspace in ihren Zonen;
 Auge oder Hotkey ohne sichtbares Ziel macht dasselbe, statt einen leeren
 Hide-Zustand zu merken.

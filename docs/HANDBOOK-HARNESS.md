@@ -107,8 +107,10 @@ the same registry, otherwise there are two truths.
 Play today starts an empty orchestrator; the goal is typed into the TUI
 (`devRun.ts`, `workspaces:start(profileId)`). On the desktop this is already
 the class of bug that `autoSubmitTasks` was meant to solve. On the phone
-with xterm + software keyboard it is the worst path in the entire remote
-plan.
+it is the worst path in the entire remote plan: the client renders the PTY
+through a headless xterm parser into a native DOM scroller and never
+resizes the PTY, so a start-goal typed into a vendor TUI has no grid the
+phone owns.
 
 Cheap in B1/B2:
 
@@ -410,9 +412,10 @@ looks like Vertragus. Default `ui.cliSurface: session`. Title-bar peek
 to raw (permission dialogs live in the TUI). Boot phase `waiting` forces
 raw so leftover Cursor MCP approvals stay clickable. Follow-ups and
 answers take `postUserMessage` / `answerQuestion` — never a PTY write.
-Phone xterm is out of scope. This is not a TUI parser. Hide-all (panel eye
-and the global hotkey) hides CLI, timeline and editor windows with `hide()`
-and never the panel. Restore opens the last selected workspace's agents in
+The phone renders the PTY through a headless xterm parser into a native
+DOM scroller and never resizes the PTY. This is not a TUI parser. Hide-all
+(panel eye and the global hotkey) hides CLI, timeline and editor windows
+with `hide()` and never the panel. Restore opens the last selected workspace's agents in
 their zones; eye or hotkey with nothing visible does the same instead
 of recording an empty hide.
 
