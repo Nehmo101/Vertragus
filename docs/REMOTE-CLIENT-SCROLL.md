@@ -307,8 +307,11 @@ headless xterm parser holds the buffer; the screen shows rows.
   scrollback and are immutable (the phone never resizes, so no reflow), so
   their DOM is append-only. The `rows` lines from `baseY` upward are the live
   region and are re-rendered per write, coalesced to one frame, replacing only
-  rows whose run list changed. Scrollback trimming at the head drops the same
-  number of DOM rows. Each row is a `pre`-styled block with one text node in
+  rows whose run list changed. Scrollback sync is a marker on the last synced
+  line (`ScrollbackSync` / `registerMarker`), not a count of xterm `onScroll`
+  events — a DECSTBM region scroll fires `onScroll` without adding a line;
+  trimming at the head drops the rows the marker no longer covers. Each row
+  is a `pre`-styled block with one text node in
   the common case and `<span>` runs where attributes change (from the cell
   API: `getFgColorMode`, `getFgColor`, `getBgColor`, `isBold`, `isDim`,
   `isItalic`, `isUnderline`, `isInverse`, `getWidth`, `getChars`); width-0
@@ -493,10 +496,9 @@ above.
   the desktop terminal; the phone bundle imports none of them. The terminal
   chunk carries `@xterm/headless` instead and measures 43 kB gzipped; the
   entry chunk measures 67 kB against the 72 kB budget.
-- The reader keeps two passive listeners, `touchstart` and `touchend`, that
-  only note whether a finger is down: the follow-snap after a burst of output
-  is deferred while it is. There is no `touchmove` listener and no
-  `preventDefault` anywhere in the reader.
+- There is no `touchmove` listener and no `preventDefault` anywhere in the
+  reader. Passive `touchstart` / `touchend` / `touchcancel` / `scrollend`
+  only note fingers and settle; see Review fixes.
 - A paused reader keeps head rows the buffer has already trimmed (up to
   5000) rather than compensating `scrollTop`, so JavaScript writes the scroll
   position in exactly one place; the stale rows are dropped the next time the
@@ -515,10 +517,18 @@ above.
 Acceptance, as verified here: items 5 and 6 hold by construction and are
 pinned by `RemoteTerminal.test.ts` (no `resize` exists to send; no fit
 exists to run); the row rendering, the scrollback bookkeeping, following and
-search are covered by `terminalRows.test.ts`; the build and bundle guard
-pass. Items 1 to 4 (native feel of the pan, long-press selection, hold while
-paused, Ink rendering at the desktop's column count) need a phone and remain
-to be checked on a device.
+search are covered by `terminalRows.test.ts` and `terminalSync.test.ts`; the
+build and bundle guard pass. Items 1 to 4 (native feel of the pan,
+long-press selection, hold while paused, Ink rendering at the desktop's
+column count) need a phone and remain to be checked on a device.
+
+**Review fixes.** Scrollback sync is a marker on the last synced line
+(`ScrollbackSync` / `registerMarker`), so a DECSTBM region scroll no longer
+drops or duplicates rows. A rebuild stays deferred while the alternate
+screen is shown (`renderPlan`). The follow snap is deferred while a finger
+is down or momentum is settling (120 ms / `scrollend`). Stale head rows are
+never trimmed under a finger. Multi-touch is tracked by touch count
+(`noteTouches`).
 
 ### WP2: Keyboard, fixed overlay, no chase
 

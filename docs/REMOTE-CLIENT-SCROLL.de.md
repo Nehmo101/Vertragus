@@ -339,8 +339,12 @@ Ein kopfloser xterm-Parser hält den Puffer; der Schirm zeigt Zeilen.
   also kein Reflow), ihr DOM ist also append-only. Die `rows` Zeilen von
   `baseY` aufwärts sind die Live-Region und werden pro Write neu gezeichnet,
   auf einen Frame zusammengelegt, und ersetzen nur Zeilen, deren Run-Liste
-  sich geändert hat. Scrollback-Trimmen am Kopf wirft dieselbe Zahl DOM-Zeilen
-  ab. Jede Zeile ist ein `pre`-gestylter Block mit einem Textknoten im
+  sich geändert hat. Die Scrollback-Synchronisation ist ein Marker auf der
+  zuletzt synchronisierten Zeile (`ScrollbackSync` / `registerMarker`), kein
+  Zählen von xterm-`onScroll`-Events — ein DECSTBM-Region-Scroll feuert
+  `onScroll`, ohne eine Zeile hinzuzufügen; Trimmen am Kopf wirft die Zeilen
+  ab, die der Marker nicht mehr deckt. Jede Zeile ist ein `pre`-gestylter
+  Block mit einem Textknoten im
   Normalfall und `<span>`-Läufen, wo sich Attribute ändern (aus der
   Zell-API: `getFgColorMode`, `getFgColor`, `getBgColor`, `isBold`, `isDim`,
   `isItalic`, `isUnderline`, `isInverse`, `getWidth`, `getChars`); Zellen
@@ -538,10 +542,9 @@ oben.
   für das Desktop-Terminal; das Handy-Bundle importiert keines davon. Der
   Terminal-Chunk trägt stattdessen `@xterm/headless` und misst 43 kB gzippt;
   der Entry-Chunk misst 67 kB gegen das 72-kB-Budget.
-- Der Reader behält zwei passive Listener, `touchstart` und `touchend`, die
-  nur merken, ob ein Finger unten ist: der Follow-Snap nach einem
-  Ausgabe-Burst wartet, solange das der Fall ist. Es gibt keinen
-  `touchmove`-Listener und kein `preventDefault` irgendwo im Reader.
+- Es gibt keinen `touchmove`-Listener und kein `preventDefault` irgendwo im
+  Reader. Passive `touchstart` / `touchend` / `touchcancel` / `scrollend`
+  merken nur Finger und Nachlauf; siehe Review-Korrekturen.
 - Ein pausierter Reader behält Kopfzeilen, die der Puffer schon getrimmt hat
   (bis 5000), statt `scrollTop` zu kompensieren, sodass JavaScript die
   Scroll-Position an genau einer Stelle schreibt; die veralteten Zeilen
@@ -562,10 +565,20 @@ oben.
 Abnahme, hier geprüft: Punkte 5 und 6 gelten konstruktionsbedingt und sind
 durch `RemoteTerminal.test.ts` festgenagelt (kein `resize` zum Senden, kein
 Fit zum Laufen); das Zeichnen der Zeilen, die Scrollback-Buchhaltung, das
-Folgen und die Suche deckt `terminalRows.test.ts`; Bau und Bundle-Wächter
-laufen durch. Punkte 1 bis 4 (natives Gefühl des Pans, Long-Press-Auswahl,
-Halten bei Pause, Ink-Zeichnung in der Spaltenzahl des Desktops) brauchen
-ein Handy und bleiben auf dem Gerät zu prüfen.
+Folgen und die Suche decken `terminalRows.test.ts` und
+`terminalSync.test.ts`; Bau und Bundle-Wächter laufen durch. Punkte 1 bis 4
+(natives Gefühl des Pans, Long-Press-Auswahl, Halten bei Pause,
+Ink-Zeichnung in der Spaltenzahl des Desktops) brauchen ein Handy und
+bleiben auf dem Gerät zu prüfen.
+
+**Review-Korrekturen.** Die Scrollback-Synchronisation ist ein Marker auf
+der zuletzt synchronisierten Zeile (`ScrollbackSync` / `registerMarker`),
+sodass ein DECSTBM-Region-Scroll keine Zeilen mehr verwirft oder
+verdoppelt. Ein Rebuild bleibt zurückgestellt, solange der Alternate-Screen
+gezeigt wird (`renderPlan`). Der Follow-Snap wartet, solange ein Finger
+unten ist oder der Nachlauf sich setzt (120 ms / `scrollend`). Veraltete
+Kopfzeilen werden unter einem Finger nie getrimmt. Multi-Touch wird über
+die Fingerzahl verfolgt (`noteTouches`).
 
 ### WP2: Tastatur, fixes Overlay, kein Hinterherlaufen
 
