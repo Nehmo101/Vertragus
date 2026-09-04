@@ -18,7 +18,8 @@ import {
   setAllExpanded,
   startFormOpen,
   workspaceGoalLine,
-  workspaceNeedsAttention
+  workspaceNeedsAttention,
+  workspaceCardClass
 } from './viewModel'
 
 function agent(overrides: Partial<RemoteAgentSummary> = {}): RemoteAgentSummary {
@@ -285,6 +286,43 @@ describe('attention', () => {
       false
     )
   })
+
+  it('raises the card for a waiting subagent and for the orchestrator asking the user', () => {
+    // The orchestrator is excluded from `agentNeedsAttention` — its own
+    // questions reach the user through the workspace, not through its row —
+    // so the card has to pick it up separately or an orchestrator question
+    // leaves a quiet card.
+    expect(
+      workspaceNeedsAttention(workspace({ agents: [agent({ pendingQuestion: 'Use bcrypt?' })] }))
+    ).toBe(true)
+    expect(
+      workspaceNeedsAttention(
+        workspace({ agents: [agent({ roleId: 'orchestrator', pendingQuestion: 'Ship it?' })] })
+      )
+    ).toBe(true)
+    expect(workspaceNeedsAttention(workspace())).toBe(false)
+    expect(workspaceNeedsAttention(workspace({ agents: [agent({ pendingQuestion: '   ' })] }))).toBe(
+      false
+    )
+  })
+
+  it('names each state the card sheet paints on, in a stable order', () => {
+    const live = workspace()
+    expect(workspaceCardClass(live, false)).toBe('card')
+    expect(workspaceCardClass(live, true)).toBe('card is-expanded')
+    expect(workspaceCardClass(workspace({ active: false }), false)).toBe('card inactive')
+    expect(workspaceCardClass(workspace({ orchestratorIdle: true }), false)).toBe('card is-idle')
+    expect(
+      workspaceCardClass(
+        workspace({
+          active: false,
+          orchestratorIdle: true,
+          agents: [agent({ pendingQuestion: 'Use bcrypt?' })]
+        }),
+        true
+      )
+    ).toBe('card inactive needs-attention is-idle is-expanded')
+  })
 })
 
 describe('expansion', () => {
@@ -322,6 +360,29 @@ describe('agent status line', () => {
     )
     expect(agentDotKind(agent({ roleId: 'orchestrator' }))).toBe('working-orchestrator')
     expect(agentDotKind(agent({ state: 'waiting' }))).toBe('idle')
+  })
+
+  it('falls back to the role id when the host sent no usable label', () => {
+    // `roleLabel` is optional on the wire and a role can carry a blank one; a
+    // row reading " · wartet" names nothing the user can act on.
+    expect(agentStatusLine(agent({ roleLabel: undefined, statusText: 'T-9' }), labels)).toBe(
+      'worker · T-9'
+    )
+    expect(agentStatusLine(agent({ roleLabel: '   ' }), labels)).toBe('worker · arbeitet')
+  })
+
+  it('drops the separator when there is no task to name', () => {
+    expect(agentStatusLine(agent({ state: 'stopped' }), labels)).toBe('Worker · beendet')
+    expect(agentStatusLine(agent({ state: 'waiting' }), labels)).toBe('Worker · wartet')
+    expect(agentStatusLine(agent({ state: 'working' }), labels)).toBe('Worker · arbeitet')
+    expect(agentStatusLine(agent({ state: 'waiting', statusText: '  ' }), labels)).toBe(
+      'Worker · wartet'
+    )
+  })
+
+  it('marks a working worker apart from a working orchestrator', () => {
+    expect(agentDotKind(agent())).toBe('working')
+    expect(agentDotKind(agent({ roleId: 'orchestrator', state: 'stopped' }))).toBe('idle')
   })
 })
 
