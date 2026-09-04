@@ -3379,6 +3379,27 @@ describe('token usage', () => {
     expect(order).toEqual(['read', 'kill'])
   })
 
+  it('lets exactly one of two concurrent stops kill — the read yields', async () => {
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { workspace, spawns } = harness({
+      deps: {
+        readTokenUsage: async () => {
+          await gate
+          return usage
+        }
+      }
+    })
+    const started = await workspace.startAgent({ role: 'worker', task: 'x' })
+    const first = workspace.stopAgent(started.agentId)
+    const second = workspace.stopAgent(started.agentId)
+    release()
+    expect(await Promise.all([first, second])).toEqual([true, false])
+    expect(spawns[0]!.pty.killed).toBe(1)
+  })
+
   it('puts the cached value on agent_exited and refreshes after exit', async () => {
     let refreshed = 0
     const { workspace, spawns } = harness({

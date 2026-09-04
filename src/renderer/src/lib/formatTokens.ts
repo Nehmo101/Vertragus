@@ -10,13 +10,16 @@ export function formatTokenCount(count: number, locale: Locale): string {
   if (count < 1_000) {
     return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(count)
   }
-  const scaled = count < 1_000_000 ? count / 1_000 : count / 1_000_000
-  const suffix = count < 1_000_000 ? 'k' : 'M'
-  const formatted = new Intl.NumberFormat(locale, {
+  const compact = new Intl.NumberFormat(locale, {
     maximumFractionDigits: 1,
-    minimumFractionDigits: 0
-  }).format(scaled)
-  return `${formatted}${suffix}`
+    minimumFractionDigits: 0,
+    useGrouping: false
+  })
+  // Round to one decimal BEFORE picking the tier: 999,950 is "1M", never
+  // "1,000k" (which the grouping separator would otherwise paint).
+  const thousands = Math.round(count / 100) / 10
+  if (thousands < 1_000) return `${compact.format(thousands)}k`
+  return `${compact.format(Math.round(count / 100_000) / 10)}M`
 }
 
 export function tokenUsageCount(usage: TokenUsage): number {

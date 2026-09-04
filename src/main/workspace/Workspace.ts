@@ -1175,6 +1175,9 @@ export class Workspace implements AgentHost {
     if (!record) return false
     const wasRunning = record.pty.isAlive && !record.stopped
     if (wasRunning) await this.readTokenUsage(agentId)
+    // The read yielded: a concurrent stop (close(), a second stop_agent) may
+    // have terminated the record meanwhile — one kill, one agent_stopped.
+    if (record.stopped) return false
     this.terminate(record)
     // The record stays listed as `stopped`: the orchestrator is told to verify
     // with read_output, and a scrollback it can no longer reach is useless.
