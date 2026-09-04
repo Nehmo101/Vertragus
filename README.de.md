@@ -267,8 +267,8 @@ nicht. Die Änderung gilt beim nächsten Play. Ein globaler
 Alles-ausblenden-Hotkey blendet CLI-, Timeline- und Editor-Fenster aus
 (`hide()`, nie `minimize()`) und nie das Panel — Restore (Hotkey oder
 Panel-Auge) öffnet die Agenten des zuletzt gewählten Workspace in ihren
-Zonen, und ein Klick auf das Auge ohne sichtbares CLI macht dasselbe,
-statt nichts auszublenden; Autostart und ein Self-Updater mit
+Zonen, und Auge oder Hotkey ohne sichtbares Ziel macht dasselbe, statt
+nichts auszublenden; Autostart und ein Self-Updater mit
 Stable/Main-Kanalwahl; deutsche und englische UI.
 
 ## Fernzugriff (Tailscale)

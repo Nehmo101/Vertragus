@@ -174,7 +174,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
 
   const windowOpenOf = (agentId: string): boolean => getCliWindow(agentId) !== null
 
-  const presentWorkspaceWindows = (workspace: Workspace): void => {
+  const presentWorkspaceWindows = (workspace: Workspace): boolean => {
     const agentIds = [
       ...(workspace.orchestrator ? [workspace.orchestrator.agentId] : []),
       ...workspace.listAgents().map((agent) => agent.agentId)
@@ -191,7 +191,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
     } catch {
       snapToZones = true
     }
-    presentWorkspaceAgents(agentIds, {
+    return presentWorkspaceAgents(agentIds, {
       hasLiveWindow: (agentId) => getCliWindow(agentId) !== null,
       reopenClosedWindow: (agentId) => {
         workspace.showAgentWindow(agentId)
@@ -211,7 +211,8 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
     if (!workspaceId) return false
     const workspace = manager.get(workspaceId)
     if (!workspace) return false
-    presentWorkspaceWindows(workspace)
+    if (!presentWorkspaceWindows(workspace)) return false
+    focusTimelineWindow(workspaceId)
     return true
   })
 

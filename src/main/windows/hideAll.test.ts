@@ -328,6 +328,7 @@ describe('toggle', () => {
     const restoreWorkspace = vi.fn(() => {
       windows['agent:last']!.visible = true
       log.push('restoreWorkspace')
+      log.push('focus:agent:last')
       return true
     })
     const hideAll = createHideAllController({
@@ -344,17 +345,12 @@ describe('toggle', () => {
     expect(hideAll.toggle()).toBe('restored')
     expect(restoreWorkspace).toHaveBeenCalledTimes(1)
     expect(snapCliWindows).not.toHaveBeenCalled()
-    expect(log).toEqual([
-      'restoreWorkspace',
-      'show:editor:p',
-      'show:timeline:t',
-      'focus:agent:last'
-    ])
-    expect(log.filter((entry) => entry.startsWith('focus:'))).toHaveLength(1)
+    expect(log).toEqual(['restoreWorkspace', 'focus:agent:last', 'show:editor:p'])
+    expect(log.filter((entry) => entry.startsWith('focus:'))).toEqual(['focus:agent:last'])
     expect(windows['agent:foreign']!.visible).toBe(false)
     expect(windows['agent:last']!.visible).toBe(true)
     expect(windows['editor:p']!.visible).toBe(true)
-    expect(windows['timeline:t']!.visible).toBe(true)
+    expect(windows['timeline:t']!.visible).toBe(false)
     expect(hideAll.isHidden()).toBe(false)
   })
 
@@ -379,7 +375,7 @@ describe('toggle', () => {
     expect(log).toEqual(['show:agent:a', 'show:editor:p'])
   })
 
-  it('opens the last workspace when nothing is hidden and no CLI is visible', () => {
+  it('opens the last workspace when nothing is hidden and no target is visible', () => {
     const { log, windows, targets } = harness(['agent:a', 'editor:p'])
     windows['agent:a']!.visible = false
     windows['editor:p']!.visible = false
@@ -393,6 +389,18 @@ describe('toggle', () => {
     expect(restoreWorkspace).toHaveBeenCalledTimes(1)
     expect(log).toEqual(['restoreWorkspace'])
     expect(hideAll.isHidden()).toBe(false)
+  })
+
+  it('hides a visible timeline when CLI windows are closed rather than restoring', () => {
+    const { log, windows, targets } = harness(['agent:a', 'timeline:t'])
+    windows['agent:a']!.visible = false
+    const restoreWorkspace = vi.fn(() => true)
+    const hideAll = createHideAllController({ targets: () => targets, restoreWorkspace })
+
+    expect(hideAll.toggle()).toBe('hidden')
+    expect(restoreWorkspace).not.toHaveBeenCalled()
+    expect(log).toEqual(['hide:timeline:t'])
+    expect(windows['timeline:t']!.visible).toBe(false)
   })
 
   it('keeps today\'s empty hide when restoreWorkspace returns false and nothing is visible', () => {
