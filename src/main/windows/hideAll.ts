@@ -16,12 +16,14 @@
  * - **The panel stays.** It is the way back — hiding it would leave the user
  *   with an invisible app and a hotkey they may have mistyped.
  * - Restore: when `restoreWorkspace` returns true, last-workspace agents are
- *   already in their zones; then non-CLI snapshot targets (timelines/editors/
- *   settings) `showInactive()` and focus lands once on that workspace's first
- *   window. When it is absent or returns false, restore falls back to the
- *   snapshot — `showInactive()` in remembered order, then one focus.
- * - An eye click with an empty snapshot and no visible CLI window calls
- *   `restoreWorkspace` instead of recording an empty hide.
+ *   already in their zones (and that path focused once); then editors/settings
+ *   from the snapshot `showInactive()`. CLI and timeline keys stay skipped —
+ *   foreign timelines stay hidden; the hook shows the last workspace's sheet.
+ *   When it is absent or returns false, restore falls back to the snapshot —
+ *   `showInactive()` in remembered order, then one focus.
+ * - Eye or hotkey with an empty snapshot and no visible target (CLI, timeline,
+ *   editor, settings) calls `restoreWorkspace` instead of recording an empty
+ *   hide. A visible timeline still hides first.
  * - Windows hidden (or minimized) by the user BEFORE the toggle stay that
  *   way afterwards — they were not ours to show.
  *
@@ -42,9 +44,14 @@ import { suppressMoveTracking } from './placement'
 import { listTimelineWindows } from './timelineWindow'
 
 const AGENT_KEY_PREFIX = 'agent:'
+const TIMELINE_KEY_PREFIX = 'timeline:'
 
 function isCliHideAllKey(key: string): boolean {
   return key.startsWith(AGENT_KEY_PREFIX)
+}
+
+function isTimelineHideAllKey(key: string): boolean {
+  return key.startsWith(TIMELINE_KEY_PREFIX)
 }
 
 /** The slice of BrowserWindow hide-all uses. */
@@ -56,6 +63,10 @@ export interface HideableWindow {
   hide(): void
   showInactive(): void
   focus(): void
+}
+
+function isOursToHide(window: HideableWindow): boolean {
+  return window.isVisible() && !window.isMinimized()
 }
 
 export interface HideAllTarget {
@@ -80,7 +91,7 @@ export interface HideAllDeps {
   /**
    * Open the last workspace's agents in their zones. Returns false when there
    * is no last workspace (caller falls back to the snapshot). Absent = today's
-   * snapshot restore, and an empty-snapshot eye click stays a no-op hide.
+   * snapshot restore, and an empty-snapshot eye/hotkey stays a no-op hide.
    */
   restoreWorkspace?(): boolean
 }
@@ -105,10 +116,8 @@ export function createHideAllController(deps: HideAllDeps): HideAllController {
       const targets = deps.targets().filter((target) => !target.window.isDestroyed())
 
       if (hiddenKeys.length === 0) {
-        const noVisibleCli = targets
-          .filter((target) => isCliHideAllKey(target.key))
-          .every((target) => !target.window.isVisible())
-        if (noVisibleCli && deps.restoreWorkspace?.()) {
+        const nothingVisible = targets.every((target) => !isOursToHide(target.window))
+        if (nothingVisible && deps.restoreWorkspace?.()) {
           return 'restored'
         }
 
@@ -117,8 +126,7 @@ export function createHideAllController(deps: HideAllDeps): HideAllController {
         for (const target of targets) {
           if (hiddenWindows.has(target.window)) continue
           // A window the user had already hidden or minimized is none of ours.
-          if (!target.window.isVisible()) continue
-          if (target.window.isMinimized()) continue
+          if (!isOursToHide(target.window)) continue
           hiddenWindows.add(target.window)
           deps.beforeNativeVisibility?.(target.key)
           target.window.hide()
@@ -131,15 +139,10 @@ export function createHideAllController(deps: HideAllDeps): HideAllController {
       if (deps.restoreWorkspace?.()) {
         const byKey = new Map(targets.map((target) => [target.key, target.window]))
         for (const key of hiddenKeys) {
-          if (isCliHideAllKey(key)) continue
+          if (isCliHideAllKey(key) || isTimelineHideAllKey(key)) continue
           deps.beforeNativeVisibility?.(key)
           byKey.get(key)?.showInactive()
         }
-        // Focus last workspace's first window once — not each restored CLI.
-        const firstCli = targets.find(
-          (target) => isCliHideAllKey(target.key) && target.window.isVisible()
-        )
-        firstCli?.window.focus()
         hiddenKeys = []
         focusedKey = undefined
         return 'restored'

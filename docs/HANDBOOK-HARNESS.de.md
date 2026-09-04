@@ -420,8 +420,8 @@ Follow-ups und Antworten laufen über `postUserMessage` /
 ist kein TUI-Parser. Hide-all (Panel-Auge und globaler Hotkey) blendet
 CLI-, Timeline- und Editor-Fenster mit `hide()` aus, nie das Panel.
 Restore öffnet die Agenten des zuletzt gewählten Workspace in ihren Zonen;
-ein Klick auf das Auge ohne sichtbares CLI-Fenster macht dasselbe, statt
-einen leeren Hide-Zustand zu merken.
+Auge oder Hotkey ohne sichtbares Ziel macht dasselbe, statt einen leeren
+Hide-Zustand zu merken.
 
 ---
 

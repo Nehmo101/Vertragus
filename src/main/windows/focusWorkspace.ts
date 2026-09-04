@@ -124,18 +124,23 @@ export interface PresentWorkspaceAgentsDeps extends FocusWorkspaceDeps {
 /**
  * Reopen closed windows of still-registered agents, hide foreign CLI windows,
  * surface this workspace, and tile into zones when `tile` is not false.
+ *
+ * Returns false when there is nothing to present (`agentIds` empty — a
+ * workspace recorded before its orchestrator exists). Callers fall back to
+ * hide-all's snapshot instead of claiming a restore.
  */
 export function presentWorkspaceAgents(
   agentIds: readonly string[],
   deps: PresentWorkspaceAgentsDeps
-): void {
+): boolean {
+  if (agentIds.length === 0) return false
   for (const agentId of agentIds) {
     if (deps.hasLiveWindow(agentId)) continue
     deps.reopenClosedWindow(agentId)
   }
-  if (agentIds.length === 0) return
   focusWorkspaceAgents(agentIds, deps)
   if (deps.tile !== false) deps.layout(agentIds)
+  return true
 }
 
 /** Production list of every CLI window as focus-workspace targets. */

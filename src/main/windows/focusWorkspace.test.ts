@@ -217,16 +217,18 @@ describe('presentWorkspaceAgents', () => {
       log.push(`layout:${[...ids].join(',')}`)
     })
 
-    presentWorkspaceAgents(['orch', 'worker'], {
-      hasLiveWindow: (id) => live.has(id),
-      reopenClosedWindow: (id) => {
-        log.push(`reopen:${id}`)
-        live.add(id)
-        targets.push({ agentId: id, window: windows[id]! })
-      },
-      windows: () => targets,
-      layout
-    })
+    expect(
+      presentWorkspaceAgents(['orch', 'worker'], {
+        hasLiveWindow: (id) => live.has(id),
+        reopenClosedWindow: (id) => {
+          log.push(`reopen:${id}`)
+          live.add(id)
+          targets.push({ agentId: id, window: windows[id]! })
+        },
+        windows: () => targets,
+        layout
+      })
+    ).toBe(true)
 
     expect(log).toEqual([
       'reopen:worker',
@@ -261,15 +263,36 @@ describe('presentWorkspaceAgents', () => {
     const { targets } = harness(['orch', 'foreign'])
     const layout = vi.fn()
 
-    presentWorkspaceAgents(['orch'], {
-      hasLiveWindow: () => true,
-      reopenClosedWindow: vi.fn(),
-      windows: () => targets,
-      tile: false,
-      layout
-    })
+    expect(
+      presentWorkspaceAgents(['orch'], {
+        hasLiveWindow: () => true,
+        reopenClosedWindow: vi.fn(),
+        windows: () => targets,
+        tile: false,
+        layout
+      })
+    ).toBe(true)
 
     expect(layout).not.toHaveBeenCalled()
+  })
+
+  it('returns false for an empty agent list without touching windows', () => {
+    const { log, targets } = harness(['foreign'])
+    const layout = vi.fn()
+    const reopen = vi.fn()
+
+    expect(
+      presentWorkspaceAgents([], {
+        hasLiveWindow: () => false,
+        reopenClosedWindow: reopen,
+        windows: () => targets,
+        layout
+      })
+    ).toBe(false)
+
+    expect(reopen).not.toHaveBeenCalled()
+    expect(layout).not.toHaveBeenCalled()
+    expect(log).toEqual([])
   })
 })
 
@@ -290,5 +313,14 @@ describe('production wiring', () => {
     expect(block).toMatch(/getCliWindow\(agentId\)/)
     expect(block).toMatch(/showAgentWindow\(agentId\)/)
     expect(block).toMatch(/presentWorkspaceAgents/)
+  })
+
+  it('hide-all restore hook presents then focuses the last workspace timeline', () => {
+    const source = readFileSync(join(__dirname, '../index.ts'), 'utf8')
+    const start = source.indexOf('setHideAllRestoreWorkspace(() =>')
+    expect(start).toBeGreaterThanOrEqual(0)
+    const block = source.slice(start, start + 600)
+    expect(block).toMatch(/presentWorkspaceWindows\(workspace\)/)
+    expect(block).toMatch(/focusTimelineWindow\(workspaceId\)/)
   })
 })
