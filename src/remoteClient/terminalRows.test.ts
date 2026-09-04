@@ -136,6 +136,56 @@ describe('rowRuns', () => {
     expect(rowText(rowRuns(line(plain('abcdef')), 3))).toBe('abc')
     expect(rowText(rowRuns(line(plain('ab')), 0))).toBe('')
   })
+
+  it('folds true colour like it folds the palette, and splits where the value changes', () => {
+    const teal: RunColor = { kind: 'rgb', value: 0x2f7d6d }
+    const rust: RunColor = { kind: 'rgb', value: 0x9c4221 }
+    const runs = rowRuns(line([...plain('ok', { fg: teal }), ...plain('!!', { fg: rust })]), 80)
+    expect(runs.map((run) => run.text)).toEqual(['ok', '!!'])
+    expect(runs[0]!.fg).toEqual(teal)
+    expect(runs[1]!.fg).toEqual(rust)
+  })
+
+  it('never folds a palette run into a true-colour run carrying the same number', () => {
+    // Colour 3 of the palette and #000003 are different colours, and only the
+    // kind separates them: comparing the numbers alone would paint the second
+    // half of the row in the first half's colour.
+    const runs = rowRuns(
+      line([
+        ...plain('a', { fg: { kind: 'palette', index: 3 } }),
+        ...plain('b', { fg: { kind: 'rgb', value: 3 } })
+      ]),
+      80
+    )
+    expect(runs.map((run) => run.text)).toEqual(['a', 'b'])
+    expect(runs[0]!.fg).toEqual({ kind: 'palette', index: 3 })
+    expect(runs[1]!.fg).toEqual({ kind: 'rgb', value: 3 })
+  })
+
+  it('reads a palette index outside the 256 as the default colour', () => {
+    // A cell claiming palette 300 would otherwise reach the sheet as a
+    // `fg-300` class that names nothing, or an inline colour computed from an
+    // index the cube has no entry for.
+    const runs = rowRuns(line(plain('x', { fg: { kind: 'palette', index: 300 } })), 80)
+    expect(runs[0]!.fg).toBeNull()
+    expect(isPlainRun(runs[0]!)).toBe(true)
+  })
+
+  it('reads nothing when the column count is not a finite number', () => {
+    expect(rowRuns(line(plain('abc')), Number.NaN)).toEqual([])
+    expect(rowRuns(line(plain('abc')), Number.POSITIVE_INFINITY)).toEqual([])
+  })
+
+  it('stops at the first cell the line will not hand over', () => {
+    // A line reports its length up front but can refuse a cell (the buffer was
+    // trimmed under the read). What came before the hole still paints; the
+    // reader does not walk on over undefined cells.
+    const holed: LineReader = {
+      length: 5,
+      getCell: (x) => (x < 2 ? cell({ chars: 'ab'[x]! }) : undefined)
+    }
+    expect(rowText(rowRuns(holed, 80))).toBe('ab')
+  })
 })
 
 describe('row signature', () => {
@@ -146,6 +196,35 @@ describe('row signature', () => {
     expect(rowSignature(rowRuns(line(plain('abd')), 80))).not.toBe(a)
     expect(rowSignature(rowRuns(line(plain('abc', { bold: true })), 80))).not.toBe(a)
     expect(rowSignature(rowRuns(line(plain('abc')), 80, 1))).not.toBe(a)
+  })
+
+  it('separates every attribute, not only the bold one', () => {
+    // The live region is repainted per row by comparing signatures. An
+    // attribute missing from the key is a row that keeps its old paint when
+    // the parser switches to it.
+    const attributes: ReadonlyArray<Omit<FakeCell, 'chars'>> = [
+      {},
+      { bold: true },
+      { dim: true },
+      { italic: true },
+      { underline: true },
+      { strike: true },
+      { inverse: true }
+    ]
+    const signatures = attributes.map((style) =>
+      rowSignature(rowRuns(line(plain('abc', style)), 80))
+    )
+    expect(new Set(signatures).size).toBe(attributes.length)
+  })
+
+  it('separates a palette colour from a true colour with the same number', () => {
+    const paletteRow = rowSignature(
+      rowRuns(line(plain('a', { fg: { kind: 'palette', index: 9 } })), 80)
+    )
+    const trueColourRow = rowSignature(
+      rowRuns(line(plain('a', { fg: { kind: 'rgb', value: 9 } })), 80)
+    )
+    expect(paletteRow).not.toBe(trueColourRow)
   })
 })
 
@@ -208,6 +287,22 @@ describe('colours', () => {
     expect(rgb.className).toBe('inv')
     expect(rgb.color).toBe('#336699')
     expect(rgb.background).toBeNull()
+  })
+
+  it('names dim and strike as classes too', () => {
+    const shown = runPresentation({
+      fg: null,
+      bg: null,
+      bold: false,
+      dim: true,
+      italic: false,
+      underline: false,
+      strike: true,
+      inverse: false
+    })
+    expect(shown.className).toBe('d s')
+    expect(shown.color).toBeNull()
+    expect(shown.background).toBeNull()
   })
 })
 
@@ -391,6 +486,16 @@ describe('followState', () => {
   it('follows a scroller that has nothing to scroll', () => {
     expect(followState({ scrollTop: 0, scrollHeight: 300, clientHeight: 600, rowHeight: 20 })).toBe(true)
   })
+
+  it('gives no row of slack while the row height is still unmeasured', () => {
+    // Before the reader has measured a row the height arrives as 0, NaN or a
+    // negative from a hidden element. The one pixel of rounding tolerance
+    // stays; the row of slack is not invented out of a bad measurement.
+    expect(followState({ scrollTop: 999, scrollHeight: 1600, clientHeight: 600, rowHeight: 0 })).toBe(true)
+    expect(followState({ scrollTop: 998, scrollHeight: 1600, clientHeight: 600, rowHeight: 0 })).toBe(false)
+    expect(followState({ scrollTop: 998, scrollHeight: 1600, clientHeight: 600, rowHeight: Number.NaN })).toBe(false)
+    expect(followState({ scrollTop: 985, scrollHeight: 1600, clientHeight: 600, rowHeight: -20 })).toBe(false)
+  })
 })
 
 describe('search over rows', () => {
@@ -420,5 +525,15 @@ describe('search over rows', () => {
   it('counts matching rows', () => {
     expect(countMatches(texts, 'gamma')).toBe(2)
     expect(countMatches(texts, '')).toBe(0)
+  })
+
+  it('searches from the top when the highlighted row is not one of these rows', () => {
+    // `from` is the row the view last highlighted; the list under it can be
+    // rebuilt shorter or replaced between two taps of the search arrow. An
+    // index the list no longer has must start a fresh sweep, not skip rows.
+    expect(findRow(texts, 'gamma', 99, 'next')).toBe(2)
+    expect(findRow(texts, 'gamma', -7, 'next')).toBe(2)
+    expect(findRow(texts, 'gamma', 1.5, 'next')).toBe(2)
+    expect(findRow(texts, 'gamma', 99, 'prev')).toBe(findRow(texts, 'gamma', -1, 'prev'))
   })
 })
