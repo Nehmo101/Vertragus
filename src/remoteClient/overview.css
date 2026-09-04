@@ -24,15 +24,11 @@
  *     or a swipe-through would otherwise walk the whole list under the sheet.
  *   - Tab order. With a hardware keyboard, focus would otherwise leave the
  *     terminal for controls nobody can see.
- *   - Hit-testing during the frames the two viewports disagree. The overlay is
- *     pinned to the *visible* viewport through `--vv-offset-top`, which is a
- *     custom property a JS handler writes — so it lands a frame behind the
- *     browser's own move of the visual viewport. While the keyboard opens or
- *     closes, or a rubber-band settles, there is a real band of uncovered
- *     header under a terminal, and a thumb already on its way down finds it.
- *     (The steady state is not that band: an overlay offset by `offsetTop`
- *     covers everything the user can see, and the strip above it is off the
- *     top of the screen, not merely uncovered.)
+ *   - Hit-testing at the edges. The overlay is pinned to the layout viewport
+ *     (`terminal.css`, `inset: 0`); while iOS shifts the visible viewport for
+ *     the keyboard, or a rubber-band settles, the browser may briefly expose
+ *     a sliver of the page around it, and a thumb already on its way down
+ *     must find nothing there to press.
  *
  * Nothing here competes with the overlay's z-index: `visibility` does not take
  * part in stacking at all. Note that it *is* inherited, so a descendant that
@@ -76,10 +72,8 @@
  */
 .terminal-pending {
   position: fixed;
-  top: var(--vv-offset-top, 0px);
-  left: 0;
-  right: 0;
-  height: var(--vv-height, 100dvh);
+  /* The layout viewport, like `.terminal-view` itself (terminal.css). */
+  inset: 0;
   z-index: 9;
   background: var(--bg);
 }
