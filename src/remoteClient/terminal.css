@@ -1,42 +1,37 @@
 /*
  * Vertragus remote client — TERMINAL sheet: the full-screen agent terminal,
- * its history controls, its key row and its input bar. Consumes the brand
- * tokens defined in `styles.css`; the few variables declared here are
- * component-scoped and start with `--term-`.
+ * its reader, its search bar, its key row and its input bar. Consumes the
+ * brand tokens defined in `styles.css`; the few variables declared here are
+ * component-scoped and start with `--term-` or `--ansi-`.
  *
- * The stack is a column pinned to the *visible* viewport (`--vv-height` /
- * `--vv-offset-top`, published by `useVisualViewport.ts`), and the terminal is
- * the only part of it that flexes. Everything else keeps its 44 px of touch
- * target no matter how little room is left.
+ * The stack is a column pinned to the LAYOUT viewport (`inset: 0`), and the
+ * reader is the only part of it that flexes. Everything else keeps its 44 px
+ * of touch target no matter how little room is left.
+ *
+ * Why the layout viewport and not the visible one: on Android the layout
+ * viewport shrinks with the keyboard (`interactive-widget=resizes-content`),
+ * so the overlay shrinks and the input bar stays above the keys with no
+ * script involved. On iOS the layout viewport never shrinks; Safari shifts the
+ * visible viewport up by the keyboard's height when a field is focused, so
+ * the header goes off the top and the input bar lands directly above the keys
+ * — in the same frame as the keyboard, because the browser did it. Chasing
+ * the visible viewport from JS (the third pass) put every one of those frames
+ * one step behind and refitted the terminal in each; this sheet reads no
+ * viewport variable at all.
  *
  * This sheet also has to defend the document behind it. `App.tsx` keeps the
  * overview mounted under the terminal — `visibility: hidden`, so its box, and
- * therefore the document height and the reader's scroll offset, survive — which
- * means the page below is still a live scroller. Every row of this overlay
- * declares a `touch-action` that denies it a vertical pan, or a drag on the
- * header would quietly scroll the list the user expects to come back to.
- *
- * That defence has to be this sheet's alone. The overview being invisible is a
- * treatment in someone else's file and could reasonably change, so nothing
- * here leans on it: `.terminal-view` states its own stacking position, and the
- * layers inside it state their own order rather than inheriting one from
- * source order, from xterm's private ladder, or from a rule in `styles.css` /
- * `overview.css`.
+ * therefore the document height and the reader's scroll offset, survive —
+ * which means the page below is still a live scroller. Every row of this
+ * overlay other than the reader declares a `touch-action` that denies it a
+ * vertical pan, or a drag on the header would quietly scroll the list the
+ * user expects to come back to. The reader grants `pan-y` deliberately: it is
+ * a real scroller, and `overscroll-behavior: contain` is what stops its pan
+ * chaining out to the document when it reaches an end.
  *
  * `pinch-zoom` rather than `none` wherever a row denies panning. The meta
- * viewport lets this document zoom and the overlay is most of the screen, so a
- * habitual pinch landing on nothing would be a dead spot in the app — the A−/A+
- * font controls are a deliberate alternative, not a replacement for the
- * gesture. It costs the panning guarantee nothing: `pinch-zoom` grants no
- * one-finger pan, and `pan-x pinch-zoom` still denies the vertical one.
- *
- * Over the terminal itself the pinch only survives because `RemoteTerminal.tsx`
- * takes the touch stream in the capture phase and drops its own drag the
- * moment a second finger lands. xterm's built-in touch scrolling, which reads
- * `touches[0]` unconditionally and would pan the buffer under a pinch, never
- * sees the event. The one-finger pan is JS (`scrollTop`); granting `pan-y`
- * lets Safari start a native pan on the first uncancelled touchmove, after
- * which preventDefault is ignored — two drivers, or none.
+ * viewport lets this document zoom and the overlay is most of the screen, so
+ * a habitual pinch landing on nothing would be a dead spot in the app.
  */
 
 .terminal-view {
@@ -44,35 +39,14 @@
   display: flex;
   flex-direction: column;
   position: fixed;
-  /*
-   * Not `inset: 0`. A fixed box is placed against the *layout* viewport, and
-   * iOS does not always shrink the visual viewport when the keyboard opens —
-   * in several states it shifts it down instead — so a `top: 0` overlay sits
-   * above the visible area by exactly `--vv-offset-top`.
-   */
-  top: var(--vv-offset-top, 0px);
-  left: 0;
-  right: 0;
-  /*
-   * Height, not `bottom: 0`: on iOS the keyboard does not move a fixed box, so
-   * `bottom` would resolve against the layout viewport and land under the keys.
-   * With `top` no longer 0, `top`+`bottom`+`height` would also be
-   * over-constrained and the `bottom` dropped — this says the same thing once.
-   *
-   * Both fallbacks are the no-`visualViewport` answer, where the visible
-   * viewport *is* the layout viewport: no shift, full dynamic height.
-   */
-  height: var(--vv-height, 100dvh);
+  /* The layout viewport — see the docblock. Not `top`/`height` from a
+     viewport variable. */
+  inset: 0;
   /*
    * Above every positioned layer of the page this covers: `.app-header` is
    * `z-index: 8` (styles.css) and `.to-top` is `7` (overview.css), and both
    * sit in the root stacking context alongside this box. `9` is one clear of
    * the highest of them; raise it if a taller layer ever appears down there.
-   *
-   * Not a duplicate of the overview's `visibility: hidden`. That rule stops
-   * the header painting today, but it is a treatment in another sheet — drop
-   * it and a sticky header at `8` punches straight through an overlay left at
-   * `auto`.
    *
    * The number also buys containment: a positioned box with a z-index is a
    * stacking context, so every layer inside the terminal is sealed in here and
@@ -194,16 +168,6 @@
  * measures 2.93:1 on the light theme, under even the 3:1 a graphical object
  * owes. `--bronze-strong` is 4.89:1 there, and on dark it resolves to
  * `--bronze`, where this line is a no-op at an unchanged 6.78:1.
- *
- * The border stays at `--accent-line` — 45% bronze, so 1.55:1 against
- * `--surface-2` on light — with its eyes open. It is a warmer restatement of
- * the `--hairline` shape border above (itself 1.32:1), not a state carrier:
- * every cue listed above survives without it, so nothing depends on seeing
- * it and the 3:1 a *state* border would owe does not apply. Raising the
- * token is not the fix either — it is also the scrollbar thumb and the
- * dividers, where 45% is right. If this button ever loses the glyph swap the
- * state lands on the border alone and it earns a token of its own at 3:1;
- * ask for one rather than thickening `--accent-line` here.
  */
 .icon-btn[aria-expanded='true'] {
   border-color: var(--accent-line);
@@ -256,133 +220,199 @@
   color: var(--text);
 }
 
-/* --- the terminal itself --- */
+/* --- the reader --- */
 .terminal-stage {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
-  /* The strip the jump-to-latest pill floats over is stage, not host. */
-  touch-action: pinch-zoom;
 }
 
-.terminal-stage.has-jumps > .terminal-host {
-  padding-bottom: 56px;
-}
-
-.terminal-host {
+/*
+ * The one real scroller in this overlay, and a native one: the browser owns
+ * the pan, the momentum, the rubber band, the scrollbar and the long-press
+ * selection. `TerminalReader.tsx` writes `scrollTop` in exactly one place —
+ * to stay at the newest line while following — and never during a gesture.
+ *
+ * `pan-y pinch-zoom`: a vertical pan is this box's to take, a pinch is the
+ * browser's, and a horizontal drag has nothing to do (rows soft-wrap, so the
+ * box never overflows sideways). `overscroll-behavior: contain` keeps a pan
+ * that reaches either end from chaining into the document behind the
+ * overlay. `position: relative` makes this the offset parent of every row,
+ * which is how a search hit knows where to scroll to.
+ *
+ * The bottom padding is the strip the jump-to-latest pill floats over, so
+ * the pill never covers the newest rows.
+ */
+.reader {
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  padding: 6px 8px;
-  overflow: hidden;
-  /*
-   * xterm keeps a private z-index ladder inside the box it renders into —
-   * helpers at 5, decorations at 6–8, the accessibility overlay at 10 — and
-   * puts none of it in a stacking context of its own. Left alone those layers
-   * escape to the nearest one and rank against ours; the pill below is the
-   * first thing they would bury. Isolating seals the ladder in here, where it
-   * orders xterm's own layers and nothing else.
-   */
-  isolation: isolate;
-  /* pan-y is deliberately absent: this overlay's drag is JS-owned
-     (RemoteTerminal writes scrollTop). Granting pan-y lets Safari start a
-     native pan on the first uncancelled touchmove, after which preventDefault
-     is ignored — two drivers, or none. pinch-zoom still lets a second finger
-     through; the drag drops the moment that finger lands. */
-  touch-action: pinch-zoom;
-  overscroll-behavior: contain;
-}
-
-.terminal-host .xterm {
-  height: 100%;
-  /* The sub-row translateY on `.xterm-screen` must clip here, not paint into
-     the header. xterm itself does not set overflow on this box. */
-  overflow: hidden;
-}
-
-/*
- * `styles.css` gives every `textarea` a 3.2em floor for the composer's sake,
- * and xterm's helper textarea is a `textarea`: `xterm.css` sets its `height` to
- * 0 but no `min-height`, and `min-height` wins. Left alone that is a ~51 px
- * focusable box parked inside the terminal. The floor is a composer rule; it
- * has no business here.
- */
-.terminal-host .xterm-helper-textarea {
-  min-height: 0;
-}
-
-/*
- * `.xterm-viewport` is the only real scroller inside this overlay, so it is
- * where a chain out to the document would actually start — the ancestors above
- * declare it too, but this is the element that would do it.
- *
- * The scrollbar below is a desktop affordance, not the phone's. iOS draws
- * overlay scrollbars only during a *native* scroll gesture, and the drag here
- * is ours: nothing native ever scrolls this element, so the thumb stays
- * invisible on the device this client exists for. The phone's position
- * indicator is the paused pill and the jump-to-latest control, which is why
- * both are load-bearing rather than decorative.
- */
-.terminal-host .xterm-viewport {
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
-  touch-action: pinch-zoom;
+  touch-action: pan-y pinch-zoom;
+  -webkit-overflow-scrolling: touch;
+  padding: 6px 8px 64px;
+  font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  line-height: 1.4;
+  color: var(--text);
+  -webkit-user-select: text;
+  user-select: text;
   scrollbar-width: thin;
   scrollbar-color: var(--accent-line) transparent;
+  /*
+   * The 16 named ANSI colours, in the brand's world rather than a 1980s
+   * console's: every foreground clears 4.5:1 on `--bg` in its theme. The
+   * other 240 entries and true colour arrive as inline styles from the
+   * parser (`terminalRows.ts`) and are not themed.
+   */
+  --ansi-0: #3b3f47;
+  --ansi-1: #e06c60;
+  --ansi-2: #7fc48a;
+  --ansi-3: #d9b25a;
+  --ansi-4: #7fb2e6;
+  --ansi-5: #c58ad0;
+  --ansi-6: #62b6b0;
+  --ansi-7: var(--text-2);
+  --ansi-8: #8a8f9c;
+  --ansi-9: var(--err-text);
+  --ansi-10: #9fdba6;
+  --ansi-11: var(--warn-text);
+  --ansi-12: #9cc3ea;
+  --ansi-13: #dcaee6;
+  --ansi-14: var(--verdigris-text);
+  --ansi-15: var(--text);
 }
-.terminal-host .xterm-viewport::-webkit-scrollbar {
+
+:root[data-theme='light'] .reader {
+  --ansi-0: #1d1a12;
+  --ansi-1: var(--err);
+  --ansi-2: var(--verdigris);
+  --ansi-3: var(--warn-text);
+  --ansi-4: #2f5f9e;
+  --ansi-5: #7d3f8c;
+  --ansi-6: #1f6d6a;
+  --ansi-7: var(--text-3);
+  --ansi-8: var(--idle);
+  --ansi-9: var(--err-text);
+  --ansi-10: var(--verdigris-bright);
+  --ansi-11: var(--warn);
+  --ansi-12: #3a6fb0;
+  --ansi-13: #8f4fa0;
+  --ansi-14: var(--verdigris-text);
+  --ansi-15: var(--text-2);
+}
+
+.reader::-webkit-scrollbar {
   width: 6px;
 }
-.terminal-host .xterm-viewport::-webkit-scrollbar-thumb {
+.reader::-webkit-scrollbar-thumb {
   border-radius: 3px;
   background: var(--accent-line);
 }
 
-/*
- * A laptop has a mouse and a trackpad: the thumb is a real affordance, not
- * the overlay ghost iOS only paints during a native pan (which our JS drag
- * never is). Wider, always-visible, so the stage is obviously a scroller.
- */
+/* A laptop has a mouse and a trackpad: the thumb is a real affordance. */
 @media (pointer: fine) {
-  .terminal-host .xterm-viewport {
+  .reader {
     scrollbar-width: auto;
   }
-  .terminal-host .xterm-viewport::-webkit-scrollbar {
+  .reader::-webkit-scrollbar {
     width: 10px;
   }
 }
 
-.jump-top {
-  position: absolute;
-  left: 12px;
-  bottom: 12px;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: var(--touch);
-  padding: 0 16px;
-  border: 1px solid var(--hairline);
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 0.88rem;
-  font-weight: 650;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
-  animation: term-rise 140ms ease-out;
+/*
+ * One buffer line. `pre-wrap` keeps the terminal's own spacing and lets the
+ * PTY's 80–200 columns wrap on a 390 px screen; `anywhere` breaks a token
+ * that would otherwise force a horizontal overflow. The floor keeps an empty
+ * line one line tall — a blank row is still a row of the program's output.
+ */
+.row {
+  min-height: 1.4em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.row.is-match {
+  background: color-mix(in srgb, var(--bronze) 22%, transparent);
+  outline: 1px solid var(--accent-line);
+  border-radius: 3px;
+}
+
+/* Attribute runs — class names come from `runPresentation`. */
+.reader .b {
+  font-weight: 700;
+}
+.reader .d {
+  opacity: 0.6;
+}
+.reader .i {
+  font-style: italic;
+}
+.reader .u {
+  text-decoration: underline;
+}
+.reader .s {
+  text-decoration: line-through;
+}
+.reader .u.s {
+  text-decoration: underline line-through;
+}
+/* Inverse video with the terminal's defaults; a named colour on either half
+   is applied by the classes below, which come later in the sheet. */
+.reader .inv {
+  color: var(--bg);
+  background: var(--text);
+}
+
+.reader .fg-0 { color: var(--ansi-0); }
+.reader .fg-1 { color: var(--ansi-1); }
+.reader .fg-2 { color: var(--ansi-2); }
+.reader .fg-3 { color: var(--ansi-3); }
+.reader .fg-4 { color: var(--ansi-4); }
+.reader .fg-5 { color: var(--ansi-5); }
+.reader .fg-6 { color: var(--ansi-6); }
+.reader .fg-7 { color: var(--ansi-7); }
+.reader .fg-8 { color: var(--ansi-8); }
+.reader .fg-9 { color: var(--ansi-9); }
+.reader .fg-10 { color: var(--ansi-10); }
+.reader .fg-11 { color: var(--ansi-11); }
+.reader .fg-12 { color: var(--ansi-12); }
+.reader .fg-13 { color: var(--ansi-13); }
+.reader .fg-14 { color: var(--ansi-14); }
+.reader .fg-15 { color: var(--ansi-15); }
+.reader .bg-0 { background: var(--ansi-0); }
+.reader .bg-1 { background: var(--ansi-1); }
+.reader .bg-2 { background: var(--ansi-2); }
+.reader .bg-3 { background: var(--ansi-3); }
+.reader .bg-4 { background: var(--ansi-4); }
+.reader .bg-5 { background: var(--ansi-5); }
+.reader .bg-6 { background: var(--ansi-6); }
+.reader .bg-7 { background: var(--ansi-7); }
+.reader .bg-8 { background: var(--ansi-8); }
+.reader .bg-9 { background: var(--ansi-9); }
+.reader .bg-10 { background: var(--ansi-10); }
+.reader .bg-11 { background: var(--ansi-11); }
+.reader .bg-12 { background: var(--ansi-12); }
+.reader .bg-13 { background: var(--ansi-13); }
+.reader .bg-14 { background: var(--ansi-14); }
+.reader .bg-15 { background: var(--ansi-15); }
+
+/* The cursor cell, last so it wins over any colour the cell carries. */
+.reader .cur {
+  background: var(--bronze);
+  color: var(--on-bronze);
+  border-radius: 2px;
 }
 
 .jump-latest {
   position: absolute;
   right: 12px;
   bottom: 12px;
-  /*
-   * Above the terminal it floats over. The host is isolated, so this only has
-   * to clear the host itself rather than xterm's ladder — but it says so with
-   * a number instead of resting on "positioned paints after in-flow", which is
-   * the kind of order a later sibling or a stray `position` quietly rewrites.
-   */
+  /* Above the reader it floats over — said with a number rather than resting
+     on "positioned paints after in-flow". */
   z-index: 1;
   display: inline-flex;
   align-items: center;
@@ -402,6 +432,7 @@
   font-weight: 650;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
   animation: term-rise 140ms ease-out;
+  touch-action: manipulation;
 }
 
 @keyframes term-rise {
@@ -412,44 +443,6 @@
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-/* --- history controls --- */
-.nav-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-top: 1px solid var(--hairline);
-  background: var(--surface);
-  touch-action: pinch-zoom;
-}
-
-.nav-row button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--touch);
-  min-height: var(--touch);
-  border: 1px solid var(--hairline);
-  border-radius: 12px;
-  background: var(--surface-2);
-  color: var(--text);
-}
-
-/*
- * On a compact chrome (phone, coarse pointer, or a window ≤ 700 px) the
- * finger is the pager. Font size lives in the header so it stays reachable.
- * `.is-compact` is set from JS so DevTools device mode (fine pointer, 390 px)
- * folds the same way a real phone does.
- */
-.terminal-view.is-compact .nav-row {
-  display: none;
-}
-@media (max-height: 520px) {
-  .nav-row {
-    display: none;
   }
 }
 
@@ -506,9 +499,7 @@
  *
  * A mask is also what keeps this layer honest: a non-`none` `mask-image` makes
  * a stacking context, so the buttons are sealed in the scroller and the fade
- * needs no z-index at all. Replacing it with an overlaid gradient — a pseudo
- * element or an extra div — would put a painted layer back in open competition
- * with the keys, and would then owe this sheet an explicit order.
+ * needs no z-index at all.
  */
 .key-scroller {
   display: flex;

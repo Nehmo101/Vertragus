@@ -1,5 +1,3 @@
-English | [Deutsch](REMOTE-CLIENT-SCROLL.de.md)
-
 # Remote client: why it still does not scroll, and what to replace
 
 Code-grounded analysis of `src/remoteClient` as of commit `bbc5300`, written
@@ -349,7 +347,9 @@ phone is attached, when the desktop window is resized. No server message
 announces that today; the next snapshot on re-attach carries it. Until a
 `size` server message exists, output after a desktop resize is parsed at the
 old width until the next reconnect. That is a rarer form of the garbling that
-happens on every open today.
+happens on every open today. Decided: accepted for this cut; no `size`
+message is added, and the reader resizes its parser only when a snapshot
+names a different size.
 
 ### 3.2 Rejected alternatives for the terminal
 
@@ -481,6 +481,43 @@ Tailscale:
    reading the gateway log).
 6. The desktop terminal never repaints because of a phone action.
 
+**Status: implemented** on this branch, with these deviations from the plan
+above.
+
+- `isCompactChrome` and `COMPACT_MAX_WIDTH_PX` moved from the deleted
+  `terminalScroll.ts` into a new `terminalChrome.ts` (with a test); the
+  chrome fold still needs them.
+- `@xterm/xterm`, `addon-fit` and `addon-search` stay in `package.json` for
+  the desktop terminal; the phone bundle imports none of them. The terminal
+  chunk carries `@xterm/headless` instead and measures 43 kB gzipped; the
+  entry chunk measures 67 kB against the 72 kB budget.
+- The reader keeps two passive listeners, `touchstart` and `touchend`, that
+  only note whether a finger is down: the follow-snap after a burst of output
+  is deferred while it is. There is no `touchmove` listener and no
+  `preventDefault` anywhere in the reader.
+- A paused reader keeps head rows the buffer has already trimmed (up to
+  5000) rather than compensating `scrollTop`, so JavaScript writes the scroll
+  position in exactly one place; the stale rows are dropped the next time the
+  reader follows.
+- The jump-to-top pill, the nav row and their five copy keys (`toTop`,
+  `toBottom`, `pageUp`, `pageDown`, `historyControls`) are gone in both
+  locales. The `has-jumps` host padding is gone with them; the reader has a
+  permanent bottom padding the jump-to-latest pill floats over.
+- Search highlights the matching row and centres it with `scrollTo` on the
+  reader, a user-asked scroll like jump-to-latest.
+- `RemoteApi.resize` is removed from the phone API; the wire type stays and
+  the server still accepts the frame from older clients.
+- The chrome's compact rules (input bar hidden until keys open) are
+  unchanged; WP4 owns them.
+
+Acceptance, as verified here: items 5 and 6 hold by construction and are
+pinned by `RemoteTerminal.test.ts` (no `resize` exists to send; no fit
+exists to run); the row rendering, the scrollback bookkeeping, following and
+search are covered by `terminalRows.test.ts`; the build and bundle guard
+pass. Items 1 to 4 (native feel of the pan, long-press selection, hold while
+paused, Ink rendering at the desktop's column count) need a phone and remain
+to be checked on a device.
+
 ### WP2: Keyboard, fixed overlay, no chase
 
 Files: `terminal.css` (`.terminal-view { inset: 0 }`, no `var(--vv-`),
@@ -496,6 +533,14 @@ above the keyboard in the same frame the keyboard finishes, with no
 frame-by-frame movement of the terminal; on Android the reader shrinks and the
 bar stays above the keys; dismissing the keyboard restores the header; no
 buffer reflow is visible in either case.
+
+**Status: implemented** on this branch. `.terminal-view` and
+`.terminal-pending` are `inset: 0`; `useVisualViewport.ts` publishes only
+`--keyboard-inset` and keeps `revealFocus`; `styles.css` keeps the one
+fallback. No sheet or module references the two retired variables, and
+`RemoteTerminal.test.ts` pins that. The keyboard behaviour itself (input bar
+above the keys in the same frame, no swim, no reflow) remains to be checked
+on a device.
 
 ### WP3: Overview, delete the pull, calm the paint
 

@@ -29,12 +29,11 @@
  *                    that is plain --bronze; on light it has to go darker,
  *                    because on a light ground more emphasis means darker.
  *
- * `--vv-height`, `--keyboard-inset` and `--vv-offset-top` are declared here as
- * fallbacks only; `useVisualViewport.ts` owns them at runtime and documents
- * their contract. The fallbacks below are the answer for a browser with no
- * `visualViewport` — and for the first paint, before the hook's effect runs —
- * where the visible viewport IS the layout viewport: no shift, no keyboard
- * inset, full dynamic height. `terminal.css` consumes all three.
+ * `--keyboard-inset` is declared here as a fallback only; `useVisualViewport.ts`
+ * owns it at runtime and documents its contract. The fallback below is the
+ * answer for a browser with no `visualViewport` — and for the first paint,
+ * before the hook's effect runs — where the visible viewport IS the layout
+ * viewport: no keyboard inset.
  */
 
 @font-face {
@@ -125,8 +124,6 @@
   /* A fingertip does not scale with the type size, so this stays in px. */
   --touch: 44px;
   --keyboard-inset: 0px;
-  --vv-height: 100dvh;
-  --vv-offset-top: 0px;
   color-scheme: dark;
 }
 
@@ -426,10 +423,9 @@ button:focus-visible {
  * of `.app`, never a descendant of this header: App.tsx renders `.app` and
  * `<RemoteTerminal>` side by side under one fragment — the shell stays mounted
  * and merely goes `visibility: hidden` — so `.terminal-view`'s
- * `position: fixed` resolves against the viewport, which is what
- * `--vv-offset-top` / `--vv-height` assume. Nesting a fixed overlay under this
- * header, or giving `.app` a filter or transform of its own, would silently
- * trap it and break both.
+ * `position: fixed` resolves against the layout viewport, which is what its
+ * `inset: 0` assumes. Nesting a fixed overlay under this header, or giving
+ * `.app` a filter or transform of its own, would silently trap it.
  */
 .app-header {
   position: sticky;
