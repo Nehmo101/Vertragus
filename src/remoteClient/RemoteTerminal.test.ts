@@ -268,12 +268,13 @@ describe('the header is back, title, status and one overflow menu', () => {
     const header = headerSource()
     expect(header).toContain('className="back"')
     expect(header).toContain('className="terminal-title"')
-    expect(header).toContain('aria-haspopup="menu"')
+    expect(header).toContain('aria-expanded={menuOpen}')
+    expect(header).toContain('aria-controls="header-menu-list"')
   })
 
   it('does not put search, copy, font or keys on the header row', () => {
     const header = headerSource()
-    const menuStart = header.indexOf('role="menu"')
+    const menuStart = header.indexOf('className="header-menu-list"')
     expect(menuStart, 'self-check: the overflow menu is in the header').toBeGreaterThan(-1)
     const beforeMenu = header.slice(0, menuStart)
     expect(beforeMenu.match(/<button/g)).toHaveLength(2)
@@ -284,7 +285,7 @@ describe('the header is back, title, status and one overflow menu', () => {
 
   it('keeps search, copy and the font pair inside the menu', () => {
     const header = headerSource()
-    const menu = header.slice(header.indexOf('role="menu"'))
+    const menu = header.slice(header.indexOf('className="header-menu-list"'))
     expect(menu).toContain('copy.searchOpen')
     expect(menu).toContain('copy.copyBuffer')
     expect(menu).toContain('copy.fontSmaller')
@@ -313,13 +314,9 @@ describe('the input bar stays on compact chrome', () => {
     expect(source).toContain('keys-toggle')
   })
 
-  it('hides no input-bar under .is-compact', () => {
-    const hide = /[^{}]*\.is-compact[^{}]*\.input-bar[^{]*\{[^}]*display:\s*none/
-    // Self-check: the scanner still recognises the rule this exists to forbid.
-    expect(
-      '.terminal-view.is-compact:not(.is-composing) .input-bar { display: none; }'
-    ).toMatch(hide)
-    expect(css.match(hide) ?? []).toEqual([])
+  it('applies no is-compact class and hides no input-bar', () => {
+    expect(source).not.toContain('is-compact')
+    expect(css).not.toContain('is-compact')
     expect(block(css, '.terminal-bar {')).toContain('env(safe-area-inset-bottom)')
     expect(block(css, '.terminal-bar {')).toContain('min-height: var(--touch)')
   })

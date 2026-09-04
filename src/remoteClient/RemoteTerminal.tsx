@@ -386,7 +386,7 @@ export function RemoteTerminal({
   useEffect(() => {
     if (!menuOpen) return
     const onPointerDown = (event: PointerEvent): void => {
-      if (menuRef.current?.contains(event.target as Node)) return
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return
       setMenuOpen(false)
     }
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -491,8 +491,7 @@ export function RemoteTerminal({
     'terminal-view',
     keysOpen ? 'is-keys-open' : '',
     composing ? 'is-composing' : '',
-    searchOpen ? 'is-search-open' : '',
-    compact ? 'is-compact' : ''
+    searchOpen ? 'is-search-open' : ''
   ]
     .filter((name) => name !== '')
     .join(' ')
@@ -521,8 +520,8 @@ export function RemoteTerminal({
             type="button"
             className="icon-btn"
             aria-label={copy.terminalMenu}
-            aria-haspopup="menu"
             aria-expanded={menuOpen}
+            aria-controls="header-menu-list"
             onMouseDown={keepFocus}
             onClick={() => {
               setMenuOpen((open) => !open)
@@ -532,10 +531,9 @@ export function RemoteTerminal({
             <Icon name="more" />
           </button>
           {menuOpen ? (
-            <div className="header-menu-list" role="menu">
+            <div id="header-menu-list" className="header-menu-list">
               <button
                 type="button"
-                role="menuitem"
                 className="header-menu-item"
                 aria-label={searchOpen ? copy.searchClose : copy.searchOpen}
                 aria-expanded={searchOpen}
@@ -551,7 +549,6 @@ export function RemoteTerminal({
               </button>
               <button
                 type="button"
-                role="menuitem"
                 className="header-menu-item"
                 aria-label={copy.copyBuffer}
                 onMouseDown={keepFocus}
@@ -566,7 +563,6 @@ export function RemoteTerminal({
               <div className="header-menu-fonts">
                 <button
                   type="button"
-                  role="menuitem"
                   className="font-btn"
                   onMouseDown={keepFocus}
                   onClick={() => bumpFont(-1)}
@@ -576,7 +572,6 @@ export function RemoteTerminal({
                 </button>
                 <button
                   type="button"
-                  role="menuitem"
                   className="font-btn"
                   onMouseDown={keepFocus}
                   onClick={() => bumpFont(1)}
@@ -749,8 +744,8 @@ export function RemoteTerminal({
         <button
           type="button"
           className="icon-btn keys-toggle"
-          aria-label={keysOpen ? copy.keysHide : copy.keysShow}
-          aria-pressed={keysOpen}
+          aria-label={keysOpen || composing ? copy.keysHide : copy.keysShow}
+          aria-pressed={keysOpen || composing}
           onMouseDown={keepFocus}
           onClick={() => {
             setKeysOverride(!(keysOverride ?? !compact))

@@ -66,7 +66,8 @@
   flex-wrap: nowrap;
   gap: 4px;
   position: relative;
-  z-index: 1;
+  /* Above `.jump-latest` (z-index 1) so an open overflow menu paints over it. */
+  z-index: 2;
   padding: max(6px, env(safe-area-inset-top)) 8px 6px;
   border-bottom: 1px solid var(--hairline);
   background: var(--surface);
