@@ -153,6 +153,64 @@ function answerPanelDomId(entryKey: string): string {
   return `answer-${entryKey}`
 }
 
+function findAgent(
+  workspaces: readonly RemoteWorkspaceSummary[],
+  agentId: string
+): RemoteAgentSummary | undefined {
+  for (const workspace of workspaces) {
+    const agent = workspace.agents.find((entry) => entry.agentId === agentId)
+    if (agent) return agent
+  }
+  return undefined
+}
+
+/**
+ * Named surface while the terminal chunk loads: a blank box reads as a missed
+ * tap over Tailscale. Lives here, not in the chunk, so the header paints in
+ * the same frame as the tap.
+ */
+function TerminalPending({
+  agentId,
+  workspaces,
+  copy,
+  onBack
+}: {
+  agentId: string
+  workspaces: readonly RemoteWorkspaceSummary[]
+  copy: RemoteCopy
+  onBack: () => void
+}): React.JSX.Element {
+  const agent = findAgent(workspaces, agentId)
+  const name = agent?.name ?? agentId
+  return (
+    <div className="terminal-pending">
+      <header className="terminal-pending-header">
+        <button
+          type="button"
+          className="terminal-pending-back"
+          onClick={onBack}
+          aria-label={copy.back}
+        >
+          ‹
+        </button>
+        <span
+          className="terminal-pending-title"
+          style={
+            agent
+              ? ({ '--role': safeRoleColor(agent.roleColor) } as React.CSSProperties)
+              : undefined
+          }
+        >
+          {name}
+        </span>
+      </header>
+      <p className="terminal-pending-note" role="status" aria-live="polite">
+        {copy.terminalConnecting}
+      </p>
+    </div>
+  )
+}
+
 /**
  * Move the reader, not just the viewport. A `scrollIntoView` leaves a screen
  * reader's virtual cursor exactly where it was, so "jump to Paradiso" moves
@@ -454,7 +512,16 @@ export function App(): React.JSX.Element {
         />
       </div>
       {openAgent ? (
-        <Suspense fallback={<div className="terminal-pending" role="status" aria-live="polite" />}>
+        <Suspense
+          fallback={
+            <TerminalPending
+              agentId={openAgent}
+              workspaces={api.workspaces}
+              copy={copy}
+              onBack={() => setOpenAgent(null)}
+            />
+          }
+        >
           <RemoteTerminal
             agentId={openAgent}
             api={api}

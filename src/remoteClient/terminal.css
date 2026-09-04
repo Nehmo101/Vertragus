@@ -65,6 +65,8 @@
   align-items: center;
   flex-wrap: nowrap;
   gap: 4px;
+  position: relative;
+  z-index: 1;
   padding: max(6px, env(safe-area-inset-top)) 8px 6px;
   border-bottom: 1px solid var(--hairline);
   background: var(--surface);
@@ -72,22 +74,58 @@
   touch-action: pinch-zoom;
 }
 
-.header-tools {
-  display: flex;
+.header-menu {
+  position: relative;
   flex: 0 0 auto;
-  align-items: center;
+}
+
+.header-menu-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
+  min-width: 14rem;
+  padding: 6px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  touch-action: pinch-zoom;
 }
 
-.header-tools .icon-btn,
-.header-tools .font-btn {
-  min-width: 40px;
+.header-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: var(--touch);
+  min-height: var(--touch);
+  padding: 0 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-weight: 600;
 }
 
-.header-tools .font-btn {
+.header-menu-item:active {
+  background: var(--surface-2);
+}
+
+.header-menu-fonts {
+  display: flex;
+  gap: 6px;
+}
+
+.font-btn {
   display: inline-flex;
+  flex: 1 1 auto;
   align-items: center;
   justify-content: center;
+  min-width: var(--touch);
   min-height: var(--touch);
   padding: 0 6px;
   border: 1px solid var(--hairline);
@@ -115,7 +153,9 @@
 
 .terminal-title {
   flex: 1 1 auto;
-  min-width: 0;
+  /* A floor so the overflow control cannot squeeze the name into a glyph.
+     Ellipsis still applies once the name outgrows the remaining row. */
+  min-width: 8rem;
   font-weight: 650;
   color: var(--role, var(--text));
   overflow: hidden;
@@ -145,6 +185,10 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+.icon.icon-fill {
+  fill: currentColor;
+  stroke: none;
+}
 
 .icon-btn {
   flex: 0 0 auto;
@@ -159,9 +203,8 @@
   color: var(--text);
 }
 /*
- * Expanded means the search row below is open, and three things already say
- * so: the glyph swaps shape (search -> close), `aria-expanded` says it to a
- * screen reader, and the disclosed row is on screen underneath.
+ * Expanded means the overflow menu is open. `aria-expanded` says so to a
+ * screen reader, and the disclosed list is on screen underneath.
  *
  * The ink is `--bronze-strong`, not `--bronze`. Plain `--bronze` is a FILL
  * token (see styles.css) — as a glyph on this button's own `--surface-2` it
@@ -447,8 +490,8 @@
 }
 
 /*
- * Control keys are a 44 px strip. Folded by default on the phone (the header
- * toggle and focusing the composer both unfold them). A laptop starts with
+ * Control keys are a 44 px strip. Folded by default on the phone (the bottom
+ * bar toggle and focusing the composer both unfold them). A laptop starts with
  * `is-keys-open` from the component.
  */
 .terminal-view:not(.is-keys-open):not(.is-composing) .key-row {
@@ -544,13 +587,24 @@
 /* --- input bar --- */
 .input-bar {
   display: flex;
+  align-items: center;
   gap: var(--term-gap);
-  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  min-height: var(--touch);
+  padding: 8px 10px;
   border-top: 1px solid var(--hairline);
   background: var(--surface);
   /* `pan-x` for the same reason as the search bar: a long command line stays
      draggable, the document stays put. */
   touch-action: pan-x pinch-zoom;
+}
+
+/*
+ * The thumb's bar: keys toggle + field + send, always on screen. Safe-area
+ * padding lives here so the home indicator does not cover the send button.
+ */
+.terminal-bar {
+  min-height: var(--touch);
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
 }
 
 .input-bar input {
@@ -564,8 +618,9 @@
   color: var(--text);
 }
 
-.input-bar button {
+.input-bar > button[type='submit'] {
   min-height: var(--touch);
+  min-width: var(--touch);
   padding: 0 18px;
   border: none;
   border-radius: 12px;
@@ -573,23 +628,4 @@
   background: var(--bronze);
   color: var(--on-bronze);
   font-weight: 650;
-}
-
-/*
- * Reading is the job. On compact chrome the composer is gone until the
- * reader opens the keys or focuses it (is-composing). Opening keys is the
- * "I want to type" gesture and does not add a sixth header button.
- */
-.terminal-view.is-compact:not(.is-composing):not(.is-keys-open) .input-bar {
-  display: none;
-}
-.terminal-view.is-compact:not(.is-composing) .input-bar button {
-  display: none;
-}
-.terminal-view.is-compact:not(.is-composing) .input-bar {
-  padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
-}
-.terminal-view.is-compact:not(.is-composing) .input-bar input {
-  min-height: 36px;
-  padding: 6px 12px;
 }

@@ -245,9 +245,114 @@ describe('the clipboard fallback is the only path the phone ever takes', () => {
   })
 })
 
+const app = read('App.tsx')
+
+/** The chrome header in RemoteTerminal.tsx, up to its closing tag. */
+function headerSource(): string {
+  const start = source.indexOf('<header className="terminal-header">')
+  if (start < 0) throw new Error('self-check: terminal-header is gone')
+  const end = source.indexOf('</header>', start)
+  if (end < 0) throw new Error('self-check: terminal-header is unclosed')
+  return source.slice(start, end)
+}
+
 describe('the phone header stays one row', () => {
   it('keeps the title on the line so the stage is the terminal', () => {
     expect(block(css, '.terminal-header {')).toContain('flex-wrap: nowrap')
     expect(css).not.toMatch(/@media \(max-width: 420px\)[\s\S]*flex-wrap:\s*wrap/)
+  })
+})
+
+describe('the header is back, title, status and one overflow menu', () => {
+  it('finds the header it is about to police', () => {
+    const header = headerSource()
+    expect(header).toContain('className="back"')
+    expect(header).toContain('className="terminal-title"')
+    expect(header).toContain('aria-haspopup="menu"')
+  })
+
+  it('does not put search, copy, font or keys on the header row', () => {
+    const header = headerSource()
+    const menuStart = header.indexOf('role="menu"')
+    expect(menuStart, 'self-check: the overflow menu is in the header').toBeGreaterThan(-1)
+    const beforeMenu = header.slice(0, menuStart)
+    expect(beforeMenu.match(/<button/g)).toHaveLength(2)
+    expect(beforeMenu).not.toContain('keys-toggle')
+    expect(beforeMenu).not.toContain('header-tools')
+    expect(beforeMenu).not.toContain('font-btn')
+  })
+
+  it('keeps search, copy and the font pair inside the menu', () => {
+    const header = headerSource()
+    const menu = header.slice(header.indexOf('role="menu"'))
+    expect(menu).toContain('copy.searchOpen')
+    expect(menu).toContain('copy.copyBuffer')
+    expect(menu).toContain('copy.fontSmaller')
+    expect(menu).toContain('copy.fontLarger')
+  })
+
+  it('closes the menu on an outside tap and on Escape, without focusing it', () => {
+    expect(source).toContain("addEventListener('pointerdown'")
+    expect(source).toContain("event.key !== 'Escape'")
+    expect(source).toContain('setMenuOpen(false)')
+    expect(source).not.toMatch(/menuRef\.current\?\.focus/)
+  })
+
+  it('gives the title a floor so the name is not ellipsised into nothing', () => {
+    const title = block(css, '.terminal-title {')
+    expect(title).toContain('min-width: 8rem')
+    expect(title).not.toContain('min-width: 0')
+  })
+})
+
+describe('the input bar stays on compact chrome', () => {
+  it('finds the bar it is about to police', () => {
+    expect(css).toContain('.input-bar {')
+    expect(css).toContain('.terminal-bar {')
+    expect(source).toContain('className="input-bar terminal-bar"')
+    expect(source).toContain('keys-toggle')
+  })
+
+  it('hides no input-bar under .is-compact', () => {
+    const hide = /[^{}]*\.is-compact[^{}]*\.input-bar[^{]*\{[^}]*display:\s*none/
+    // Self-check: the scanner still recognises the rule this exists to forbid.
+    expect(
+      '.terminal-view.is-compact:not(.is-composing) .input-bar { display: none; }'
+    ).toMatch(hide)
+    expect(css.match(hide) ?? []).toEqual([])
+    expect(block(css, '.terminal-bar {')).toContain('env(safe-area-inset-bottom)')
+    expect(block(css, '.terminal-bar {')).toContain('min-height: var(--touch)')
+  })
+
+  it('puts the keys toggle in the bar, not the header', () => {
+    const header = headerSource()
+    expect(header).not.toContain('keys-toggle')
+    const form = source.slice(source.indexOf('className="input-bar terminal-bar"'))
+    expect(form).toContain('keys-toggle')
+  })
+})
+
+describe('a tap on an agent row is visible', () => {
+  it('finds the press state it is about to police', () => {
+    expect(sheets['overview.css']).toContain('.agent-row:active')
+    expect(sheets['overview.css']).toContain('.agent-row {')
+  })
+
+  it('flashes like a primary press and keeps the tap highlight', () => {
+    expect(block(sheets['overview.css'], '.agent-row:active')).toContain('transform:')
+    expect(block(sheets['overview.css'], '.agent-row {')).toContain('-webkit-tap-highlight-color')
+  })
+})
+
+describe('opening a terminal is a named pending screen', () => {
+  it('finds the fallback it is about to police', () => {
+    expect(app).toContain('className="terminal-pending"')
+    expect(app).toContain('<TerminalPending')
+  })
+
+  it('shows the agent name and the connecting copy, not a blank box', () => {
+    expect(app).toContain('copy.terminalConnecting')
+    expect(app).toContain('className="terminal-pending-title"')
+    expect(app).not.toMatch(/fallback=\{<div className="terminal-pending"[^/]*\/>\}/)
   })
 })
