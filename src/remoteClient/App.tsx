@@ -92,7 +92,7 @@ import {
 } from './themePreference'
 import { shouldSubmitSendInput, shouldSubmitSendKey } from './sendKey'
 import { useRemote, type RemoteApi } from './useRemote'
-import { pullIndicatorHeight, pullLabel, usePullToRefresh } from './usePullToRefresh'
+import { pullLabel, usePullToRefresh } from './usePullToRefresh'
 import { useVisualViewport } from './useVisualViewport'
 import {
   advanceSeenLive,
@@ -702,10 +702,16 @@ function Overview({
   // The link is what tells the pull whether it got an answer: `api.refresh` is
   // the hook's `wake()`, which probes an open socket and reconnects a closed
   // one, and both outcomes show up here before they show up in the list.
-  const pull = usePullToRefresh(api.refresh, !paused, {
-    probing: api.probing,
-    ready: api.phase === 'ready'
-  })
+  const pullIndicator = useRef<HTMLDivElement>(null)
+  const pull = usePullToRefresh(
+    api.refresh,
+    !paused,
+    {
+      probing: api.probing,
+      ready: api.phase === 'ready'
+    },
+    pullIndicator
+  )
   const scrolledDown = useScrolledDown(!paused)
   const rows = overviewRows(api.workspaces, seenLive, showEnded)
   const visible = rowWorkspaces(rows)
@@ -727,8 +733,8 @@ function Overview({
        * has already moved off "connected" by the time this strip says so.
        */}
       <div
+        ref={pullIndicator}
         className={`pull-indicator is-${pull.phase}`}
-        style={{ height: pullIndicatorHeight(pull.phase, pull.distance) }}
         aria-hidden="true"
       >
         <span>{pullLabel(pull.phase, copy)}</span>
