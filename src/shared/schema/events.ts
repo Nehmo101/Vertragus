@@ -58,6 +58,39 @@ export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   ])
 )
 
+const tokenCount = z.number().int().nonnegative()
+
+/**
+ * Token usage as the agent's OWN CLI recorded it (never estimated), cumulative
+ * over the agent's process lifetime.
+ * - `consumption`: tokens the model processed. `total` is the CLI's own total
+ *   when it records one (Codex `total_tokens`), else the sum of the recorded
+ *   parts (Claude: input + output + cacheRead + cacheWrite).
+ * - `context`: context-window occupancy only (Grok records nothing else).
+ *   NOT consumption — the UI must label it as such.
+ */
+export const tokenUsageSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('consumption'),
+      input: tokenCount,
+      output: tokenCount,
+      cacheRead: tokenCount.optional(),
+      cacheWrite: tokenCount.optional(),
+      total: tokenCount
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('context'),
+      used: tokenCount,
+      /** The model's window size when the CLI recorded it. */
+      window: tokenCount.optional()
+    })
+    .strict()
+])
+export type TokenUsage = z.infer<typeof tokenUsageSchema>
+
 /** Identity fields every event repeats so a reader never needs a side lookup. */
 const identity = {
   agentId: z.string().min(1),
@@ -114,7 +147,12 @@ const agentDonePayload = z.object({
   headSha: z.string().min(1).optional(),
   uncommitted: z.boolean().optional(),
   changedFiles: z.array(z.string().min(1).max(400)).max(80).optional(),
-  diffStat: z.string().max(850).optional()
+  diffStat: z.string().max(850).optional(),
+  /**
+   * Host-read from the CLI's own session log at report/stop/exit time; absent
+   * when the provider declares no usage source or the read failed.
+   */
+  tokenUsage: tokenUsageSchema.optional()
 })
 
 const agentQuestionPayload = z.object({
@@ -142,13 +180,23 @@ const agentExitedPayload = z.object({
    * must verify with `read_output` instead of assuming success. File changes
    * are verified with `inspect_agent`, not the terminal tail.
    */
-  confirmed: z.boolean()
+  confirmed: z.boolean(),
+  /**
+   * Host-read from the CLI's own session log at report/stop/exit time; absent
+   * when the provider declares no usage source or the read failed.
+   */
+  tokenUsage: tokenUsageSchema.optional()
 })
 
 const agentStoppedPayload = z.object({
   type: z.literal('agent_stopped'),
   ...identity,
-  note: z.string().optional()
+  note: z.string().optional(),
+  /**
+   * Host-read from the CLI's own session log at report/stop/exit time; absent
+   * when the provider declares no usage source or the read failed.
+   */
+  tokenUsage: tokenUsageSchema.optional()
 })
 
 /**
@@ -160,7 +208,12 @@ const agentStoppedPayload = z.object({
 const orchestratorExitedPayload = z.object({
   type: z.literal('orchestrator_exited'),
   ...identity,
-  exitCode: z.number().int().nullable().optional()
+  exitCode: z.number().int().nullable().optional(),
+  /**
+   * Host-read from the CLI's own session log at report/stop/exit time; absent
+   * when the provider declares no usage source or the read failed.
+   */
+  tokenUsage: tokenUsageSchema.optional()
 })
 
 /**

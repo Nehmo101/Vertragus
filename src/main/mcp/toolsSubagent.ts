@@ -126,6 +126,8 @@ export function registerSubagentTools(
           note: 'Call report_done again with a corrected result. Your summary was NOT delivered yet.'
         })
       }
+      const usage = await ctx.host.readTokenUsage?.(agentId).catch(() => undefined)
+      const usageFields = usage ? { tokenUsage: usage } : {}
       const payload = {
         type: 'agent_done' as const,
         ...identity(),
@@ -144,9 +146,9 @@ export function registerSubagentTools(
       try {
         const facts = await ctx.host.snapshotDone(agentId, summary)
         headSha = facts.headSha
-        queue.push({ ...payload, ...worktreeEventFields(facts) })
+        queue.push({ ...payload, ...worktreeEventFields(facts), ...usageFields })
       } catch {
-        queue.push(payload)
+        queue.push({ ...payload, ...usageFields })
       }
       // S4: the same path also lands on the task board — lastReport on every
       // task this agent owns. Display facts only; the status NEVER moves here

@@ -6,7 +6,8 @@
  * is a closed union — unknown types fall back to the raw `type` string.
  */
 import type { AgentEvent } from '@shared/schema/events'
-import type { Translate } from '../i18n'
+import { formatTokenCount, tokenUsageCount } from '../lib/formatTokens'
+import type { Locale, Translate } from '../i18n'
 
 export interface TimelineEventRow {
   seq: number
@@ -58,9 +59,18 @@ function detailOf(event: AgentEvent): string | undefined {
   }
 }
 
-export function formatEvent(t: Translate, event: AgentEvent): TimelineEventRow {
-  const key = `timeline.event.${event.type}`
-  const label = t([key, event.type], interpolations(event))
+export function formatEvent(t: Translate, event: AgentEvent, locale: Locale): TimelineEventRow {
+  const extras =
+    event.type === 'agent_done' && event.tokenUsage
+      ? { tokens: formatTokenCount(tokenUsageCount(event.tokenUsage), locale) }
+      : {}
+  const key =
+    event.type === 'agent_done' && event.tokenUsage
+      ? event.tokenUsage.kind === 'context'
+        ? 'timeline.event.agent_done_context'
+        : 'timeline.event.agent_done_tokens'
+      : `timeline.event.${event.type}`
+  const label = t([key, event.type], { ...interpolations(event), ...extras })
   const detail = detailOf(event)?.trim()
   return {
     seq: event.seq,

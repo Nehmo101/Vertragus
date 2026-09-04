@@ -101,7 +101,14 @@ const PRESETS: readonly ProviderConfig[] = [
      * standard families. Discovery results always come first; a seed only fills
      * a gap.
      */
-    seedModels: ['opus', 'sonnet', 'haiku']
+    seedModels: ['opus', 'sonnet', 'haiku'],
+    // Verified claude 2.1.261 — `--session-id <uuid>` pins the file name
+    // under `~/.claude/projects/<slug>/`.
+    usageSource: {
+      kind: 'claude-jsonl',
+      dir: '~/.claude/projects',
+      sessionIdArg: '--session-id'
+    }
   }),
   providerConfigSchema.parse({
     id: 'codex',
@@ -130,7 +137,9 @@ const PRESETS: readonly ProviderConfig[] = [
       path: '~/.codex/models_cache.json',
       parse: 'json',
       jsonPath: 'models[].slug'
-    }
+    },
+    // Codex 0.153.3 has no launch session-id flag, only `codex resume`.
+    usageSource: { kind: 'codex-rollout', dir: '~/.codex/sessions' }
   }),
   providerConfigSchema.parse({
     id: 'kimi',
@@ -265,7 +274,14 @@ const PRESETS: readonly ProviderConfig[] = [
      * One rolling alias keeps the provider startable; discovery still wins
      * the order when it answers.
      */
-    seedModels: ['grok-build']
+    seedModels: ['grok-build'],
+    // grok 1.0.13 `-s/--session-id <uuid>`; the log records context
+    // occupancy only, hence `kind: 'context'` readings.
+    usageSource: {
+      kind: 'grok-session',
+      dir: '~/.grok/sessions',
+      sessionIdArg: '--session-id'
+    }
   }),
   providerConfigSchema.parse({
     id: 'ollama',
