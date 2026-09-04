@@ -56,15 +56,21 @@ import {
   onCliWindowClosed,
   workspaceUsesTabChrome
 } from './windows/cliWindow'
-import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
+import { cliFocusTargets, presentWorkspaceAgents } from './windows/focusWorkspace'
 import { focusTimelineWindow } from './windows/timelineWindow'
 import {
   forgetHideAll,
   hideAllHotkeyStatus,
   registerAppHideAllShortcut,
+  setHideAllRestoreWorkspace,
   toggleHideAll,
   unregisterHideAllShortcut
 } from './windows/hideAll'
+import {
+  forgetLastWorkspace,
+  getLastWorkspaceId,
+  recordLastWorkspace
+} from './windows/lastWorkspace'
 import { suppressMoveTracking } from './windows/placement'
 import { createPanelWindow, getPanelWindow, isPanelWindowSender } from './windows/panel'
 import { armPanelAttention, attentionOverlayPng } from './windows/panelAttention'
@@ -88,6 +94,7 @@ import { resolveUserMessageTarget } from './workspace/userMessageTarget'
 import { armWindowCapture } from './windows/smokeCapture'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
+import type { Workspace } from './workspace/Workspace'
 import type { WorkspaceManager } from './workspace/WorkspaceManager'
 import { runDir } from './workspace/journal'
 import {
@@ -166,6 +173,47 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
   })
 
   const windowOpenOf = (agentId: string): boolean => getCliWindow(agentId) !== null
+
+  const presentWorkspaceWindows = (workspace: Workspace): void => {
+    const agentIds = [
+      ...(workspace.orchestrator ? [workspace.orchestrator.agentId] : []),
+      ...workspace.listAgents().map((agent) => agent.agentId)
+    ]
+    let startMinimized = false
+    try {
+      startMinimized = getSettings().ui.startMinimized === true
+    } catch {
+      startMinimized = false
+    }
+    let snapToZones = true
+    try {
+      snapToZones = getSettings().ui.snapToZones !== false
+    } catch {
+      snapToZones = true
+    }
+    presentWorkspaceAgents(agentIds, {
+      hasLiveWindow: (agentId) => getCliWindow(agentId) !== null,
+      reopenClosedWindow: (agentId) => {
+        workspace.showAgentWindow(agentId)
+      },
+      windows: cliFocusTargets,
+      beforeHide: suppressMoveTracking,
+      beforeRestore: suppressMoveTracking,
+      beforeShow: suppressMoveTracking,
+      restoreMinimized: !startMinimized,
+      tile: !startMinimized && !workspaceUsesTabChrome(workspace.workspaceId) && snapToZones,
+      layout: layoutCliWindows
+    })
+  }
+
+  setHideAllRestoreWorkspace(() => {
+    const workspaceId = getLastWorkspaceId()
+    if (!workspaceId) return false
+    const workspace = manager.get(workspaceId)
+    if (!workspace) return false
+    presentWorkspaceWindows(workspace)
+    return true
+  })
 
   return {
     list: () =>
@@ -271,10 +319,12 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         throw new Error(mainMessages(locale).unknownProfile(profileId))
       }
       try {
-        return await manager.startWorkspace(profile, {
+        const running = await manager.startWorkspace(profile, {
           ...(goal ? { goal } : {}),
           ...(attachmentIds?.length ? { attachmentIds } : {})
         })
+        recordLastWorkspace(running.workspace.workspaceId)
+        return running
       } catch (error) {
         throw localizedAttachmentError(error, locale)
       }
@@ -337,10 +387,17 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         },
         ...(run.meta?.goal ? { goal: run.meta.goal } : {})
       })
+      recordLastWorkspace(running.workspace.workspaceId)
       if (succession) await markSuccessionConsumed(profile.repoPath, run.workspaceId)
       return running
     },
-    stop: (workspaceId) => manager.stopWorkspace(workspaceId),
+    async stop(workspaceId) {
+      await manager.stopWorkspace(workspaceId)
+      forgetLastWorkspace(
+        workspaceId,
+        manager.list().map((workspace) => workspace.workspaceId)
+      )
+    },
     // Panel-only, spoken: type a follow-up into the running orchestrator. The
     // refusals stay host codes like the neighbouring members — the voice layer
     // is what turns them into something spoken.
@@ -462,34 +519,11 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
     focusWorkspace(workspaceId) {
       const workspace = manager.get(workspaceId)
       if (!workspace) return
-      // Orchestrator first (stable focus target), then subagents in start order.
-      const agentIds = [
-        ...(workspace.orchestrator ? [workspace.orchestrator.agentId] : []),
-        ...workspace.listAgents().map((agent) => agent.agentId)
-      ]
+      recordLastWorkspace(workspaceId)
       // Workspace click replaced hide-all's snapshot: forget it so the next
       // toggle hides what is visible instead of restoring foreign windows.
       forgetHideAll()
-      if (agentIds.length > 0) {
-        let startMinimized = false
-        try {
-          startMinimized = getSettings().ui.startMinimized === true
-        } catch {
-          startMinimized = false
-        }
-        focusWorkspaceAgents(agentIds, {
-          windows: cliFocusTargets,
-          beforeHide: suppressMoveTracking,
-          beforeRestore: suppressMoveTracking,
-          beforeShow: suppressMoveTracking,
-          restoreMinimized: !startMinimized
-        })
-        // After show: restore can fire move events that wreck bounds (Windows).
-        // Tabs do not tile; startMinimized must not snap still-minimized teammates.
-        if (!startMinimized && !workspaceUsesTabChrome(workspaceId)) {
-          layoutCliWindows(agentIds)
-        }
-      }
+      presentWorkspaceWindows(workspace)
       // Overview sheet: show this workspace's timeline, hide the others.
       // Never minimize — hide() only. A user-closed sheet is reopened here.
       focusTimelineWindow(workspaceId)
@@ -867,6 +901,7 @@ app.whenReady().then(async () => {
       startServer: async () => mcp,
       createManager: () => manager
     })
+    if (devRun) recordLastWorkspace(devRun.workspace.workspaceId)
     // Owner verification of the real orchestrator boot: capture its CLI
     // window (real claude with MCP attach) and exit.
     if (devRun && process.env.VERTRAGUS_DEV_RUN_SCREENSHOT) {

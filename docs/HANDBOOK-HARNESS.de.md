@@ -417,7 +417,11 @@ Default `ui.cliSurface: session`. Titelleisten-Peek auf raw
 raw, damit übrig gebliebene Cursor-MCP-Freigaben klickbar bleiben.
 Follow-ups und Antworten laufen über `postUserMessage` /
 `answerQuestion` — nie ein PTY-Write. Phone-xterm ist out of scope. Das
-ist kein TUI-Parser.
+ist kein TUI-Parser. Hide-all (Panel-Auge und globaler Hotkey) blendet
+CLI-, Timeline- und Editor-Fenster mit `hide()` aus, nie das Panel.
+Restore öffnet die Agenten des zuletzt gewählten Workspace in ihren Zonen;
+ein Klick auf das Auge ohne sichtbares CLI-Fenster macht dasselbe, statt
+einen leeren Hide-Zustand zu merken.
 
 ---
 

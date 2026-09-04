@@ -409,7 +409,11 @@ looks like Vertragus. Default `ui.cliSurface: session`. Title-bar peek
 to raw (permission dialogs live in the TUI). Boot phase `waiting` forces
 raw so leftover Cursor MCP approvals stay clickable. Follow-ups and
 answers take `postUserMessage` / `answerQuestion` — never a PTY write.
-Phone xterm is out of scope. This is not a TUI parser.
+Phone xterm is out of scope. This is not a TUI parser. Hide-all (panel eye
+and the global hotkey) hides CLI, timeline and editor windows with `hide()`
+and never the panel. Restore opens the last selected workspace's agents in
+their zones; an eye click with no visible CLI window does the same instead
+of recording an empty hide.
 
 ---
 

@@ -244,8 +244,10 @@ screen regions; **Tabs** is one CLI window per workspace with orchestrator
 and subagents as tabs — zones and per-agent tiling do not apply. That
 change takes effect on the next Play. A global hide-all hotkey hides CLI,
 Timeline and editor windows (`hide()`, never `minimize()`) and never the
-panel; autostart and a self-updater with a stable/main channel switch;
-German and English UI.
+panel — restore (hotkey or panel eye) opens the last selected workspace's
+agents in their zones, and an eye click with no CLI visible does that
+instead of hiding nothing; autostart and a self-updater with a stable/main
+channel switch; German and English UI.
 
 ## Remote access (Tailscale)
 

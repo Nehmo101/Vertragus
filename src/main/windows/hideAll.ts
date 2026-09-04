@@ -1,9 +1,11 @@
 /**
  * Hide-all — one keystroke that clears the screen of agents.
  *
- * The contract, in the user's words: "everything away, and back exactly as it
- * was" — except when `ui.snapToZones` is on (the default), CLI windows snap
- * to their role zones on both hide and restore:
+ * Hide is "everything away". Restore is the last selected workspace's agents
+ * in their zones (foreign CLI windows stay hidden), not a replay of every
+ * window this toggle hid. When `ui.snapToZones` is on (the default), hide
+ * still snaps the windows it hid; last-workspace restore tiles through the
+ * injected `restoreWorkspace` seam instead:
  *
  * - Only `hide()`. No close, and never `minimize()` / `restore()` — those fire
  *   move events on Windows that live-reflow would read as a user drag.
@@ -13,16 +15,20 @@
  *   re-tiled.
  * - **The panel stays.** It is the way back — hiding it would leave the user
  *   with an invisible app and a hotkey they may have mistyped.
- * - Restoring uses `showInactive()` in the remembered order and only then
- *   focuses the window that had focus, so bringing four terminals back does not
- *   steal focus four times and end on an arbitrary one.
- * - With snap off, toggling twice is the identity. Windows hidden (or
- *   minimized) by the user BEFORE the toggle stay that way afterwards — they
- *   were not ours to show.
+ * - Restore: when `restoreWorkspace` returns true, last-workspace agents are
+ *   already in their zones; then non-CLI snapshot targets (timelines/editors/
+ *   settings) `showInactive()` and focus lands once on that workspace's first
+ *   window. When it is absent or returns false, restore falls back to the
+ *   snapshot — `showInactive()` in remembered order, then one focus.
+ * - An eye click with an empty snapshot and no visible CLI window calls
+ *   `restoreWorkspace` instead of recording an empty hide.
+ * - Windows hidden (or minimized) by the user BEFORE the toggle stay that
+ *   way afterwards — they were not ours to show.
  *
- * The controller is pure bookkeeping over an injectable window list (fake
- * windows in the test), and the global shortcut is registered through an
- * injectable Electron seam, so the registration-failure path is testable —
+ * The controller is pure bookkeeping over injectable deps (fake windows in
+ * the test). `restoreWorkspace` is registered from index.ts through a setter
+ * so this module never imports the Electron entry. The global shortcut is
+ * an injectable Electron seam so the registration-failure path is testable —
  * that path is the one that must never fail silently.
  */
 import { globalShortcut } from 'electron'
@@ -34,6 +40,12 @@ import { listProviderEditorWindows } from './providerEditor'
 import { listSettingsWindows } from './settingsWindow'
 import { suppressMoveTracking } from './placement'
 import { listTimelineWindows } from './timelineWindow'
+
+const AGENT_KEY_PREFIX = 'agent:'
+
+function isCliHideAllKey(key: string): boolean {
+  return key.startsWith(AGENT_KEY_PREFIX)
+}
 
 /** The slice of BrowserWindow hide-all uses. */
 export interface HideableWindow {
@@ -65,6 +77,12 @@ export interface HideAllDeps {
    * role zones when `ui.snapToZones` is on, one workspace at a time.
    */
   snapCliWindows?(keys: readonly string[]): void
+  /**
+   * Open the last workspace's agents in their zones. Returns false when there
+   * is no last workspace (caller falls back to the snapshot). Absent = today's
+   * snapshot restore, and an empty-snapshot eye click stays a no-op hide.
+   */
+  restoreWorkspace?(): boolean
 }
 
 export interface HideAllController {
@@ -87,6 +105,13 @@ export function createHideAllController(deps: HideAllDeps): HideAllController {
       const targets = deps.targets().filter((target) => !target.window.isDestroyed())
 
       if (hiddenKeys.length === 0) {
+        const noVisibleCli = targets
+          .filter((target) => isCliHideAllKey(target.key))
+          .every((target) => !target.window.isVisible())
+        if (noVisibleCli && deps.restoreWorkspace?.()) {
+          return 'restored'
+        }
+
         focusedKey = targets.find((target) => target.window.isFocused())?.key
         const hiddenWindows = new Set<HideableWindow>()
         for (const target of targets) {
@@ -101,6 +126,23 @@ export function createHideAllController(deps: HideAllDeps): HideAllController {
         }
         deps.snapCliWindows?.(hiddenKeys)
         return 'hidden'
+      }
+
+      if (deps.restoreWorkspace?.()) {
+        const byKey = new Map(targets.map((target) => [target.key, target.window]))
+        for (const key of hiddenKeys) {
+          if (isCliHideAllKey(key)) continue
+          deps.beforeNativeVisibility?.(key)
+          byKey.get(key)?.showInactive()
+        }
+        // Focus last workspace's first window once — not each restored CLI.
+        const firstCli = targets.find(
+          (target) => isCliHideAllKey(target.key) && target.window.isVisible()
+        )
+        firstCli?.window.focus()
+        hiddenKeys = []
+        focusedKey = undefined
+        return 'restored'
       }
 
       const byKey = new Map(targets.map((target) => [target.key, target.window]))
@@ -156,10 +198,8 @@ function appTargets(): HideAllTarget[] {
   ]
 }
 
-const AGENT_KEY_PREFIX = 'agent:'
-
 function cliAgentIdFromKey(key: string): string | undefined {
-  return key.startsWith(AGENT_KEY_PREFIX) ? key.slice(AGENT_KEY_PREFIX.length) : undefined
+  return isCliHideAllKey(key) ? key.slice(AGENT_KEY_PREFIX.length) : undefined
 }
 
 function suppressCliKey(key: string): void {
@@ -186,13 +226,23 @@ function snapCliKeysIfEnabled(keys: readonly string[]): void {
 }
 
 let controller: HideAllController | undefined
+let restoreWorkspaceHook: (() => boolean) | undefined
+
+/**
+ * Register last-workspace restore from the Electron entry. A setter, not an
+ * import of index.ts — hideAll must not cycle with the app bootstrap.
+ */
+export function setHideAllRestoreWorkspace(restore: (() => boolean) | undefined): void {
+  restoreWorkspaceHook = restore
+}
 
 function appController(): HideAllController {
   if (!controller) {
     controller = createHideAllController({
       targets: appTargets,
       beforeNativeVisibility: suppressCliKey,
-      snapCliWindows: snapCliKeysIfEnabled
+      snapCliWindows: snapCliKeysIfEnabled,
+      restoreWorkspace: () => restoreWorkspaceHook?.() ?? false
     })
   }
   return controller
@@ -328,4 +378,5 @@ export function unregisterHideAllShortcut(): void {
 export function resetHideAllForTesting(): void {
   controller = undefined
   status = undefined
+  restoreWorkspaceHook = undefined
 }

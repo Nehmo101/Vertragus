@@ -6,6 +6,7 @@ vi.mock('./cliWindow', () => ({ listCliWindows: () => [] }))
 
 import {
   focusWorkspaceAgents,
+  presentWorkspaceAgents,
   type FocusWorkspaceTarget
 } from './focusWorkspace'
 
@@ -207,12 +208,87 @@ describe('focusWorkspaceAgents', () => {
   })
 })
 
+describe('presentWorkspaceAgents', () => {
+  it('reopens closed windows then focuses and tiles all wanted agents', () => {
+    const { log, windows, targets } = harness(['orch', 'foreign'])
+    windows.worker = new FakeWindow('worker', log)
+    const live = new Set(['orch', 'foreign'])
+    const layout = vi.fn((ids: readonly string[]) => {
+      log.push(`layout:${[...ids].join(',')}`)
+    })
+
+    presentWorkspaceAgents(['orch', 'worker'], {
+      hasLiveWindow: (id) => live.has(id),
+      reopenClosedWindow: (id) => {
+        log.push(`reopen:${id}`)
+        live.add(id)
+        targets.push({ agentId: id, window: windows[id]! })
+      },
+      windows: () => targets,
+      layout
+    })
+
+    expect(log).toEqual([
+      'reopen:worker',
+      'hide:foreign',
+      'show:orch',
+      'show:worker',
+      'focus:orch',
+      'layout:orch,worker'
+    ])
+    expect(layout).toHaveBeenCalledWith(['orch', 'worker'])
+  })
+
+  it('does not reopen an agent that already has a live window', () => {
+    const { log, targets } = harness(['orch', 'foreign'])
+    const reopen = vi.fn()
+
+    presentWorkspaceAgents(['orch'], {
+      hasLiveWindow: () => true,
+      reopenClosedWindow: reopen,
+      windows: () => targets,
+      layout: (ids) => {
+        log.push(`layout:${[...ids].join(',')}`)
+      }
+    })
+
+    expect(reopen).not.toHaveBeenCalled()
+    expect(log[0]).not.toMatch(/^reopen:/)
+    expect(log).toContain('layout:orch')
+  })
+
+  it('skips tiling when tile is false', () => {
+    const { targets } = harness(['orch', 'foreign'])
+    const layout = vi.fn()
+
+    presentWorkspaceAgents(['orch'], {
+      hasLiveWindow: () => true,
+      reopenClosedWindow: vi.fn(),
+      windows: () => targets,
+      tile: false,
+      layout
+    })
+
+    expect(layout).not.toHaveBeenCalled()
+  })
+})
+
 describe('production wiring', () => {
   it('suppresses hide, restore and show on a workspace click', () => {
     const source = readFileSync(join(__dirname, '../index.ts'), 'utf8')
     expect(source).toMatch(/beforeHide:\s*suppressMoveTracking/)
     expect(source).toMatch(/beforeRestore:\s*suppressMoveTracking/)
     expect(source).toMatch(/beforeShow:\s*suppressMoveTracking/)
-    expect(source).toMatch(/layoutCliWindows\(agentIds\)/)
+    expect(source).toMatch(/layout:\s*layoutCliWindows/)
+  })
+
+  it('reopens closed windows of still-registered agents before focusing', () => {
+    const source = readFileSync(join(__dirname, '../index.ts'), 'utf8')
+    const start = source.indexOf('presentWorkspaceWindows')
+    expect(start).toBeGreaterThanOrEqual(0)
+    const block = source.slice(start, start + 1600)
+    expect(block).toMatch(/getCliWindow\(agentId\)/)
+    expect(block).toMatch(/showAgentWindow\(agentId\)/)
+    expect(block).toMatch(/presentWorkspaceAgents/)
   })
 })
