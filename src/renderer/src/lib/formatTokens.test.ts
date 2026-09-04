@@ -14,6 +14,13 @@ describe('formatTokenCount', () => {
     expect(formatTokenCount(1_250_000, 'en')).toBe('1.3M')
     expect(formatTokenCount(1_250_000, 'de')).toBe('1,3M')
   })
+
+  it('promotes the tier when one-decimal rounding would reach 1000k', () => {
+    expect(formatTokenCount(999_950, 'en')).toBe('1M')
+    expect(formatTokenCount(999_950, 'de')).toBe('1M')
+    expect(formatTokenCount(999_949, 'en')).toBe('999.9k')
+    expect(formatTokenCount(999_949, 'de')).toBe('999,9k')
+  })
 })
 
 describe('tokenUsageCount', () => {
