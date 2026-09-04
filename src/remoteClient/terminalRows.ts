@@ -514,11 +514,6 @@ export function renderPlan(
 /** How long after the last touch (or the last scroll during settle) the follow snap may run. */
 export const SETTLE_MS = 120
 
-/** A follow snap is safe only with no fingers down and the scroller not settling. */
-export function gestureAllowsSnap(input: { touches: number; settling: boolean }): boolean {
-  return input.touches <= 0 && !input.settling
-}
-
 /**
  * Touch tracking from `event.touches.length`. `lifted` is true only on the
  * transition from one-or-more fingers to none — the moment settling starts.

@@ -4,7 +4,6 @@ import {
   countMatches,
   findRow,
   followState,
-  gestureAllowsSnap,
   isPlainRun,
   liveRange,
   noteTouches,
@@ -358,13 +357,6 @@ describe('renderPlan', () => {
 describe('gesture snap', () => {
   it('settles after 120 ms', () => {
     expect(SETTLE_MS).toBe(120)
-  })
-
-  it('allows a snap only with no fingers and not settling', () => {
-    expect(gestureAllowsSnap({ touches: 0, settling: false })).toBe(true)
-    expect(gestureAllowsSnap({ touches: 1, settling: false })).toBe(false)
-    expect(gestureAllowsSnap({ touches: 0, settling: true })).toBe(false)
-    expect(gestureAllowsSnap({ touches: 2, settling: true })).toBe(false)
   })
 
   it('starts settling only when the last finger lifts', () => {
