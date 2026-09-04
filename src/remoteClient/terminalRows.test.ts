@@ -6,15 +6,21 @@ import {
   followState,
   isPlainRun,
   liveRange,
+  noteTouches,
   paletteRgb,
+  renderPlan,
   rowRuns,
   rowSignature,
   rowText,
   runPresentation,
   scrollbackPatch,
+  SETTLE_MS,
+  ScrollbackSync,
   type CellReader,
   type LineReader,
-  type RunColor
+  type RunColor,
+  type ScrollbackMarker,
+  type ScrollbackParser
 } from './terminalRows'
 
 interface FakeCell {
@@ -118,6 +124,14 @@ describe('rowRuns', () => {
     expect(past[past.length - 1]).toMatchObject({ text: ' ', cursor: true })
   })
 
+  it('draws a wrap-pending cursor past the last column after trimming', () => {
+    const runs = rowRuns(line(plain('abc')), 3, 3)
+    expect(runs.map((run) => [run.text, run.cursor])).toEqual([
+      ['abc', false],
+      [' ', true]
+    ])
+  })
+
   it('never reads past the column count it was given', () => {
     expect(rowText(rowRuns(line(plain('abcdef')), 3))).toBe('abc')
     expect(rowText(rowRuns(line(plain('ab')), 0))).toBe('')
@@ -199,52 +213,157 @@ describe('colours', () => {
 
 describe('scrollbackPatch', () => {
   it('appends only the lines that entered the scrollback', () => {
-    expect(scrollbackPatch({ synced: 10, domCount: 10, base: 13, scrolled: 3 })).toEqual({
+    expect(scrollbackPatch({ synced: 10, domCount: 10, base: 13, keep: 10 })).toEqual({
       dropHead: 0,
       appendFrom: 10
     })
   })
 
   it('drops from the head once the scrollback is full', () => {
-    // 5000 rows on screen, 5000 in the buffer, 7 more lines scrolled: the
+    // 5000 rows on screen, 5000 in the buffer, marker moved down 7 lines: the
     // buffer stays at 5000, the oldest 7 rows are gone.
-    expect(scrollbackPatch({ synced: 5000, domCount: 5000, base: 5000, scrolled: 7 })).toEqual({
+    expect(scrollbackPatch({ synced: 5000, domCount: 5000, base: 5000, keep: 4993 })).toEqual({
       dropHead: 7,
       appendFrom: 4993
     })
   })
 
   it('rebuilds everything after a burst longer than the scrollback', () => {
-    expect(scrollbackPatch({ synced: 5000, domCount: 5000, base: 5000, scrolled: 9000 })).toEqual({
+    // Marker trimmed away (keep 0): nothing on screen is still in the buffer.
+    expect(scrollbackPatch({ synced: 5000, domCount: 5000, base: 5000, keep: 0 })).toEqual({
       dropHead: 5000,
       appendFrom: 0
     })
   })
 
   it('empties the DOM when a sequence cleared the scrollback', () => {
-    // ED 3 fires one onScroll with baseY back at 0.
-    expect(scrollbackPatch({ synced: 120, domCount: 120, base: 0, scrolled: 1 })).toEqual({
+    // ED 3 disposes the marker and baseY is back at 0.
+    expect(scrollbackPatch({ synced: 120, domCount: 120, base: 0, keep: 0 })).toEqual({
       dropHead: 120,
       appendFrom: 0
     })
   })
 
   it('rebuilds when the DOM is not level with the parser', () => {
-    expect(scrollbackPatch({ synced: 40, domCount: 12, base: 40, scrolled: 0 })).toEqual({
+    expect(scrollbackPatch({ synced: 40, domCount: 12, base: 40, keep: 12 })).toEqual({
       dropHead: 12,
       appendFrom: 0
     })
-    expect(scrollbackPatch({ synced: 0, domCount: 0, base: 30, scrolled: 0 })).toEqual({
+    expect(scrollbackPatch({ synced: 0, domCount: 0, base: 30, keep: 0 })).toEqual({
       dropHead: 0,
       appendFrom: 0
     })
   })
 
-  it('does nothing when nothing scrolled', () => {
-    expect(scrollbackPatch({ synced: 8, domCount: 8, base: 8, scrolled: 0 })).toEqual({
+  it('does nothing when the marker still covers the whole DOM', () => {
+    expect(scrollbackPatch({ synced: 8, domCount: 8, base: 8, keep: 8 })).toEqual({
       dropHead: 0,
       appendFrom: 8
     })
+  })
+})
+
+class FakeMarker implements ScrollbackMarker {
+  isDisposed = false
+  constructor(public line: number) {}
+  dispose(): void {
+    this.isDisposed = true
+    this.line = -1
+  }
+}
+
+class FakeParser implements ScrollbackParser {
+  base = 0
+  cursorY = 0
+  lastOffset: number | undefined
+  nextMarker: FakeMarker | undefined
+  get buffer() {
+    return {
+      active: { baseY: this.base, cursorY: this.cursorY },
+      normal: { baseY: this.base }
+    }
+  }
+  registerMarker(offset = 0): FakeMarker | undefined {
+    this.lastOffset = offset
+    if (this.nextMarker !== undefined) return this.nextMarker
+    return new FakeMarker(this.base + this.cursorY + offset)
+  }
+}
+
+describe('ScrollbackSync', () => {
+  it('registers a marker on the last scrollback line relative to the cursor', () => {
+    const parser = new FakeParser()
+    parser.base = 10
+    parser.cursorY = 3
+    const sync = new ScrollbackSync(parser)
+    sync.mark(10)
+    expect(parser.lastOffset).toBe((10 - 1) - (10 + 3))
+    expect(sync.next(10)).toEqual({ dropHead: 0, appendFrom: 10 })
+  })
+
+  it('drops the head when the marker moves down', () => {
+    const parser = new FakeParser()
+    parser.base = 50
+    const marker = new FakeMarker(49)
+    parser.nextMarker = marker
+    const sync = new ScrollbackSync(parser)
+    sync.mark(50)
+    marker.line = 42
+    expect(sync.next(50)).toEqual({ dropHead: 7, appendFrom: 43 })
+  })
+
+  it('drops everything when the marker is disposed', () => {
+    const parser = new FakeParser()
+    parser.base = 50
+    const marker = new FakeMarker(49)
+    parser.nextMarker = marker
+    const sync = new ScrollbackSync(parser)
+    sync.mark(50)
+    parser.base = 0
+    marker.dispose()
+    expect(sync.next(50)).toEqual({ dropHead: 50, appendFrom: 0 })
+  })
+
+  it('rebuilds from 0 and disposes the marker', () => {
+    const parser = new FakeParser()
+    parser.base = 10
+    const marker = new FakeMarker(9)
+    parser.nextMarker = marker
+    const sync = new ScrollbackSync(parser)
+    sync.mark(10)
+    expect(sync.next(10, true)).toEqual({ dropHead: 10, appendFrom: 0 })
+    expect(marker.isDisposed).toBe(true)
+  })
+})
+
+describe('renderPlan', () => {
+  it('holds a rebuild until the normal buffer is on screen', () => {
+    const whileAlt = renderPlan({ rebuild: true, rebuildLive: false }, true)
+    expect(whileAlt).toEqual({
+      scrollback: 'skip',
+      live: 'rebuild',
+      next: { rebuild: true, rebuildLive: false }
+    })
+    const back = renderPlan(whileAlt.next, false)
+    expect(back.scrollback).toBe('rebuild')
+    expect(back.live).toBe('rebuild')
+    expect(back.next.rebuild).toBe(false)
+    const after = renderPlan(back.next, false)
+    expect(after.scrollback).toBe('patch')
+    expect(after.live).toBe('patch')
+  })
+})
+
+describe('gesture snap', () => {
+  it('settles after 120 ms', () => {
+    expect(SETTLE_MS).toBe(120)
+  })
+
+  it('starts settling only when the last finger lifts', () => {
+    expect(noteTouches(false, 1)).toEqual({ touchDown: true, lifted: false })
+    expect(noteTouches(true, 1)).toEqual({ touchDown: true, lifted: false })
+    expect(noteTouches(true, 0)).toEqual({ touchDown: false, lifted: true })
+    expect(noteTouches(false, 0)).toEqual({ touchDown: false, lifted: false })
   })
 })
 

@@ -15,10 +15,12 @@
  *  - Lines below `baseY` are the scrollback. The phone never resizes the
  *    parser once a snapshot has sized it, so those lines never reflow, and the
  *    DOM for them is append-only ({@link scrollbackPatch}).
- *  - The parser fires `onScroll` once per line that enters the scrollback,
- *    and once with `0` when a sequence clears it. Counting those events between
- *    two renders is enough to know which lines are new — the clear case falls
- *    out of the same arithmetic because `baseY` is then `0`.
+ *  - A marker on the last synced scrollback line is how the DOM keeps step
+ *    ({@link ScrollbackSync}). `registerMarker` is relative to the active
+ *    cursor; the marker's `line` moves down when the head is trimmed and the
+ *    marker is disposed when the line is gone (ED 3). Counting `onScroll` is
+ *    not enough: a DECSTBM scroll-region scroll fires `onScroll` without
+ *    moving `baseY` or adding a line to the scrollback.
  *  - A wide glyph occupies two cells: the first carries the characters and a
  *    width of 2, the second is a width-0 continuation and is skipped.
  */
@@ -156,7 +158,9 @@ function isBlankRun(run: RowRun): boolean {
  * `cursorX` is the column of the cursor when the cursor is on this row, or
  * `-1`. The cell under it becomes a run of its own, so a cursor glyph can be
  * drawn without disturbing the neighbours; an empty cell under the cursor is
- * rendered as a space so the glyph has a width.
+ * rendered as a space so the glyph has a width. When the cursor sits at
+ * `cursorX === width` (parked past the last column, pending wrap) a space
+ * cursor run is appended after trimming.
  *
  * `scratch` is the reusable cell xterm's `getNullCell()` hands out. Passing it
  * saves one allocation per cell over a 5000-line snapshot; the tests omit it.
@@ -188,6 +192,9 @@ export function rowRuns(
     }
   }
   trimTrailingBlank(runs)
+  if (cursorX === width) {
+    runs.push({ ...DEFAULT_STYLE, text: ' ', cursor: true })
+  }
   return runs
 }
 
@@ -311,14 +318,15 @@ export function isPlainRun(run: RowRun): boolean {
  * ## Keeping the scrollback DOM in step with the parser
  *
  * `synced` is the `baseY` the DOM was last brought level with, `domCount` how
- * many scrollback rows it holds, `base` the parser's `baseY` now, `scrolled`
- * how many `onScroll` events arrived since the last render.
+ * many scrollback rows it holds, `base` the parser's `baseY` now, `keep` how
+ * many of those rows the marker still covers (`marker.line + 1`, or 0 if the
+ * marker is gone).
  *
- * The rows kept are the ones that are still in the buffer: `base - scrolled`
- * of the old scrollback survived (the rest were trimmed off the head when the
- * scrollback was full), and the lines `[keep, base)` are the new ones to
- * append. A DOM that is not level with `synced` — a resize, a reset, a first
- * render — is rebuilt from line 0.
+ * The rows kept are the ones that are still in the buffer: `keep` of the old
+ * scrollback survived (the rest were trimmed off the head when the scrollback
+ * was full, or the marker was disposed by ED 3), and the lines `[keep, base)`
+ * are the new ones to append. A DOM that is not level with `synced` — a
+ * resize, a reset, a first render — is rebuilt from line 0.
  */
 export interface ScrollbackPatch {
   /** Rows to remove from the head of the DOM. */
@@ -331,14 +339,87 @@ export function scrollbackPatch(input: {
   synced: number
   domCount: number
   base: number
-  scrolled: number
+  keep: number
 }): ScrollbackPatch {
   const base = Math.max(0, input.base)
   if (input.domCount !== input.synced || input.domCount < 0) {
     return { dropHead: Math.max(0, input.domCount), appendFrom: 0 }
   }
-  const keep = Math.max(0, Math.min(input.domCount, base - Math.max(0, input.scrolled)))
+  const keep = Math.max(0, Math.min(input.domCount, base, input.keep))
   return { dropHead: input.domCount - keep, appendFrom: keep }
+}
+
+/**
+ * The marker facts {@link ScrollbackSync} needs — a structural subset of
+ * xterm's `IMarker`, so tests can pass a plain object.
+ */
+export interface ScrollbackMarker {
+  readonly line: number
+  readonly isDisposed: boolean
+  dispose(): void
+}
+
+/**
+ * The parser facts {@link ScrollbackSync} needs — a structural subset of
+ * xterm's headless `Terminal`.
+ */
+export interface ScrollbackParser {
+  registerMarker(cursorYOffset?: number): ScrollbackMarker | undefined
+  readonly buffer: {
+    readonly active: { readonly baseY: number; readonly cursorY: number }
+    readonly normal: { readonly baseY: number }
+  }
+}
+
+/**
+ * Tracks the last synced scrollback line with an xterm marker so a later
+ * render can see which head rows were trimmed without counting `onScroll`.
+ *
+ * After each scrollback render, {@link mark} disposes the previous marker and
+ * registers a new one on line `base - 1`. `registerMarker` is relative to the
+ * active cursor, so the offset is `(base - 1) - (active.baseY + active.cursorY)`.
+ * The marker's `line` moves down when the head is trimmed (the buffer at its
+ * scrollback limit) and is disposed when that line is gone (ED 3). A DECSTBM
+ * region scroll leaves both `baseY` and the marker alone, so the next patch
+ * is a no-op even though `onScroll` fired.
+ */
+export class ScrollbackSync {
+  private marker: ScrollbackMarker | undefined
+  private synced = 0
+
+  constructor(private readonly term: ScrollbackParser) {}
+
+  /**
+   * The patch that brings a DOM of `domCount` rows level with the parser.
+   * A rebuild (resize / replay) disposes the marker and ignores it.
+   */
+  next(domCount: number, rebuild = false): ScrollbackPatch {
+    const base = Math.max(0, this.term.buffer.normal.baseY)
+    if (rebuild) {
+      this.dispose()
+      return { dropHead: Math.max(0, domCount), appendFrom: 0 }
+    }
+    const keep =
+      this.marker === undefined || this.marker.isDisposed ? 0 : this.marker.line + 1
+    return scrollbackPatch({ synced: this.synced, domCount, base, keep })
+  }
+
+  /**
+   * After a scrollback render, remember `base` and put a marker on its last
+   * line. Pass `base === 0` to mark nothing (there is no scrollback line).
+   */
+  mark(base: number): void {
+    this.dispose()
+    this.synced = Math.max(0, base)
+    if (base <= 0) return
+    const active = this.term.buffer.active
+    this.marker = this.term.registerMarker((base - 1) - (active.baseY + active.cursorY))
+  }
+
+  dispose(): void {
+    this.marker?.dispose()
+    this.marker = undefined
+  }
 }
 
 /** The lines the screen shows live: the last `rows` of the buffer. */
@@ -397,4 +478,47 @@ export function countMatches(texts: readonly string[], query: string): number {
   let count = 0
   for (const text of texts) if (text.toLowerCase().includes(needle)) count += 1
   return count
+}
+
+/**
+ * What one animation frame should do to the two DOM columns.
+ *
+ * A resize or replay sets `rebuild`, but a full-screen program holds the
+ * alternate buffer and has no scrollback on screen. Clearing `rebuild` on
+ * that frame would forget to reflow the scrollback once the program exits;
+ * {@link renderPlan} keeps the flag until the normal buffer is showing.
+ */
+export function renderPlan(
+  state: { rebuild: boolean; rebuildLive: boolean },
+  alternate: boolean
+): {
+  scrollback: 'skip' | 'rebuild' | 'patch'
+  live: 'rebuild' | 'patch'
+  next: { rebuild: boolean; rebuildLive: boolean }
+} {
+  const live: 'rebuild' | 'patch' = state.rebuild || state.rebuildLive ? 'rebuild' : 'patch'
+  if (alternate) {
+    return {
+      scrollback: 'skip',
+      live,
+      next: { rebuild: state.rebuild, rebuildLive: false }
+    }
+  }
+  return {
+    scrollback: state.rebuild ? 'rebuild' : 'patch',
+    live,
+    next: { rebuild: false, rebuildLive: false }
+  }
+}
+
+/** How long after the last touch (or the last scroll during settle) the follow snap may run. */
+export const SETTLE_MS = 120
+
+/**
+ * Touch tracking from `event.touches.length`. `lifted` is true only on the
+ * transition from one-or-more fingers to none — the moment settling starts.
+ */
+export function noteTouches(wasDown: boolean, touches: number): { touchDown: boolean; lifted: boolean } {
+  const touchDown = touches > 0
+  return { touchDown, lifted: wasDown && !touchDown }
 }
