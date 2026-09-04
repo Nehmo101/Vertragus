@@ -78,6 +78,9 @@
   inset: 0;
   z-index: 9;
   background: var(--bg);
+  /* The overview stays mounted and scrollable underneath; a drag here must not pan it. */
+  touch-action: pinch-zoom;
+  overscroll-behavior: contain;
 }
 
 .terminal-pending-header {
