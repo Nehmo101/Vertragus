@@ -57,8 +57,10 @@ keyboard handshake as any assignment, so what the card shows is what the
 orchestrator really received. **Playbooks** are one-click goal templates on
 that fold-out, never a pre-configured crew. Play and resume also open a
 **Timeline** window for that workspace: overview (agents, board, goal) plus
-a journal. The panel stays visible. Closing the Timeline is view-only;
-clicking the workspace card reopens it; stopping the workspace closes it.
+a journal. Once an agent finishes, the overview shows that agent's token
+usage when its CLI recorded one. The panel stays visible. Closing the
+Timeline is view-only; clicking the workspace card reopens it; stopping
+the workspace closes it.
 The CLI window opens at once with a greyhound overlay while the host creates
 the worktree, attaches MCP and waits for the session; the first turn is
 submitted only once MCP is up, so a start without a connected server does

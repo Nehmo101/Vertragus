@@ -11,7 +11,8 @@ In-App-MCP-Server orchestriert. Lies `README.md` für das Produkt;
 - `src/main/` — Electron-Main-Process: `workspace/` (Workspace,
   WorkspaceManager — PTYs, Worktrees, Events), `mcp/` (Server, Tools,
   Event-Queue, Fragen, Attach-Dialekte, `/browser`-Bridge),
-  `browserExtension/` (Pairing-IPC), `providers/`, `remote/`
+  `browserExtension/` (Pairing-IPC), `providers/` (Presets, CLI-aufgezeichnete
+  Nutzung), `remote/`
   (Tailscale-Gateway), `windows/`, `store/`, `appIpc.ts`.
 - `src/shared/` — Schemas (zod, `schema/`), Prompts (`prompts/`),
   `mainMessages.ts` (Main-Process-i18n), Lore/Namen.
