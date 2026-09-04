@@ -1,38 +1,35 @@
 /**
- * Keep the layout glued to the *visible* viewport, and publish that geometry
- * as CSS custom properties on `<html>`.
+ * Keep the overview's fields reachable above the software keyboard, and
+ * publish the one piece of viewport geometry the document-scrolled overview
+ * needs as a CSS custom property on `<html>`.
  *
  * On a phone the software keyboard shrinks `visualViewport` while `100dvh`
- * still counts the hidden half, so a composer or terminal bar sized on the
- * layout viewport ends up under the keys. iOS makes it worse: in several
- * states it does not shrink the visual viewport at all, it *shifts* it
- * (`offsetTop`), and it keeps shifting it while the user scrolls, which is why
+ * still counts the hidden half, so a composer sized on the layout viewport
+ * ends up under the keys. iOS makes it worse: in several states it does not
+ * shrink the visual viewport at all, it *shifts* it (`offsetTop`), and it
+ * keeps shifting it while the user scrolls, which is why
  * `visualViewport.scroll` is listened to as carefully as `resize`. Both states
  * have to arm the reveal below — see `viewportDisplacementPx`, which is the
  * quantity that is non-zero in each of them.
  *
- * ## Published contract — these three are a public API
+ * ## Published contract — one variable, a public API
  *
- * Other sheets size themselves on these, so the names and meanings are fixed.
- * Each is a CSS `<length>`: this hook always writes `px`, and the fallbacks in
- * `styles.css` are whatever states the same thing before any script has run —
- * `--vv-height` falls back to `100dvh`, the other two to `0px`.
+ * `styles.css` sizes on it, so the name and meaning are fixed. It is a CSS
+ * `<length>`: this hook always writes `px`, and the fallback in `styles.css`
+ * is `0px`, which states the same thing before any script has run.
  *
- * - `--vv-height`  height of the visible viewport. What a `position: fixed`
- *                  full-screen surface should use instead of `100dvh`
- *                  (`terminal.css`).
  * - `--keyboard-inset`  how much of the layout viewport the keyboard covers at
  *                  the bottom, `0px` when it is closed. Add it to the bottom
  *                  padding of document-scrolled content so the last row can
  *                  still be reached (`styles.css`).
- * - `--vv-offset-top`  how far the visible viewport has been shifted down
- *                  inside the layout viewport, `0px` normally. A fixed overlay
- *                  anchored at `top: 0` sits *above* the visible area by
- *                  exactly this much while iOS is shifting.
  *
- * Fallbacks are declared in `styles.css`; this hook only ever overwrites them,
- * so the page is correct before the first frame and on a browser without
- * `visualViewport`.
+ * The terminal overlay reads nothing from here on purpose. It is pinned to
+ * the layout viewport (`terminal.css`, `inset: 0`): Android shrinks that
+ * viewport with the keyboard, and iOS shifts the visible one over it so the
+ * focused field lands above the keys — both done by the browser in the same
+ * frame as the keyboard. Publishing the visible viewport's height and offset
+ * and positioning the overlay on them, as an earlier pass did, put the
+ * overlay one frame behind every step of that animation.
  */
 import { useEffect } from 'react'
 import {
@@ -193,14 +190,10 @@ export function useVisualViewport(): void {
       // `published.displacement` is negative only before the first measurement,
       // which excludes a page that loads with the keyboard already up.
       const growing = published.displacement >= 0 && next.displacement > published.displacement
-      if (next.height !== published.height) {
-        root.style.setProperty('--vv-height', `${next.height}px`)
-      }
+      // Written only when it changed, so a keyboard animation's storm of
+      // events does not restart a CSS transition that depends on it.
       if (next.keyboard !== published.keyboard) {
         root.style.setProperty('--keyboard-inset', `${next.keyboard}px`)
-      }
-      if (next.offsetTop !== published.offsetTop) {
-        root.style.setProperty('--vv-offset-top', `${next.offsetTop}px`)
       }
       published = next
       if (growing) scheduleReveal()
@@ -209,9 +202,7 @@ export function useVisualViewport(): void {
     /**
      * `visualViewport` fires a storm of resize/scroll events through the
      * keyboard animation. Coalescing to one frame keeps that from turning into
-     * a style recalculation per event — and writing a property only when its
-     * value actually changed keeps it from restarting CSS transitions that
-     * depend on these variables.
+     * a style recalculation per event.
      */
     const schedule = (): void => {
       if (frame !== 0) return
