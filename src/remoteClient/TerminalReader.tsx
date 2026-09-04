@@ -18,16 +18,18 @@
  *    snapshot and is resized only when a later snapshot names a different
  *    size; a font step is CSS on this box and reaches nobody.
  * 3. JS writes the scroll position in exactly one place — `snapToLatest`, and
- *    only while the reader is following — and never while a finger is down.
- *    Everything else the viewport does is the browser's.
+ *    only while the reader is following — and never while a finger is down or
+ *    the scroller is still settling after a lift. Everything else the viewport
+ *    does is the browser's.
  * 4. A reconnect continues the buffer (`terminalAttach.ts`); only a plan that
  *    earned a rebuild resets the parser, and that resets the DOM with it.
  *
  * The DOM is two columns: `.scrollback` holds the lines below `baseY`, which
  * the parser never rewrites once they leave the live region (no reflow — see
- * rule 2), so it is append-only and trimmed from the head in step with the
- * buffer; `.live` holds the last `rows` lines and is re-rendered per burst of
- * writes, one animation frame per burst, replacing only the rows whose
+ * rule 2), so it is append-only and trimmed from the head in step with a
+ * marker on the last synced line (`ScrollbackSync`) rather than by counting
+ * `onScroll`; `.live` holds the last `rows` lines and is re-rendered per burst
+ * of writes, one animation frame per burst, replacing only the rows whose
  * painted content changed (`rowSignature`).
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
@@ -42,11 +44,14 @@ import {
   followState,
   isPlainRun,
   liveRange,
+  noteTouches,
+  renderPlan,
   rowRuns,
   rowSignature,
   rowText,
   runPresentation,
-  scrollbackPatch,
+  SETTLE_MS,
+  ScrollbackSync,
   type RowRun
 } from './terminalRows'
 import { safeRoleColor } from './viewModel'
@@ -69,8 +74,9 @@ const FALLBACK_ROW_HEIGHT_PX = 20
  * While the reader is paused, rows the buffer has already trimmed stay in the
  * DOM so the view does not jump (Safari has no scroll anchoring). Past this
  * many they are dropped anyway; the jump costs less than an unbounded page.
+ * A paused reader's DOM is then bounded by the parser's 5000 plus these 1500.
  */
-const MAX_STALE_ROWS = SCROLLBACK_LINES
+const MAX_STALE_ROWS = 1500
 
 /** What the snapshot and the exit frame tell the chrome about the agent. */
 export interface TerminalMeta {
@@ -177,16 +183,19 @@ export const TerminalReader = forwardRef<
     if (!reader || !scrollbackEl || !liveEl) return
     const doc = reader.ownerDocument
     // 80x24 until the first snapshot says what the PTY really is.
-    const term = new Terminal({ cols: 80, rows: 24, scrollback: SCROLLBACK_LINES })
+    // `buffer` and `registerMarker` are proposed APIs in xterm 5.5.
+    const term = new Terminal({
+      cols: 80,
+      rows: 24,
+      scrollback: SCROLLBACK_LINES,
+      allowProposedApi: true
+    })
     const scratch = term.buffer.active.getNullCell()
+    const sync = new ScrollbackSync(term)
 
     /** Set before disposal: a queued write callback must not touch a corpse. */
     let disposed = false
     let frame = 0
-    /** `onScroll` events since the last render — lines that entered the scrollback. */
-    let pendingScrolled = 0
-    /** The `baseY` the scrollback DOM was last brought level with. */
-    let syncedBase = 0
     /** Head rows the buffer has trimmed but a paused reader still sees. */
     let staleRows = 0
     let rebuild = true
@@ -197,6 +206,8 @@ export const TerminalReader = forwardRef<
     let liveTexts: string[] = []
     let rowHeightPx = FALLBACK_ROW_HEIGHT_PX
     let touchDown = false
+    let settling = false
+    let settleTimer = 0
     let snapPending = false
     let exited = false
 
@@ -212,6 +223,10 @@ export const TerminalReader = forwardRef<
         snapPending = true
         return
       }
+      if (settling) {
+        snapPending = true
+        return
+      }
       snapPending = false
       reader.scrollTop = reader.scrollHeight
     }
@@ -221,14 +236,25 @@ export const TerminalReader = forwardRef<
       rowHeightPx = Number.isFinite(parsed) && parsed > 0 ? parsed : FALLBACK_ROW_HEIGHT_PX
     }
 
-    const renderScrollback = (): void => {
+    const settle = (): void => {
+      if (settleTimer !== 0) {
+        window.clearTimeout(settleTimer)
+        settleTimer = 0
+      }
+      settling = false
+      if (snapPending && followRef.current) snapToLatest()
+    }
+
+    const armSettleTimer = (): void => {
+      if (settleTimer !== 0) window.clearTimeout(settleTimer)
+      settleTimer = window.setTimeout(settle, SETTLE_MS)
+    }
+
+    const renderScrollback = (rebuildScrollback: boolean): void => {
       const normal = term.buffer.normal
       const base = Math.max(0, normal.baseY)
       const domCount = scrollbackEl.childElementCount - staleRows
-      const patch = rebuild
-        ? { dropHead: domCount, appendFrom: 0 }
-        : scrollbackPatch({ synced: syncedBase, domCount, base, scrolled: pendingScrolled })
-      pendingScrolled = 0
+      const patch = sync.next(domCount, rebuildScrollback)
       if (patch.appendFrom === 0 && scrollbackEl.childElementCount > 0) {
         // A rebuild verdict: nothing on screen is still in the buffer.
         scrollbackEl.replaceChildren()
@@ -246,24 +272,25 @@ export const TerminalReader = forwardRef<
         }
         scrollbackEl.append(fragment)
       }
-      syncedBase = base
+      sync.mark(base)
       // Stale head rows leave once the reader is following again (the view is
       // about to be pinned to the bottom, so nothing jumps) or once there are
-      // too many of them to keep.
-      if (staleRows > 0 && (followRef.current || staleRows > MAX_STALE_ROWS)) {
+      // too many of them to keep. Not under a finger, and not while the
+      // scroller is still settling after a lift — dropping height there would
+      // jump the page.
+      if (staleRows > 0 && ((followRef.current && !touchDown && !settling) || staleRows > MAX_STALE_ROWS)) {
         for (let index = 0; index < staleRows; index += 1) scrollbackEl.firstElementChild?.remove()
         scrollbackTexts.splice(0, staleRows)
         staleRows = 0
       }
     }
 
-    const renderLive = (): void => {
+    const renderLive = (rebuildLiveRows: boolean): void => {
       const active = term.buffer.active
       const range = liveRange(active, term.rows)
-      if (rebuild || rebuildLive) {
+      if (rebuildLiveRows) {
         liveEl.replaceChildren()
         liveSignatures = []
-        rebuildLive = false
       }
       while (liveEl.childElementCount < term.rows) liveEl.append(makeRow(doc, []))
       while (liveEl.childElementCount > term.rows) liveEl.lastElementChild?.remove()
@@ -288,9 +315,11 @@ export const TerminalReader = forwardRef<
       const alternate = term.buffer.active.type === 'alternate'
       // A full-screen program owns the whole screen and has no history.
       scrollbackEl.style.display = alternate ? 'none' : ''
-      if (!alternate) renderScrollback()
-      renderLive()
-      rebuild = false
+      const plan = renderPlan({ rebuild, rebuildLive }, alternate)
+      if (plan.scrollback !== 'skip') renderScrollback(plan.scrollback === 'rebuild')
+      renderLive(plan.live === 'rebuild')
+      rebuild = plan.next.rebuild
+      rebuildLive = plan.next.rebuildLive
       readRowHeight()
       if (followRef.current) snapToLatest()
     }
@@ -301,11 +330,6 @@ export const TerminalReader = forwardRef<
       frame = window.requestAnimationFrame(render)
     }
 
-    const offScroll = term.onScroll(() => {
-      // The alternate screen scrolls into nothing; only the normal buffer
-      // grows a scrollback worth appending.
-      if (term.buffer.active.type === 'normal') pendingScrolled += 1
-    })
     const offBufferChange = term.buffer.onBufferChange(() => {
       // The normal buffer's scrollback is untouched by a full-screen program
       // coming and going; only the live rows have to be drawn afresh.
@@ -394,6 +418,7 @@ export const TerminalReader = forwardRef<
      * the pan.
      */
     const onViewportScroll = (): void => {
+      if (settling) armSettleTimer()
       setFollow(
         followState({
           scrollTop: reader.scrollTop,
@@ -403,14 +428,22 @@ export const TerminalReader = forwardRef<
         })
       )
     }
-    const onTouchStart = (): void => {
-      touchDown = true
+    const onScrollEnd = (): void => {
+      if (settling) settle()
     }
-    const onTouchEnd = (): void => {
-      touchDown = false
-      if (snapPending && followRef.current) snapToLatest()
+    const onTouchStart = (event: TouchEvent): void => {
+      touchDown = noteTouches(touchDown, event.touches.length).touchDown
+    }
+    const onTouchEnd = (event: TouchEvent): void => {
+      const next = noteTouches(touchDown, event.touches.length)
+      touchDown = next.touchDown
+      if (next.lifted) {
+        settling = true
+        armSettleTimer()
+      }
     }
     reader.addEventListener('scroll', onViewportScroll, { passive: true })
+    reader.addEventListener('scrollend', onScrollEnd, { passive: true })
     reader.addEventListener('touchstart', onTouchStart, { passive: true })
     reader.addEventListener('touchend', onTouchEnd, { passive: true })
     reader.addEventListener('touchcancel', onTouchEnd, { passive: true })
@@ -437,12 +470,14 @@ export const TerminalReader = forwardRef<
       disposed = true
       engineRef.current = null
       if (frame !== 0) window.cancelAnimationFrame(frame)
+      if (settleTimer !== 0) window.clearTimeout(settleTimer)
       reader.removeEventListener('scroll', onViewportScroll)
+      reader.removeEventListener('scrollend', onScrollEnd)
       reader.removeEventListener('touchstart', onTouchStart)
       reader.removeEventListener('touchend', onTouchEnd)
       reader.removeEventListener('touchcancel', onTouchEnd)
-      offScroll.dispose()
       offBufferChange.dispose()
+      sync.dispose()
       detach()
       term.dispose()
       scrollbackEl.replaceChildren()
