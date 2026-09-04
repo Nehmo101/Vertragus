@@ -290,28 +290,21 @@ button:focus-visible {
   outline-offset: 1px;
 }
 
-/* Both pulses derive their colour from the tokens so the light theme does not
-   inherit the dark theme's glow. */
+/* Working / attention pulse: transform + opacity on a pseudo-element, not a
+   box-shadow on the dot. Shadow in a keyframe is a main-thread paint every
+   frame; scale and fade are compositor-only. Colour comes from the host. */
 @keyframes vg-pulse {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--verdigris-bright) 55%, transparent);
+    transform: scale(1);
+    opacity: 0.55;
   }
   70% {
-    box-shadow: 0 0 0 8px transparent;
+    transform: scale(2.6);
+    opacity: 0;
   }
   100% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-}
-@keyframes vg-pulse-bronze {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--bronze) 50%, transparent);
-  }
-  70% {
-    box-shadow: 0 0 0 8px transparent;
-  }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
+    transform: scale(2.6);
+    opacity: 0;
   }
 }
 
@@ -456,6 +449,13 @@ button:focus-visible {
 @supports not (backdrop-filter: blur(1px)) {
   .app-header {
     background: var(--surface);
+  }
+}
+
+@media (pointer: coarse) {
+  .app-header {
+    background: var(--surface);
+    backdrop-filter: none;
   }
 }
 
