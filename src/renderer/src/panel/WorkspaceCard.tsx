@@ -19,6 +19,8 @@ import {
   agentDotClass,
   agentRowClass,
   agentStatusLine,
+  agentTokenLabel,
+  agentTokenTooltip,
   agentTooltip,
   taskOverflowLabel,
   taskProgressLabel,
@@ -36,6 +38,8 @@ import { RunTimeline } from './RunTimeline'
 interface AgentProps {
   agent: WorkspaceAgentSummary
   nested?: boolean
+  /** Overview window only: paint CLI-recorded token usage on agent rows. */
+  showUsage?: boolean
   onFocus(agentId: string): void
   onCloseWindow(agentId: string): void
   /** Answer this agent's open question (H1) — absent while it has none. */
@@ -51,7 +55,15 @@ interface AgentProps {
  * answer field out below the row, which sends over the SAME host path the
  * orchestrator's `send_to_agent{questionId}` uses (H1).
  */
-function AgentRow({ agent, nested, onFocus, onCloseWindow, onAnswer, onPromote }: AgentProps): React.JSX.Element {
+function AgentRow({
+  agent,
+  nested,
+  showUsage,
+  onFocus,
+  onCloseWindow,
+  onAnswer,
+  onPromote
+}: AgentProps): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const canClose = agentCanCloseWindow(agent)
   const [answering, setAnswering] = useState(false)
@@ -95,6 +107,16 @@ function AgentRow({ agent, nested, onFocus, onCloseWindow, onAnswer, onPromote }
           blurb={agentTooltip(t, activeLocale(i18n.language), agent)}
         />
         <span className="panel-agent-status">{agentStatusLine(t, agent)}</span>
+        {showUsage && agent.tokenUsage ? (
+          <span
+            className={
+              agent.tokenUsage.kind === 'context' ? 'panel-agent-tokens is-context' : 'panel-agent-tokens'
+            }
+            title={agentTokenTooltip(t, activeLocale(i18n.language), agent.tokenUsage)}
+          >
+            {agentTokenLabel(t, activeLocale(i18n.language), agent)}
+          </span>
+        ) : null}
       </button>
       {question && questionId ? (
         <button
@@ -153,6 +175,8 @@ function AgentRow({ agent, nested, onFocus, onCloseWindow, onAnswer, onPromote }
 interface Props {
   workspace: WorkspaceSummary
   expanded: boolean
+  /** Overview window only: paint CLI-recorded token usage on agent rows. */
+  showUsage?: boolean
   onToggle(): void
   onStop(workspaceId: string): void
   /** C6/S3: replace a dead or silent orchestrator — the run keeps its team. */
@@ -584,6 +608,7 @@ function PullRequestLine({
 export function WorkspaceCard({
   workspace,
   expanded,
+  showUsage,
   onToggle,
   onStop,
   onSucceedOrchestrator,
@@ -726,6 +751,7 @@ export function WorkspaceCard({
                 <AgentRow
                   key={agent.agentId}
                   agent={agent}
+                  showUsage={showUsage}
                   nested={Boolean(
                     workspace.agents.find((row) => row.agentId === agent.parentId)?.parentId
                   )}

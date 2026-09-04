@@ -229,7 +229,11 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     // Latest user CLI submit — not the last delegated start_agent.
                     ...agentCurrentTaskFields(ws.orchestratorTaskText),
                     ...(windowOpenOf(orchestrator.agentId) ? { windowOpen: true } : {}),
-                    ...pendingFields(orchestratorQuestion)
+                    ...pendingFields(orchestratorQuestion),
+                    ...(() => {
+                      const usage = ws.lastTokenUsage(orchestrator.agentId)
+                      return usage ? { tokenUsage: usage } : {}
+                    })()
                   }
                 ]
               : []),
@@ -258,7 +262,8 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                 ...(parentId ? { parentId } : {}),
                 ...agentCurrentTaskFields(agentTask),
                 ...(windowOpenOf(agent.agentId) ? { windowOpen: true } : {}),
-                ...pendingFields(pendingQuestion)
+                ...pendingFields(pendingQuestion),
+                ...(agent.tokenUsage ? { tokenUsage: agent.tokenUsage } : {})
               }
             })
           ]

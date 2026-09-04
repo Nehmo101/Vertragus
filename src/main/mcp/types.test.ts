@@ -193,3 +193,19 @@ describe('summarizeAgents pendingQuestionChoices', () => {
     expect(slim).not.toHaveProperty('worktreePath')
   })
 })
+
+describe('summarizeAgents tokenUsage', () => {
+  it('keeps tokenUsage on the full row and drops it from the slim row', () => {
+    const runtime = fakeRuntime()
+    const host = runtime.host as FakeAgentHost
+    host.beginAgent({ role: 'worker', task: 't' })
+    const workerId = [...host.agents.keys()][0]!
+    const usage = { kind: 'consumption' as const, input: 10, output: 2, total: 12 }
+    host.agents.set(workerId, { ...host.agents.get(workerId)!, tokenUsage: usage })
+
+    const full = summarizeAgents(runtime).find((row) => row.agentId === workerId)
+    expect(full?.tokenUsage).toEqual(usage)
+    const slim = slimAgentsSummary(runtime).find((row) => row.agentId === workerId)
+    expect(slim).not.toHaveProperty('tokenUsage')
+  })
+})

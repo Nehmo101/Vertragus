@@ -13,6 +13,8 @@ import {
   agentNeedsAttention,
   agentRowClass,
   agentStatusLine,
+  agentTokenLabel,
+  agentTokenTooltip,
   agentTooltip,
   areAllWorkspacesExpanded,
   errorText,
@@ -654,5 +656,59 @@ describe('errorText', () => {
     ).toBe('Workspace-Manager ist noch nicht verdrahtet.')
     expect(errorText(new Error('kaputt'))).toBe('kaputt')
     expect(errorText('kaputt')).toBe('kaputt')
+  })
+})
+
+describe('agentTokenLabel / agentTokenTooltip', () => {
+  it('is undefined without usage', () => {
+    expect(agentTokenLabel(t, 'de', agent())).toBeUndefined()
+    expect(agentTokenLabel(en, 'en', agent())).toBeUndefined()
+  })
+
+  it('uses the tokens label for consumption and the context label for occupancy', () => {
+    expect(
+      agentTokenLabel(en, 'en', agent({
+        tokenUsage: { kind: 'consumption', input: 100, output: 20, total: 12_400 }
+      }))
+    ).toBe('12.4k tokens')
+    expect(
+      agentTokenLabel(t, 'de', agent({
+        tokenUsage: { kind: 'consumption', input: 100, output: 20, total: 12_400 }
+      }))
+    ).toBe('12,4k Tokens')
+    expect(
+      agentTokenLabel(en, 'en', agent({ tokenUsage: { kind: 'context', used: 48_000 } }))
+    ).toBe('48k context')
+    expect(
+      agentTokenLabel(t, 'de', agent({ tokenUsage: { kind: 'context', used: 48_000 } }))
+    ).toBe('48k Kontext')
+  })
+
+  it('omits absent cache parts and formats full numbers per locale', () => {
+    expect(
+      agentTokenTooltip(en, 'en', { kind: 'consumption', input: 1000, output: 20, total: 1020 })
+    ).toBe('Input 1,000 · Output 20')
+    expect(
+      agentTokenTooltip(t, 'de', {
+        kind: 'consumption',
+        input: 1000,
+        output: 20,
+        cacheRead: 5,
+        cacheWrite: 8,
+        total: 1033
+      })
+    ).toBe('Eingabe 1.000 · Ausgabe 20 · Cache gelesen 5 · Cache geschrieben 8')
+  })
+
+  it('names occupancy, not consumption, on the context tooltip', () => {
+    const title = agentTokenTooltip(en, 'en', {
+      kind: 'context',
+      used: 48_000,
+      window: 131_072
+    })
+    expect(title).toMatch(/occupancy/i)
+    expect(title).toMatch(/not consumption/i)
+    expect(title).toContain('48,000')
+    expect(agentTokenTooltip(en, 'en', { kind: 'context', used: 10 }).includes('—')).toBe(true)
   })
 })

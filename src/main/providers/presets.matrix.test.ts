@@ -89,6 +89,7 @@ function build(
     fileTag: 'matrix',
     configDir,
     systemPrompt: PROMPT,
+    sessionId: 'SESSION',
     ...overrides
   }
   return normalize(buildAgentArgv(input).argv)
@@ -141,6 +142,8 @@ describe('preset argv matrix', () => {
     expect(matrixFor('claude')).toMatchInlineSnapshot(`
       {
         "orchestrator bare": [
+          "--session-id",
+          "SESSION",
           "--mcp-config",
           "<mcp-config.json>",
           "--strict-mcp-config",
@@ -154,6 +157,8 @@ describe('preset argv matrix', () => {
           "opus",
           "--effort",
           "high",
+          "--session-id",
+          "SESSION",
           "--mcp-config",
           "<mcp-config.json>",
           "--strict-mcp-config",
@@ -167,6 +172,8 @@ describe('preset argv matrix', () => {
           "opus",
           "--effort",
           "high",
+          "--session-id",
+          "SESSION",
           "--mcp-config",
           "<mcp-config.json>",
           "--strict-mcp-config",
@@ -176,6 +183,8 @@ describe('preset argv matrix', () => {
           "SYSTEM PROMPT",
         ],
         "subagent bare": [
+          "--session-id",
+          "SESSION",
           "--mcp-config",
           "<mcp-config.json>",
           "--strict-mcp-config",
@@ -187,6 +196,8 @@ describe('preset argv matrix', () => {
           "opus",
           "--effort",
           "high",
+          "--session-id",
+          "SESSION",
           "--mcp-config",
           "<mcp-config.json>",
           "--strict-mcp-config",
@@ -198,6 +209,8 @@ describe('preset argv matrix', () => {
           "opus",
           "--effort",
           "high",
+          "--session-id",
+          "SESSION",
           "--dangerously-skip-permissions",
           "--mcp-config",
           "<mcp-config.json>",
@@ -400,6 +413,8 @@ describe('preset argv matrix', () => {
     expect(matrixFor('grok')).toMatchInlineSnapshot(`
       {
         "orchestrator bare": [
+          "--session-id",
+          "SESSION",
           "--no-subagents",
           "--agent",
           "vertragus-orchestrator",
@@ -423,6 +438,8 @@ describe('preset argv matrix', () => {
           "grok-build",
           "--effort",
           "high",
+          "--session-id",
+          "SESSION",
           "--no-subagents",
           "--agent",
           "vertragus-orchestrator",
@@ -446,6 +463,8 @@ describe('preset argv matrix', () => {
           "grok-build",
           "--effort",
           "high",
+          "--session-id",
+          "SESSION",
           "--no-subagents",
           "--agent",
           "vertragus-orchestrator",
@@ -465,6 +484,8 @@ describe('preset argv matrix', () => {
           "SYSTEM PROMPT",
         ],
         "subagent bare": [
+          "--session-id",
+          "SESSION",
           "--allow",
           "MCPTool(vertragus__*)",
           "--append-system-prompt",
@@ -475,6 +496,8 @@ describe('preset argv matrix', () => {
           "grok-build",
           "--effort",
           "high",
+          "--session-id",
+          "SESSION",
           "--allow",
           "MCPTool(vertragus__*)",
           "--append-system-prompt",
@@ -485,6 +508,8 @@ describe('preset argv matrix', () => {
           "grok-build",
           "--effort",
           "high",
+          "--session-id",
+          "SESSION",
           "--always-approve",
           "--allow",
           "MCPTool(vertragus__*)",

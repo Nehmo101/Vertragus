@@ -1,0 +1,7 @@
+{"type":"user","uuid":"user-1","message":{"role":"user","content":"fix the parser"}}
+{"type":"assistant","uuid":"asst-1","message":{"id":"msg_shared","usage":{"input_tokens":100,"cache_creation_input_tokens":20,"cache_read_input_tokens":5,"output_tokens":10,"output_tokens_details":{"thinking_tokens":4},"cache_creation":{"ephemeral_5m_input_tokens":20},"total_tokens_reminder":135}}}
+{"type":"assistant","uuid":"asst-1b","message":{"id":"msg_shared","usage":{"input_tokens":100,"cache_creation_input_tokens":20,"cache_read_input_tokens":5,"output_tokens":25,"output_tokens_details":{"thinking_tokens":12},"cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":20},"total_tokens_reminder":150}}}
+{"type":"assistant","uuid":"asst-side","isSidechain":true,"message":{"id":"msg_side","usage":{"input_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":10,"output_tokens":8}}}
+{"type":"assistant","uuid":"asst-plain","message":{"id":"msg_plain","usage":{"input_tokens":30,"output_tokens":4}}}
+{"type":"assistant","uuid":"asst-uuid-only","message":{"usage":{"input_tokens":20,"output_tokens":2}}}
+{"type":"assistant","message":{"id":"msg_torn","usage":{"input_tokens":99,"output_tokens":99
