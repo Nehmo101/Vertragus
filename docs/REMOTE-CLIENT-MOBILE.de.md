@@ -85,7 +85,9 @@ Settings, keine CLI-Permission-TUIs auf dem Handy.
 - **Frage-Inbox** oben, unabhängig von der Karte — `ask_user` darf nicht
   unter dem Fold verschwinden.
 - Terminal: optionales **Wrap** statt horizontales xterm-Scrollen;
-  Snapshot-Suche.
+  Snapshot-Suche. **Umgesetzt:** Suche im zweiten Durchgang, Wrap im
+  nativen-Scroll-Durchgang (weiches Umbrechen auf dem Reader; das Handy
+  mountet xterm nicht mehr).
 - Light/Dark lokal überschreiben, statt nur dem Desktop zu folgen.
 
 ### Braucht ein neues Gateway-Verb — nicht in v1
@@ -136,11 +138,11 @@ nichts wird wiederhergestellt, weil nichts verloren geht.
 
 | Bereich | Änderung |
 | --- | --- |
-| Terminal-Verlauf | Touch-Scroller mit Nachlauf über die tatsächliche Zellhöhe, Sprung zur neuesten Ausgabe, Seiten- und Ende-Steuerung, Suche im Verlauf, Kopieren auch über einfaches HTTP (eine Tailnet-URL ist kein sicherer Kontext, `navigator.clipboard` fehlt dort), Schriftgröße 11–24 dauerhaft. |
+| Terminal-Verlauf | Touch-Scroller mit Nachlauf über die tatsächliche Zellhöhe, Sprung zur neuesten Ausgabe, Seiten- und Ende-Steuerung, Suche im Verlauf, Kopieren auch über einfaches HTTP (eine Tailnet-URL ist kein sicherer Kontext, `navigator.clipboard` fehlt dort), Schriftgröße 11–24 dauerhaft. **Vom nativen-Scroll-Durchgang unten abgelöst:** der JS-Scroller und die Seiten-/Ende-Steuerung sind weg; Sprung zur neuesten Ausgabe, Suche, Kopieren und dauerhafte Schriftgröße bleiben. |
 | Übersicht | Fragen-Eingang über alle Workspaces mit Sprung aus dem Kopf, das Aufgabenboard, das die Leitung längst mitführte, deterministische Sortierung, Ziehen zum Aktualisieren, Alle-einklappen, lokale Darstellungswahl, Entwürfe, die jeden Wechsel überleben. |
 | Navigation | Die Zurück-Geste schließt das Terminal, statt die App zu verlassen; ein History-Eintrag, ohne URL geschoben, damit das Kopplungs-Fragment entfernt bleibt. |
 | Verbindung | Neuverbindung beim Aufwachen (Sichtbarkeit, `online`, bfcache) statt Abwarten der Backoff-Obergrenze; ein Socket, den der Browser noch `OPEN` nennt, wird per `refresh`-Umlauf als tot nachgewiesen; identische Pushes behalten ihre Array-Identität. Jede Wiederanmeldung eines Terminals nennt das Ende, das der Client schon hält, sodass die Leitung nur den Rest nachliefert statt des ganzen Scrollbacks; und eine Kopplung, die niemanden erreicht, wird von einer abgelehnten unterschieden — nur die abgelehnte führt zurück zum QR-Code, die unerreichbare wartet auf derselben Backoff-Treppe und versucht es beim Aufwachen erneut. |
-| Rahmen | Installierbar (Manifest, maskierbares und Apple-Touch-Icon), WCAG-korrigierte Palette in beiden Themes, `prefers-contrast` und dynamische Schriftgrößen beachtet, die Visual-Viewport-Geometrie als dokumentierter Drei-Variablen-Vertrag veröffentlicht. |
+| Rahmen | Installierbar (Manifest, maskierbares und Apple-Touch-Icon), WCAG-korrigierte Palette in beiden Themes, `prefers-contrast` und dynamische Schriftgrößen beachtet, die Visual-Viewport-Geometrie als dokumentierter Drei-Variablen-Vertrag veröffentlicht. **Der Drei-Variablen-Vertrag ist vom nativen-Scroll-Durchgang abgelöst:** nur `--keyboard-inset` bleibt. |
 
 ### Was die Aufteilung gebracht hat
 
@@ -148,10 +150,11 @@ Aus dem einen Stylesheet des Clients wurden drei — Rahmen, Übersicht,
 Terminal — jeweils der Komponente zugeordnet, die sie benutzt; und die
 Entscheidungen wanderten aus den `.tsx`-Dateien in reine Module mit Tests.
 Das ist keine Ordnungsliebe: dieses Projekt hat keinen DOM-Testlauf, Logik
-innerhalb einer Komponente ist also von Bauart her ungetestet. Der
-Scroll-Akkumulator, der Nachlauf, die Aggregation des Fragen-Eingangs, die
-Gruppierung der Aufgaben, der History-Automat und das Reveal-Prädikat
-werden jetzt in Tests verhandelt, nicht im Browser.
+innerhalb einer Komponente ist also von Bauart her ungetestet. Die
+Aggregation des Fragen-Eingangs, die Gruppierung der Aufgaben, der
+History-Automat und das Reveal-Prädikat werden jetzt in Tests verhandelt,
+nicht im Browser. Der Scroll-Akkumulator und der Nachlauf gingen mit dem
+JS-Pan im nativen-Scroll-Durchgang.
 
 ## Der dritte Durchgang — Scrollen, das dem Finger folgt
 
@@ -199,3 +202,19 @@ nach dem dritten Durchgang weiter wie 3/10 an.
 | --- | --- |
 | Finger / Rad / Nachlauf | Die Geste besitzt ein Pixel-`desiredTop`. xterm bekommt ein zeilenweise ausgerichtetes `scrollTop`, damit sein Runden die Position nicht zurückschnappt; `.xterm-screen` wird um den Rest innerhalb der Zeile verschoben, damit die Zeichnung dem Finger in der Zelle folgt. Eine extra lokale Zeile (geht nie an den Host) sorgt dafür, dass dieser Rest die nächste Zeile zeigt statt eines leeren Streifens. |
 | Chrome | Kompakte Tasten folgen dem Layout, keinem `setState`-Effekt (Resize 390 → 1280 öffnet sie wieder). Der Handy-Kopf bleibt eine Zeile (Ellipse, kein Umbruch). Der Composer ist beim Lesen auf kompaktem Chrome weg; die Tasten zu öffnen ist der Weg zum Tippen. Sprung-Pillen sitzen auf Padding, damit sie die letzten Zeilen nicht verdecken. |
+
+## Der dritte Durchgang — natives Scrollen
+
+Die JS-Pans des dritten und vierten Durchgangs konnten sich nicht nativ
+anfühlen. Dieser Durchgang ersetzt sie durch einen Reader, den der Browser
+pant, wie in [REMOTE-CLIENT-SCROLL.md](REMOTE-CLIENT-SCROLL.md) festgelegt.
+
+| Bereich | Änderung |
+| --- | --- |
+| Terminal-Verlauf | Kopfloser xterm-Parser (`@xterm/headless`) in der Größe des PTY; der Scrollback ist DOM-Text in einem nativen Scroller (`overflow-y: auto`, `touch-action: pan-y`). Kein `touchmove`-Handler. Das Handy schickt nie ein PTY-`resize`. |
+| Overlay | `position: fixed; inset: 0` im Layout-Viewport. Kein Hinterherlaufen hinter `--vv-height` / `--vv-offset-top`. |
+| Übersicht | Pull-to-Refresh neu gebaut als passive Listener und fixer, per `transform` bewegter Indikator; Pulse nur auf dem Compositor; solide Kopffläche unter grobem Zeiger. |
+| Chrome | Kopf reduziert auf Zurück, Titel, Status und ein Overflow-Menü. Permanente untere Leiste: Tasten-Schalter, Eingabe, Senden. Benannter Pending-Schirm, während der Terminal-Chunk lädt. |
+
+Work-Package-Status und welche Abnahmepunkte testfestgenagelt sind bzw. noch
+ein Handy brauchen stehen im Scroll-Dokument.

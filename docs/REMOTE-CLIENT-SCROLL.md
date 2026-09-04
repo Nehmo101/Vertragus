@@ -1,3 +1,5 @@
+English | [Deutsch](REMOTE-CLIENT-SCROLL.de.md)
+
 # Remote client: why it still does not scroll, and what to replace
 
 Code-grounded analysis of `src/remoteClient` as of commit `bbc5300`, written
@@ -559,6 +561,32 @@ native rubber band only; no React commit happens during a scroll gesture
 (check with the React profiler in dev); ten working agents do not drop frames
 during a scroll on a mid-range Android phone.
 
+**Status: implemented** on this branch as the rebuild described in 3.4, not
+as a deletion.
+
+- `usePullToRefresh.ts` stays. Every window listener is `{ passive: true }`
+  for its lifetime; the indicator is `position: fixed` and moved with
+  `transform` / `opacity` through CSS custom properties on the element
+  (`--pull-shown`, `--pull-opacity`), not React state per move. The refresh
+  decision is taken on `touchend`. React phase state changes only at gesture
+  boundaries (claim, arm, release, refreshing, done). The four copy keys stay
+  in both locales.
+- Gesture ownership is one `closest()` against `PULL_REFUSE_SELECTOR`, not
+  the `getComputedStyle` ancestor walk in O2.
+- Pulses (`vg-pulse`) animate `transform` and `opacity` on a pseudo-element.
+  No keyframe in the three sheets animates `box-shadow`.
+- `.app-header` and `.to-top` use a solid `--surface` and
+  `backdrop-filter: none` under `(pointer: coarse)`.
+
+Acceptance, as verified here: the passive window `touchmove`, the fixed
+indicator that does not insert layout height, compositor-only keyframes and
+the solid coarse-pointer header are pinned by `overviewPaint.test.ts`; the
+distance curve, intent lock, phase machine and verdict are covered by
+`usePullToRefresh.test.ts`; `i18n.test.ts` still requires the four pull keys.
+The iOS flick-from-top rubber band, "no React commit during a scroll
+gesture" and the frame budget with ten working agents need a phone and
+remain to be checked on a device.
+
 ### WP4: Terminal chrome for the thumb
 
 Files: `RemoteTerminal.tsx` (header reduced to back, title, status dot and one
@@ -574,6 +602,27 @@ bar is not hidden on compact chrome.
 Acceptance: the composer is reachable with one thumb without touching the top
 of the screen; a tap on an agent row flashes and shows a named, non-blank
 screen within one frame.
+
+**Status: implemented** on this branch.
+
+- The header is back, title, status dot and one overflow menu
+  (`copy.terminalMenu`) holding search, copy and the font pair. The menu
+  closes on an outside tap and on Escape; it is not a focus trap.
+- The input bar is a permanent `.terminal-bar` at `--touch` height with
+  `env(safe-area-inset-bottom)`: keys toggle, field and send. Compact chrome
+  no longer hides `.input-bar`.
+- `.agent-row:active` scales the row (`transform: scale(0.97)`) and the row
+  opts back into the tap highlight.
+- Opening a terminal paints `TerminalPending` in the same frame as the tap
+  (it lives in `App.tsx`, not the terminal chunk): back, the agent name, and
+  `copy.terminalConnecting`.
+
+Acceptance, as verified here: header composition, the un-hidden compact
+input bar, `.agent-row:active` and the named pending screen are pinned by
+`RemoteTerminal.test.ts` and `App.test.ts`; the new keys (`terminalMenu`,
+`terminalConnecting`) are required in both locales by `i18n.test.ts`. Thumb
+reach of the composer and "named screen within one frame" over Tailscale
+need a phone and remain to be checked on a device.
 
 ### WP5: Overview header and card density (deferred)
 
@@ -596,9 +645,9 @@ ceiling in T1.
 - The document is the overview's scroller: `html { overflow-y: auto }`, no
   overflow on `body`, no inner overflow on the list, sticky header
   (`styles.css:183-215`, `overview.css:164-173`).
-- Any window-level `touchmove` listener, should one return, stays
-  `{ passive: true }` for its lifetime (`usePullToRefresh.ts:22-31`); with
-  WP3 there is none.
+- Any window-level `touchmove` listener stays `{ passive: true }` for its
+  lifetime (`usePullToRefresh.ts:22-31`). WP3 rebuilt the pull in that
+  shape; `overviewPaint.test.ts` pins the registration.
 - The overview is hidden, not unmounted, under the terminal, and stays laid
   out (`App.tsx:421-428`, `overview.css:42-58`, `useDocumentScrollLock`).
 - One history entry per open terminal, pushed without a URL, closed by the
