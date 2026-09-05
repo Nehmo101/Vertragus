@@ -1601,7 +1601,7 @@ describe('mcpContext', () => {
   /**
    * The long-poll window is derived from the ORCHESTRATOR's provider, because
    * that CLI is what kills a tool call — and leads share this very context, so
-   * they inherit the same window from the same provider.
+   * they inherit that window even when a Lead slot selects another provider.
    */
   it('derives the await_events window from the orchestrator provider claim', () => {
     // Claude claims 600 s: a five-minute default poll (the cap), 570 s ceiling.
@@ -2702,8 +2702,84 @@ describe('slot/provider choice at start_agent — Track 4', () => {
 })
 
 describe('beginLead — F', () => {
+  const leadProfile = () => testProfile({
+    orchestrator: { providerId: 'claude', model: 'opus', effort: 'high' },
+    slots: [
+      { id: 'lead-codex', roleId: 'lead', providerId: 'codex', model: 'gpt-x', effort: 'low', maxCount: 1 },
+      { id: 'worker', roleId: 'worker', providerId: 'claude' },
+      { id: 'lead-claude', roleId: 'lead', providerId: 'claude', model: 'sonnet', effort: 'medium', maxCount: 2 }
+    ]
+  })
+
+  it('uses the Lead slot provider, model and effort with no extra MCP servers', async () => {
+    const { workspace, spawns } = harness({ profile: leadProfile() })
+    const lead = workspace.beginLead({ area: 'payments', task: 'Own it.' })
+    expect(lead).toMatchObject({ role: 'lead', providerId: 'codex', model: 'gpt-x' })
+    await lead.ready
+    expect(spawns[0]!.input).toMatchObject({
+      kind: 'lead', provider: { id: 'codex' }, model: 'gpt-x', effort: 'low', yolo: false
+    })
+    expect(spawns[0]!.input.extraMcp).toBeUndefined()
+    expect(spawns[0]!.input.systemPrompt).not.toContain('- lead (')
+  })
+
+  it('selects a provider explicitly and keeps an explicit model override', async () => {
+    const { workspace, spawns } = harness({ profile: leadProfile() })
+    await workspace.startLead({ area: 'x', task: 't', providerId: 'claude', model: ' haiku ' })
+    expect(spawns[0]!.input).toMatchObject({
+      provider: { id: 'claude' }, model: 'haiku', effort: 'medium'
+    })
+  })
+
+  it('keeps absent slot model and effort as provider defaults', async () => {
+    const { workspace, spawns } = harness({
+      profile: testProfile({
+        orchestrator: { providerId: 'claude', model: 'opus', effort: 'high' },
+        slots: [{ id: 'lead', roleId: 'lead', providerId: 'codex' }]
+      })
+    })
+    await workspace.startLead({ area: 'x', task: 't' })
+    expect(spawns[0]!.input.model).toBeUndefined()
+    expect(spawns[0]!.input.effort).toBeUndefined()
+    expect(workspace.limits().perRole.has('lead')).toBe(true)
+    expect(workspace.limits().perRole.get('lead')).toBeUndefined()
+  })
+
+  it('rejects an unconfigured provider before reserving or spawning a lead', () => {
+    const { workspace, spawns } = harness({ profile: leadProfile() })
+    expect(() => workspace.beginLead({ area: 'x', task: 't', providerId: 'ollama' }))
+      .toThrow(/No slot of role "lead" runs provider "ollama"/)
+    expect(workspace.listAgents()).toEqual([])
+    expect(spawns).toEqual([])
+  })
+
+  it('reserves Lead slot capacity, overflows in slot order and frees stopped seats', async () => {
+    const { workspace, spawns } = harness({ profile: leadProfile() })
+    const first = workspace.beginLead({ area: 'x', task: 't' })
+    expect(() => workspace.beginLead({ area: 'x', task: 't', providerId: 'codex' }))
+      .toThrow(/Every "codex" slot of role "lead" is at its limit/)
+    const second = workspace.beginLead({ area: 'y', task: 't' })
+    await Promise.all([first.ready, second.ready])
+    expect(spawns.map((spawn) => spawn.input.provider.id)).toEqual(['codex', 'claude'])
+    await workspace.stopAgent(first.agentId)
+    const replacement = await workspace.startLead({ area: 'z', task: 't', providerId: 'codex' })
+    expect(replacement.providerId).toBe('codex')
+  })
+
+  it('exposes the combined Lead cap and slots to the root prompt but not start_agent roles', async () => {
+    const { workspace, spawns } = harness({ profile: leadProfile() })
+    expect(workspace.mcpContext().roles).toEqual(['worker'])
+    expect(workspace.limits().perRole.get('lead')).toBe(3)
+    expect(workspace.rolesWithLimits().map((role) => role.id)).toEqual(['worker'])
+    await workspace.startOrchestrator()
+    expect(spawns[0]!.input.systemPrompt).toContain('Lead slot: codex (gpt-x), max 1')
+    expect(spawns[0]!.input.systemPrompt).toContain('Lead slot: claude (sonnet), max 2')
+  })
+
   it('spawns a lead: orchestrator provider, lead prompt, no yolo, lead URL, darker bronze', async () => {
-    const { workspace, spawns, windows, prompts } = harness()
+    const { workspace, spawns, windows, prompts } = harness({
+      profile: testProfile({ orchestrator: { providerId: 'claude', model: 'opus', effort: 'high' } })
+    })
     await workspace.startOrchestrator()
 
     const lead = await workspace.startLead({
@@ -2718,6 +2794,7 @@ describe('beginLead — F', () => {
     // The profile's orchestrator blueprint, not a slot.
     expect(launch.provider.id).toBe('claude')
     expect(launch.model).toBe('opus')
+    expect(launch.effort).toBe('high')
     expect(launch.yolo).toBe(false)
     expect(launch.mcpUrl).toContain(`lead=${lead.agentId}`)
     expect(launch.systemPrompt).toContain('LEAD orchestrator')
@@ -2751,7 +2828,17 @@ describe('beginLead — F', () => {
     expect(spawns[0]!.input.model).toBe('sonnet')
   })
 
-  it('a lead occupies no profile slot — worker capacity stays untouched', async () => {
+  it('without Lead slots accepts only the orchestrator provider as an explicit choice', async () => {
+    const { workspace, spawns } = harness()
+    expect(() => workspace.beginLead({ area: 'x', task: 't', providerId: 'codex' }))
+      .toThrow(/No Lead slot configured for provider "codex".*orchestrator provider "claude"/)
+    expect(workspace.listAgents()).toEqual([])
+    await workspace.startLead({ area: 'x', task: 't', providerId: 'claude' })
+    expect(spawns[0]!.input.provider.id).toBe('claude')
+    expect(workspace.limits().perRole.has('lead')).toBe(false)
+  })
+
+  it('a lead without a Lead slot leaves worker capacity untouched', async () => {
     const { workspace } = harness()
     await workspace.startLead({ area: 'x', task: 't' })
     // Both worker seats (maxCount 2) are still free.

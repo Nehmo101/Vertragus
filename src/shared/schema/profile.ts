@@ -188,6 +188,16 @@ export const slotSchema = z
     extraMcp: z.array(extraMcpServerSchema).max(MAX_EXTRA_MCP).optional()
   })
   .strict()
+  .superRefine((slot, ctx) => {
+    // Literal 'lead': roles.ts imports this schema, so importing its constant would cycle.
+    if (slot.roleId === 'lead' && slot.extraMcp?.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Lead slots cannot attach extra MCP servers.',
+        path: ['extraMcp']
+      })
+    }
+  })
 export type Slot = z.infer<typeof slotSchema>
 
 export const orchestratorConfigSchema = z
@@ -418,9 +428,15 @@ export function slotLimitFor(
   return { configured: true, max: Math.min(max, MAX_SUBAGENTS) }
 }
 
-/** Role ids a profile can actually staff, in slot order, deduplicated. */
+/** Lead slots in profile order. Literal 'lead' avoids the roles.ts import cycle. */
+export function leadSlots(profile: Pick<Profile, 'slots'>): Slot[] {
+  return profile.slots.filter((slot) => slot.roleId === 'lead')
+}
+
+/** Role ids start_agent can staff, in slot order, deduplicated; leads use start_orchestrator. */
 export function profileRoleIds(profile: Pick<Profile, 'slots'>): string[] {
-  return [...new Set(profile.slots.map((slot) => slot.roleId))]
+  // Literal 'lead' avoids the roles.ts import cycle.
+  return [...new Set(profile.slots.filter((slot) => slot.roleId !== 'lead').map((slot) => slot.roleId))]
 }
 
 /**

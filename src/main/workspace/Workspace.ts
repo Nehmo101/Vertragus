@@ -132,9 +132,11 @@ import {
 } from '@shared/prompts/roles'
 import {
   AUTOMATION_OFF,
+  leadSlots,
   profileRoleIds,
   rolePromptFor,
   slotLimitFor,
+  type OrchestratorConfig,
   type Profile,
   type ProfileAutomation,
   type RoleTemplate,
@@ -371,7 +373,7 @@ interface PendingStart {
   agentId: string
   name: string
   roleId: string
-  /** Absent for leads — they occupy no profile slot. */
+  /** Absent for leads using the orchestrator fallback without a Lead slot. */
   slotId?: string
   providerId: string
   model?: string
@@ -831,6 +833,8 @@ export class Workspace implements AgentHost {
     for (const roleId of profileRoleIds(this.profile)) {
       perRole.set(roleId, slotLimitFor(this.profile, roleId).max)
     }
+    const leadLimit = slotLimitFor(this.profile, LEAD_ROLE_ID)
+    if (leadLimit.configured) perRole.set(LEAD_ROLE_ID, leadLimit.max)
     return { perRole, maxTotal: this.profile.maxSubagents }
   }
 
@@ -841,11 +845,10 @@ export class Workspace implements AgentHost {
 
   /**
    * How long `await_events` may block, derived from the ORCHESTRATOR provider's
-   * declared MCP tool timeout — it is that CLI that kills a tool call, and the
-   * orchestrator (plus every lead, which runs the same provider and shares this
-   * context) is the only caller of the long poll. Absent when the provider
-   * makes no claim: the tool then keeps its classic 50 s/55 s window under the
-   * CLIs' 60 s default. Margins and guard live in {@link raisedWindow}.
+   * declared MCP tool timeout — it is that CLI that kills a tool call. Leads
+   * inherit this shared context's window. Absent when the provider makes no
+   * claim: the tool then keeps its classic 50 s/55 s window under the CLIs'
+   * 60 s default. Margins and guard live in {@link raisedWindow}.
    */
   private awaitTimeout(): { defaultSec: number; maxSec: number } | undefined {
     const provider = this.deps.providers.find(
@@ -963,22 +966,33 @@ export class Workspace implements AgentHost {
 
   /**
    * F: reserve and begin one LEAD start. Same reservation discipline as
-   * {@link beginAgent}; no profile slot (the global cap is checked by the
-   * tool layer), the profile's orchestrator provider, an orchestrator-kind
-   * name, never yolo, darker bronze, and a `lead=` MCP URL.
+   * {@link beginAgent}; a configured Lead slot or the orchestrator fallback
+   * (caps are checked by the tool layer), an orchestrator-kind name, never
+   * yolo, darker bronze, and a `lead=` MCP URL.
    */
   beginLead(input: StartLeadInput): StartingAgent {
     this.assertOpen()
     const urls = this.requireMcp()
-    const provider = this.requireProvider(this.profile.orchestrator.providerId)
+    const slot =
+      leadSlots(this.profile).length > 0
+        ? this.slotWithCapacity(LEAD_ROLE_ID, { providerId: input.providerId })
+        : undefined
+    const config = slot ?? this.profile.orchestrator
+    if (input.providerId && input.providerId !== config.providerId) {
+      throw new Error(
+        `No Lead slot configured for provider "${input.providerId}" — the lead fallback runs orchestrator provider "${config.providerId}".`
+      )
+    }
+    const provider = this.requireProvider(config.providerId)
 
     const agentId = this.newId()
     const name = this.names.allocate('orchestrator')
-    const model = input.model?.trim() || this.profile.orchestrator.model
+    const model = input.model?.trim() || config.model
     const pending: PendingStart = {
       agentId,
       name,
       roleId: LEAD_ROLE_ID,
+      slotId: slot?.id,
       providerId: provider.id,
       model,
       worktreePath: worktreePathFor(this.repoPath, agentId),
@@ -995,7 +1009,7 @@ export class Workspace implements AgentHost {
       model,
       worktreePath: pending.worktreePath,
       branch: pending.branch,
-      ready: this.finishLeadStart(pending, provider, input, urls)
+      ready: this.finishLeadStart(pending, provider, config, input, urls)
     }
   }
 
@@ -1010,6 +1024,7 @@ export class Workspace implements AgentHost {
   private async finishLeadStart(
     pending: PendingStart,
     provider: ProviderConfig,
+    config: OrchestratorConfig,
     input: StartLeadInput,
     urls: WorkspaceMcpUrls
   ): Promise<void> {
@@ -1018,6 +1033,7 @@ export class Workspace implements AgentHost {
       agentId: pending.agentId,
       name: pending.name,
       roleId: LEAD_ROLE_ID,
+      slotId: pending.slotId,
       providerId: provider.id,
       model: pending.model,
       worktreePath: pending.worktreePath,
@@ -1054,7 +1070,7 @@ export class Workspace implements AgentHost {
           kind: 'lead',
           provider,
           model: pending.model,
-          effort: this.profile.orchestrator.effort,
+          effort: config.effort,
           // Like the root: a lead has no yolo surface at all.
           yolo: false,
           cwd: worktree.path,
@@ -1908,6 +1924,7 @@ export class Workspace implements AgentHost {
       workspaceName: this.name,
       repoPath: this.repoPath,
       rolesWithLimits: this.rolesWithLimits(),
+      leadSlots: leadSlots(this.profile),
       maxSubagents: this.profile.maxSubagents,
       knowledge: this.deps.retro?.knowledge(this.profile) ?? [],
       // A3: what the host now does without the orchestrator (and without the
