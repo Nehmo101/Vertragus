@@ -58,10 +58,9 @@ export interface StartAgentInput {
 }
 
 /**
- * F: what `start_orchestrator` hands the host. A lead is NOT a profile slot —
- * it runs the profile's orchestrator provider (overridable model), gets an
- * orchestrator-kind name, never yolo, and its own worktree/branch like every
- * agent.
+ * F: what `start_orchestrator` hands the host. A lead runs a configured Lead
+ * slot, falling back to the profile's orchestrator config when none exists.
+ * It gets an orchestrator-kind name, never yolo, and its own worktree/branch.
  */
 export interface StartLeadInput {
   /** Short label for prompt and panel ("payments", "docs"). */
@@ -69,6 +68,8 @@ export interface StartLeadInput {
   /** Full seed text — task plus the appended contract. */
   task: string
   model?: string
+  /** Pick a Lead slot's provider; an unmatched choice is a hard error. */
+  providerId?: string
   baseBranch?: string
   /** Subtree budget the root handed down — rendered into the lead prompt. */
   maxSubagents?: number

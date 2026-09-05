@@ -23,6 +23,23 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toContain('- reviewer (no limit)')
   })
 
+  it('names configured Lead slots with provider, optional model and cap', () => {
+    const prompt = buildOrchestratorSystemPrompt({
+      ...base,
+      leadSlots: [
+        { providerId: 'claude', model: 'opus', maxCount: 2 },
+        { providerId: 'codex' }
+      ]
+    })
+    expect(prompt).toContain('Lead slot: claude (opus), max 2')
+    expect(prompt).toContain('Lead slot: codex, no slot cap')
+    expect(prompt).toContain('start_orchestrator{area, task, maxSubagents?, model?, providerId?, baseBranch?}')
+    expect(prompt).toContain('Select with start_orchestrator{providerId}')
+    expect(buildOrchestratorSystemPrompt(base)).not.toContain('Lead slot:')
+    expect(buildLeadSystemPrompt({ ...base, area: 'payments', leadSlots: [{ providerId: 'codex' }] }))
+      .toBe(buildLeadSystemPrompt({ ...base, area: 'payments' }))
+  })
+
   it('mentions the global cap only when there is one', () => {
     expect(buildOrchestratorSystemPrompt({ ...base, maxSubagents: 4 })).toContain('at most 4 agents')
     expect(buildOrchestratorSystemPrompt(base)).toContain('no global cap')

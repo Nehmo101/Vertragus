@@ -368,6 +368,23 @@ describe('start_agent', () => {
     expect(runtime.host.agents.size).toBe(0)
   })
 
+  it.each([undefined, 2])('rejects start_agent lead with a start_orchestrator pointer (cap %s)', async (leadCap) => {
+    const { runtime, tools } = setup({ roles: ['worker'], perRole: { lead: leadCap } })
+    const result = await callTool(tools, 'start_agent', { role: 'lead', task: 't' })
+    expect(result.isError).toBe(true)
+    expect(result.json).toMatchObject({ error: 'unknown_role', role: 'lead', availableRoles: ['worker'] })
+    expect(result.json.note).toContain('Leads are started with start_orchestrator')
+    expect(runtime.host.agents.size).toBe(0)
+  })
+
+  it('rejects start_agent lead even if a context accidentally lists it as a role', async () => {
+    const { runtime, tools } = setup({ roles: ['worker', 'lead'], perRole: { lead: 2 } })
+    const result = await callTool(tools, 'start_agent', { role: 'lead', task: 't' })
+    expect(result.json.error).toBe('unknown_role')
+    expect(result.json.note).toContain('start_orchestrator')
+    expect(runtime.host.agents.size).toBe(0)
+  })
+
   it('enforces the per-role limit with concrete numbers', async () => {
     const { tools } = setup({ roles: ['worker'], perRole: { worker: 1 } })
     await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
@@ -1249,6 +1266,38 @@ describe('record_retro', () => {
 })
 
 describe('multi-orchestration — F', () => {
+  it('describes Lead slot selection and hands providerId and model to beginLead', async () => {
+    const { runtime, tools } = setup()
+    const begin = vi.spyOn(runtime.host, 'beginLead')
+    expect(tools.get('start_orchestrator')!.description).toContain(
+      "runs the profile's Lead slot when one is configured (provider/model/effort from that slot), otherwise your orchestrator provider"
+    )
+    const result = await callTool(tools, 'start_orchestrator', {
+      area: 'payments', task: 'Own it.', providerId: 'codex', model: 'gpt-x'
+    })
+    expect(result.isError).toBe(false)
+    expect(begin).toHaveBeenCalledWith(expect.objectContaining({
+      area: 'payments', providerId: 'codex', model: 'gpt-x'
+    }))
+  })
+
+  it.each([
+    { configuredCap: 2, effectiveCap: 2 },
+    { configuredCap: 8, effectiveCap: 4 },
+    { configuredCap: undefined, effectiveCap: 4 }
+  ])('caps concurrent leads at $effectiveCap with slot cap $configuredCap', async ({ configuredCap, effectiveCap }) => {
+    const { runtime, tools } = setup({ perRole: { lead: configuredCap } })
+    const results = await Promise.all(Array.from({ length: effectiveCap + 1 }, (_, index) =>
+      callTool(tools, 'start_orchestrator', { area: `a${index}`, task: 't' })
+    ))
+    expect(results.slice(0, effectiveCap).every((result) => !result.isError)).toBe(true)
+    expect(results[effectiveCap]!.isError).toBe(true)
+    expect(results[effectiveCap]!.json).toMatchObject({
+      error: 'limit_exceeded', scope: 'leads', running: effectiveCap, max: effectiveCap
+    })
+    expect(runtime.host.agents.size).toBe(effectiveCap)
+  })
+
   it('root registers every documented tool; a lead scope registers only the down-tools', () => {
     const { tools } = setup()
     expect([...tools.keys()].sort()).toEqual([...ORCHESTRATOR_TOOL_NAMES].sort())

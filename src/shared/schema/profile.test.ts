@@ -3,6 +3,7 @@ import {
   createEmptyProfile,
   DEFAULT_PR_REMOTE,
   duplicateProfile,
+  leadSlots,
   MAX_ROLE_PROMPTS,
   MAX_SLOTS,
   parseProfiles,
@@ -96,6 +97,25 @@ describe('slotSchema', () => {
       extraMcp: [{ name: 'browser_tools', url: 'http://127.0.0.1:9200/mcp' }]
     })
     expect(slot.extraMcp).toEqual([{ name: 'browser_tools', url: 'http://127.0.0.1:9200/mcp' }])
+  })
+
+  it.each([{ extraMcp: undefined }, { extraMcp: [] }])('F: accepts a Lead slot without extra MCP servers (%j)', ({ extraMcp }) => {
+    const slot = { id: 'lead-1', roleId: 'lead', providerId: 'claude', maxCount: 2, extraMcp }
+    expect(baseProfile({ slots: [slot] }).slots).toEqual([slot])
+  })
+
+  it('F: rejects extra MCP servers on a Lead slot at the extraMcp field', () => {
+    const slot = {
+      id: 'lead-1', roleId: 'lead', providerId: 'claude',
+      extraMcp: [{ name: 'browser', url: 'http://localhost:9200/mcp' }]
+    }
+    const parsed = slotSchema.safeParse(slot)
+    expect(parsed.success).toBe(false)
+    if (parsed.success) throw new Error('Lead extra MCP validation did not run')
+    expect(parsed.error.issues).toContainEqual(expect.objectContaining({
+      path: ['extraMcp'], message: 'Lead slots cannot attach extra MCP servers.'
+    }))
+    expect(() => baseProfile({ slots: [slot] })).toThrow(/Lead slots cannot attach/)
   })
 
   it('E6: refuses the reserved name, unsafe names and non-urls', () => {
@@ -479,6 +499,20 @@ describe('slotLimitFor', () => {
 })
 
 describe('profileRoleIds', () => {
+  it('excludes leads from start_agent roles while retaining their slots and combined cap', () => {
+    const profile = baseProfile({
+      slots: [
+        { id: 'lead-b', roleId: 'lead', providerId: 'codex', maxCount: 1 },
+        { id: 'worker', roleId: 'worker', providerId: 'claude' },
+        { id: 'lead-a', roleId: 'lead', providerId: 'claude', maxCount: 2 }
+      ]
+    })
+    expect(profileRoleIds(profile)).toEqual(['worker'])
+    expect(leadSlots(profile)).toEqual([profile.slots[0], profile.slots[2]])
+    expect(slotLimitFor(profile, 'lead')).toEqual({ configured: true, max: 3 })
+    expect(leadSlots(baseProfile())).toEqual([])
+  })
+
   it('lists each staffed role once, in slot order', () => {
     const profile = baseProfile({
       slots: [
