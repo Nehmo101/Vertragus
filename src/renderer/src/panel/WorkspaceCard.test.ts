@@ -52,6 +52,21 @@ describe('WorkspaceCard goal visibility', () => {
   })
 })
 
+describe('WorkspaceCard token usage', () => {
+  it('paints usage only when showUsage is set and the agent has tokenUsage', () => {
+    const source = readFileSync(join(__dirname, 'WorkspaceCard.tsx'), 'utf8')
+    expect(source).toContain('showUsage && agent.tokenUsage')
+    expect(source).toContain('panel-agent-tokens')
+    expect(source).toContain('is-context')
+    expect(source).toContain('agentTokenTooltip')
+    const timeline = readFileSync(join(__dirname, '../timeline/TimelineApp.tsx'), 'utf8')
+    expect(timeline).toContain('showUsage')
+    expect(timeline).toMatch(/<WorkspaceCard[\s\S]*showUsage/)
+    const panel = readFileSync(join(__dirname, 'PanelApp.tsx'), 'utf8')
+    expect(panel).not.toContain('showUsage')
+  })
+})
+
 describe('WorkspaceCard question choices', () => {
   const source = readFileSync(join(__dirname, 'WorkspaceCard.tsx'), 'utf8')
 

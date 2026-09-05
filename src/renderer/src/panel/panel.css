@@ -1109,6 +1109,15 @@
   color: var(--text-3);
 }
 
+.panel-agent-tokens {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  font: 500 10px var(--font-mono, var(--font-body));
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.panel-agent-tokens.is-context { font-style: italic; }
+
 /* A button since H1: clicking it folds the answer field out below the row. */
 .panel-question {
   flex: 0 0 auto;

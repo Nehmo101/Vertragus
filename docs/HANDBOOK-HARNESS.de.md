@@ -60,6 +60,7 @@ Remote-Server.
 | F Multi-Orch (Lead, Tiefe 1) | **umgesetzt** (Track 5) — dritte Identität `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder, Reparent (`subtree_adopted`), Caps host-seitig |
 | H Nested Worker / Live-Steer / Browser | **umgesetzt** — Worker dürfen eine Helper-Ebene spawnen; Composer-Targeting auf `user_message`; First-Party `/browser`-Loopback (kein zweiter MCP) |
 | I Intake / Scout / Lauf-Archiv-Timeline | **umgesetzt** — Intake-Schleife (Prompt + `ask_user`), Scout-Builtin, `parentId` auf `agent_started`, Archiv-Klappe + Timeline über das Journal. Siehe [`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md) |
+| CLI-aufgezeichnete Token-Nutzung | **umgesetzt** — nur Übersichtskarte; claude/codex Verbrauch, grok Kontext-Belegung, cursor/kimi/ollama nichts. Siehe E4. |
 | Goal-Compile | **umgesetzt** — der Host macht aus einem kurzen Play-Satz `.vertragus/runs/<id>/brief.md` vor dem ersten Turn. Profil `goalCompile`: `off` / `cheap` / `scout` (Standard `scout`). Kein zweites Produkt, kein RAG, kein vorstarteter Scout-Agent. |
 
 ---
@@ -106,9 +107,11 @@ laufen, sonst gibt es zwei Wahrheiten.
 
 Play startet heute einen leeren Orchestrator; das Ziel wird in die TUI
 getippt (`devRun.ts`, `workspaces:start(profileId)`). Am Desktop schon
-die Klasse von Bug, die `autoSubmitTasks` lösen sollte. Am Handy mit
-xterm + Software-Tastatur ist es der schlechteste Pfad im ganzen Remote-
-Plan.
+die Klasse von Bug, die `autoSubmitTasks` lösen sollte. Am Handy ist es
+der schlechteste Pfad im ganzen Remote-Plan: der Client zeichnet die PTY
+über einen kopflosen xterm-Parser in einen nativen DOM-Scroller und ändert
+die PTY nie in der Größe, sodass ein Start-Ziel, in eine Vendor-TUI getippt,
+kein Gitter hat, das das Handy besitzt.
 
 Billig in B1/B2:
 
@@ -417,8 +420,14 @@ Default `ui.cliSurface: session`. Titelleisten-Peek auf raw
 (Berechtigungsdialoge leben in der TUI). Boot-Phase `waiting` erzwingt
 raw, damit übrig gebliebene Cursor-MCP-Freigaben klickbar bleiben.
 Follow-ups und Antworten laufen über `postUserMessage` /
-`answerQuestion` — nie ein PTY-Write. Phone-xterm ist out of scope. Das
-ist kein TUI-Parser.
+`answerQuestion` — nie ein PTY-Write. Das Handy zeichnet die PTY über
+einen kopflosen xterm-Parser in einen nativen DOM-Scroller und ändert die
+PTY nie in der Größe. Das ist kein TUI-Parser. Hide-all (Panel-Auge und
+globaler Hotkey) blendet CLI-, Timeline- und Editor-Fenster mit `hide()`
+aus, nie das Panel.
+Restore öffnet die Agenten des zuletzt gewählten Workspace in ihren Zonen;
+Auge oder Hotkey ohne sichtbares Ziel macht dasselbe, statt einen leeren
+Hide-Zustand zu merken.
 
 ---
 
@@ -459,7 +468,35 @@ Offene Tickets nach Crash = tot, ehrlich sagen. Spät.
 ### E4 Budget als Wanduhr
 
 `maxSubagents` ist Concurrency. Summe Agent-Sekunden + `maxRuntimeMin` →
-`budget_warning` / keine neuen Starts. Keine geratenen Token-Zähler.
+`budget_warning` / keine neuen Starts. **Keine geratenen Token-Zähler**
+heißt jetzt **nur CLI-Aufzeichnung**: das Budget bleibt eine Wanduhr,
+Succession bleibt Self-Declare, und die Übersicht darf eine Zahl nur
+zeigen, wenn die eigene CLI des Agenten sie auf Disk geschrieben hat.
+Die Zahl steuert keine Host-Entscheidung.
+
+| Preset | `usageSource` | Was die Übersicht zeigt |
+| --- | --- | --- |
+| claude | `claude-jsonl` unter `~/.claude/projects/<slug>/<id>.jsonl`, gepinnt mit `--session-id` (Agent-Id) | Verbrauch |
+| codex | `codex-rollout` unter `~/.codex/sessions/YYYY/MM/DD/`, Match über aufgezeichnetes `session_meta.cwd` (kein Launch-Pin); letzte kumulative `thread_token_usage` gewinnt | Verbrauch |
+| grok | `grok-session` unter `~/.grok/sessions/<encoded cwd>/<id>/`, gepinnt mit `--session-id`; nur Belegung | beschriftet `context` — kein Verbrauch |
+| cursor, kimi, ollama | keines | nichts |
+
+Der Host liest bei `report_done` (awaited, bevor das Event gepusht wird),
+bei `stop_agent` (Workspace liest vor dem Kill) und beim Prozess-Exit
+(gecachter Wert am Event, danach async Refresh). Reader liegen in
+`src/main/providers/usage.ts` und sind fail-soft: fehlende Datei,
+Übergröße oder Parse-Fehler lassen das Feld weg. `AgentHost.readTokenUsage`
+ist optional; ohne Methode ist der Read ein No-op.
+
+Das Feld fährt mit `agent_done`, `agent_stopped`, `agent_exited` und
+`orchestrator_exited` in `events.jsonl`. `list_agents` behält es;
+`await_events`-Slim-Zeilen streichen es. Nur die Übersicht zeichnet es:
+`TimelineApp` übergibt `showUsage` an `WorkspaceCard`; das kompakte Panel
+nicht. Anwesenheit von `tokenUsage` ist der Zustand. Die Journal-Zeile
+zu `agent_done` hängt die kompakte Zahl an. Das Handy reicht das Feld
+durch und zeichnet es nicht.
+
+Design-Protokoll: [`plans/token-usage-overview.md`](./plans/token-usage-overview.md).
 
 ### E5 Loop-Eval
 
@@ -1038,3 +1075,4 @@ Renderer nennt nie einen Dateisystempfad.
 | Extra-System-Prompt pro Identität | `schema/profile.ts` `rolePrompts`, `prompts/rolePrompt.ts`, Profil-Editor | **this** |
 | Profil-Export / -Import | `schema/profileBundle.ts`, `profiles:export` / `profiles:import`, Profil-Editor + Panel | **this** |
 | Einheitliches CLI-Session-Chrome | `cliSurface.ts`, `cliSession.ts`, `cliSessionFeed.ts`, `terminal/SessionPane.tsx` | **this** |
+| CLI-aufgezeichnete Token-Nutzung | `providers/usage.ts`, `usageSource` an Presets, `tokenUsage` auf `agent_done` / `agent_stopped` / `agent_exited` / `orchestrator_exited`; Übersicht `WorkspaceCard showUsage` | **this** |

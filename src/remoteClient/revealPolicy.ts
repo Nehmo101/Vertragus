@@ -19,8 +19,7 @@
  * inside that fixed overlay. A fixed box does not move when the document
  * scrolls — the browser cannot bring the input any closer — but it scrolls the
  * document anyway, by roughly the centering delta. The reveal achieves nothing
- * and destroys the offset the overlay was built to preserve (and, on iOS,
- * perturbs `--vv-offset-top` while it is at it).
+ * and destroys the offset the overlay was built to preserve.
  *
  * The honest predicate is therefore not "is this element in a fixed subtree"
  * but **"is there a scrollport above this element that a scroll could actually

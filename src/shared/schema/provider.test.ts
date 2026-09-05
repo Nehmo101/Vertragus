@@ -3,12 +3,14 @@ import {
   buildEffortArgs,
   buildInitialPromptArgs,
   buildModelArgs,
+  buildSessionIdArgs,
   mergeProviderConfigs,
   modelMemorySchema,
   normalizeProviderId,
   parseProviderConfigs,
   providerConfigSchema,
   uniqueEffortLevels,
+  usageSourceSchema,
   type ProviderConfig
 } from './provider'
 
@@ -334,6 +336,81 @@ describe('uniqueEffortLevels', () => {
       'xhigh',
       'max'
     ])
+  })
+})
+
+describe('usageSourceSchema', () => {
+  it('accepts all three dialects and rejects an unknown kind', () => {
+    expect(
+      usageSourceSchema.safeParse({
+        kind: 'claude-jsonl',
+        dir: '~/.claude/projects',
+        sessionIdArg: '--session-id'
+      }).success
+    ).toBe(true)
+    expect(usageSourceSchema.safeParse({ kind: 'codex-rollout', dir: '~/.codex/sessions' }).success).toBe(
+      true
+    )
+    expect(
+      usageSourceSchema.safeParse({
+        kind: 'grok-session',
+        dir: '~/.grok/sessions',
+        sessionIdArg: '--session-id'
+      }).success
+    ).toBe(true)
+    expect(usageSourceSchema.safeParse({ kind: 'kimi-wire', dir: '~/.kimi' }).success).toBe(false)
+  })
+
+  it('round-trips through providerConfigSchema', () => {
+    const parsed = config({
+      usageSource: { kind: 'claude-jsonl', dir: '~/.claude/projects', sessionIdArg: '--session-id' }
+    })
+    expect(providerConfigSchema.parse(parsed).usageSource).toEqual({
+      kind: 'claude-jsonl',
+      dir: '~/.claude/projects',
+      sessionIdArg: '--session-id'
+    })
+  })
+})
+
+describe('buildSessionIdArgs', () => {
+  it('emits the pair only for a dialect with sessionIdArg and a given id', () => {
+    expect(
+      buildSessionIdArgs(
+        {
+          usageSource: {
+            kind: 'claude-jsonl',
+            dir: '~/.claude/projects',
+            sessionIdArg: '--session-id'
+          }
+        },
+        'SESSION'
+      )
+    ).toEqual(['--session-id', 'SESSION'])
+    expect(
+      buildSessionIdArgs(
+        {
+          usageSource: { kind: 'grok-session', dir: '~/.grok/sessions', sessionIdArg: '--session-id' }
+        },
+        'SESSION'
+      )
+    ).toEqual(['--session-id', 'SESSION'])
+    expect(
+      buildSessionIdArgs(
+        {
+          usageSource: {
+            kind: 'claude-jsonl',
+            dir: '~/.claude/projects',
+            sessionIdArg: '--session-id'
+          }
+        },
+        undefined
+      )
+    ).toEqual([])
+    expect(
+      buildSessionIdArgs({ usageSource: { kind: 'codex-rollout', dir: '~/.codex/sessions' } }, 'SESSION')
+    ).toEqual([])
+    expect(buildSessionIdArgs({}, 'SESSION')).toEqual([])
   })
 })
 

@@ -64,7 +64,7 @@ import type { ProviderConfig } from '@shared/schema/provider'
 import { normalizeAppearance, type Appearance } from '@shared/appearance'
 import { DEFAULT_CLI_SURFACE, isCliSurface, type CliSurface } from '@shared/cliSurface'
 import { mainMessages, readLocale } from '@shared/mainMessages'
-import type { AgentEvent } from '@shared/schema/events'
+import type { AgentEvent, TokenUsage } from '@shared/schema/events'
 import type { AppSettings, SettingsStore, VoiceSettings } from '@main/store/settings'
 import { effectiveAgentPolicy, settings } from '@main/store/settings'
 import type { AgentPolicy } from '@shared/agentPolicy'
@@ -333,6 +333,11 @@ export interface WorkspaceAgentSummary {
    * the UI should parse the question text / stay text-only).
    */
   pendingQuestionChoices?: string[]
+  /**
+   * CLI-recorded usage, present after the agent reported done, was stopped, or
+   * exited. Absent for providers without a usage source.
+   */
+  tokenUsage?: TokenUsage
 }
 
 /**

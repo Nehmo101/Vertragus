@@ -24,15 +24,11 @@
  *     or a swipe-through would otherwise walk the whole list under the sheet.
  *   - Tab order. With a hardware keyboard, focus would otherwise leave the
  *     terminal for controls nobody can see.
- *   - Hit-testing during the frames the two viewports disagree. The overlay is
- *     pinned to the *visible* viewport through `--vv-offset-top`, which is a
- *     custom property a JS handler writes — so it lands a frame behind the
- *     browser's own move of the visual viewport. While the keyboard opens or
- *     closes, or a rubber-band settles, there is a real band of uncovered
- *     header under a terminal, and a thumb already on its way down finds it.
- *     (The steady state is not that band: an overlay offset by `offsetTop`
- *     covers everything the user can see, and the strip above it is off the
- *     top of the screen, not merely uncovered.)
+ *   - Hit-testing at the edges. The overlay is pinned to the layout viewport
+ *     (`terminal.css`, `inset: 0`); while iOS shifts the visible viewport for
+ *     the keyboard, or a rubber-band settles, the browser may briefly expose
+ *     a sliver of the page around it, and a thumb already on its way down
+ *     must find nothing there to press.
  *
  * Nothing here competes with the overlay's z-index: `visibility` does not take
  * part in stacking at all. Note that it *is* inherited, so a descendant that
@@ -52,8 +48,8 @@
  * was when the terminal closes, instead of every dot in the list restarting
  * its cycle together.
  */
-.app.is-under-terminal .card-attention,
-.app.is-under-terminal .dot-live {
+.app.is-under-terminal .card-attention::after,
+.app.is-under-terminal .dot-live::after {
   animation-play-state: paused;
 }
 
@@ -70,18 +66,58 @@
 
 /*
  * The terminal chunk is loaded on demand (App.tsx). The overview is already
- * hidden by then, so the fallback's only job is to be the page's own colour
- * for the moment between the tap and the first frame of the terminal —
- * anything more would be a spinner that is usually gone before it is seen.
+ * hidden by then. This sheet, not terminal.css, styles the fallback so the
+ * named header is on screen in the same frame as the tap — the terminal
+ * chunk has not arrived, so none of its rules have either.
  */
 .terminal-pending {
+  display: flex;
+  flex-direction: column;
   position: fixed;
-  top: var(--vv-offset-top, 0px);
-  left: 0;
-  right: 0;
-  height: var(--vv-height, 100dvh);
+  /* The layout viewport, like `.terminal-view` itself (terminal.css). */
+  inset: 0;
   z-index: 9;
   background: var(--bg);
+  /* The overview stays mounted and scrollable underneath; a drag here must not pan it. */
+  touch-action: pinch-zoom;
+  overscroll-behavior: contain;
+}
+
+.terminal-pending-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--touch);
+  padding: max(6px, env(safe-area-inset-top)) 8px 6px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+}
+
+.terminal-pending-back {
+  min-width: var(--touch);
+  min-height: var(--touch);
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 2rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.terminal-pending-title {
+  flex: 1 1 auto;
+  min-width: 8rem;
+  font-weight: 650;
+  color: var(--role, var(--text));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-pending-note {
+  margin: 0;
+  padding: 16px 18px;
+  color: var(--text-2);
 }
 
 /* --- header controls --- */
@@ -135,12 +171,21 @@
 
 /* --- pull to refresh --- */
 .pull-indicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 8;
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 34px;
   overflow: hidden;
   font-size: 0.85rem;
   color: var(--text-3);
+  pointer-events: none;
+  transform: translate3d(0, calc(-100% + var(--pull-shown, 0px)), 0);
+  opacity: var(--pull-opacity, 0);
 }
 
 /* was var(--bronze) — 3.09:1 on --bg in light, under AA for 0.85rem text.
@@ -360,11 +405,11 @@
 }
 
 .card-attention {
+  position: relative;
   width: 10px;
   height: 10px;
   border-radius: 50%;
   background: var(--warn);
-  animation: vg-pulse 2.4s ease-out infinite;
 }
 
 .stop {
@@ -496,6 +541,15 @@
   border-radius: 12px;
   background: var(--surface-2);
   text-align: left;
+  transition: transform 90ms ease-out;
+  /* html kills the page-level flash; buttons opt back in (styles.css). Restate
+     it here so a tap on the most-tapped control is never a dead surface. */
+  -webkit-tap-highlight-color: color-mix(in srgb, var(--bronze) 18%, transparent);
+}
+
+/* A press has to answer instantly: over Tailscale the round-trip does not. */
+.agent-row:active {
+  transform: scale(0.97);
 }
 
 .agent-row.state-stopped {
@@ -503,6 +557,7 @@
 }
 
 .dot-live {
+  position: relative;
   flex: 0 0 auto;
   width: 10px;
   height: 10px;
@@ -510,12 +565,15 @@
   background: var(--role, var(--verdigris));
 }
 
-.dot-live.is-working {
+.card-attention::after,
+.dot-live.is-working::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  pointer-events: none;
   animation: vg-pulse 2.4s ease-out infinite;
-}
-
-.dot-live.is-working.is-orchestrator {
-  animation-name: vg-pulse-bronze;
 }
 
 .dot-live.is-idle {
@@ -830,4 +888,11 @@
   backdrop-filter: blur(16px) saturate(1.1);
   color: var(--text-2);
   font-size: 1.2rem;
+}
+
+@media (pointer: coarse) {
+  .to-top {
+    background: var(--surface);
+    backdrop-filter: none;
+  }
 }

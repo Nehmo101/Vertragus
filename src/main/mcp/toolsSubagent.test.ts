@@ -141,6 +141,34 @@ describe('report_done', () => {
     })
     expect(runtime.events.all().at(-1)).not.toHaveProperty('uncommitted')
   })
+
+  it('attaches tokenUsage from the fake host', async () => {
+    const { runtime, tools, agentId } = await setup()
+    const usage = { kind: 'consumption' as const, input: 10, output: 2, total: 12 }
+    runtime.host.tokenUsages.set(agentId, usage)
+    await callTool(tools, 'report_done', { summary: 'parser fixed' })
+    expect(runtime.host.readTokenUsageCalls).toContain(agentId)
+    expect(runtime.events.all().at(-1)).toMatchObject({ tokenUsage: usage })
+  })
+
+  it('still pushes agent_done when the usage read throws', async () => {
+    const runtime = fakeRuntime({ host: new FakeAgentHost({ usageError: 'disk died' }) })
+    const started = runtime.host.beginAgent({ role: 'worker', task: 't' })
+    const tools = captureTools((server) => registerSubagentTools(server, runtime, started.agentId))
+    await callTool(tools, 'report_done', { summary: 'tried' })
+    expect(runtime.events.all().at(-1)).toMatchObject({ type: 'agent_done', summary: 'tried' })
+    expect(runtime.events.all().at(-1)).not.toHaveProperty('tokenUsage')
+  })
+
+  it('leaves behaviour unchanged when the host has no readTokenUsage method', async () => {
+    const runtime = fakeRuntime()
+    delete (runtime.host as { readTokenUsage?: unknown }).readTokenUsage
+    const started = runtime.host.beginAgent({ role: 'worker', task: 't' })
+    const tools = captureTools((server) => registerSubagentTools(server, runtime, started.agentId))
+    await callTool(tools, 'report_done', { summary: 'plain' })
+    expect(runtime.events.all().at(-1)).toMatchObject({ type: 'agent_done', summary: 'plain' })
+    expect(runtime.events.all().at(-1)).not.toHaveProperty('tokenUsage')
+  })
 })
 
 describe('report_done — S3 structured results', () => {

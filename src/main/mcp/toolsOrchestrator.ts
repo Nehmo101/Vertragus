@@ -913,6 +913,7 @@ export function registerOrchestratorTools(
       // S3: a stopped agent reports nothing more — its result schema goes too.
       runtime.resultSchemas.delete(agentId)
       if (stopped && known) {
+        const usage = await ctx.host.readTokenUsage?.(agentId).catch(() => undefined)
         // Into the parent's queue — for a stopped LEAD that is the root queue,
         // where the adoption tap reparents its children (F). Quiet: a pure
         // echo of the caller's own stop_agent — the tool result already said
@@ -922,7 +923,8 @@ export function registerOrchestratorTools(
             type: 'agent_stopped',
             agentId,
             name: known.name,
-            roleId: known.role
+            roleId: known.role,
+            ...(usage ? { tokenUsage: usage } : {})
           },
           { quiet: true }
         )

@@ -70,6 +70,9 @@ function preset(id: ProviderPresetId): ProviderConfig {
   return config
 }
 
+/** A launch pins the agent id as session id; a UUID, like the real ones. */
+const SESSION_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+
 const GROK_SESSION_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -105,6 +108,7 @@ function build(
     fileTag: 'matrix',
     configDir,
     systemPrompt: PROMPT,
+    sessionId: SESSION_ID,
     ...overrides
   }
   return normalize(buildAgentArgv(input).argv)
@@ -157,6 +161,8 @@ describe('preset argv matrix', () => {
     expect(matrixFor('claude')).toMatchInlineSnapshot(`
       {
         "orchestrator bare": [
+          "--session-id",
+          "<session-uuid>",
           "--mcp-config",
           "<mcp-config.json>",
           "--strict-mcp-config",
@@ -170,6 +176,8 @@ describe('preset argv matrix', () => {
           "opus",
           "--effort",
           "high",
+          "--session-id",
+          "<session-uuid>",
           "--mcp-config",
           "<mcp-config.json>",
           "--strict-mcp-config",
@@ -183,6 +191,8 @@ describe('preset argv matrix', () => {
           "opus",
           "--effort",
           "high",
+          "--session-id",
+          "<session-uuid>",
           "--mcp-config",
           "<mcp-config.json>",
           "--strict-mcp-config",
@@ -192,6 +202,8 @@ describe('preset argv matrix', () => {
           "SYSTEM PROMPT",
         ],
         "subagent bare": [
+          "--session-id",
+          "<session-uuid>",
           "--mcp-config",
           "<mcp-config.json>",
           "--strict-mcp-config",
@@ -203,6 +215,8 @@ describe('preset argv matrix', () => {
           "opus",
           "--effort",
           "high",
+          "--session-id",
+          "<session-uuid>",
           "--mcp-config",
           "<mcp-config.json>",
           "--strict-mcp-config",
@@ -214,6 +228,8 @@ describe('preset argv matrix', () => {
           "opus",
           "--effort",
           "high",
+          "--session-id",
+          "<session-uuid>",
           "--dangerously-skip-permissions",
           "--mcp-config",
           "<mcp-config.json>",

@@ -23,7 +23,7 @@ import { EventQueue } from './eventQueue'
 import type { PendingQuestions } from './pendingQuestions'
 import type { AgentPolicy } from '@shared/agentPolicy'
 import type { ReportingMode } from '@shared/prompts/contract'
-import type { AgentDoneStatus } from '@shared/schema/events'
+import type { AgentDoneStatus, TokenUsage } from '@shared/schema/events'
 import type { SuccessionRequest } from '@shared/schema/handoff'
 // Type-only on purpose: the MCP layer stays free of workspace runtime code —
 // the store implementation is injected by the host via the context.
@@ -112,6 +112,11 @@ export interface AgentSummary {
    * follow-ups (`send_to_agent`). Derived from the provider's `mcp.kind`.
    */
   reporting: ReportingMode
+  /**
+   * CLI-recorded usage, present after the agent reported done, was stopped, or
+   * exited. Absent for providers without a usage source.
+   */
+  tokenUsage?: TokenUsage
 }
 
 /**
@@ -270,6 +275,11 @@ export interface AgentHost {
    * never carry this.
    */
   askTimeoutMsFor?(agentId: string): number | undefined
+  /**
+   * Read the agent's CLI-recorded usage now and cache it; undefined for a
+   * provider without a usage source or when the read failed. Never throws.
+   */
+  readTokenUsage?(agentId: string): Promise<TokenUsage | undefined>
   /**
    * True while a root succession is in flight. Mutating orchestrator tools
    * refuse with `succession_in_progress` until the successor is active.

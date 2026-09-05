@@ -11,7 +11,7 @@ import type { BrowserExtensionInstallResult, BrowserExtensionStatus } from '@sha
 import type { TerminalBootPhase } from '@shared/terminalBoot'
 import type { CliSession } from '@shared/cliSession'
 import type { CliSurface } from '@shared/cliSurface'
-import type { AgentEvent } from '@shared/schema/events'
+import type { AgentEvent, TokenUsage } from '@shared/schema/events'
 
 /** Mirrors main/appIpc.PanelMcpServer — secrets never appear here. */
 export interface PanelMcpServer {
@@ -433,6 +433,11 @@ export interface WorkspaceAgentSummary {
   pendingQuestionId?: string
   /** Short labels for that open question, when the asker passed `choices`. */
   pendingQuestionChoices?: string[]
+  /**
+   * CLI-recorded usage, present after the agent reported done, was stopped, or
+   * exited. Absent for providers without a usage source.
+   */
+  tokenUsage?: TokenUsage
 }
 
 /** S4: one row of the run's task board. Mirrors main's WorkspaceTaskSummary. */

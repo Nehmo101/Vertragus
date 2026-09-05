@@ -77,6 +77,7 @@ import {
   buildEffortArgs,
   buildInitialPromptArgs,
   buildModelArgs,
+  buildSessionIdArgs,
   type EffortLevel,
   type ProviderConfig
 } from '@shared/schema/provider'
@@ -145,6 +146,11 @@ export interface AgentLaunchInput {
    * built-in Vertragus server.
    */
   extraMcpServers?: readonly ExtraMcpServer[]
+  /**
+   * The agent's id, handed to the CLI as its session id when the provider's
+   * `usageSource` declares a `sessionIdArg`; ignored otherwise.
+   */
+  sessionId?: string
   /** Platform override for testing the Windows resolution off-Windows. */
   platform?: NodeJS.Platform
 }
@@ -271,11 +277,16 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       // prompt. extras is already empty for orchestrator/lead.
       // `--session-id <uuid>` starts a TUI conversation so MCP connects
       // even with no positional first prompt (welcome screen otherwise).
+      // The id is the agent id when the launch pins one (the usage reader
+      // looks the session file up by it); a fresh UUID only without a pin.
+      // `buildAgentArgv` skips the generic pin for grok so the pair is emitted
+      // exactly once.
       return buildGrokMcpArgs({
         url: input.mcpUrl,
         workspaceDir: input.cwd,
         orchestrator: input.kind === 'orchestrator',
-        extraMcpServers: extras
+        extraMcpServers: extras,
+        ...(input.sessionId ? { sessionId: input.sessionId } : {})
       })
     case 'none':
       return []
@@ -343,15 +354,21 @@ export function buildSystemPromptArgs(input: AgentLaunchInput): AgentArgv {
  *
  * Order matters. `provider.args` first (`ollama run`), then the model — which
  * for a provider without `modelArg` is positional and must sit directly behind
- * those args — then effort, yolo, MCP attach, the system prompt, and finally
- * an optional first-user prompt (trailing positional when the provider
- * declares it).
+ * those args — then effort, the session-id pin (when the dialect declares
+ * one), yolo, MCP attach, the system prompt, and finally an optional
+ * first-user prompt (trailing positional when the provider declares it).
  */
 export function buildAgentArgv(input: AgentLaunchInput): AgentArgv {
   const { provider } = input
   const argv = [...provider.args]
   argv.push(...buildModelArgs(provider, input.model))
   argv.push(...buildEffortArgs(provider, input.effort))
+  // Grok's pair rides with its MCP attach (`buildGrokMcpArgs`), which also
+  // has to mint one when nothing is pinned; emitting it here too would hand
+  // the CLI two session ids.
+  if (provider.mcp.kind !== 'grok-project') {
+    argv.push(...buildSessionIdArgs(provider, input.sessionId))
+  }
   if (input.kind === 'subagent' && input.yolo) {
     argv.push(...provider.yoloArgs)
   }

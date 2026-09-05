@@ -52,6 +52,26 @@ describe('providerPresets', () => {
     expect(claiming.map((entry) => entry.id)).toEqual(['claude'])
   })
 
+  it('declares a CLI usage source for claude, codex and grok only', () => {
+    expect(preset('claude').usageSource).toEqual({
+      kind: 'claude-jsonl',
+      dir: '~/.claude/projects',
+      sessionIdArg: '--session-id'
+    })
+    expect(preset('codex').usageSource).toEqual({
+      kind: 'codex-rollout',
+      dir: '~/.codex/sessions'
+    })
+    expect(preset('grok').usageSource).toEqual({
+      kind: 'grok-session',
+      dir: '~/.grok/sessions',
+      sessionIdArg: '--session-id'
+    })
+    for (const id of ['kimi', 'cursor', 'ollama'] as const) {
+      expect(preset(id).usageSource).toBeUndefined()
+    }
+  })
+
   it('declares a spawn-time first prompt for Grok only — others stay on the PTY fallback', () => {
     const claiming = providerPresets().filter((entry) => entry.initialPromptDelivery)
     expect(claiming.map((entry) => [entry.id, entry.initialPromptDelivery])).toEqual([

@@ -61,9 +61,11 @@ hast, plus eine Preview-Zeile. Profile können `goalCompile` auf `off`
 setzen und den Rohtext durchreichen. **Playbooks** sind Ein-Klick-Zielvorlagen auf diesem
 Fold-out, nie eine vorkonfigurierte Crew. Play und Resume öffnen außerdem
 ein **Timeline**-Fenster für diesen Workspace: Übersicht (Agenten, Board,
-Ziel) plus ein Journal. Das Panel bleibt sichtbar. Das Timeline-Fenster zu
-schließen ist nur Ansicht; ein Klick auf die Workspace-Karte öffnet es
-wieder; den Workspace zu stoppen schließt es. Das CLI-Fenster öffnet sofort
+Ziel) plus ein Journal. Sobald ein Agent fertig ist, zeigt die Übersicht
+seinen Token-Verbrauch, wenn seine CLI ihn aufgezeichnet hat. Das Panel
+bleibt sichtbar. Das Timeline-Fenster zu schließen ist nur Ansicht; ein
+Klick auf die Workspace-Karte öffnet es wieder; den Workspace zu stoppen
+schließt es. Das CLI-Fenster öffnet sofort
 mit einem Windhund-Overlay, während der Host den Worktree anlegt, MCP
 anbindet und auf die Session wartet; der erste Turn geht erst raus, wenn
 MCP steht, damit ein Start ohne verbundene Session keine Tokens auf
@@ -266,8 +268,11 @@ Bildschirmregionen pinnen; **Tabs** ist ein CLI-Fenster pro Workspace mit
 Orchestrator und Subagenten als Tabs — Zonen und Tiling je Agent greifen
 nicht. Die Änderung gilt beim nächsten Play. Ein globaler
 Alles-ausblenden-Hotkey blendet CLI-, Timeline- und Editor-Fenster aus
-(`hide()`, nie `minimize()`) und nie das Panel; Autostart und ein
-Self-Updater mit Stable/Main-Kanalwahl; deutsche und englische UI.
+(`hide()`, nie `minimize()`) und nie das Panel — Restore (Hotkey oder
+Panel-Auge) öffnet die Agenten des zuletzt gewählten Workspace in ihren
+Zonen, und Auge oder Hotkey ohne sichtbares Ziel macht dasselbe, statt
+nichts auszublenden; Autostart und ein Self-Updater mit
+Stable/Main-Kanalwahl; deutsche und englische UI.
 
 ## Fernzugriff (Tailscale)
 

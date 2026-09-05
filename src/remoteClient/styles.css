@@ -29,12 +29,11 @@
  *                    that is plain --bronze; on light it has to go darker,
  *                    because on a light ground more emphasis means darker.
  *
- * `--vv-height`, `--keyboard-inset` and `--vv-offset-top` are declared here as
- * fallbacks only; `useVisualViewport.ts` owns them at runtime and documents
- * their contract. The fallbacks below are the answer for a browser with no
- * `visualViewport` — and for the first paint, before the hook's effect runs —
- * where the visible viewport IS the layout viewport: no shift, no keyboard
- * inset, full dynamic height. `terminal.css` consumes all three.
+ * `--keyboard-inset` is declared here as a fallback only; `useVisualViewport.ts`
+ * owns it at runtime and documents its contract. The fallback below is the
+ * answer for a browser with no `visualViewport` — and for the first paint,
+ * before the hook's effect runs — where the visible viewport IS the layout
+ * viewport: no keyboard inset.
  */
 
 @font-face {
@@ -125,8 +124,6 @@
   /* A fingertip does not scale with the type size, so this stays in px. */
   --touch: 44px;
   --keyboard-inset: 0px;
-  --vv-height: 100dvh;
-  --vv-offset-top: 0px;
   color-scheme: dark;
 }
 
@@ -290,28 +287,21 @@ button:focus-visible {
   outline-offset: 1px;
 }
 
-/* Both pulses derive their colour from the tokens so the light theme does not
-   inherit the dark theme's glow. */
+/* Working / attention pulse: transform + opacity on a pseudo-element, not a
+   box-shadow on the dot. Shadow in a keyframe is a main-thread paint every
+   frame; scale and fade are compositor-only. Colour comes from the host. */
 @keyframes vg-pulse {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--verdigris-bright) 55%, transparent);
+    transform: scale(1);
+    opacity: 0.55;
   }
   70% {
-    box-shadow: 0 0 0 8px transparent;
+    transform: scale(2.6);
+    opacity: 0;
   }
   100% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-}
-@keyframes vg-pulse-bronze {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--bronze) 50%, transparent);
-  }
-  70% {
-    box-shadow: 0 0 0 8px transparent;
-  }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
+    transform: scale(2.6);
+    opacity: 0;
   }
 }
 
@@ -433,10 +423,9 @@ button:focus-visible {
  * of `.app`, never a descendant of this header: App.tsx renders `.app` and
  * `<RemoteTerminal>` side by side under one fragment — the shell stays mounted
  * and merely goes `visibility: hidden` — so `.terminal-view`'s
- * `position: fixed` resolves against the viewport, which is what
- * `--vv-offset-top` / `--vv-height` assume. Nesting a fixed overlay under this
- * header, or giving `.app` a filter or transform of its own, would silently
- * trap it and break both.
+ * `position: fixed` resolves against the layout viewport, which is what its
+ * `inset: 0` assumes. Nesting a fixed overlay under this header, or giving
+ * `.app` a filter or transform of its own, would silently trap it.
  */
 .app-header {
   position: sticky;
@@ -456,6 +445,13 @@ button:focus-visible {
 @supports not (backdrop-filter: blur(1px)) {
   .app-header {
     background: var(--surface);
+  }
+}
+
+@media (pointer: coarse) {
+  .app-header {
+    background: var(--surface);
+    backdrop-filter: none;
   }
 }
 

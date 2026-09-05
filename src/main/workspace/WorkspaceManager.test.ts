@@ -494,9 +494,10 @@ describe('startWorkspace', () => {
       const { argv } = buildAgentArgv({ ...spawns[0]!.input, cwd })
       const sessionAt = argv.indexOf(GROK_SESSION_ID_FLAG)
       expect(sessionAt).toBeGreaterThanOrEqual(0)
-      expect(argv[sessionAt + 1]).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-      )
+      // Pinned to the agent id (a UUID in production) so the usage reader
+      // finds the session file; never a second, freshly minted pair.
+      expect(argv[sessionAt + 1]).toBe(spawns[0]!.input.sessionId)
+      expect(argv.filter((arg) => arg === GROK_SESSION_ID_FLAG)).toHaveLength(1)
       expect(argv).not.toContain('-p')
       expect(argv).not.toContain('--single')
       expect(argv).not.toContain('--max-turns')

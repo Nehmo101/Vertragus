@@ -58,8 +58,10 @@ the card still shows what you typed, plus a one-line preview. Profiles
 can set `goalCompile` to `off` to seed the raw text. **Playbooks** are one-click goal templates on
 that fold-out, never a pre-configured crew. Play and resume also open a
 **Timeline** window for that workspace: overview (agents, board, goal) plus
-a journal. The panel stays visible. Closing the Timeline is view-only;
-clicking the workspace card reopens it; stopping the workspace closes it.
+a journal. Once an agent finishes, the overview shows that agent's token
+usage when its CLI recorded one. The panel stays visible. Closing the
+Timeline is view-only; clicking the workspace card reopens it; stopping
+the workspace closes it.
 The CLI window opens at once with a greyhound overlay while the host creates
 the worktree, attaches MCP and waits for the session; the first turn is
 submitted only once MCP is up, so a start without a connected server does
@@ -245,8 +247,10 @@ screen regions; **Tabs** is one CLI window per workspace with orchestrator
 and subagents as tabs — zones and per-agent tiling do not apply. That
 change takes effect on the next Play. A global hide-all hotkey hides CLI,
 Timeline and editor windows (`hide()`, never `minimize()`) and never the
-panel; autostart and a self-updater with a stable/main channel switch;
-German and English UI.
+panel — restore (hotkey or panel eye) opens the last selected workspace's
+agents in their zones, and eye or hotkey with nothing visible does that
+instead of hiding nothing; autostart and a self-updater with a stable/main
+channel switch; German and English UI.
 
 ## Remote access (Tailscale)
 

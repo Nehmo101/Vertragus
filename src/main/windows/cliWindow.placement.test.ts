@@ -195,6 +195,33 @@ describe('createCliWindow with a placement', () => {
     expect(win.bounds).toEqual({ x: 2720, y: 0, width: 800, height: 900 })
   })
 
+  it('ready-to-show does not overwrite a later layoutCliWindows tile', () => {
+    const a = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: { roleId: 'worker', workspaceId: 'W' }
+      })
+    )
+    const constructorA = {
+      x: a.options.x as number,
+      y: a.options.y as number,
+      width: a.options.width as number,
+      height: a.options.height as number
+    }
+    fake(
+      cli.createCliWindow('b', {
+        ...WORKER,
+        placement: { roleId: 'worker', workspaceId: 'W' }
+      })
+    )
+    cli.layoutCliWindows(['a', 'b'])
+    const tiled = { ...a.bounds }
+    expect(tiled.width).toBeLessThan(constructorA.width)
+
+    a.emit('ready-to-show')
+    expect(a.bounds).toEqual(tiled)
+  })
+
   describe('Windows first-paint layout pulse', () => {
     const hostPlatform = process.platform
 

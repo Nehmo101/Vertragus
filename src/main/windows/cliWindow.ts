@@ -172,6 +172,12 @@ const frozenCliWindowMode = new Map<string, CliWindowMode>()
  * cancels startMinimized so an agent click before paint actually shows.
  */
 const awaitingFirstShow = new Set<string>()
+/**
+ * layoutCliWindows ran for this agent after create and before ready-to-show.
+ * Constructor bounds (planFor at create, often a 1-window tile) must not
+ * overwrite that later layout when ready-to-show fires.
+ */
+const tiledSinceCreate = new Set<string>()
 const focusRequested = new Set<string>()
 const focusRequestedChrome = new Set<string>()
 let tabIpcRegistered = false
@@ -250,6 +256,7 @@ function liveEntry(agentId: string): CliWindowEntry | null {
   if (!entry) return null
   if (entry.window.isDestroyed()) {
     windows.delete(agentId)
+    tiledSinceCreate.delete(agentId)
     return null
   }
   return entry
@@ -623,6 +630,7 @@ export function layoutCliWindows(agentIds: readonly string[]): void {
     if (!win) continue
     applyWindowBounds(placed.agentId, win, placed.bounds)
     rememberDisplay(placed.agentId, placed.bounds)
+    tiledSinceCreate.add(placed.agentId)
   }
 }
 
@@ -699,6 +707,7 @@ export function createCliWindow(agentId: string, options: CliWindowOptions): Bro
 }
 
 function createPerAgentWindow(agentId: string, options: CliWindowOptions): BrowserWindow {
+  tiledSinceCreate.delete(agentId)
   const plan = options.bounds || !options.placement ? [] : planFor(agentId, options.placement)
   const placed = plan.find((entry) => entry.agentId === agentId)?.bounds
   const bounds = options.bounds ?? placed
@@ -739,8 +748,10 @@ function createPerAgentWindow(agentId: string, options: CliWindowOptions): Brows
     }
     // Constructor x/y is a hint. Linux compositors often ignore it until
     // after `show`; pinning here is what actually lands the window on the
-    // target display.
+    // target display. Skip when layoutCliWindows already tiled this agent
+    // (reopen-all: constructor captured a 1-window plan).
     if (
+      !tiledSinceCreate.has(agentId) &&
       bounds &&
       bounds.x !== undefined &&
       bounds.y !== undefined &&
@@ -756,12 +767,14 @@ function createPerAgentWindow(agentId: string, options: CliWindowOptions): Brows
       applyWindowBounds(agentId, win, target)
       pulseFirstPaintLayout(agentId, win, target)
     }
+    tiledSinceCreate.delete(agentId)
     maybeMinimizeAfterFirstShow(agentId, win)
   })
   win.on('closed', () => {
     const entry = windows.get(agentId)
     if (entry?.window === win) windows.delete(agentId)
     awaitingFirstShow.delete(agentId)
+    tiledSinceCreate.delete(agentId)
     focusRequested.delete(agentId)
     // A reopened agent tiles again; the old "user moved it" mark is stale.
     forgetWindowPlacement(agentId)
@@ -818,6 +831,7 @@ export function closeCliWindow(agentId: string): void {
   }
   const win = getCliWindow(agentId)
   windows.delete(agentId)
+  tiledSinceCreate.delete(agentId)
   if (win) win.close()
 }
 

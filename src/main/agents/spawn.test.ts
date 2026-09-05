@@ -513,6 +513,74 @@ describe('buildAgentArgv — per preset', () => {
   })
 })
 
+describe('buildAgentArgv — session id pin', () => {
+  it('places the session pair after effort and before yolo', () => {
+    const { argv } = buildAgentArgv(
+      launchInput({
+        model: 'opus',
+        effort: 'high',
+        yolo: true,
+        sessionId: 'SESSION',
+        systemPrompt: 'You are a Worker.'
+      })
+    )
+    const normalized = normalize(argv)
+    expect(normalized.indexOf('--session-id')).toBe(normalized.indexOf('--effort') + 2)
+    expect(normalized[normalized.indexOf('--session-id') + 1]).toBe('SESSION')
+    expect(normalized.indexOf('--dangerously-skip-permissions')).toBe(
+      normalized.indexOf('--session-id') + 2
+    )
+  })
+
+  it('hands grok one pair only, pinned to the agent id when given', () => {
+    const pinned = buildAgentArgv(
+      launchInput({
+        provider: preset('grok'),
+        kind: 'orchestrator',
+        cwd,
+        sessionId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+        systemPrompt: 'x'
+      })
+    ).argv
+    expect(pinned.filter((arg) => arg === GROK_SESSION_ID_FLAG)).toHaveLength(1)
+    expect(pinned[pinned.indexOf(GROK_SESSION_ID_FLAG) + 1]).toBe(
+      'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    )
+    const fresh = buildAgentArgv(
+      launchInput({ provider: preset('grok'), kind: 'orchestrator', cwd, systemPrompt: 'x' })
+    ).argv
+    expect(fresh.filter((arg) => arg === GROK_SESSION_ID_FLAG)).toHaveLength(1)
+    expect(peelGrokSession(fresh).sessionId).not.toBe('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')
+  })
+
+  it('emits no pair for a provider without sessionIdArg', () => {
+    const { argv } = buildAgentArgv(
+      launchInput({ provider: preset('codex'), sessionId: 'SESSION', systemPrompt: 'x' })
+    )
+    expect(argv).not.toContain('--session-id')
+  })
+
+  it('emits no pair without input.sessionId', () => {
+    const { argv } = buildAgentArgv(launchInput({ yolo: true, systemPrompt: 'x' }))
+    expect(argv).not.toContain('--session-id')
+  })
+
+  it('reaches orchestrator, lead and subagent kinds alike', () => {
+    for (const kind of ['orchestrator', 'lead', 'subagent'] as const) {
+      const { argv } = buildAgentArgv(
+        launchInput({
+          kind,
+          sessionId: 'SESSION',
+          systemPrompt: 'x',
+          ...(kind === 'lead' || kind === 'orchestrator' ? { cwd } : {})
+        })
+      )
+      expect(argv).toContain('--session-id')
+      expect(argv[argv.indexOf('--session-id') + 1]).toBe('SESSION')
+    }
+  })
+})
+
 describe('MCP attach — the regression that killed the old repo', () => {
   it('attaches the MCP config to EVERY claude-json subagent launch', () => {
     for (const provider of providerPresets()) {

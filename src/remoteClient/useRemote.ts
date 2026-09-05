@@ -139,7 +139,11 @@ export interface RemoteApi {
   probing: boolean
   attach(agentId: string, handlers: TerminalHandlers): () => void
   sendInput(agentId: string, data: string): void
-  resize(agentId: string, cols: number, rows: number): void
+  /*
+   * No `resize` here on purpose. The PTY is the desktop's, sized by the
+   * desktop window; the phone renders whatever size the snapshot names
+   * (`TerminalReader.tsx`) and never asks the shared process to reshape.
+   */
   /**
    * Run one allow-listed gateway command. Resolves with the command's result
    * and rejects with the gateway's error text — the start form and the answer
@@ -968,7 +972,6 @@ export function useRemote(): RemoteApi {
     probing,
     attach,
     sendInput: (agentId, data) => sendRaw({ type: 'input', agentId, data }),
-    resize: (agentId, cols: number, rows: number) => sendRaw({ type: 'resize', agentId, cols, rows }),
     runCommand: (name, arg, args) => {
       const copy = remoteCopy(localeRef.current)
       if (!commandArgsWithinLimits(args)) {

@@ -3,7 +3,8 @@ import {
   AGENT_EVENT_TYPES,
   agentEventPayloadSchema,
   agentEventSchema,
-  isAgentEvent
+  isAgentEvent,
+  tokenUsageSchema
 } from './events'
 
 const identity = { agentId: 'a1', name: 'Arlecchino', roleId: 'worker' }
@@ -330,6 +331,85 @@ describe('agent event schema', () => {
         confirmed: false
       })
     ).toMatchObject({ exitCode: null })
+  })
+
+  it('accepts consumption and context tokenUsage on done, stopped and exited', () => {
+    const consumption = {
+      kind: 'consumption' as const,
+      input: 100,
+      output: 20,
+      cacheRead: 5,
+      cacheWrite: 8,
+      total: 133
+    }
+    const context = { kind: 'context' as const, used: 48_000, window: 131_072 }
+    for (const tokenUsage of [consumption, context]) {
+      expect(
+        agentEventPayloadSchema.parse({
+          type: 'agent_done',
+          ...identity,
+          summary: 's',
+          status: 'success',
+          tokenUsage
+        })
+      ).toMatchObject({ tokenUsage })
+      expect(
+        agentEventPayloadSchema.parse({
+          type: 'agent_stopped',
+          ...identity,
+          tokenUsage
+        })
+      ).toMatchObject({ tokenUsage })
+      expect(
+        agentEventPayloadSchema.parse({
+          type: 'agent_exited',
+          ...identity,
+          exitCode: 0,
+          confirmed: true,
+          tokenUsage
+        })
+      ).toMatchObject({ tokenUsage })
+    }
+  })
+
+  it('still parses done/stopped/exited without tokenUsage (old journals)', () => {
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'agent_done',
+        ...identity,
+        summary: 's',
+        status: 'success'
+      })
+    ).not.toHaveProperty('tokenUsage')
+    expect(
+      agentEventPayloadSchema.parse({ type: 'agent_stopped', ...identity })
+    ).not.toHaveProperty('tokenUsage')
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'agent_exited',
+        ...identity,
+        exitCode: null,
+        confirmed: false
+      })
+    ).not.toHaveProperty('tokenUsage')
+  })
+
+  it('rejects negative, non-integer, extra-key and unknown-kind tokenUsage', () => {
+    const consumption = {
+      kind: 'consumption' as const,
+      input: 1,
+      output: 1,
+      total: 2
+    }
+    expect(tokenUsageSchema.safeParse({ ...consumption, input: -1 }).success).toBe(false)
+    expect(tokenUsageSchema.safeParse({ ...consumption, output: 1.5 }).success).toBe(false)
+    expect(tokenUsageSchema.safeParse({ kind: 'context', used: -1 }).success).toBe(false)
+    expect(tokenUsageSchema.safeParse({ kind: 'context', used: 1.2 }).success).toBe(false)
+    expect(tokenUsageSchema.safeParse({ ...consumption, guessed: 9 }).success).toBe(false)
+    expect(tokenUsageSchema.safeParse({ kind: 'context', used: 1, extra: true }).success).toBe(
+      false
+    )
+    expect(tokenUsageSchema.safeParse({ kind: 'guess', total: 1 }).success).toBe(false)
   })
 
   it('narrows with isAgentEvent', () => {
