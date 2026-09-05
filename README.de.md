@@ -54,7 +54,14 @@ Repository-Pfad, ein Orchestrator (Provider, Modell, Effort) und **Slots**
 („ein Reviewer läuft auf Codex, höchstens zwei davon“). **Play** startet
 einen Workspace nur mit dem Orchestrator; er entscheidet, welche Agenten er
 wirklich braucht, begrenzt durch die Slot-Caps und das profilweite
-`maxSubagents`. Der Play-Button klappt ein **Zielfeld** aus — ein kurzer Satz reicht. Der
+`maxSubagents`. Ein Slot kann auch die Rolle **Lead** besetzen
+(`roleId: lead`): `start_orchestrator` startet den Lead dann auf Provider,
+Modell und Effort dieses Slots, und dessen `maxCount` begrenzt, wie viele
+Leads gleichzeitig laufen (die Host-Kappe von vier gilt weiter). Ohne
+Lead-Slot laufen Leads weiter auf Provider, Modell und Effort des
+Orchestrators. Lead-Slots nehmen kein `extraMcp`, und
+`start_agent{role: 'lead'}` bleibt abgelehnt — Leads starten nur über
+`start_orchestrator`. Der Play-Button klappt ein **Zielfeld** aus — ein kurzer Satz reicht. Der
 Host kompiliert ihn vor dem ersten Turn zu einem Laufvertrag
 (`.vertragus/runs/<id>/brief.md`); die Karte zeigt weiter, was du getippt
 hast, plus eine Preview-Zeile. Profile können `goalCompile` auf `off`
@@ -101,7 +108,7 @@ keinen zweiten Pfad:
 | `stop_agent` | Beendet einen Agenten; Dateien, Branch und Worktree bleiben. |
 | `integrate_branch{agentId, branch}` | Der eine sanktionierte Merge-Pfad: ein **host-seitiger** Merge in das Worktree des Ziel-Agenten. Konflikte brechen sauber ab und werden gemeldet (`integrate_conflict`); eine Gate-Warnung markiert das Integrieren unverifizierter Arbeit. |
 | `ask_user{question, choices?, ticket?}` | Fragt den Menschen und blockiert auf die Antwort (Panel-Badge, CLI-Overlay und Handy); `choices` sind kurze Labels, die der Mensch antippt; Ticket-Resume überlebt den MCP-Request-Timeout. Das Volumen ist pro Profil (`questionMode`: none / few / thorough; Standard few, nur Prompt). |
-| `start_orchestrator{area, task, …}` | Startet einen **Lead** (siehe unten). |
+| `start_orchestrator{area, task, providerId?, …}` | Startet einen **Lead** (siehe unten). Läuft auf dem Lead-Slot des Profils, wenn es einen gibt (`providerId` wählt unter mehreren, ein explizites `model` gewinnt weiterhin); sonst auf Provider, Modell und Effort des Orchestrators. |
 | `record_retro{summary, learnings, repoNotes?}` | Die Lauf-Retrospektive, einmal am Ende. |
 | `request_succession{reason, …}` | Ersetzt einen kontextvollen Root durch einen Nachfolger, der dasselbe Team, dieselbe Queue und dieselben offenen Fragen behält. |
 | `task_create` / `task_update` / `task_list` | Das geteilte **Task-Board**: Host-Zustand mit CAS-Revisionen, `blockedBy`-Abhängigkeiten und Ownership. Es überlebt Succession und Resume — der Plan lebt auf dem Host, nicht im Modell-Kontext. |

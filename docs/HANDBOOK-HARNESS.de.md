@@ -57,7 +57,7 @@ Remote-Server.
 | C7 Modell/Provider-Reseat (Wechsel mitten im Lauf) | **nur Spec** — siehe [`MODEL-PROVIDER-SWITCH.md`](./MODEL-PROVIDER-SWITCH.md) |
 | D Mensch im Loop | **D1–D4 umgesetzt** (Track 3 + Follow-up) — Goal-UI, `user_message` weckt `await_events`, `ask_user` mit Ticket; D4 Stufen `yolo`/`ask-user`/`ask-orchestrator` (Store-Spiegel zu `yoloMaster`, Contract-Approval-Regel, Threat-Model im README) |
 | E integrate / briefing / eval | **Kern umgesetzt** (Track 6) — `integrate_branch` + Gate-Warnung + Promote-Klick, Briefing + `repoNotes`, Journal + Resume (E3, Briefing statt Re-Spawn), Budget-Wanduhr, Janitor/Explorer, Playbooks, Extra-MCP an Worker (E6), Loop-Eval (E5, `tests/integration/loopEval`) — Phase E vollständig |
-| F Multi-Orch (Lead, Tiefe 1) | **umgesetzt** (Track 5) — dritte Identität `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder, Reparent (`subtree_adopted`), Caps host-seitig |
+| F Multi-Orch (Lead, Tiefe 1) | **umgesetzt** (Track 5) — dritte Identität `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder, Reparent (`subtree_adopted`), Caps host-seitig; ein Profil-Slot mit `roleId: lead` setzt Provider/Modell/Effort und `maxCount` des Leads |
 | H Nested Worker / Live-Steer / Browser | **umgesetzt** — Worker dürfen eine Helper-Ebene spawnen; Composer-Targeting auf `user_message`; First-Party `/browser`-Loopback (kein zweiter MCP) |
 | I Intake / Scout / Lauf-Archiv-Timeline | **umgesetzt** — Intake-Schleife (Prompt + `ask_user`), Scout-Builtin, `parentId` auf `agent_started`, Archiv-Klappe + Timeline über das Journal. Siehe [`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md) |
 | CLI-aufgezeichnete Token-Nutzung | **umgesetzt** — nur Übersichtskarte; claude/codex Verbrauch, grok Kontext-Belegung, cursor/kimi/ollama nichts. Siehe E4. |
@@ -590,8 +590,10 @@ Dazu:
 
 Ein Sub-Orchestrator ist **kein** Slot `roleId: orchestrator`. Er zieht
 den Guide-Namen (`NameAllocator` kind `orchestrator`), die Bronze-Farbe
-(oder ein dunkleres Bronze), denselben Provider/Model wie das Profil-
-`orchestrator` (überschreibbar), und **kein Yolo**.
+(oder ein dunkleres Bronze), und **kein Yolo**. Provider, Modell und
+Effort kommen aus einem Slot mit `roleId: lead`, wenn das Profil einen hat,
+sonst aus dem Profil-`orchestrator` (ein `model`-Argument überschreibt
+beides).
 
 **Lead-Tools** (Union, bewusst):
 
@@ -604,13 +606,28 @@ den Guide-Namen (`NameAllocator` kind `orchestrator`), die Bronze-Farbe
 **Root-Tools** zusätzlich:
 
 ```
-start_orchestrator{area, task, maxSubagents?, model?, baseBranch?}
+start_orchestrator{area, task, maxSubagents?, model?, providerId?, baseBranch?}
 ```
 
 `area` ist ein kurzes Label für Prompt und Panel („payments“, `docs`).
 `maxSubagents` ist das **Teilbudget**, das der Root abgibt — nicht ein
 zweites Profil-Limit. `profile.maxSubagents` bleibt die globale Kappe
 über Root-Kinder + alle Enkel (A1.3-Reservierung workspace-weit).
+
+**Lead-Slot.** Ein Slot mit `roleId: lead` besetzt den Lead wie jede
+andere Rolle: Provider, Modell, Effort und `maxCount` als Kappe für
+gleichzeitige Leads — zusätzlich zur Host-Kappe `MAX_LEADS = 4`
+(`src/main/mcp/types.ts`, durchgesetzt in `toolsOrchestrator.ts`), die ein
+Profil nur enger ziehen kann, nie weiter. Bei mehreren Lead-Slots wählt
+`providerId` einen aus; ein explizites `model` gewinnt weiterhin gegen das
+des Slots. Ohne Lead-Slot ändert sich nichts: der Lead läuft auf der
+`orchestrator`-Konfiguration des Profils. Die Doktrin bleibt in beiden
+Fällen — das Schema lehnt `extraMcp` auf einem Lead-Slot ab,
+`start_agent{role: 'lead'}` wird abgelehnt (Leads starten nur über
+`start_orchestrator`), und der Lead steht nicht unter „Available roles“ im
+Orchestrator-Prompt; er erscheint stattdessen als Lead-Slot-Zeile. Der
+Extra-System-Prompt des Leads bleibt, wo er war: im Abschnitt
+Rollen-Prompts des Profil-Editors.
 
 `start_agent` bleibt auf dem Root. Ohne das Tool könnte er nicht flach
 arbeiten und nicht hybrid.

@@ -51,7 +51,13 @@ A **profile** is a blueprint, not a pre-started team: a repository path, one
 orchestrator (provider, model, effort), and **slots** ("a reviewer runs on
 codex, at most two of them"). Pressing **Play** starts a workspace with only
 the orchestrator; it decides which agents it actually needs, bounded by the
-slot caps and the profile-wide `maxSubagents`. The Play button folds out a
+slot caps and the profile-wide `maxSubagents`. A slot can also staff the
+**Lead** role (`roleId: lead`): `start_orchestrator` then runs the lead on
+that slot's provider, model and effort, and the slot's `maxCount` caps how
+many leads run at once (the host cap of four still applies). Without a lead
+slot, leads keep running on the orchestrator's provider, model and effort.
+Lead slots take no `extraMcp`, and `start_agent{role: 'lead'}` stays
+refused — leads start only through `start_orchestrator`. The Play button folds out a
 **goal field** — a short sentence is enough. The host compiles it into a
 run contract (`.vertragus/runs/<id>/brief.md`) before the first turn;
 the card still shows what you typed, plus a one-line preview. Profiles
@@ -94,7 +100,7 @@ second path:
 | `stop_agent` | End an agent; files, branch and worktree stay. |
 | `integrate_branch{agentId, branch}` | The one sanctioned merge path: a **host-side** merge into the target agent's worktree. Conflicts abort cleanly and are reported (`integrate_conflict`); a gate warning flags integrating unverified work. |
 | `ask_user{question, choices?, ticket?}` | Ask the human and block for the answer (panel badge, CLI overlay, and phone); `choices` are short labels the human taps; ticket-resume survives the MCP request timeout. Volume is per profile (`questionMode`: none / few / thorough; default few, prompt-only). |
-| `start_orchestrator{area, task, …}` | Start a **lead** (see below). |
+| `start_orchestrator{area, task, providerId?, …}` | Start a **lead** (see below). Runs on the profile's Lead slot when there is one (`providerId` picks among several, an explicit `model` still wins); otherwise on the orchestrator's provider, model and effort. |
 | `record_retro{summary, learnings, repoNotes?}` | The run retrospective, once at the end. |
 | `request_succession{reason, …}` | Replace a context-full root with a successor that keeps the same team, queue and open questions. |
 | `task_create` / `task_update` / `task_list` | The shared **task board**: host state with CAS revisions, `blockedBy` dependencies and ownership. It survives succession and resume — the plan lives on the host, not in the model context. |
