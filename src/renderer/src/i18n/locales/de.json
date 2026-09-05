@@ -82,6 +82,7 @@
     "assignGoalTitle": "Diesem Lauf jetzt sein Ziel geben — es wird der erste User-Turn des Orchestrators.",
     "assignGoalSend": "Ziel setzen",
     "workspaceGoal": "Ziel: {{goal}}",
+    "compiledPreview": "{{preview}}",
     "answerQuestion": "Frage von {{agent}} beantworten",
     "answerChoice": "Mit „{{choice}}“ antworten",
     "answerPlaceholder": "Antwort …",
@@ -113,6 +114,7 @@
     "taskMore_one": "+{{count}} weitere Aufgabe — der ganze Plan steht in tasks.json",
     "taskMore_other": "+{{count}} weitere Aufgaben — der ganze Plan steht in tasks.json",
     "openRunFolder": "Lauf-Ordner öffnen — spill/, tasks.json und events.jsonl im Dateimanager",
+    "openTimeline": "Übersicht öffnen — der Workspace läuft weiter",
     "archiveToggle": "Archivierte Läufe von „{{profile}}“ — Stop hat diese Journale auf der Platte gelassen",
     "archiveLoading": "Lade archivierte Läufe …",
     "archiveEmpty": "Noch keine Läufe — Stop behält das Journal hier.",
@@ -238,6 +240,13 @@
       "none": "Keine",
       "few": "Wenige",
       "thorough": "Sorgfältig"
+    },
+    "goalCompileLabel": "Ziel kompiliert",
+    "goalCompileHint": "Der Host macht aus einem kurzen Play-Satz einen Laufvertrag (Architektur, Prüfung, Invarianten), bevor der erste Turn rausgeht. Scout (Standard): Repo tiefer lesen. Cheap: nur AGENTS.md / README / Scripts. Aus: Rohtext, heutiges Verhalten.",
+    "goalCompile": {
+      "off": "Aus — Rohziel",
+      "cheap": "Günstig — Docs und Scripts",
+      "scout": "Scout — tieferer Blick"
     },
     "rolePrompts": "System-Prompts",
     "rolePromptsHint": "Starttext für ein neues Profil — pro Identität ändern oder leeren. Ein Kommunikations-Overlay auf dem eingebauten Prompt (Sprache, wer den Bericht liest, Art der Übergabe). Ersetzt weder den Reporting-Contract noch die Orchestrator-Schleife.",

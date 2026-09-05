@@ -2,7 +2,15 @@ import { useTranslation } from 'react-i18next'
 import { DEFAULT_PR_REMOTE } from '@shared/schema/profile'
 import { WORKER_ROLE_ID, roleColor } from '@shared/prompts/roles'
 import { FolderIcon } from '../panel/icons'
-import { EffortSelect, Field, ModelCombo, ProviderSelect, QuestionModeSelect, SwitchField } from './fields'
+import {
+  EffortSelect,
+  Field,
+  GoalCompileSelect,
+  ModelCombo,
+  ProviderSelect,
+  QuestionModeSelect,
+  SwitchField
+} from './fields'
 import {
   coerceRowEffort,
   newSlotDraft,
@@ -238,6 +246,14 @@ export function ProfileEditorApp({
               value={draft.questionMode}
               onChange={(questionMode) =>
                 editor.update((current) => ({ ...current, questionMode }))
+              }
+            />
+          </Field>
+          <Field label={t('profileEditor.goalCompileLabel')} hint={t('profileEditor.goalCompileHint')}>
+            <GoalCompileSelect
+              value={draft.goalCompile}
+              onChange={(goalCompile) =>
+                editor.update((current) => ({ ...current, goalCompile }))
               }
             />
           </Field>

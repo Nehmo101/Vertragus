@@ -246,9 +246,10 @@ const PRESETS: readonly ProviderConfig[] = [
     // `--rules`: extra instructions appended for this session, not a replacement
     // of the coding-agent prompt (`--system-prompt-override` would drop it).
     systemPromptDelivery: { kind: 'arg', flag: '--append-system-prompt' },
-    // `grok` with no args opens the welcome screen; a trailing positional
-    // string is the interactive first turn. Never `-p`/`--single` — those
-    // are headless and exit after one turn.
+    // `grok` with no trailing prompt opens the welcome screen (no MCP). A
+    // trailing positional string is the interactive first turn. Spawn also
+    // passes `--session-id <uuid>` so bare Play still starts a session.
+    // Never `-p`/`--single` — those are headless and exit after one turn.
     initialPromptDelivery: { kind: 'positional' },
     mcp: { kind: 'grok-project' },
     modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },

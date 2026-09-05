@@ -26,10 +26,12 @@ import type { McpServerHandle } from '@main/mcp/server'
 import { queueForAgent } from '@main/mcp/types'
 import { workspacePlaceName } from '@shared/workspaceNames'
 import type { Profile } from '@shared/schema/profile'
+import type { RecipeId } from '@shared/goal/recipes'
 import type { StartedAgent } from '@main/mcp/types'
 import type { AgentEvent } from '@shared/schema/events'
 import type { OrchestratorHandoffPackage } from '@shared/schema/handoff'
 import type { TaskBoardState } from '@shared/schema/tasks'
+import { compileGoal } from '@main/goal/compileGoal'
 import type { RetroSink } from './retroSink'
 import type { RunJournal, RunMeta } from './journal'
 import type { TaskBoard } from './taskBoard'
@@ -102,6 +104,10 @@ export interface StartWorkspaceOptions {
    * the card shows "no goal" until someone types one into the TUI.
    */
   goal?: string
+  /**
+   * Playbook recipe override. Absent = the compiler classifies from `goal`.
+   */
+  recipe?: RecipeId
   /**
    * Staging ids from a pre-start paste/drop. Copied into the orchestrator
    * worktree after createWorktree and before spawn/assignGoal. Never bytes.
@@ -228,6 +234,40 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     const sequence = (sequences.get(profileId) ?? 0) + 1
     sequences.set(profileId, sequence)
     return workspacePlaceName(sequence)
+  }
+
+  /**
+   * Host compile of the Play sentence. The card keeps `display`; the CLI
+   * receives `seed`. Fail-soft: a probe error seeds the raw goal.
+   */
+  async function seedCompiledGoal(
+    workspace: Workspace,
+    rawGoal: string,
+    recipe: RecipeId | undefined,
+    journal: RunJournal | undefined
+  ): Promise<{ seed: string; display: string }> {
+    const mode = workspace.profile.goalCompile
+    if (mode === 'off') return { seed: rawGoal, display: rawGoal }
+    try {
+      const briefPath = `.vertragus/runs/${workspace.workspaceId}/brief.md`
+      const compiled = await compileGoal({
+        goal: rawGoal,
+        repoPath: workspace.repoPath,
+        mode,
+        questionMode: workspace.profile.questionMode,
+        briefPath,
+        ...(recipe ? { recipe } : {})
+      })
+      if (compiled.markdown) journal?.writeArtifact?.('brief.md', compiled.markdown)
+      if (compiled.json) {
+        journal?.writeArtifact?.('brief.json', `${JSON.stringify(compiled.json, null, 2)}\n`)
+      }
+      workspace.noteCompiled(compiled.preview)
+      return { seed: compiled.firstTurn, display: rawGoal }
+    } catch (error) {
+      console.warn('[goal-compile] falling back to the raw goal:', error)
+      return { seed: rawGoal, display: rawGoal }
+    }
   }
 
   function workspaceDeps(): WorkspaceDeps {
@@ -362,8 +402,11 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     try {
       const goal = options?.goal?.trim()
       const attachmentIds = options?.attachmentIds?.filter((id) => id.trim()) ?? []
+      const compiled = goal
+        ? await seedCompiledGoal(workspace, goal, options?.recipe, journal)
+        : undefined
       const orchestrator = await workspace.startOrchestrator({
-        ...(goal ? { initialPrompt: goal } : {}),
+        ...(compiled ? { initialPrompt: compiled.seed, displayGoal: compiled.display } : {}),
         ...(attachmentIds.length ? { attachmentIds } : {})
       })
       if (attachmentIds.length) await deps.consumeAttachments?.(attachmentIds)
@@ -375,8 +418,8 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       // the workspace down: the orchestrator is running and the user can
       // still type into its terminal; the error travels to the caller
       // (panel banner / gateway error) and the card truthfully shows "no goal".
-      if (goal && !workspace.goalText) {
-        await workspace.assignGoal(goal)
+      if (compiled && !workspace.goalText) {
+        await workspace.assignGoal(compiled.seed, { displayGoal: compiled.display })
         notifyChange()
       }
       if (workspace.goalText) rememberDeliveredGoal(workspace.workspaceId, workspace.goalText)
@@ -405,8 +448,10 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
   async function assignGoal(workspaceId: string, goal: string): Promise<void> {
     const workspace = workspaces.get(workspaceId)
     if (!workspace) throw new Error(`goal rejected — unknown workspace ${workspaceId}`)
-    await workspace.assignGoal(goal)
-    rememberDeliveredGoal(workspaceId, workspace.goalText ?? goal)
+    const run = runMetas.get(workspaceId)
+    const compiled = await seedCompiledGoal(workspace, goal.trim(), undefined, run?.journal)
+    await workspace.assignGoal(compiled.seed, { displayGoal: compiled.display })
+    rememberDeliveredGoal(workspaceId, compiled.display)
     notifyChange()
   }
 

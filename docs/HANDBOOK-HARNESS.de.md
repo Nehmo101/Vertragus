@@ -61,6 +61,7 @@ Remote-Server.
 | H Nested Worker / Live-Steer / Browser | **umgesetzt** — Worker dürfen eine Helper-Ebene spawnen; Composer-Targeting auf `user_message`; First-Party `/browser`-Loopback (kein zweiter MCP) |
 | I Intake / Scout / Lauf-Archiv-Timeline | **umgesetzt** — Intake-Schleife (Prompt + `ask_user`), Scout-Builtin, `parentId` auf `agent_started`, Archiv-Klappe + Timeline über das Journal. Siehe [`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md) |
 | CLI-aufgezeichnete Token-Nutzung | **umgesetzt** — nur Übersichtskarte; claude/codex Verbrauch, grok Kontext-Belegung, cursor/kimi/ollama nichts. Siehe E4. |
+| Goal-Compile | **umgesetzt** — der Host macht aus einem kurzen Play-Satz `.vertragus/runs/<id>/brief.md` vor dem ersten Turn. Profil `goalCompile`: `off` / `cheap` / `scout` (Standard `scout`). Kein zweites Produkt, kein RAG, kein vorstarteter Scout-Agent. |
 
 ---
 
@@ -530,6 +531,18 @@ auf der Worker-Identität, derselbe Listener).
 Cockpit-Trace (Goal, porcelain-Dot, letzte Events) fällt zum großen Teil
 als Ableitung aus C2 + A3.1-Feed ab — Panel und Remote-Client können
 dieselbe `WorkspaceSummary` zeichnen. Kein dritter Store.
+
+### Goal compile
+
+**Status: umgesetzt.** Das Play-Feld bleibt ein kurzer Satz. Zwischen
+Play und dem ersten User-Turn klassifiziert der Host ein Rezept (Fix,
+Ship, Presence, Docs, Invarianten, Research), sondiert das Repo
+(`AGENTS.md`, Scripts, Ordner; `scout` listet zusätzlich `apps/` /
+`packages/` / `src/`) und schreibt `brief.md` + `brief.json` neben das
+Laufjournal. Der Orchestrator bekommt diesen Vertrag; die Karte zeigt
+weiter das Rohziel plus eine Zeile Preview. `goalCompile: off` ist die
+Ausnahme (heutiges Durchreichen). Das ist kein Intake (`ask_user`
+folgt weiter `questionMode`) und kein Compile-Phasen-Subagent.
 
 ---
 

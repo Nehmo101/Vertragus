@@ -57,10 +57,9 @@
  */
 import {
   buildCodexMcpArgs,
+  buildGrokMcpArgs,
   claudeMcpTimeoutEnv,
   CURSOR_APPROVE_MCPS_FLAG,
-  grokAllowMcpArgs,
-  grokOrchestratorArgv,
   grokOrchestratorEnv,
   codexDeveloperInstructionsArgs,
   leadAllowedTools,
@@ -69,8 +68,6 @@ import {
   orchestratorMcpTools,
   writeClaudeMcpConfigFile,
   writeCursorProjectMcpConfig,
-  writeGrokOrchestratorAgentFile,
-  writeGrokProjectMcpConfig,
   writeKimiAgentFile,
   writeKimiProjectMcpConfig
 } from '@main/mcp/attach'
@@ -271,19 +268,26 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       // - the flag also approves the user's own project servers for this run.
       writeCursorProjectMcpConfig(input.mcpUrl, input.cwd, extras)
       return [CURSOR_APPROVE_MCPS_FLAG]
-    case 'grok-project': {
+    case 'grok-project':
       // Grok reads `<cwd>/.grok/config.toml` and has no config-file flag.
       // `--tools` / `--disallowed-tools` are headless-only (ignored in TUI).
       // Orchestrator: URL + permission deny/allow, plus `--no-subagents` /
       // `--deny` / `--allow` / `--agent` matching the TOML. Subagent/lead:
       // URL + `--allow MCPTool(vertragus__*)` so loopback tools skip the TUI
       // prompt. extras is already empty for orchestrator/lead.
-      const orchestrator = input.kind === 'orchestrator'
-      writeGrokProjectMcpConfig(input.mcpUrl, input.cwd, extras, { orchestrator })
-      if (!orchestrator) return grokAllowMcpArgs()
-      writeGrokOrchestratorAgentFile(input.cwd)
-      return grokOrchestratorArgv()
-    }
+      // `--session-id <uuid>` starts a TUI conversation so MCP connects
+      // even with no positional first prompt (welcome screen otherwise).
+      // The id is the agent id when the launch pins one (the usage reader
+      // looks the session file up by it); a fresh UUID only without a pin.
+      // `buildAgentArgv` skips the generic pin for grok so the pair is emitted
+      // exactly once.
+      return buildGrokMcpArgs({
+        url: input.mcpUrl,
+        workspaceDir: input.cwd,
+        orchestrator: input.kind === 'orchestrator',
+        extraMcpServers: extras,
+        ...(input.sessionId ? { sessionId: input.sessionId } : {})
+      })
     case 'none':
       return []
   }
@@ -359,7 +363,12 @@ export function buildAgentArgv(input: AgentLaunchInput): AgentArgv {
   const argv = [...provider.args]
   argv.push(...buildModelArgs(provider, input.model))
   argv.push(...buildEffortArgs(provider, input.effort))
-  argv.push(...buildSessionIdArgs(provider, input.sessionId))
+  // Grok's pair rides with its MCP attach (`buildGrokMcpArgs`), which also
+  // has to mint one when nothing is pinned; emitting it here too would hand
+  // the CLI two session ids.
+  if (provider.mcp.kind !== 'grok-project') {
+    argv.push(...buildSessionIdArgs(provider, input.sessionId))
+  }
   if (input.kind === 'subagent' && input.yolo) {
     argv.push(...provider.yoloArgs)
   }
@@ -524,6 +533,10 @@ export async function spawnAgent(
     }
   }
   const pty = deps.createPty ? deps.createPty() : new PtyAgent()
+  // The window may already have fitted this PTY. Pass that size unless the
+  // caller set an explicit override.
+  const cols = deps.cols && deps.cols > 0 ? deps.cols : pty.cols
+  const rows = deps.rows && deps.rows > 0 ? deps.rows : pty.rows
   try {
     pty.spawn({
       file: launch.file,
@@ -533,8 +546,8 @@ export async function spawnAgent(
       // no environment, so an untouched dialect keeps spawning byte-identically.
 
       ...(launch.env ? { env: launch.env } : {}),
-      ...(deps.cols ? { cols: deps.cols } : {}),
-      ...(deps.rows ? { rows: deps.rows } : {})
+      ...(cols > 0 ? { cols } : {}),
+      ...(rows > 0 ? { rows } : {})
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

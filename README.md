@@ -52,9 +52,10 @@ orchestrator (provider, model, effort), and **slots** ("a reviewer runs on
 codex, at most two of them"). Pressing **Play** starts a workspace with only
 the orchestrator; it decides which agents it actually needs, bounded by the
 slot caps and the profile-wide `maxSubagents`. The Play button folds out a
-**goal field** — the goal is typed into the orchestrator over the same
-keyboard handshake as any assignment, so what the card shows is what the
-orchestrator really received. **Playbooks** are one-click goal templates on
+**goal field** — a short sentence is enough. The host compiles it into a
+run contract (`.vertragus/runs/<id>/brief.md`) before the first turn;
+the card still shows what you typed, plus a one-line preview. Profiles
+can set `goalCompile` to `off` to seed the raw text. **Playbooks** are one-click goal templates on
 that fold-out, never a pre-configured crew. Play and resume also open a
 **Timeline** window for that workspace: overview (agents, board, goal) plus
 a journal. Once an agent finishes, the overview shows that agent's token

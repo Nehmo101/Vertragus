@@ -61,6 +61,7 @@ server.
 | H nested workers / live steer / browser | **implemented** — workers may spawn one helper level; composer targeting on `user_message`; first-party `/browser` loopback (not a second MCP) |
 | I intake / Scout / run archive timeline | **implemented** — intake loop (prompt + `ask_user`), Scout builtin, `parentId` on `agent_started`, archive fold-out + timeline over the journal. See [`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md) |
 | CLI-recorded token usage | **implemented** — overview card only; claude/codex consumption, grok context occupancy, cursor/kimi/ollama nothing. See E4. |
+| Goal compile | **implemented** — host turns a short Play sentence into `.vertragus/runs/<id>/brief.md` before the first turn. Profile `goalCompile`: `off` / `cheap` / `scout` (default `scout`). Not a second product, not RAG, not a pre-started scout agent. |
 
 ---
 
@@ -521,6 +522,18 @@ identity, same listener).
 A cockpit trace (goal, porcelain dot, last events) falls out largely as a
 derivation of C2 + the A3.1 feed — panel and remote client can draw the
 same `WorkspaceSummary`. No third store.
+
+### Goal compile
+
+**Status: implemented.** The Play field stays a short sentence. Between
+Play and the first user turn the host classifies a recipe (fix, ship,
+presence, docs, invariants, research), probes the repo (`AGENTS.md`,
+scripts, folders; `scout` also lists `apps/` / `packages/` / `src/`),
+and writes `brief.md` + `brief.json` next to the run journal. The
+orchestrator is seeded with that contract; the card still shows the
+raw goal plus a one-line preview. `goalCompile: off` is the escape
+hatch (today's pass-through). This is not intake (`ask_user` still
+follows `questionMode`) and not a compile-phase subagent.
 
 ---
 

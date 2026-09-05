@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const settingsUi = vi.hoisted(() => ({
   startMinimized: false,
@@ -59,7 +59,10 @@ class FakeBrowserWindow {
   getContentBounds(): Bounds {
     return this.bounds
   }
+  readonly boundSets: Bounds[] = []
+
   setBounds(bounds: Bounds): void {
+    this.boundSets.push({ ...bounds })
     this.bounds = bounds
   }
   setPosition(x: number, y: number): void {
@@ -217,6 +220,80 @@ describe('createCliWindow with a placement', () => {
 
     a.emit('ready-to-show')
     expect(a.bounds).toEqual(tiled)
+  })
+
+  describe('Windows first-paint layout pulse', () => {
+    const hostPlatform = process.platform
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: hostPlatform, configurable: true })
+    })
+
+    const ZONE = {
+      zones: [{ roleId: 'worker', displayId: 2, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+    }
+    const TARGET = { x: 2720, y: 0, width: 800, height: 900 }
+
+    it('nudges then restores when ready-to-show finds the window already at target size', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+      const win = fake(
+        cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker', zones: ZONE } })
+      )
+      expect(win.bounds).toEqual(TARGET)
+      win.boundSets.length = 0
+
+      win.emit('ready-to-show')
+      // Windows fires move/resize for each setBounds; grace must swallow them.
+      win.emit('move')
+      win.emit('resize')
+
+      expect(win.boundSets).toEqual([TARGET, { ...TARGET, width: 801 }, TARGET])
+      expect(win.bounds).toEqual(TARGET)
+      expect(placement.isMovedByUser('a')).toBe(false)
+    })
+
+    it('does not reflow neighbors when the first-paint pulse runs', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+      placement.setReflowNeighborsGetter(() => true)
+      const twoZones = {
+        zones: [
+          { roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 1 } },
+          { roleId: 'reviewer', displayId: 1, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }
+        ]
+      }
+      const first = fake(
+        cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker', zones: twoZones } })
+      )
+      const second = fake(
+        cli.createCliWindow('b', { ...REVIEWER, placement: { roleId: 'reviewer', zones: twoZones } })
+      )
+      const neighbor = { ...second.bounds }
+      first.boundSets.length = 0
+      second.boundSets.length = 0
+
+      first.emit('ready-to-show')
+      first.emit('move')
+      first.emit('resize')
+      now += placement.REFLOW_DEBOUNCE_MS
+      placement.flushLiveReflow()
+
+      expect(second.bounds).toEqual(neighbor)
+      expect(second.boundSets).toEqual([])
+      expect(placement.isMovedByUser('a')).toBe(false)
+    })
+
+    it('keeps a single applyWindowBounds off Windows', () => {
+      Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+      const win = fake(
+        cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker', zones: ZONE } })
+      )
+      win.boundSets.length = 0
+
+      win.emit('ready-to-show')
+
+      expect(win.boundSets).toEqual([TARGET])
+      expect(win.bounds).toEqual(TARGET)
+    })
   })
 
   it('opens on the primary display instead of Electron’s default spot', () => {

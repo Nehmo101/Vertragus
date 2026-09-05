@@ -214,6 +214,49 @@ describe('PtyAgent (no process)', () => {
     expect(spawn).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps a pre-spawn resize when spawn omits cols and rows', () => {
+    const spawn = fakeSpawn()
+    const agent = new PtyAgent({ spawn })
+    agent.resize(160, 50)
+    agent.spawn({ file: 'x' })
+
+    expect(spawn.mock.calls[0]![2]).toMatchObject({ cols: 160, rows: 50 })
+    expect(agent.cols).toBe(160)
+    expect(agent.rows).toBe(50)
+  })
+
+  it('ignores non-positive spawn cols and rows and keeps the pre-spawn resize', () => {
+    const spawn = fakeSpawn()
+    const agent = new PtyAgent({ spawn })
+    agent.resize(160, 50)
+    agent.spawn({ file: 'x', cols: 0, rows: -1 })
+
+    expect(spawn.mock.calls[0]![2]).toMatchObject({ cols: 160, rows: 50 })
+    expect(agent.cols).toBe(160)
+    expect(agent.rows).toBe(50)
+  })
+
+  it('lets explicit spawn cols and rows override a pre-spawn resize', () => {
+    const spawn = fakeSpawn()
+    const agent = new PtyAgent({ spawn })
+    agent.resize(160, 50)
+    agent.spawn({ file: 'x', cols: 80, rows: 24 })
+
+    expect(spawn.mock.calls[0]![2]).toMatchObject({ cols: 80, rows: 24 })
+    expect(agent.cols).toBe(80)
+    expect(agent.rows).toBe(24)
+  })
+
+  it('uses DEFAULT_COLS/ROWS when spawn omits size and nothing resized first', () => {
+    const spawn = fakeSpawn()
+    const agent = new PtyAgent({ spawn })
+    agent.spawn({ file: 'x' })
+
+    expect(spawn.mock.calls[0]![2]).toMatchObject({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS })
+    expect(agent.cols).toBe(DEFAULT_COLS)
+    expect(agent.rows).toBe(DEFAULT_ROWS)
+  })
+
   it('drops undefined env entries before handing them to node-pty', () => {
     const spawn = fakeSpawn()
     const agent = new PtyAgent({ spawn })

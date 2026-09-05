@@ -373,6 +373,7 @@ interface Harness {
     userMessages: Array<{ workspaceId: string; text: string; targetAgentId?: string }>
     promoted: Array<{ workspaceId: string; agentId: string }>
     runFolders: string[]
+    openedTimelines: string[]
     removedWorktrees: Array<{ profileId: string; path: string }>
     staleWorktrees: { path: string; branch?: string }[]
     appliedZones: Array<{ profileId: string; zones: unknown }>
@@ -524,6 +525,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     userMessages: [] as Array<{ workspaceId: string; text: string; targetAgentId?: string }>,
     promoted: [] as Array<{ workspaceId: string; agentId: string }>,
     runFolders: [] as string[],
+    openedTimelines: [] as string[],
     removedWorktrees: [] as Array<{ profileId: string; path: string }>,
     staleWorktrees: [
       { path: '/repo/.vertragus/worktrees/old-1', branch: 'vertragus/paradiso/caronte' }
@@ -570,6 +572,9 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     async openRunFolder(workspaceId: string) {
       if (workspaceId === 'gone') throw new Error(`run folder rejected — unknown workspace ${workspaceId}`)
       this.runFolders.push(workspaceId)
+    },
+    openTimeline(workspaceId: string) {
+      this.openedTimelines.push(workspaceId)
     },
     focusAgent(agentId: string) {
       this.focused.push(agentId)
@@ -1446,6 +1451,23 @@ describe('workspaces (goal refill and after)', () => {
     expect(h.directory.runFolders).toEqual(['w1', 'w2'])
   })
 
+  it('opens the overview sheet — panel only, id required', () => {
+    h.ipc.invoke(APP_CHANNELS.workspacesOpenTimeline, PANEL_ID, { workspaceId: 'w1' })
+    h.ipc.invoke(APP_CHANNELS.workspacesOpenTimeline, PANEL_ID, 'w2')
+    expect(h.directory.openedTimelines).toEqual(['w1', 'w2'])
+
+    expect(() => h.ipc.invoke(APP_CHANNELS.workspacesOpenTimeline, PANEL_ID, {})).toThrow(
+      /missing workspace id/
+    )
+
+    for (const sender of [CLI_ID, EDITOR_ID, SETTINGS_ID, PROVIDER_EDITOR_ID, TIMELINE_ID]) {
+      expect(() =>
+        h.ipc.invoke(APP_CHANNELS.workspacesOpenTimeline, sender, { workspaceId: 'w1' })
+      ).toThrow(/not the panel/)
+    }
+    expect(h.directory.openedTimelines).toEqual(['w1', 'w2'])
+  })
+
   it('sends a follow-up to the running orchestrator', async () => {
     await h.ipc.invoke(APP_CHANNELS.workspacesSendToOrchestrator, PANEL_ID, {
       workspaceId: 'w1',
@@ -1512,6 +1534,7 @@ describe('workspaces (goal refill and after)', () => {
         focusAgent() {},
         closeAgentWindow() {},
         focusWorkspace() {},
+        openTimeline() {},
         listStaleWorktrees: async () => refuse(),
         removeWorktree: async () => refuse(),
         worktreePathOf: () => undefined
@@ -3089,6 +3112,7 @@ describe('production registration', () => {
       postUserMessage: vi.fn(),
       promoteAgentBranch: vi.fn(async () => {}),
       openRunFolder: vi.fn(async () => {}),
+      openTimeline: vi.fn(),
       focusAgent: vi.fn(),
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
@@ -3108,6 +3132,7 @@ describe('production registration', () => {
       postUserMessage: vi.fn(),
       promoteAgentBranch: vi.fn(async () => {}),
       openRunFolder: vi.fn(async () => {}),
+      openTimeline: vi.fn(),
       focusAgent: vi.fn(),
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
@@ -3163,6 +3188,7 @@ describe('stub workspace directory', () => {
     const stub = createStubWorkspaceDirectory(() => 'en', 'boom')
     expect(stub.list()).toEqual([])
     expect(() => stub.focusWorkspace('w1')).not.toThrow()
+    expect(() => stub.openTimeline('w1')).not.toThrow()
   })
 })
 

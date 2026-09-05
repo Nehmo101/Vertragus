@@ -12,6 +12,13 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Added
 
+- **Goal compile on every Play.** A short goal field is no longer a
+  pass-through. The host classifies a recipe, probes the repo, and writes
+  `.vertragus/runs/<id>/brief.md` (plus `brief.json`) before the
+  orchestrator's first turn. The card keeps the user's sentence and shows
+  a one-line preview. Profile picker `goalCompile`: `scout` (default),
+  `cheap`, or `off`. Playbooks may name a recipe. Not RAG, not a second
+  orchestrator, not a pre-started scout agent.
 - **End-of-run auto-promote of the orchestrator branch.** With `autoPromote`
   on, the host merges the orchestrator's own branch into the repository
   checkout at `record_retro` or Stop — even if no subagent ran. `autoPr`
@@ -212,6 +219,12 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Fixed
 
+- **Bare Play with Grok never attached MCP.** `grok` with no trailing prompt
+  opens the welcome screen, so project `.grok/config.toml` is never loaded
+  and `waitForSession` times out. Every native Grok launch now passes
+  `--session-id <uuid>` (a new TUI conversation, not a fake first turn). A
+  start without a goal still leaves `goalText` unset; H2 refill still
+  works. Never `-p` / `--single` / `--max-turns`.
 - **Start-with-goal on Cursor/Ollama submitted two turns.** Providers that
   type the orchestrator prompt into the PTY (no launch flag) used to submit
   that prompt, then PTY-seed the user's goal as a second Enter — the extra
@@ -321,6 +334,9 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Changed
 
+- **Starting a workspace or clicking its card no longer opens the overview.**
+  Play, Resume, remote start, and `VERTRAGUS_DEV_RUN` leave the glass timeline
+  sheet closed. A button on the workspace card opens or focuses it.
 - **The app version is `1.0.0`** — the first tagged release. The committed
   version is a patch BASE (`X.Y.0`): main-channel prereleases add the run
   number to it, so main is opened at `X.(Y+1).0` right after a tag. Those
@@ -347,3 +363,9 @@ No release has been tagged yet; everything lives under Unreleased.
 - The Docs role prompt now states the new language policy: docs are
   English-canonical with maintained German `.de.md` twins — write both when
   touching docs.
+- The Worker role prompt prefers surgical file edits and keeps scratch
+  checks out of the tree unless the task or repo already wants tests. The
+  subagent contract batches independent reads in one response. The
+  orchestrator system prompt (and the lead) treats a plan or promise in the
+  last paragraph as unfinished work; the orchestrator also writes a
+  stand-alone recap before the next `await_events`.

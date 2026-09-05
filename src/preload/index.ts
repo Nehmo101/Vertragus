@@ -320,6 +320,7 @@ const APP = {
   workspacesUserMessage: 'workspaces:userMessage',
   workspacesPromoteAgent: 'workspaces:promoteAgent',
   workspacesOpenRunFolder: 'workspaces:openRunFolder',
+  workspacesOpenTimeline: 'workspaces:openTimeline',
   attachmentsSave: 'attachments:save',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
@@ -465,6 +466,8 @@ export interface WorkspaceSummary {
   taskText?: string
   /** User's workspace goal (full text); absent = "no goal" hint on the card. */
   goalText?: string
+  /** Host compile preview; absent when compile is off. */
+  compiledPreview?: string
   /** C5: orchestrator alive but silent on its tools — the card shows a hint. */
   orchestratorIdle?: boolean
   /** C6: a successor orchestrator is spawning — the card shows a badge. */
@@ -820,6 +823,12 @@ const app = {
    */
   openRunFolder: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesOpenRunFolder, { workspaceId }),
+  /**
+   * Open (or refocus) this run's overview sheet. A card click does not; the
+   * dedicated button on the workspace card does.
+   */
+  openTimeline: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesOpenTimeline, { workspaceId }),
   /** Stale worktrees of this profile's repo — the panel's cleanup list. */
   listStaleWorktrees: (profileId: string): Promise<StaleWorktreeSummary[]> =>
     ipcRenderer.invoke(APP.worktreesList, { profileId }),

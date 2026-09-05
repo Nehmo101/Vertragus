@@ -110,6 +110,13 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/never poll list_agents/i)
   })
 
+  it('treats a last-paragraph plan as unfinished work and asks for a stand-alone recap', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/unfinished work: call the tools now/i)
+    expect(prompt).toMatch(/recap that stands on its own/i)
+    expect(prompt).toMatch(/Before the next await_events/i)
+  })
+
   it('requires prompt answers to agent_question', () => {
     expect(buildOrchestratorSystemPrompt(base)).toMatch(
       /agent_question: answer it promptly with send_to_agent/i
@@ -251,5 +258,11 @@ describe('buildOrchestratorSystemPrompt', () => {
     const prompt = buildLeadSystemPrompt({ ...base, area: 'payments' })
     expect(prompt).not.toContain('Question mode for this run')
     expect(prompt).not.toContain('ask_user')
+  })
+
+  it('treats a last-paragraph plan as unfinished work for the lead too', () => {
+    const prompt = buildLeadSystemPrompt({ ...base, area: 'payments' })
+    expect(prompt).toMatch(/unfinished work: call the tools now/i)
+    expect(prompt).not.toMatch(/Before the next await_events/i)
   })
 })

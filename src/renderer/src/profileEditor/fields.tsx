@@ -1,6 +1,11 @@
 import { useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { QUESTION_MODES, type QuestionMode } from '@shared/schema/profile'
+import {
+  GOAL_COMPILE_MODES,
+  QUESTION_MODES,
+  type GoalCompileMode,
+  type QuestionMode
+} from '@shared/schema/profile'
 import type { ModelDiscoveryResult, ProviderListEntry } from '../../../preload'
 import { NEW_PROVIDER_VALUE } from '../providerEditor/model'
 import { filterModelOptions, modelComboStatus, modelOptions, type EffortChoice } from './model'
@@ -198,6 +203,34 @@ export function QuestionModeSelect({
       {QUESTION_MODES.map((mode) => (
         <option key={mode} value={mode}>
           {t(`profileEditor.questionMode.${mode}`)}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+interface GoalCompileSelectProps {
+  value: GoalCompileMode
+  onChange(value: GoalCompileMode): void
+  className?: string
+}
+
+/** Always one of off / cheap / scout — host compile of the Play goal. */
+export function GoalCompileSelect({
+  value,
+  onChange,
+  className
+}: GoalCompileSelectProps): React.JSX.Element {
+  const { t } = useTranslation()
+  return (
+    <select
+      className={className ?? 'pe-input'}
+      value={value}
+      onChange={(event) => onChange(event.target.value as GoalCompileMode)}
+    >
+      {GOAL_COMPILE_MODES.map((mode) => (
+        <option key={mode} value={mode}>
+          {t(`profileEditor.goalCompile.${mode}`)}
         </option>
       ))}
     </select>

@@ -183,6 +183,15 @@ export function workspaceGoalLine(
   return workspace.active ? t('panel.noGoal') : undefined
 }
 
+/** Host compile preview under the raw goal. Absent when compile is off. */
+export function workspaceCompileLine(
+  t: Translate,
+  workspace: Pick<WorkspaceSummary, 'compiledPreview'>
+): string | undefined {
+  const preview = workspace.compiledPreview?.trim()
+  return preview ? t('panel.compiledPreview', { preview }) : undefined
+}
+
 /**
  * C6: the cutover badge. A workspace mid-succession is neither working nor
  * dead — its seat is being replaced — and saying so is what stops the greyed

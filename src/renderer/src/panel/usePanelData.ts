@@ -61,6 +61,8 @@ export interface PanelData {
   promoteAgent(workspaceId: string, agentId: string): void
   /** Reveal this run's artefacts (spill/, tasks.json, events.jsonl) on disk. */
   openRunFolder(workspaceId: string): void
+  /** Open (or refocus) this run's overview sheet. A card click does not. */
+  openTimeline(workspaceId: string): void
   focusAgent(agentId: string): void
   /** Close a finished agent's CLI window; the row and last task stay. */
   closeAgentWindow(agentId: string): void
@@ -206,6 +208,7 @@ export function usePanelData(): PanelData {
     promoteAgent: (workspaceId, agentId) =>
       run((api) => api.promoteAgentBranch(workspaceId, agentId)),
     openRunFolder: (workspaceId) => run((api) => api.openRunFolder(workspaceId)),
+    openTimeline: (workspaceId) => run((api) => api.openTimeline(workspaceId)),
     focusAgent: (agentId) => run((api) => api.focusAgent(agentId)),
     closeAgentWindow: (agentId) => run((api) => api.closeAgentWindow(agentId)),
     focusWorkspace: (workspaceId) => run((api) => api.focusWorkspace(workspaceId)),

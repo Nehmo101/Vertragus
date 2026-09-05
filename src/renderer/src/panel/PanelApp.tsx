@@ -241,6 +241,7 @@ export function PanelApp(): React.JSX.Element {
                   onUserMessage={panel.sendUserMessage}
                   onPromoteAgent={panel.promoteAgent}
                   onOpenRunFolder={panel.openRunFolder}
+                  onOpenTimeline={panel.openTimeline}
                   onSaveAttachment={panel.saveAttachment}
                   bridge={panel.bridge}
                 />

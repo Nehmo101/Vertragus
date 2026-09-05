@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { buildAgentArgv } from '@main/agents/spawn'
+import { GROK_SESSION_ID_FLAG } from '@main/mcp/attach'
 import type { McpServerHandle, RegisteredWorkspace } from '@main/mcp/server'
 import type { BrowserBridge } from '@main/mcp/browserBridge'
 import type { WorkspaceMcpContext } from '@main/mcp/types'
@@ -388,6 +389,37 @@ describe('startWorkspace', () => {
     expect(pastes[0]).toMatch(/\n\nFix the login bug$/)
   })
 
+  it('compiles a cheap goal into a contract, keeps the card on the raw sentence', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'vertragus-compile-'))
+    writeFileSync(join(repo, 'AGENTS.md'), '# Demo\n\n- Never rewrite auth\n')
+    writeFileSync(join(repo, 'package.json'), JSON.stringify({ scripts: { test: 'vitest' } }))
+    mkdirSync(join(repo, 'src'))
+    const artifacts: Array<{ name: string; body: string }> = []
+    try {
+      const { manager, spawns } = harness({
+        journal: () => ({
+          path: join(repo, '.vertragus', 'runs', 'x', 'events.jsonl'),
+          append: () => {},
+          writeMeta: () => {},
+          writeArtifact: (name, contents) => artifacts.push({ name, body: contents })
+        })
+      })
+      const running = await manager.startWorkspace(
+        testProfile({ repoPath: repo, goalCompile: 'cheap' }),
+        { goal: 'Fix the login bug' }
+      )
+      expect(running.workspace.goalText).toBe('Fix the login bug')
+      expect(running.workspace.compiledPreview).toMatch(/Compiled · fix-and-verify/)
+      expect(spawns[0]!.pty.written.some((chunk) => chunk.includes('Recipe: fix-and-verify'))).toBe(
+        true
+      )
+      expect(artifacts.map((row) => row.name)).toEqual(['brief.md', 'brief.json'])
+      expect(artifacts[0]!.body).toContain('Never rewrite auth')
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+
   it('delivers a grok start-goal as a trailing positional argv, without PTY-seeding it', async () => {
     const { manager, spawns } = harness()
     const running = await manager.startWorkspace(
@@ -456,6 +488,22 @@ describe('startWorkspace', () => {
     expect(running.workspace.goalText).toBeUndefined()
     expect(spawns[0]!.input.initialPrompt).toBeUndefined()
     expect(spawns[0]!.pty.written).toEqual([])
+
+    const cwd = mkdtempSync(join(tmpdir(), 'vertragus-ws-grok-bare-'))
+    try {
+      const { argv } = buildAgentArgv({ ...spawns[0]!.input, cwd })
+      const sessionAt = argv.indexOf(GROK_SESSION_ID_FLAG)
+      expect(sessionAt).toBeGreaterThanOrEqual(0)
+      // Pinned to the agent id (a UUID in production) so the usage reader
+      // finds the session file; never a second, freshly minted pair.
+      expect(argv[sessionAt + 1]).toBe(spawns[0]!.input.sessionId)
+      expect(argv.filter((arg) => arg === GROK_SESSION_ID_FLAG)).toHaveLength(1)
+      expect(argv).not.toContain('-p')
+      expect(argv).not.toContain('--single')
+      expect(argv).not.toContain('--max-turns')
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
 
     const blank = await manager.startWorkspace(
       testProfile({ orchestrator: { providerId: 'grok' } }),

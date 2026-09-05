@@ -565,6 +565,8 @@ export class Workspace implements AgentHost {
    * assignment when Play was bare.
    */
   private goal: string | undefined
+  /** One-line host compile preview; absent when compile is off or failed. */
+  private compiledPreviewText: string | undefined
   /**
    * Orchestrator row's current task, shortened via {@link taskNote}. Set with
    * a delivered start-with-goal / {@link assignGoal}, then by later CLI
@@ -652,6 +654,20 @@ export class Workspace implements AgentHost {
    */
   get goalText(): string | undefined {
     return this.goal
+  }
+
+  /**
+   * Host compile preview for the card. The user's {@link goalText} stays the
+   * raw Play sentence; this is the one-line "Compiled · recipe · …" hint.
+   */
+  get compiledPreview(): string | undefined {
+    return this.compiledPreviewText
+  }
+
+  /** Record a successful compile. No-op on empty preview. */
+  noteCompiled(preview: string | undefined): void {
+    const text = preview?.trim()
+    this.compiledPreviewText = text ? text : undefined
   }
 
   /**
@@ -1777,6 +1793,12 @@ export class Workspace implements AgentHost {
    */
   async startOrchestrator(options?: {
     initialPrompt?: string
+    /**
+     * What the card stores as {@link goalText}. Defaults to `initialPrompt`.
+     * The compile path seeds a long contract as `initialPrompt` and passes
+     * the user's raw sentence here so the card does not quote the novel.
+     */
+    displayGoal?: string
     attachmentIds?: readonly string[]
   }): Promise<StartedAgent> {
     this.assertOpen()
@@ -1801,7 +1823,7 @@ export class Workspace implements AgentHost {
       if (initialPrompt) {
       const provider = this.requireProvider(this.profile.orchestrator.providerId)
       if (buildInitialPromptArgs(provider, initialPrompt).length > 0) {
-        this.recordDeliveredGoal(initialPrompt)
+        this.recordDeliveredGoal(options?.displayGoal?.trim() || initialPrompt)
       }
     }
     return this.startedOf(record)
@@ -2345,7 +2367,7 @@ export class Workspace implements AgentHost {
    * the MCP loop is the two-brains failure H1 documents; steering an existing
    * run is {@link postUserMessage}'s job.
    */
-  async assignGoal(goal: string): Promise<void> {
+  async assignGoal(goal: string, options?: { displayGoal?: string }): Promise<void> {
     this.assertOpen()
     if (this.goal) throw new Error('goal_already_set')
     const record = this.orchestratorRecord
@@ -2357,7 +2379,7 @@ export class Workspace implements AgentHost {
     if (!accepted) {
       throw new Error(`${record.name} did not accept the goal — type it into its terminal instead.`)
     }
-    this.recordDeliveredGoal(goal)
+    this.recordDeliveredGoal(options?.displayGoal?.trim() || goal)
   }
 
   /** A delivered start-with-goal is both the workspace goal and the current task. */
