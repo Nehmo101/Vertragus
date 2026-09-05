@@ -8,15 +8,19 @@ import {
   CUSTOM_ROLE_VALUE,
   coerceRowEffort,
   customRoleTemplate,
+  isLeadRole,
   rowEffortOptions,
+  slotWithRole,
   type DraftErrors,
+  type RoleOption,
   type SlotDraft
 } from './model'
 
 interface Props {
   slot: SlotDraft
   index: number
-  roles: RoleTemplate[]
+  /** `roleOptions(...)` — the templates plus the fixed Lead entry. */
+  roles: RoleOption[]
   providers: ProviderListEntry[]
   providersLoading: boolean
   models: Record<string, ModelDiscoveryResult>
@@ -36,6 +40,10 @@ interface Props {
  * `Max` and the profile-wide limit. The role select carries the role's accent
  * colour on its edge, which is the same colour the agent's window and status
  * dot will have later — the profile is where you learn the colour code.
+ *
+ * A LEAD slot is the exception: it is not a role template, so it has no prompt
+ * to edit here and no custom-role entry, and it never gets extra MCP servers.
+ * The row says instead how a lead is started and what the slot decides.
  */
 export function SlotRow({
   slot,
@@ -58,6 +66,7 @@ export function SlotRow({
   const [customError, setCustomError] = useState<string | null>(null)
 
   const color = roleColor(slot.roleId, index)
+  const isLead = isLeadRole(slot.roleId)
   const roleError = errors[`slots.${index}.roleId`]
   const modelError = errors[`slots.${index}.model`]
   const maxError = errors[`slots.${index}.maxCount`]
@@ -95,7 +104,7 @@ export function SlotRow({
               return
             }
             setCustomOpen(false)
-            onChange({ ...slot, roleId: value })
+            onChange(slotWithRole(slot, value))
           }}
         >
           {roles.map((role) => (
@@ -103,7 +112,9 @@ export function SlotRow({
               {role.name}
             </option>
           ))}
-          <option value={CUSTOM_ROLE_VALUE}>{t('profileEditor.customRole')}</option>
+          {isLead ? null : (
+            <option value={CUSTOM_ROLE_VALUE}>{t('profileEditor.customRole')}</option>
+          )}
         </select>
 
         <ProviderSelect
@@ -175,7 +186,9 @@ export function SlotRow({
         <p className="pe-error">{roleError ?? modelError ?? maxError}</p>
       ) : null}
 
-      {customOpen ? (
+      {isLead ? <p className="pe-hint">{t('profileEditor.leadSlotHint')}</p> : null}
+
+      {customOpen && !isLead ? (
         <div className="pe-custom-role">
           <input
             className="pe-input"

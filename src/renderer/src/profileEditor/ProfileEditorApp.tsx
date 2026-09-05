@@ -15,6 +15,7 @@ import {
   coerceRowEffort,
   newSlotDraft,
   promptIdentities,
+  roleOptions,
   rowEffortOptions,
   type ProfileDraft,
   type SlotDraft
@@ -44,6 +45,9 @@ export function ProfileEditorApp({
   const { t } = useTranslation()
   const editor = useProfileEditor(profileId, providerHint)
   const { draft } = editor
+  // The slot role select: every template plus Lead as a fixed entry. Computed
+  // once per role list — the row renders it, it does not derive it.
+  const slotRoles = roleOptions(editor.roles, roleColor)
 
   if (editor.fatal) {
     return (
@@ -215,7 +219,7 @@ export function ProfileEditorApp({
                   key={slot.id}
                   slot={slot}
                   index={index}
-                  roles={editor.roles}
+                  roles={slotRoles}
                   providers={editor.providers}
                   providersLoading={editor.providersLoading}
                   models={editor.models}

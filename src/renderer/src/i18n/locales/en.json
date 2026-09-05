@@ -232,6 +232,7 @@
     "customRoleName": "Name of the role",
     "customRolePromptPlaceholder": "What this role does — and what it must not touch.",
     "customRoleSave": "Add role",
+    "leadSlotHint": "Started by the orchestrator via start_orchestrator; runs on this slot’s provider, model and effort. Without a lead slot, leads use the orchestrator’s provider.",
     "autoSubmitTasks": "Submit tasks automatically",
     "autoSubmitTasksHint": "Vertragus presses Enter for the agent. Off: the task stays in the CLI’s input field and has to be submitted by hand.",
     "questionModeLabel": "Follow-up questions",
