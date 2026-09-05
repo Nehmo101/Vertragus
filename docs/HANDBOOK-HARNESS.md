@@ -420,6 +420,16 @@ with `hide()` and never the panel. Restore opens the last selected workspace's a
 their zones; eye or hotkey with nothing visible does the same instead
 of recording an empty hide.
 
+The PTY explicitly sets `TERM=xterm-256color` to match the terminal surface;
+Windows ConPTY does not derive it from node-pty's `name`. An inherited
+`TERM=dumb` otherwise stops Codex at a confirmation prompt before assignment.
+Codex launches also trust their own worktree through a process-local
+`-c projects={"<worktree>"={trust_level="trusted"}}` override. This prevents
+the fresh-directory trust menu from consuming the first task, including for
+orchestrators and leads, without writing global Codex config or changing the
+launch's approval/sandbox policy. Verified with Codex 0.153.3 and a ChatGPT
+login through `tests/live/handover.live.test.ts` (assignment → `report_done`).
+
 ---
 
 ## Phase E — integration, memory, eval (late)

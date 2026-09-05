@@ -45,6 +45,28 @@ function waitForExit(agent: PtyAgent, timeoutMs = 15_000): Promise<number> {
 }
 
 describe('PtyAgent (real processes)', () => {
+  it.each(['dumb', '', undefined])(
+    'starts an interactive terminal when the parent TERM is %s',
+    async (term) => {
+      vi.stubEnv('TERM', term)
+      const agent = new PtyAgent()
+      try {
+        agent.spawn({
+          file: NODE,
+          args: ['-e', 'process.stdout.write("terminal=" + process.env.TERM)'],
+          env: NODE_ENV_OVERRIDE
+        })
+        await waitForOutput(agent, 'terminal=xterm-256color')
+        expect(await waitForExit(agent)).toBe(0)
+        expect(process.env.TERM).toBe(term)
+      } finally {
+        agent.kill()
+        vi.unstubAllEnvs()
+      }
+    },
+    TIMEOUT
+  )
+
   it(
     'streams output of a short-lived process and reports the exit code',
     async () => {
@@ -265,6 +287,17 @@ describe('PtyAgent (no process)', () => {
     const env = (spawn.mock.calls[0]![2].env ?? {}) as Record<string, string>
     expect(env.KEEP).toBe('yes')
     expect('DROP' in env).toBe(false)
+  })
+
+  it('keeps TERM consistent with the terminal even with a launch env override', () => {
+    const spawn = fakeSpawn()
+    const agent = new PtyAgent({ spawn })
+    agent.spawn({ file: 'x', env: { TERM: 'dumb', KEEP: 'yes' } })
+
+    expect(spawn.mock.calls[0]![2]).toMatchObject({
+      name: 'xterm-256color',
+      env: { TERM: 'xterm-256color', KEEP: 'yes' }
+    })
   })
 
   it('buffers pushed text (spawn errors) and fans it out to listeners', () => {

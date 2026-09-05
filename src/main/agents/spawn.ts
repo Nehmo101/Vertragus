@@ -66,6 +66,7 @@ import {
   leadMcpTools,
   orchestratorAllowedTools,
   orchestratorMcpTools,
+  tomlString,
   writeClaudeMcpConfigFile,
   writeCursorProjectMcpConfig,
   writeKimiAgentFile,
@@ -407,6 +408,13 @@ export async function buildAgentLaunch(
   deps: LaunchDeps = {}
 ): Promise<ResolvedLaunch> {
   const { argv, ptySystemPrompt } = buildAgentArgv(input)
+  if (input.provider.mcp.kind === 'codex-overrides') {
+    // A fresh worktree opens Codex's trust menu even in YOLO mode. Trust only
+    // this launch directory, process-locally, just as the other providers
+    // pre-accept their worktrees. An inline table keeps dots/backslashes in
+    // the path out of the CLI override parser's dotted-key splitting.
+    argv.unshift('-c', `projects={${tomlString(input.cwd)}={trust_level="trusted"}}`)
+  }
   const resolve = deps.resolve ?? resolveLaunch
   const command = input.provider.command
   const resolved = await resolve(command, argv, {

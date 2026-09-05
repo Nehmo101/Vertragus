@@ -126,7 +126,10 @@ export class PtyAgent implements PtyAgentLike {
       cols: this.currentCols,
       rows: this.currentRows,
       cwd: options.cwd,
-      env: cleanEnv({ ...process.env, ...options.env })
+      // ConPTY does not derive TERM from `name`. Describe our xterm surface
+      // explicitly: inherited TERM=dumb makes Codex stop at a startup prompt
+      // and consume the assignment as its answer instead of starting a turn.
+      env: cleanEnv({ ...process.env, ...options.env, TERM: 'xterm-256color' })
     })
     this.proc = proc
 
