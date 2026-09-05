@@ -143,6 +143,38 @@ describe('profiles', () => {
     expect(settings.getProfile('p1')!.slots[0]!.extraMcp).toEqual([])
   })
 
+  it('F: never re-attaches a stored extraMcp to a slot that became the lead', () => {
+    const { store: settings } = store()
+    const slot = { id: 's1', roleId: 'worker', providerId: 'claude' }
+    const extraMcp = [{ name: 'browser', url: 'http://127.0.0.1:9200/mcp' }]
+    settings.saveProfile({ ...validProfile, slots: [{ ...slot, extraMcp }] })
+    // The editor switches the role and omits the field — the merge must not
+    // bring the servers back: the schema rejects them on a lead, and a lead
+    // never gets extra MCP servers anyway.
+    settings.saveProfile({ ...validProfile, slots: [{ ...slot, roleId: 'lead' }] })
+    const lead = settings.getProfile('p1')!.slots[0]!
+    expect(lead.roleId).toBe('lead')
+    expect(lead.extraMcp).toBeUndefined()
+    // An explicit empty list on a lead slot is accepted and stored as-is.
+    settings.saveProfile({ ...validProfile, slots: [{ ...slot, roleId: 'lead', extraMcp: [] }] })
+    expect(settings.getProfile('p1')!.slots[0]!.extraMcp).toEqual([])
+    // The stored row stays readable afterwards — no dropped profile.
+    expect(settings.getProfiles()).toHaveLength(1)
+    expect(warn).not.toHaveBeenCalled()
+    // A sibling subagent slot keeps the E6 behaviour untouched.
+    settings.saveProfile({
+      ...validProfile,
+      slots: [{ ...slot, roleId: 'lead' }, { id: 's2', roleId: 'worker', providerId: 'claude', extraMcp }]
+    })
+    settings.saveProfile({
+      ...validProfile,
+      slots: [{ ...slot, roleId: 'lead' }, { id: 's2', roleId: 'worker', providerId: 'claude' }]
+    })
+    const [leadAgain, worker] = settings.getProfile('p1')!.slots
+    expect(leadAgain!.extraMcp).toBeUndefined()
+    expect(worker!.extraMcp).toEqual(extraMcp)
+  })
+
   it('zone → profile-save → placeAgentWindow still lands inside the zone', async () => {
     const { placeAgentWindow } = await import('@main/windows/placement')
     const { store: settings } = store()

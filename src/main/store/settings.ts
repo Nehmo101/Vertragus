@@ -33,6 +33,7 @@ import { z } from 'zod'
 import { AGENT_POLICIES, type AgentPolicy } from '@shared/agentPolicy'
 import { normalizeAppearance } from '@shared/appearance'
 import { normalizeCliSurface } from '@shared/cliSurface'
+import { LEAD_ROLE_ID } from '@shared/prompts/roles'
 import {
   parseProfiles,
   profileSchema,
@@ -454,11 +455,13 @@ export function createSettingsStore({ backend, warn = console.warn }: SettingsSt
           : parsed
       // E6: `extraMcp` has no form field either — a slot save that omits it
       // keeps what the same slot (by id) already stored. `extraMcp: []`
-      // explicitly clears it.
+      // explicitly clears it. F: never onto a lead slot — a slot switched to
+      // 'lead' sheds what it stored as a subagent, or the save would carry
+      // servers a lead must never get and fail the schema on the next parse.
       const next = {
         ...withZones,
         slots: withZones.slots.map((slot) => {
-          if (slot.extraMcp !== undefined) return slot
+          if (slot.extraMcp !== undefined || slot.roleId === LEAD_ROLE_ID) return slot
           const kept = existing?.slots.find((entry) => entry.id === slot.id)?.extraMcp
           return kept ? { ...slot, extraMcp: kept } : slot
         })

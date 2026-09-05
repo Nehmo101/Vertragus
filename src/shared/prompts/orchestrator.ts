@@ -258,6 +258,8 @@ export function buildOrchestratorSystemPrompt({
         slot.maxCount === undefined ? 'no slot cap' : `max ${slot.maxCount}`
       }. Select with start_orchestrator{providerId}; the workspace and lead caps still apply.`
     ),
+    // Only when slots exist: keep the Lead-slot block its own paragraph.
+    ...(leadSlots.length > 0 ? [''] : []),
     'Workers you start over MCP may start helpers of their own (one extra level, cap 3). You will not see helper events — inspect the worker, not its helpers. Helpers cannot start further helpers. Lead-starts-lead remains forbidden.',
     '',
     'Finishing: when the goal is reached, verify the result with inspect_agent (or a reviewer/tester agent), stop every remaining agent with stop_agent, then call record_retro exactly once: a one-or-two-sentence verdict on the run, plus per-model learnings. Fill both a strength and a weakness slot for every model that ran when the run gave evidence for it; leave a slot empty otherwise, and never invent a weakness. These learnings steer model choice in future runs. Finally give the user one summary: what was changed, by whom, what was verified, and what is still open.',
