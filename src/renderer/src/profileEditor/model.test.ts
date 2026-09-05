@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { profileSchema, ROLE_PROMPT_MAX_CHARS, type Profile } from '@shared/schema/profile'
-import { BUILTIN_ROLE_TEMPLATES, roleColor } from '@shared/prompts/roles'
+import { BUILTIN_ROLE_TEMPLATES, LEAD_COLOR, LEAD_ROLE_ID, roleColor } from '@shared/prompts/roles'
 import { initialRolePromptDraft } from '@shared/prompts/rolePrompt'
 import { translator } from '../i18n'
 import type { ModelDiscoveryResult, ProviderListEntry } from '../../../preload'
@@ -12,6 +12,7 @@ import {
   emptyDraft,
   effortSelectOptions,
   filterModelOptions,
+  isLeadRole,
   messageForPath,
   modelComboStatus,
   modelOptions,
@@ -20,6 +21,7 @@ import {
   resetInvalidEfforts,
   roleOptions,
   rowEffortOptions,
+  slotWithRole,
   toProfileInput,
   validateDraft,
   type ProfileDraft
@@ -89,6 +91,30 @@ describe('draft ⇄ profile', () => {
       repoPath: string
     }
     expect(input).toMatchObject({ name: 'Terra', repoPath: 'C:/git/terra' })
+  })
+
+  it('carries a slot’s extra MCP servers through, but never onto a lead slot', () => {
+    const extraMcp = [{ name: 'browser', url: 'http://127.0.0.1:9200/mcp' }]
+    const withMcp = profileSchema.parse({
+      ...SAVED,
+      slots: [{ id: 's1', roleId: 'worker', providerId: 'codex', extraMcp }]
+    })
+    const carried = draftFromProfile(withMcp)
+    expect(carried.slots[0]!.extraMcp).toEqual(extraMcp)
+    const roundTrip = validateDraft(t, carried)
+    expect(roundTrip.ok).toBe(true)
+    if (roundTrip.ok) expect(roundTrip.profile.slots[0]!.extraMcp).toEqual(extraMcp)
+
+    // A lead slot is a legal slot — and a stale extraMcp on it is not sent.
+    const asLead = validateDraft(
+      t,
+      draft({ slots: [{ ...carried.slots[0]!, roleId: LEAD_ROLE_ID }] })
+    )
+    expect(asLead.ok).toBe(true)
+    if (asLead.ok) {
+      expect(asLead.profile.slots[0]!.roleId).toBe(LEAD_ROLE_ID)
+      expect('extraMcp' in asLead.profile.slots[0]!).toBe(false)
+    }
   })
 
   it('keeps a zone layout the editor does not touch', () => {
@@ -308,11 +334,33 @@ describe('pickers', () => {
     expect(modelOptions([])).toEqual([])
   })
 
-  it('lists the role templates with their accent colour', () => {
+  it('lists the role templates with their accent colour, then Lead once, last', () => {
     const options = roleOptions(BUILTIN_ROLE_TEMPLATES, roleColor)
     expect(options[0]).toEqual({ id: 'worker', name: 'Worker', color: roleColor('worker', 0) })
-    expect(options).toHaveLength(BUILTIN_ROLE_TEMPLATES.length)
+    // Lead is a fixed entry after every template — the custom-role marker the
+    // row appends comes after it, so the id must never be that marker.
+    expect(options).toHaveLength(BUILTIN_ROLE_TEMPLATES.length + 1)
+    expect(options.at(-1)).toEqual({ id: LEAD_ROLE_ID, name: 'Lead', color: LEAD_COLOR })
+    expect(options.filter((option) => isLeadRole(option.id))).toHaveLength(1)
     expect(CUSTOM_ROLE_VALUE).not.toBe('')
+    expect(CUSTOM_ROLE_VALUE).not.toBe(LEAD_ROLE_ID)
+
+    // A custom template that reuses the lead id does not double the entry.
+    const shadowed = roleOptions(
+      [...BUILTIN_ROLE_TEMPLATES, customRoleTemplate('Lead again', 'x', LEAD_ROLE_ID)],
+      roleColor
+    )
+    expect(shadowed.filter((option) => isLeadRole(option.id))).toHaveLength(1)
+    expect(shadowed.at(-1)?.id).toBe(LEAD_ROLE_ID)
+  })
+
+  it('drops the extra MCP servers when a slot becomes the lead, keeps them otherwise', () => {
+    const extraMcp = [{ name: 'browser', url: 'http://127.0.0.1:9200/mcp' }]
+    const slot = { ...newSlotDraft('worker', 'codex', 'slot-x'), extraMcp }
+    expect(slotWithRole(slot, 'reviewer')).toEqual({ ...slot, roleId: 'reviewer' })
+    const lead = slotWithRole(slot, LEAD_ROLE_ID)
+    expect(lead.roleId).toBe(LEAD_ROLE_ID)
+    expect('extraMcp' in lead).toBe(false)
   })
 
   it('lists Orchestrator and Lead ahead of every role template for extra prompts', () => {

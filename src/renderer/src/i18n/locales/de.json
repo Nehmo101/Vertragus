@@ -232,6 +232,7 @@
     "customRoleName": "Name der Rolle",
     "customRolePromptPlaceholder": "Was diese Rolle tut — und was sie nicht anfassen darf.",
     "customRoleSave": "Rolle übernehmen",
+    "leadSlotHint": "Vom Orchestrator über start_orchestrator gestartet; läuft mit Provider, Modell und Effort dieses Slots. Ohne Lead-Slot laufen Leads auf dem Provider des Orchestrators.",
     "autoSubmitTasks": "Aufträge automatisch absenden",
     "autoSubmitTasksHint": "Vertragus drückt für den Agenten Enter. Aus: Der Auftrag bleibt im Eingabefeld der CLI stehen und muss von Hand abgeschickt werden.",
     "questionModeLabel": "Rückfragen",
