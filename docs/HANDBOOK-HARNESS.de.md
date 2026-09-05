@@ -429,6 +429,18 @@ Restore öffnet die Agenten des zuletzt gewählten Workspace in ihren Zonen;
 Auge oder Hotkey ohne sichtbares Ziel macht dasselbe, statt einen leeren
 Hide-Zustand zu merken.
 
+Die PTY setzt `TERM=xterm-256color` explizit passend zur Terminal-Oberfläche;
+Windows ConPTY leitet es nicht aus dem node-pty-Parameter `name` ab. Ein
+geerbtes `TERM=dumb` hält Codex sonst vor der Aufgabenübergabe an einem
+Bestätigungsdialog an. Codex-Starts vertrauen außerdem ihrem eigenen Worktree
+über den pro Prozess gesetzten Override
+`-c projects={"<worktree>"={trust_level="trusted"}}`. Dadurch verschluckt der
+Vertrauensdialog für neue Verzeichnisse die erste Aufgabe nicht mehr, auch
+bei Orchestratoren und Leads. Die globale Codex-Konfiguration und die
+Approval-/Sandbox-Policy des Starts bleiben unverändert. Verifiziert mit
+Codex 0.153.3 und ChatGPT-Login über `tests/live/handover.live.test.ts`
+(Aufgabenübergabe → `report_done`).
+
 ---
 
 ## Phase E — Integration, Gedächtnis, Eval (spät)

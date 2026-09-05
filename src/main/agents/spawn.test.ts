@@ -855,6 +855,31 @@ describe('yolo', () => {
 })
 
 describe('buildAgentLaunch', () => {
+  it.each(['orchestrator', 'lead', 'subagent'] as const)(
+    'trusts only the Codex %s worktree through a process-local override',
+    async (kind) => {
+      const worktree = 'C:\\Projects\\repo.v2\\.vertragus\\worktrees\\agent-1'
+      const resolve = vi.fn(async (_command: string, args: string[]) => ({
+        file: 'codex.exe',
+        args
+      }))
+      const ensureTrust = vi.fn()
+      const pty = new FakePty()
+      const { launch } = await spawnAgent(
+        launchInput({ provider: preset('codex'), kind, cwd: worktree, yolo: false }),
+        { resolve, createPty: () => pty, ensureTrust }
+      )
+
+      expect(launch.args.slice(0, 2)).toEqual([
+        '-c',
+        'projects={"C:\\\\Projects\\\\repo.v2\\\\.vertragus\\\\worktrees\\\\agent-1"={trust_level="trusted"}}'
+      ])
+      expect(pty.spawnOptions?.args).toEqual(launch.args)
+      expect(launch.args).not.toContain('--dangerously-bypass-approvals-and-sandbox')
+      expect(ensureTrust).not.toHaveBeenCalled()
+    }
+  )
+
   it('resolves the command instead of handing node-pty a bare name', async () => {
     const resolve = vi.fn(async (command: string, args: string[]) => ({
       file: `C:\\shims\\${command}.exe`,
@@ -1334,4 +1359,3 @@ describe('E6 extra MCP servers', () => {
     }
   })
 })
-
