@@ -25,7 +25,7 @@ import type {
   WorkspaceRuntime
 } from './types'
 import type { SuccessionRequest } from '@shared/schema/handoff'
-import type { AgentDoneStatus } from '@shared/schema/events'
+import type { AgentDoneStatus, TokenUsage } from '@shared/schema/events'
 
 export interface CapturedTool {
   name: string
@@ -97,6 +97,8 @@ export interface FakeHostOptions {
    */
   holdSuccession?: boolean
   successionError?: string
+  /** When set, {@link FakeAgentHost.readTokenUsage} throws this message. */
+  usageError?: string
 }
 
 const FAKE_HEAD = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -112,6 +114,9 @@ export class FakeAgentHost implements AgentHost {
   snapshots = new Map<string, WorktreeFacts>()
   /** Canned raised ask windows per agent (ms); absent → classic 50 s default. */
   askWindows = new Map<string, number>()
+  /** Canned CLI-recorded usage per agent. */
+  tokenUsages = new Map<string, TokenUsage>()
+  readTokenUsageCalls: string[] = []
   /** Live root id the fake succession reports as predecessor. */
   orchestratorId = 'orch-live'
   /** A3: every `adoptOnDone` the tool layer made — the adoption hook. */
@@ -148,6 +153,12 @@ export class FakeAgentHost implements AgentHost {
 
   askTimeoutMsFor(agentId: string): number | undefined {
     return this.askWindows.get(agentId)
+  }
+
+  async readTokenUsage(agentId: string): Promise<TokenUsage | undefined> {
+    this.readTokenUsageCalls.push(agentId)
+    if (this.options.usageError) throw new Error(this.options.usageError)
+    return this.tokenUsages.get(agentId)
   }
 
   beginAgent(input: StartAgentInput): StartingAgent {

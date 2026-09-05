@@ -74,6 +74,7 @@ import { NameAllocator } from '@main/agents/names'
 import type { PtyExitInfo, Unsubscribe } from '@main/agents/PtyAgent'
 import { PtyAgent } from '@main/agents/PtyAgent'
 import { spawnAgent, type AgentLaunchInput, type AgentPty, type SpawnedAgent } from '@main/agents/spawn'
+import { readTokenUsage } from '@main/providers/usage'
 import { inspectWorktree, snapshotWorktree } from '@main/agents/inspectWorktree'
 import {
   commitWorktree,
@@ -145,7 +146,7 @@ import {
 } from '@shared/schema/mcpServer'
 import { buildInitialPromptArgs, type ProviderConfig } from '@shared/schema/provider'
 import type { ZoneLayout } from '@shared/schema/zones'
-import type { AgentDoneStatus } from '@shared/schema/events'
+import type { AgentDoneStatus, TokenUsage } from '@shared/schema/events'
 import { runsDir } from './journal'
 import type { TaskStatus } from '@shared/schema/tasks'
 import { SentinelParser, type SentinelReport } from './sentinel'
@@ -337,6 +338,13 @@ export interface WorkspaceDeps {
    * `createWorktreeFor` and before spawn / assignGoal. Absent = no-op (tests).
    */
   materializeAttachments?: (ids: readonly string[], worktreePath: string) => Promise<void>
+  /** Injectable usage reader; tests inject, production uses the CLI log reader. */
+  readTokenUsage?: typeof readTokenUsage
+  /**
+   * Fired after a post-exit usage refresh. The manager passes `notifyChange`;
+   * absent = no tick, harmless.
+   */
+  onTokenUsageRefreshed?: () => void
 }
 
 /** The slice of the retro sink a single workspace consumes (Electron-free). */
@@ -405,6 +413,8 @@ interface AgentRecord {
   /** E4: wall-clock bookkeeping — when this agent started and (maybe) ended. */
   startedAt: number
   endedAt?: number
+  /** Last host read; final once the process is gone. */
+  tokenUsage?: TokenUsage
   /**
    * Event cursor when this agent last received an assignment. An `agent_done`
    * newer than this proves the agent confirmed *this* task — which is exactly
@@ -1035,7 +1045,8 @@ export class Workspace implements AgentHost {
           mcpUrl: urls.leadUrl(pending.agentId),
           fileTag: `lead-${pending.agentId}`,
           configDir: this.deps.configDir,
-          systemPrompt
+          systemPrompt,
+          sessionId: record.agentId
         },
         { createPty: () => record.pty }
       )
@@ -1107,7 +1118,8 @@ export class Workspace implements AgentHost {
         fileTag: `sub-${pending.agentId}`,
         configDir: this.deps.configDir,
         systemPrompt: this.systemPromptFor(pending.roleId, template.prompt),
-        extraMcpServers: this.extraMcpServersForLaunch()
+        extraMcpServers: this.extraMcpServersForLaunch(),
+        sessionId: record.agentId
       }
       this.setBoot(record, 'mcp')
       spawned = await (this.deps.spawn ?? spawnAgent)(launchInput, { createPty: () => record.pty })
@@ -1162,6 +1174,10 @@ export class Workspace implements AgentHost {
     const record = this.agents.get(agentId)
     if (!record) return false
     const wasRunning = record.pty.isAlive && !record.stopped
+    if (wasRunning) await this.readTokenUsage(agentId)
+    // The read yielded: a concurrent stop (close(), a second stop_agent) may
+    // have terminated the record meanwhile — one kill, one agent_stopped.
+    if (record.stopped) return false
     this.terminate(record)
     // The record stays listed as `stopped`: the orchestrator is told to verify
     // with read_output, and a scrollback it can no longer reach is useless.
@@ -1637,7 +1653,8 @@ export class Workspace implements AgentHost {
           branch: record.branch,
           lastOutputAgeSec: Math.max(0, Math.round((now - record.lastOutputAt) / 1_000)),
           ...(record.lead ? { kind: 'lead' as const } : {}),
-          reporting: this.reportingForProvider(record.providerId)
+          reporting: this.reportingForProvider(record.providerId),
+          ...(record.tokenUsage ? { tokenUsage: record.tokenUsage } : {})
         })),
       // Reservations: begun but not yet spawned. They occupy their slot (the
       // `start_agent` limit check counts this list), and the orchestrator sees
@@ -1657,6 +1674,41 @@ export class Workspace implements AgentHost {
           reporting: this.reportingForProvider(pending.providerId)
         }))
     ]
+  }
+
+  private recordOf(agentId: string): AgentRecord | undefined {
+    return this.agents.get(agentId) ??
+      (this.orchestratorRecord?.agentId === agentId ? this.orchestratorRecord : undefined)
+  }
+
+  private async probeTokenUsage(record: AgentRecord): Promise<void> {
+    const provider = this.deps.providers.find((candidate) => candidate.id === record.providerId)
+    if (!provider?.usageSource) return
+    try {
+      const usage = await (this.deps.readTokenUsage ?? readTokenUsage)({
+        source: provider.usageSource,
+        cwd: record.worktreePath,
+        sessionId: record.agentId,
+        startedAt: record.startedAt
+      })
+      if (usage) record.tokenUsage = usage
+    } catch {
+      /* keep the previous cache */
+    }
+  }
+
+  /** AgentHost: read now, cache, never throw. Cached value once the process is gone. */
+  async readTokenUsage(agentId: string): Promise<TokenUsage | undefined> {
+    const record = this.recordOf(agentId)
+    if (!record) return undefined
+    if (record.stopped || record.exit) return record.tokenUsage
+    await this.probeTokenUsage(record)
+    return record.tokenUsage
+  }
+
+  /** Sync cached value — for summaries (orchestrator row included). */
+  lastTokenUsage(agentId: string): TokenUsage | undefined {
+    return this.recordOf(agentId)?.tokenUsage
   }
 
   /**
@@ -1953,6 +2005,7 @@ export class Workspace implements AgentHost {
           fileTag: `orch-${input.agentId}`,
           configDir: this.deps.configDir,
           systemPrompt,
+          sessionId: record.agentId,
           ...(argvInitialPrompt ? { initialPrompt: argvInitialPrompt } : {})
         },
         { createPty: () => record.pty }
@@ -2833,13 +2886,15 @@ export class Workspace implements AgentHost {
     summary: string,
     status: AgentDoneStatus
   ): Promise<void> {
+    const usage = await this.readTokenUsage(record.agentId)
     const payload = {
       type: 'agent_done' as const,
       agentId: record.agentId,
       name: record.name,
       roleId: record.roleId,
       summary,
-      status
+      status,
+      ...(usage ? { tokenUsage: usage } : {})
     }
     const queue = this.queueFor(record.agentId)
     try {
@@ -3028,6 +3083,7 @@ export class Workspace implements AgentHost {
     this.questions?.cancelForAgent(record.agentId)
     if (record.stopping) return
     if (this.events.isClosed) return
+    const usageFields = record.tokenUsage ? { tokenUsage: record.tokenUsage } : {}
     if (record.orchestrator) {
       // Only the live seat's unasked death greys the workspace. A predecessor
       // killed at cutover is `stopping`; a leftover orch row after rebind is
@@ -3038,20 +3094,23 @@ export class Workspace implements AgentHost {
         agentId: record.agentId,
         name: record.name,
         roleId: record.roleId,
-        exitCode: info.exitCode ?? null
+        exitCode: info.exitCode ?? null,
+        ...usageFields
       })
-      return
+    } else {
+      // F: a grandchild's death goes to its lead; a lead's own death goes to
+      // the root, where the adoption tap reparents its children.
+      this.queueFor(record.agentId).push({
+        type: 'agent_exited',
+        agentId: record.agentId,
+        name: record.name,
+        roleId: record.roleId,
+        exitCode: info.exitCode ?? null,
+        confirmed: this.hasConfirmedSinceAssignment(record),
+        ...usageFields
+      })
     }
-    // F: a grandchild's death goes to its lead; a lead's own death goes to
-    // the root, where the adoption tap reparents its children.
-    this.queueFor(record.agentId).push({
-      type: 'agent_exited',
-      agentId: record.agentId,
-      name: record.name,
-      roleId: record.roleId,
-      exitCode: info.exitCode ?? null,
-      confirmed: this.hasConfirmedSinceAssignment(record)
-    })
+    void this.probeTokenUsage(record).then(() => this.deps.onTokenUsageRefreshed?.())
   }
 
   private hasConfirmedSinceAssignment(record: AgentRecord): boolean {

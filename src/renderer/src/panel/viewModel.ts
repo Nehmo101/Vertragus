@@ -8,6 +8,7 @@
  */
 import { loreBlurb } from '@shared/lore'
 import { ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
+import type { TokenUsage } from '@shared/schema/events'
 import { workspacePlaceBlurb } from '@shared/workspaceNames'
 import type {
   WorkspaceAgentSummary,
@@ -15,6 +16,7 @@ import type {
   WorkspaceTaskSummary
 } from '../../../preload'
 import type { Locale, Translate } from '../i18n'
+import { formatTokenCount, tokenUsageCount } from '../lib/formatTokens'
 
 /** Dot appearance: bronze pulse for the orchestrator, verdigris for workers. */
 export type AgentDotKind = 'working-orchestrator' | 'working' | 'idle'
@@ -68,6 +70,40 @@ export function agentStatusLine(
  * leaves the row (and the last task) in place — the window is the thing being
  * dismissed, not the agent.
  */
+export function agentTokenLabel(
+  t: Translate,
+  locale: Locale,
+  agent: Pick<WorkspaceAgentSummary, 'tokenUsage'>
+): string | undefined {
+  const usage = agent.tokenUsage
+  if (!usage) return undefined
+  const count = formatTokenCount(tokenUsageCount(usage), locale)
+  return usage.kind === 'context'
+    ? t('panel.agentContextTokens', { count })
+    : t('panel.agentTokens', { count })
+}
+
+export function agentTokenTooltip(t: Translate, locale: Locale, usage: TokenUsage): string {
+  const full = (value: number): string => new Intl.NumberFormat(locale).format(value)
+  if (usage.kind === 'context') {
+    return t('panel.agentContextTokensTitle', {
+      used: full(usage.used),
+      window: usage.window !== undefined ? full(usage.window) : '—'
+    })
+  }
+  const parts = [
+    t('panel.agentTokensInput', { count: full(usage.input) }),
+    t('panel.agentTokensOutput', { count: full(usage.output) })
+  ]
+  if (usage.cacheRead !== undefined) {
+    parts.push(t('panel.agentTokensCacheRead', { count: full(usage.cacheRead) }))
+  }
+  if (usage.cacheWrite !== undefined) {
+    parts.push(t('panel.agentTokensCacheWrite', { count: full(usage.cacheWrite) }))
+  }
+  return parts.join(' · ')
+}
+
 export function agentCanCloseWindow(
   agent: Pick<WorkspaceAgentSummary, 'state' | 'windowOpen'>
 ): boolean {

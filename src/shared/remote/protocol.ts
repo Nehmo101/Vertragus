@@ -17,6 +17,7 @@
  * settings writes and profile/provider editing are intentionally absent.
  */
 import { z } from 'zod'
+import type { TokenUsage } from '@shared/schema/events'
 import { MAX_RESUME_TAIL_CHARS } from './limits'
 
 // Re-exported so a host-side reader finds it beside the schema that uses it.
@@ -116,6 +117,11 @@ export interface RemoteAgentSummary {
   pendingQuestionId?: string
   /** Short labels for that open question, when the asker passed `choices`. */
   pendingQuestionChoices?: string[]
+  /**
+   * CLI-recorded usage, present after the agent reported done, was stopped, or
+   * exited. Travels on the wire; the phone does not render it.
+   */
+  tokenUsage?: TokenUsage
 }
 
 /**

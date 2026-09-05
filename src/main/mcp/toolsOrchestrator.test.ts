@@ -895,6 +895,27 @@ describe('list_agents / stop_agent / read_output', () => {
     })
   })
 
+  it('attaches tokenUsage to agent_stopped', async () => {
+    const { runtime, tools } = setup()
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const agentId = String(started.json.agentId)
+    const usage = { kind: 'consumption' as const, input: 4, output: 1, total: 5 }
+    runtime.host.tokenUsages.set(agentId, usage)
+    await callTool(tools, 'stop_agent', { agentId })
+    expect(runtime.events.all().at(-1)).toMatchObject({
+      type: 'agent_stopped',
+      agentId,
+      tokenUsage: usage
+    })
+  })
+
+  it('omits tokenUsage when the agent was already gone', async () => {
+    const { runtime, tools } = setup()
+    const result = await callTool(tools, 'stop_agent', { agentId: 'ghost' })
+    expect(result.json.ok).toBe(false)
+    expect(runtime.events.all()).toHaveLength(0)
+  })
+
   it('reports a no-op stop without inventing an event', async () => {
     const { runtime, tools } = setup()
     const result = await callTool(tools, 'stop_agent', { agentId: 'ghost' })

@@ -173,6 +173,38 @@ export const modelDiscoverySchema = z.discriminatedUnion('kind', [
 ])
 export type ModelDiscovery = z.infer<typeof modelDiscoverySchema>
 
+/**
+ * Where the CLI records its own token usage on disk. Absent = the host shows
+ * no number for agents on this provider (never an estimate).
+ * - `claude-jsonl`: `<dir>/<cwd-slug>/<sessionId>.jsonl`, per-assistant-message
+ *   `message.usage`, summed per unique `message.id`. `sessionIdArg` pins the
+ *   session id at spawn (the agent's own UUID).
+ * - `codex-rollout`: `<dir>/YYYY/MM/DD/rollout-*.jsonl`; the last
+ *   `token_usage_record.thread_token_usage` wins. No launch pin exists —
+ *   matched by the recorded `session_meta.cwd` and the spawn time.
+ * - `grok-session`: `<dir>/<encoded cwd>/<sessionId>/` — context-window
+ *   occupancy only (`kind: 'context'` on the reading). `sessionIdArg` pins.
+ */
+export const usageSourceSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('claude-jsonl'),
+      /** `~` is expanded to the user's home directory. */
+      dir: pathSchema,
+      sessionIdArg: flagSchema.optional()
+    })
+    .strict(),
+  z.object({ kind: z.literal('codex-rollout'), dir: pathSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('grok-session'),
+      dir: pathSchema,
+      sessionIdArg: flagSchema.optional()
+    })
+    .strict()
+])
+export type UsageSource = z.infer<typeof usageSourceSchema>
+
 export const providerAuthSchema = z
   .object({
     /** Args that start the provider-owned login flow (opened in a terminal). */
@@ -293,6 +325,11 @@ export const providerConfigSchema = z
     mcpToolTimeoutSec: z.number().int().positive().max(3600).optional(),
     modelDiscovery: modelDiscoverySchema.default({ kind: 'none' }),
     /**
+     * Where the CLI records its own token usage. Absent = the host shows no
+     * number (never an estimate).
+     */
+    usageSource: usageSourceSchema.optional(),
+    /**
      * Ids that are ALWAYS offered, merged behind whatever discovery found.
      *
      * This is not a model catalogue and must never become one: the only ids
@@ -315,6 +352,17 @@ export const providerConfigSchema = z
 
 export type ProviderConfig = z.infer<typeof providerConfigSchema>
 export type ProviderConfigInput = z.input<typeof providerConfigSchema>
+
+/** Session-pin argument for a launch; empty when the dialect has no flag. */
+export function buildSessionIdArgs(
+  config: Pick<ProviderConfig, 'usageSource'>,
+  sessionId: string | undefined
+): string[] {
+  const source = config.usageSource
+  const flag =
+    source && source.kind !== 'codex-rollout' ? source.sessionIdArg : undefined
+  return flag && sessionId ? [flag, sessionId] : []
+}
 
 /** Lowercase, punctuation-safe id so a hand-edited config cannot smuggle one in. */
 export function normalizeProviderId(id: string): string {

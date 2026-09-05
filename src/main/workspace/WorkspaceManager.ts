@@ -260,6 +260,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       { profile, name: nextName(profile.id) },
       {
         ...workspaceDeps(),
+        onTokenUsageRefreshed: () => notifyChange(),
         // E3: the previous run's briefing rides into the orchestrator prompt —
         // unless C6 left a succession package, which says the same and more
         // (see StartWorkspaceOptions.resume.succession).

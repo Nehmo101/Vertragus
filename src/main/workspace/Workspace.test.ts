@@ -82,6 +82,10 @@ function harness(
       newId: sequentialIds('a'),
       createPty: () =>
         overrides.banner === undefined ? new FakePty() : new FakePty(overrides.banner),
+      // Tests that care inject a spy; everyone else must not hit the real
+      // CLI logs (stop/close await the read, and a disk round-trip would
+      // delay kill past a single microtask).
+      readTokenUsage: async () => undefined,
       ...overrides.deps
     }
   )
@@ -708,8 +712,9 @@ describe('close with awaitExitMs — the quit path', () => {
     const closing = workspace.close({ awaitExitMs: 5_000 }).then(() => {
       closed = true
     })
-    await Promise.resolve()
-    expect(pty.killed).toBe(1)
+    // stopAgent awaits the usage read before kill, so one microtask is not
+    // enough — wait for the kill, then prove close is still parked on exit.
+    await vi.waitFor(() => expect(pty.killed).toBe(1))
     expect(closed).toBe(false)
 
     pty.exit({ exitCode: 0, signal: 15 })
@@ -3269,5 +3274,194 @@ describe('automation', () => {
 
     expect(merges(calls)).toEqual([])
     expect(workspace.events.all().filter((event) => event.type === 'integrate_ok')).toEqual([])
+  })
+})
+
+describe('token usage', () => {
+  const usage = { kind: 'consumption' as const, input: 10, output: 2, total: 12 }
+
+  it('hands sessionId === agentId to orchestrator, lead and worker spawns', async () => {
+    const { workspace, spawns } = harness()
+    const orch = await workspace.startOrchestrator()
+    const lead = await workspace.startLead({ area: 'payments', task: 'Own it.' })
+    const worker = await workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(spawns[0]!.input.sessionId).toBe(orch.agentId)
+    expect(spawns[1]!.input.sessionId).toBe(lead.agentId)
+    expect(spawns[2]!.input.sessionId).toBe(worker.agentId)
+  })
+
+  it('never calls the read dep for a provider without usageSource', async () => {
+    const reads: string[] = []
+    const { workspace } = harness({
+      profile: testProfile({
+        slots: [{ id: 'slot-worker', roleId: 'worker', providerId: 'ollama' }]
+      }),
+      ptySystemPrompt: true,
+      deps: {
+        readTokenUsage: async () => {
+          reads.push('read')
+          return usage
+        }
+      }
+    })
+    const started = await workspace.startAgent({ role: 'worker', task: 'x' })
+    await workspace.readTokenUsage(started.agentId)
+    await workspace.stopAgent(started.agentId)
+    expect(reads).toEqual([])
+  })
+
+  it('passes source, cwd, sessionId and startedAt and caches the result', async () => {
+    const probes: Array<{
+      source: { kind: string }
+      cwd: string
+      sessionId: string
+      startedAt: number
+    }> = []
+    const { workspace } = harness({
+      deps: {
+        readTokenUsage: async (probe) => {
+          probes.push(probe)
+          return usage
+        }
+      }
+    })
+    const started = await workspace.startAgent({ role: 'worker', task: 'x' })
+    await expect(workspace.readTokenUsage(started.agentId)).resolves.toEqual(usage)
+    expect(probes).toEqual([
+      {
+        source: expect.objectContaining({ kind: 'claude-jsonl' }),
+        cwd: started.worktreePath,
+        sessionId: started.agentId,
+        startedAt: 1_000_000
+      }
+    ])
+    expect(workspace.listAgents()[0]!.tokenUsage).toEqual(usage)
+  })
+
+  it('keeps the previous cache when a later read fails or returns nothing', async () => {
+    let mode: 'ok' | 'throw' | 'empty' = 'ok'
+    const { workspace } = harness({
+      deps: {
+        readTokenUsage: async () => {
+          if (mode === 'throw') throw new Error('disk died')
+          if (mode === 'empty') return undefined
+          return usage
+        }
+      }
+    })
+    const started = await workspace.startAgent({ role: 'worker', task: 'x' })
+    await workspace.readTokenUsage(started.agentId)
+    mode = 'throw'
+    await expect(workspace.readTokenUsage(started.agentId)).resolves.toEqual(usage)
+    mode = 'empty'
+    await expect(workspace.readTokenUsage(started.agentId)).resolves.toEqual(usage)
+  })
+
+  it('reads before the kill on stopAgent', async () => {
+    const order: string[] = []
+    const { workspace, spawns } = harness({
+      deps: {
+        readTokenUsage: async () => {
+          order.push('read')
+          expect(spawns[0]!.pty.killed).toBe(0)
+          return usage
+        }
+      }
+    })
+    const started = await workspace.startAgent({ role: 'worker', task: 'x' })
+    const pty = spawns[0]!.pty
+    const originalKill = pty.kill.bind(pty)
+    pty.kill = (): void => {
+      order.push('kill')
+      originalKill()
+    }
+    await workspace.stopAgent(started.agentId)
+    expect(order).toEqual(['read', 'kill'])
+  })
+
+  it('lets exactly one of two concurrent stops kill — the read yields', async () => {
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { workspace, spawns } = harness({
+      deps: {
+        readTokenUsage: async () => {
+          await gate
+          return usage
+        }
+      }
+    })
+    const started = await workspace.startAgent({ role: 'worker', task: 'x' })
+    const first = workspace.stopAgent(started.agentId)
+    const second = workspace.stopAgent(started.agentId)
+    release()
+    expect(await Promise.all([first, second])).toEqual([true, false])
+    expect(spawns[0]!.pty.killed).toBe(1)
+  })
+
+  it('puts the cached value on agent_exited and refreshes after exit', async () => {
+    let refreshed = 0
+    const { workspace, spawns } = harness({
+      deps: {
+        onTokenUsageRefreshed: () => {
+          refreshed += 1
+        },
+        readTokenUsage: async () => usage
+      }
+    })
+    const started = await workspace.startAgent({ role: 'worker', task: 'x' })
+    await workspace.readTokenUsage(started.agentId)
+    spawns[0]!.pty.exit({ exitCode: 0 })
+    expect(workspace.events.all().find((event) => event.type === 'agent_exited')).toMatchObject({
+      tokenUsage: usage
+    })
+    await vi.waitFor(() => expect(refreshed).toBe(1))
+  })
+
+  it('attaches usage to a sentinel agent_done', async () => {
+    const providers = testProviders().map((provider) =>
+      provider.id === 'ollama'
+        ? {
+            ...provider,
+            usageSource: { kind: 'claude-jsonl' as const, dir: '~/.claude/projects' }
+          }
+        : provider
+    )
+    const { workspace, spawns } = harness({
+      profile: testProfile({
+        slots: [{ id: 'slot-worker', roleId: 'worker', providerId: 'ollama' }]
+      }),
+      ptySystemPrompt: true,
+      deps: {
+        providers,
+        readTokenUsage: async () => usage,
+        worktreeDeps: { git: cannedGit() }
+      }
+    })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    spawns[0]!.pty.emit(
+      `@@VERTRAGUS:DONE@@${JSON.stringify({ summary: 'shipped', status: 'success' })}@@END@@`
+    )
+    await waitForDone(workspace)
+    expect(workspace.events.all().find((event) => event.type === 'agent_done')).toMatchObject({
+      tokenUsage: usage
+    })
+    expect(workspace.listAgents().find((row) => row.agentId === started.agentId)?.tokenUsage).toEqual(
+      usage
+    )
+  })
+
+  it('answers lastTokenUsage for the orchestrator after orchestrator_exited', async () => {
+    const { workspace, spawns } = harness({
+      deps: { readTokenUsage: async () => usage }
+    })
+    const orch = await workspace.startOrchestrator()
+    await workspace.readTokenUsage(orch.agentId)
+    spawns[0]!.pty.exit({ exitCode: 0 })
+    expect(workspace.events.all().find((event) => event.type === 'orchestrator_exited')).toMatchObject({
+      tokenUsage: usage
+    })
+    expect(workspace.lastTokenUsage(orch.agentId)).toEqual(usage)
   })
 })

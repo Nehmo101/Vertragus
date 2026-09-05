@@ -63,7 +63,7 @@ export function TimelineApp({ workspaceId }: { workspaceId: string }): React.JSX
   }, [events.length])
 
   const locale = activeLocale(i18n.language)
-  const rows = events.map((event) => formatEvent(t, event))
+  const rows = events.map((event) => formatEvent(t, event, locale))
 
   return (
     <div className="tl glass">
@@ -93,6 +93,7 @@ export function TimelineApp({ workspaceId }: { workspaceId: string }): React.JSX
             <WorkspaceCard
               workspace={workspace}
               expanded
+              showUsage
               onToggle={() => undefined}
               onStop={(id) => run((api) => api.stopWorkspace(id))}
               onSucceedOrchestrator={(id) => run((api) => api.succeedOrchestrator(id))}
