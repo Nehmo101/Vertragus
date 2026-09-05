@@ -44,6 +44,7 @@ import {
   registerHideAllShortcut,
   reRegisterHideAllShortcut,
   resetHideAllForTesting,
+  setHideAllRestoreWorkspace,
   toggleHideAll,
   type HideAllTarget
 } from './hideAll'
@@ -315,6 +316,113 @@ describe('toggle', () => {
     hideAll.toggle()
     expect(snapCliWindows).toHaveBeenLastCalledWith(['agent:a'])
   })
+
+  it('restore goes through restoreWorkspace and leaves foreign CLI hidden', () => {
+    const { log, windows, targets } = harness([
+      'agent:last',
+      'agent:foreign',
+      'editor:p',
+      'timeline:t'
+    ])
+    const snapCliWindows = vi.fn()
+    const restoreWorkspace = vi.fn(() => {
+      windows['agent:last']!.visible = true
+      log.push('restoreWorkspace')
+      log.push('focus:agent:last')
+      return true
+    })
+    const hideAll = createHideAllController({
+      targets: () => targets,
+      snapCliWindows,
+      restoreWorkspace
+    })
+
+    expect(hideAll.toggle()).toBe('hidden')
+    expect(restoreWorkspace).not.toHaveBeenCalled()
+    snapCliWindows.mockClear()
+    log.length = 0
+
+    expect(hideAll.toggle()).toBe('restored')
+    expect(restoreWorkspace).toHaveBeenCalledTimes(1)
+    expect(snapCliWindows).not.toHaveBeenCalled()
+    expect(log).toEqual(['restoreWorkspace', 'focus:agent:last', 'show:editor:p'])
+    expect(log.filter((entry) => entry.startsWith('focus:'))).toEqual(['focus:agent:last'])
+    expect(windows['agent:foreign']!.visible).toBe(false)
+    expect(windows['agent:last']!.visible).toBe(true)
+    expect(windows['editor:p']!.visible).toBe(true)
+    expect(windows['timeline:t']!.visible).toBe(false)
+    expect(hideAll.isHidden()).toBe(false)
+  })
+
+  it('falls back to the snapshot when restoreWorkspace returns false', () => {
+    const { log, targets } = harness(['agent:a', 'editor:p'])
+    const restoreWorkspace = vi.fn(() => false)
+    const hideAll = createHideAllController({ targets: () => targets, restoreWorkspace })
+
+    hideAll.toggle()
+    log.length = 0
+    expect(hideAll.toggle()).toBe('restored')
+    expect(log).toEqual(['show:agent:a', 'show:editor:p'])
+  })
+
+  it('falls back to the snapshot when restoreWorkspace is absent', () => {
+    const { log, targets } = harness(['agent:a', 'editor:p'])
+    const hideAll = createHideAllController({ targets: () => targets })
+
+    hideAll.toggle()
+    log.length = 0
+    expect(hideAll.toggle()).toBe('restored')
+    expect(log).toEqual(['show:agent:a', 'show:editor:p'])
+  })
+
+  it('opens the last workspace when nothing is hidden and no target is visible', () => {
+    const { log, windows, targets } = harness(['agent:a', 'editor:p'])
+    windows['agent:a']!.visible = false
+    windows['editor:p']!.visible = false
+    const restoreWorkspace = vi.fn(() => {
+      log.push('restoreWorkspace')
+      return true
+    })
+    const hideAll = createHideAllController({ targets: () => targets, restoreWorkspace })
+
+    expect(hideAll.toggle()).toBe('restored')
+    expect(restoreWorkspace).toHaveBeenCalledTimes(1)
+    expect(log).toEqual(['restoreWorkspace'])
+    expect(hideAll.isHidden()).toBe(false)
+  })
+
+  it('hides a visible timeline when CLI windows are closed rather than restoring', () => {
+    const { log, windows, targets } = harness(['agent:a', 'timeline:t'])
+    windows['agent:a']!.visible = false
+    const restoreWorkspace = vi.fn(() => true)
+    const hideAll = createHideAllController({ targets: () => targets, restoreWorkspace })
+
+    expect(hideAll.toggle()).toBe('hidden')
+    expect(restoreWorkspace).not.toHaveBeenCalled()
+    expect(log).toEqual(['hide:timeline:t'])
+    expect(windows['timeline:t']!.visible).toBe(false)
+  })
+
+  it('keeps today\'s empty hide when restoreWorkspace returns false and nothing is visible', () => {
+    const { log, windows, targets } = harness(['agent:a'])
+    windows['agent:a']!.visible = false
+    const restoreWorkspace = vi.fn(() => false)
+    const hideAll = createHideAllController({ targets: () => targets, restoreWorkspace })
+
+    expect(hideAll.toggle()).toBe('hidden')
+    expect(log).toEqual([])
+    expect(hideAll.isHidden()).toBe(false)
+  })
+
+  it('still hides visible CLI when restoreWorkspace is wired', () => {
+    const { log, targets } = harness(['agent:a', 'editor:p'])
+    const restoreWorkspace = vi.fn(() => true)
+    const hideAll = createHideAllController({ targets: () => targets, restoreWorkspace })
+
+    expect(hideAll.toggle()).toBe('hidden')
+    expect(restoreWorkspace).not.toHaveBeenCalled()
+    expect(log).toEqual(['hide:agent:a', 'hide:editor:p'])
+  })
 })
 
 describe('production snapToZones', () => {
@@ -380,6 +488,29 @@ describe('timeline membership', () => {
     expect(source).toMatch(/listTimelineWindows/)
     expect(source).toMatch(/timeline:\$\{workspaceId\}/)
     expect(source).toMatch(/never `minimize\(\)` \/ `restore\(\)`/)
+  })
+})
+
+describe('production restoreWorkspace hook', () => {
+  it('restore goes through the registered hook and still shows editors', () => {
+    const { windows } = harness(['a', 'ed'])
+    vi.mocked(listCliWindows).mockReturnValue([{ agentId: 'a', window: windows.a as never }])
+    vi.mocked(listProfileEditorWindows).mockReturnValue([
+      { key: 'p', window: windows.ed as never }
+    ])
+    const restoreWorkspace = vi.fn(() => {
+      windows.a!.visible = true
+      return true
+    })
+    setHideAllRestoreWorkspace(restoreWorkspace)
+
+    expect(toggleHideAll()).toBe('hidden')
+    expect(restoreWorkspace).not.toHaveBeenCalled()
+    expect(windows.ed!.visible).toBe(false)
+    expect(toggleHideAll()).toBe('restored')
+    expect(restoreWorkspace).toHaveBeenCalledTimes(1)
+    expect(windows.ed!.visible).toBe(true)
+    expect(windows.a!.visible).toBe(true)
   })
 })
 

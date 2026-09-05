@@ -265,8 +265,11 @@ Bildschirmregionen pinnen; **Tabs** ist ein CLI-Fenster pro Workspace mit
 Orchestrator und Subagenten als Tabs — Zonen und Tiling je Agent greifen
 nicht. Die Änderung gilt beim nächsten Play. Ein globaler
 Alles-ausblenden-Hotkey blendet CLI-, Timeline- und Editor-Fenster aus
-(`hide()`, nie `minimize()`) und nie das Panel; Autostart und ein
-Self-Updater mit Stable/Main-Kanalwahl; deutsche und englische UI.
+(`hide()`, nie `minimize()`) und nie das Panel — Restore (Hotkey oder
+Panel-Auge) öffnet die Agenten des zuletzt gewählten Workspace in ihren
+Zonen, und Auge oder Hotkey ohne sichtbares Ziel macht dasselbe, statt
+nichts auszublenden; Autostart und ein Self-Updater mit
+Stable/Main-Kanalwahl; deutsche und englische UI.
 
 ## Fernzugriff (Tailscale)
 

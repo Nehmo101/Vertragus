@@ -82,7 +82,8 @@ vi.mock('@main/windows/zoneOverlay', () => ({
 vi.mock('@main/windows/hideAll', () => ({
   toggleHideAll: vi.fn(),
   hideAllHotkeyStatus: vi.fn(() => undefined),
-  reRegisterHideAllShortcut: vi.fn(() => ({ hotkey: 'Control+Alt+V', registered: true }))
+  reRegisterHideAllShortcut: vi.fn(() => ({ hotkey: 'Control+Alt+V', registered: true })),
+  setHideAllRestoreWorkspace: vi.fn()
 }))
 vi.mock('@main/workspace/listRuns', () => ({
   listRuns: vi.fn(async () => []),
