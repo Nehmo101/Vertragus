@@ -101,6 +101,7 @@ export function registerSubagentTools(
       }
     },
     async ({ summary, status, result }): Promise<ToolText> => {
+      const generation = ctx.host.agentGeneration?.(agentId)
       // S3: the schema-vetted structured report. The retry loop runs HERE, at
       // the child — the parent only ever sees the validated end state, so a
       // failed validation must push NO event (the summary is "not delivered").
@@ -141,15 +142,19 @@ export function registerSubagentTools(
       // the agent's word; the orchestrator can inspect_agent afterwards.
       // F: the report lands in the PARENT's queue — a lead's child reports to
       // the lead, not to the root.
-      const queue = queueForAgent(runtime, agentId)
       let headSha: string | undefined
+      let fields: Partial<ReturnType<typeof worktreeEventFields>> = {}
       try {
         const facts = await ctx.host.snapshotDone(agentId, summary)
         headSha = facts.headSha
-        queue.push({ ...payload, ...worktreeEventFields(facts), ...usageFields })
-      } catch {
-        queue.push({ ...payload, ...usageFields })
+        fields = worktreeEventFields(facts)
+      } catch (error) {
+        fields = { snapshotError: errorMessage(error).slice(0, 2000) }
       }
+      // A parent can die during git I/O. Resolve its replacement queue only now.
+      if (generation !== ctx.host.agentGeneration?.(agentId)) return toolError({error:'session_replaced',message:'This agent process was replaced. Its old report was not delivered.'})
+      const queue = queueForAgent(runtime, agentId)
+      if (!queue.isClosed) queue.push({ ...payload, ...fields, ...usageFields })
       // S4: the same path also lands on the task board — lastReport on every
       // task this agent owns. Display facts only; the status NEVER moves here
       // (completing is the orchestrator's explicit decision after verification).
@@ -162,7 +167,7 @@ export function registerSubagentTools(
       // orchestrator's worktree, auto-promote into the checkout). Deliberately
       // NOT awaited and never able to fail this call: the report is delivered,
       // and a merge that conflicts reports itself as an event.
-      void ctx.host.adoptOnDone?.(agentId, payload.status).catch(() => undefined)
+      if (!fields.snapshotError && !fields.uncommitted) void ctx.host.adoptOnDone?.(agentId, payload.status).catch(() => undefined)
       return toolJson({
         ok: true,
         note: 'The orchestrator has your result. Stay available: it either sends you a follow-up task or stops you. Do not exit on your own.'

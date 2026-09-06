@@ -1,3 +1,4 @@
+import { writeProjectConfig } from '@main/mcp/projectConfigOverlay'
 /**
  * Cursor Agent "Run Everything" for every native Cursor launch.
  *
@@ -13,7 +14,7 @@
  * Auto-review otherwise still blocks MCP initialize. Fail-soft: a cwd we
  * cannot write does not block spawn.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { CURSOR_PROJECT_DIR } from '@main/mcp/attach'
 import type { ProviderConfig } from '@shared/schema/provider'
@@ -151,7 +152,7 @@ export function ensureCursorRunEverythingConfig(
   const readFile = deps.readFile ?? ((path: string) => readFileSync(path, 'utf8'))
   const makeDir = deps.makeDir ?? ((path: string) => mkdirSync(path, { recursive: true }))
   const writeFile =
-    deps.writeFile ?? ((path: string, contents: string) => writeFileSync(path, contents))
+    deps.writeFile ?? ((path: string, contents: string) => writeProjectConfig(path, contents))
 
   const projectDir = join(dir, CURSOR_PROJECT_DIR)
   const filePath = join(projectDir, CURSOR_CLI_FILE)

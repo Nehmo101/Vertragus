@@ -13,6 +13,9 @@ describe('agent event schema', () => {
   it('covers exactly the documented event types', () => {
     expect([...AGENT_EVENT_TYPES]).toEqual([
       'agent_started',
+      'agent_boot',
+      'agent_reseated',
+      'agent_reseat_failed',
       'agent_start_failed',
       'agent_done',
       'agent_question',
@@ -452,4 +455,17 @@ describe('agent event schema', () => {
       })
     ).not.toHaveProperty('choices')
   })
+})
+
+it('validates boot and reseat generations as structured host facts', () => {
+  expect(agentEventPayloadSchema.safeParse({ type: 'agent_boot', ...identity, phase: 'mcp', elapsedMs: 6000 }).success).toBe(true)
+  expect(agentEventPayloadSchema.safeParse({ type: 'agent_boot', ...identity, phase: null, elapsedMs: -1 }).success).toBe(false)
+  expect(agentEventPayloadSchema.safeParse({ type: 'agent_reseated', ...identity,
+    generation: 2, from: { providerId: 'claude' }, to: { providerId: 'codex', model: 'gpt' },
+    reason: 'quota', branch: 'branch' }).success).toBe(true)
+  expect(agentEventPayloadSchema.safeParse({ type: 'agent_reseat_failed', ...identity,
+    generation: 2, message: 'missing CLI' }).success).toBe(true)
+  expect(agentEventPayloadSchema.safeParse({ type: 'agent_reseated', ...identity,
+    generation: -1, from: { providerId: 'claude' }, to: { providerId: 'codex' },
+    reason: 'quota', branch: 'branch' }).success).toBe(false)
 })

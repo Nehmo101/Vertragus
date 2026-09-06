@@ -246,3 +246,38 @@ describe('createRemoteController', () => {
     expect(resumed.pairingUrl).toBe(enabled.pairingUrl)
   })
 })
+
+it('serializes a delayed enable and disable through the host', async () => {
+  const h = harness()
+  let release!: (handle: RemoteServerHandle) => void
+  h.deps.startServer = () => new Promise((resolve) => { release = resolve })
+  const controller = createRemoteController(h.deps)
+  const enabled = controller.apply({ enabled: true })
+  await Promise.resolve()
+  await Promise.resolve()
+  const disabled = controller.apply({ enabled: false })
+  const close = vi.fn(async () => undefined)
+  release({ host: '127.0.0.1', port: 9482, clients: () => [], revoke: () => false, close })
+  await enabled
+  await disabled
+  expect(close).toHaveBeenCalledOnce()
+  expect(controller.status()).toMatchObject({ enabled: false, running: false })
+})
+
+it('cannot restart from a delayed token rotation after disable completes', async () => {
+  const h = harness()
+  const controller = createRemoteController(h.deps)
+  await controller.apply({ enabled: true })
+  let release!: (handle: RemoteServerHandle) => void
+  let entered!: () => void
+  const starting = new Promise<void>((resolve) => { entered = resolve })
+  h.startServer.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; entered() }))
+  const rotating = controller.regenerateToken()
+  await starting
+  const disabling = controller.apply({ enabled: false })
+  const close = vi.fn(async () => undefined)
+  release({ host: '127.0.0.1', port: 9482, clients: () => [], revoke: () => false, close })
+  await Promise.all([rotating, disabling])
+  expect(close).toHaveBeenCalledOnce()
+  expect(controller.status()).toMatchObject({ enabled: false, running: false })
+})

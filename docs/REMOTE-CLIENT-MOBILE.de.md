@@ -57,13 +57,13 @@ Kein UI-Bug. In `createRemoteController`:
 | Thema | Änderung |
 | --- | --- |
 | Stabiler Link | Token zusätzlich in `userData/remote-pairing.token` (0600). Nie still überschreiben, wenn Ciphertext nicht entsperrt. `Regenerate` bleibt der einzige Rotationsweg. |
-| Handy bleibt gekoppelt | Pairing-Token + Session in `localStorage`. Nach Desktop-Restart: stilles Re-Pair über den gespeicherten Token. |
+| Handy bleibt gekoppelt | Individuelle Geräte-Zugangsdaten + Session in `localStorage`; das QR-Registrierungsgeheimnis wird nach Erfolg gelöscht. Nach Neustart erneuern die Geräte-Zugangsdaten die Session. Widerrufen löscht den Host-Hash und die Sessions, auch für offline Geräte. |
 | Scrollen | Dokument-Scroll, sticky Header, kein inneres Overflow auf der Liste. Terminal als `position: fixed` auf `visualViewport.height`. |
 | Lesen | 17 px Body, 16 px Inputs, Ziele umbrechen, Agentenzeilen mit Rolle·Status, 44 px Touch, Warn-Banner für `ask_user`. |
 | Brand | Caprasimo/Figtree/JetBrains Mono, Bronze/Verdigris, Fusione-Marke. |
 | Terminal | Größere Default-Schrift, A+/A−, Esc/Tab/Enter/Ctrl-C/Pfeile, kein Auto-Focus der versteckten xterm-Textarea auf dem Handy. |
 
-Die Gateway-Allow-List bleibt bei sechs Verben. Kein Promote, keine
+Die Gateway-Allow-List enthält sieben Verben einschließlich Zielzuweisung. Kein Promote, keine
 Settings, keine CLI-Permission-TUIs auf dem Handy.
 
 ## Design-Ideen (umgesetzt vs. später)

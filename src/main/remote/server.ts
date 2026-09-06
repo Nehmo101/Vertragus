@@ -220,18 +220,19 @@ export async function startRemoteServer(
 
     if (url.pathname === '/api/auth' && req.method === 'POST') {
       const body = await readBody(req)
-      const token = (body as { pairingToken?: unknown } | undefined)?.pairingToken
+      const input = body as { pairingToken?: unknown; deviceCredential?: unknown } | undefined
+      const token = input?.deviceCredential ?? input?.pairingToken
       if (typeof token !== 'string') {
         res.writeHead(400).end()
         return
       }
-      const result = auth.pair(token, req.socket.remoteAddress ?? 'unknown')
+      const result = auth.authenticate(token, req.socket.remoteAddress ?? 'unknown', typeof input?.deviceCredential === 'string')
       if (!result.ok) {
         res.writeHead(result.reason === 'rate_limited' ? 429 : 401).end()
         return
       }
       res.writeHead(200, { 'Content-Type': 'application/json' }).end(
-        JSON.stringify({ session: result.session })
+        JSON.stringify({ session: result.session, deviceCredential: result.deviceCredential })
       )
       return
     }
@@ -322,7 +323,7 @@ export async function startRemoteServer(
           const session = auth.touch(message.session)
           if (!session) {
             // Unknown or idle-expired — not a decision about this device, so
-            // the client may silently re-pair from its stored pairing token.
+            // the client may silently re-pair from its stored device credential.
             send(socket, { type: 'session_revoked', reason: 'expired' })
             socket.close()
             return
@@ -419,7 +420,7 @@ export async function startRemoteServer(
     port,
     host: options.host,
     clients: () =>
-      auth.list().map((session) => ({
+      [...auth.pairedDevices(), ...auth.list().filter((session) => !auth.pairedDevices().some((device) => device.id === session.id))].map((session) => ({
         id: session.id,
         remoteAddress: session.remoteAddress,
         createdAt: session.createdAt,

@@ -67,6 +67,8 @@ export function useSettings(): SettingsState {
   const [update, setUpdate] = useState<UpdateState | null>(null)
   const [fatal, setFatal] = useState<string | null>(bridge ? null : t('common.bridgeMissing'))
   const [hotkeyDraft, setHotkeyDraft] = useState('')
+  const hotkeyEdited = useRef(false)
+  const hotkeyRevision = useRef(0)
   const [hotkeyError, setHotkeyError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -92,10 +94,10 @@ export function useSettings(): SettingsState {
 
   const apply = useCallback((next: PanelSettings) => {
     setSettings(next)
-    // The stored hotkey wins over the draft after every round trip: main may
-    // have trimmed it, and a refused one still gets stored (with its reason).
-    setHotkeyDraft(next.hideAllHotkey)
-    setHotkeyError(next.hideAllHotkeyError ?? null)
+    if (!hotkeyEdited.current) {
+      setHotkeyDraft(next.hideAllHotkey)
+      setHotkeyError(next.hideAllHotkeyError ?? null)
+    }
   }, [])
 
   useEffect(() => {
@@ -134,9 +136,11 @@ export function useSettings(): SettingsState {
       if (!bridge) return
       setError(null)
       setSaving(true)
+      const version = hotkeyRevision.current
       bridge.setSetting(key, value).then(
         (next) => {
           setSaving(false)
+          if (key === 'hideAllHotkey' && version === hotkeyRevision.current) hotkeyEdited.current = false
           apply(next)
         },
         (cause) => {
@@ -159,6 +163,8 @@ export function useSettings(): SettingsState {
     saving,
     error,
     setHotkeyDraft: (value) => {
+      hotkeyEdited.current = true
+      hotkeyRevision.current += 1
       setHotkeyDraft(value)
       setHotkeyError(null)
     },

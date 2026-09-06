@@ -194,3 +194,28 @@ describe('PendingQuestions', () => {
     })
   })
 })
+
+it('preserves ticket ownership after the answer is cached', async () => {
+  const questions = new PendingQuestions()
+  const ticket = questions.create('alice', 'private')
+  expect(await questions.waitForAnswer(ticket.questionId, 'bob', 0)).toEqual({ state: 'unknown' })
+  questions.answer(ticket.questionId, 'private answer')
+  expect(await questions.waitForAnswer(ticket.questionId, 'bob', 0)).toEqual({ state: 'unknown' })
+  expect(await questions.waitForAnswer(ticket.questionId, 'alice', 0)).toEqual({ state: 'answered', answer: 'private answer' })
+})
+
+it('rebinds a preserved question transport without changing its ticket or siblings', async () => {
+  const questions = new PendingQuestions()
+  const delivered: string[] = []
+  const old = async () => { delivered.push('old') }
+  const ticket = questions.create('alice', 'continue?', { deliverAnswer: old })
+  const sibling = questions.create('bob', 'other?', { deliverAnswer: old })
+  questions.rebindDelivery('alice', async (answer) => { delivered.push(answer) })
+  await questions.get(ticket.questionId)?.deliverAnswer?.('new')
+  expect(delivered).toEqual(['new'])
+  expect(questions.get(sibling.questionId)?.deliverAnswer).toBe(old)
+  questions.rebindDelivery('alice')
+  expect(questions.get(ticket.questionId)?.deliverAnswer).toBeUndefined()
+  questions.answer(ticket.questionId, 'MCP answer')
+  expect(await questions.waitForAnswer(ticket.questionId, 'alice', 0)).toEqual({ state: 'answered', answer: 'MCP answer' })
+})

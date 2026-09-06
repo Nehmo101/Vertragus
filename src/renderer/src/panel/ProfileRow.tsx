@@ -14,6 +14,7 @@ import {
   type AttachmentSource
 } from '../lib/imageAttach'
 import { BroomIcon, ChartIcon, ClockIcon, GearIcon, PlayIcon } from './icons'
+import { useDraft, useSubmission } from '../lib/useDraft'
 import { ArchivePanel } from './ArchivePanel'
 import { RetroPanel } from './RetroPanel'
 import { WorktreeCleanup } from './WorktreeCleanup'
@@ -26,14 +27,14 @@ interface Props {
   selected: boolean
   onSelect(profileId: string): void
   /** Start a workspace; a non-empty goal is seeded into the orchestrator (H2). */
-  onStart(profileId: string, goal?: string, attachmentIds?: string[]): void
+  onStart(profileId: string, goal?: string, attachmentIds?: string[]): Promise<void>
   /** Pre-start image save — stages under userData, never the profile checkout. */
   onSaveAttachment?(
     target: { profileId: string } | { workspaceId: string; agentId?: string },
     source: AttachmentSource
   ): Promise<AttachmentSaveResult | null>
   /** E3: start a workspace briefed on the profile's newest journaled run. */
-  onResume(profileId: string): void
+  onResume(profileId: string): Promise<void>
   onEdit(profileId: string): void
   /** True while this row's worktree cleanup list is unfolded below it. */
   cleanupOpen: boolean
@@ -85,22 +86,31 @@ export function ProfileRow({
   const { t } = useTranslation()
   /** True while the goal field is folded out under the row (H2). */
   const [goalOpen, setGoalOpen] = useState(false)
-  const [goal, setGoal] = useState('')
-  const attachmentIdsRef = useRef<string[]>([])
+  const goalDraft = useDraft(`profile.${profile.id}.goal`, '')
+  const idsDraft = useDraft<string[]>(`profile.${profile.id}.attachments`, [])
+  const { value: goal, set: setGoal } = goalDraft
+  const attachmentIdsRef = useRef<string[]>(idsDraft.value)
+  const submission = useSubmission()
+  const [attaching, setAttaching] = useState(false)
   const goalRef = useRef<HTMLTextAreaElement>(null)
   const start = t('panel.startWorkspace', { profile: profile.name })
   const edit = t('panel.editProfile', { profile: profile.name })
 
   const replaceIds = (ids: string[]): void => {
     attachmentIdsRef.current = ids
+    idsDraft.set(ids)
   }
 
   const startNow = (): void => {
+    if (attaching) return
     const ids = attachmentIdsRef.current
-    onStart(profile.id, goal.trim() || undefined, ids.length ? ids : undefined)
-    setGoal('')
-    replaceIds([])
-    setGoalOpen(false)
+    const version = goalDraft.version()
+    const idsVersion = idsDraft.version()
+    void submission.run(async () => {
+      await onStart(profile.id, goal.trim() || undefined, ids.length ? ids : undefined)
+      if (goalDraft.clear(version)) setGoalOpen(false)
+      if (idsDraft.clear(idsVersion)) attachmentIdsRef.current = []
+    })
   }
 
   const insertSaved = (result: AttachmentSaveResult): void => {
@@ -117,28 +127,28 @@ export function ProfileRow({
     })
   }
 
-  const saveSources = (sources: AttachmentSource[]): void => {
-    if (!onSaveAttachment) return
-    void (async () => {
-      for (const source of sources) {
+  const saveSources = (sources: Promise<AttachmentSource[]>): void => {
+    if (!onSaveAttachment || attaching) return
+    setAttaching(true)
+    void submission.run(async () => {
+      for (const source of await sources) {
         if (attachmentIdsRef.current.length >= ATTACHMENT_MAX_FILES) break
         const result = await onSaveAttachment({ profileId: profile.id }, source)
         if (result) insertSaved(result)
       }
-    })()
+    }).finally(() => setAttaching(false))
   }
 
   const onGoalPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     if (!onSaveAttachment) return
     if (!clipboardDataLooksLikeImage(event.clipboardData)) return
     event.preventDefault()
-    void pasteImageSources(event.clipboardData).then(saveSources)
+    saveSources(pasteImageSources(event.clipboardData))
   }
 
   const onGoalDrop = (event: React.DragEvent<HTMLTextAreaElement>): void => {
     event.preventDefault()
-    if (!onSaveAttachment) return
-    void droppedImageSources(event.dataTransfer.files).then(saveSources)
+    if (onSaveAttachment) saveSources(droppedImageSources(event.dataTransfer.files))
   }
   const filter = t('panel.filterProfileWorkspaces', { profile: profile.name })
   const cleanup = t('panel.cleanupWorktrees', { profile: profile.name })
@@ -165,6 +175,7 @@ export function ProfileRow({
         <button
           type="button"
           className="panel-play"
+          disabled={submission.busy || attaching}
           title={start}
           aria-label={start}
           aria-expanded={goalOpen}
@@ -212,6 +223,7 @@ export function ProfileRow({
           <GearIcon />
         </button>
       </div>
+      {submission.error ? <p className="panel-retro-error" role="alert">{submission.error}</p> : null}
       {goalOpen ? (
         <div className="panel-goal">
           {profile.playbooks && profile.playbooks.length > 0 ? (
@@ -263,7 +275,7 @@ export function ProfileRow({
             }}
           />
           <div className="panel-goal-actions">
-            <button type="button" className="panel-goal-start" onClick={startNow}>
+            <button type="button" className="panel-goal-start" disabled={submission.busy || attaching} onClick={startNow}>
               {goal.trim() ? t('panel.startWithGoal') : t('panel.startWithoutGoal')}
             </button>
             {/* E3: brief a fresh orchestrator on the newest journaled run —
@@ -271,12 +283,10 @@ export function ProfileRow({
             <button
               type="button"
               className="panel-goal-resume"
+              disabled={submission.busy || attaching}
               title={t('panel.resumeHint')}
               onClick={() => {
-                onResume(profile.id)
-                setGoal('')
-                replaceIds([])
-                setGoalOpen(false)
+                void submission.run(async () => { await onResume(profile.id); setGoalOpen(false) })
               }}
             >
               {t('panel.resumeRun')}

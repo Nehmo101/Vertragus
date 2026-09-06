@@ -2,6 +2,8 @@
  * Content script: snapshot of interactive elements plus click/fill/press by
  * `data-vertragus-ref` (e1, e2, …). Refs are rewritten on every snapshot.
  */
+const documentGeneration = Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, '0')).join('')
+let snapshotGeneration = 0
 const INTERACTIVE = 'a, button, input, textarea, select, [role="button"], [role="link"], [role="tab"], [contenteditable="true"]'
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -21,9 +23,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 function snapshot() {
   document.querySelectorAll('[data-vertragus-ref]').forEach((node) => node.removeAttribute('data-vertragus-ref'))
+  snapshotGeneration += 1
   const nodes = [...document.querySelectorAll(INTERACTIVE)].filter(visible)
   const tree = nodes.map((node, index) => {
-    const ref = `e${index + 1}`
+    const ref = `${documentGeneration}-${snapshotGeneration}-e${index + 1}`
     node.setAttribute('data-vertragus-ref', ref)
     return {
       ref,
@@ -35,7 +38,7 @@ function snapshot() {
         .trim()
         .slice(0, 120),
       href: node.getAttribute('href') || '',
-      value: 'value' in node ? String(node.value || '').slice(0, 80) : ''
+      value: node.type !== 'password' && 'value' in node ? String(node.value || '').slice(0, 80) : ''
     }
   })
   return { url: location.href, title: document.title, nodes: tree }
@@ -72,13 +75,43 @@ function fill(ref, text, submit) {
     node.textContent = text
     node.dispatchEvent(new Event('input', { bubbles: true }))
   }
-  if (submit) node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  else throw new Error('element is not editable')
+  if (submit) return submitForm(node)
   return { ok: true, ref }
+}
+
+function submitForm(node) {
+  if (!node.form) throw new Error('focused element has no form')
+  if (!node.form.checkValidity()) return { ok: false, error: 'form_invalid' }
+  node.form.requestSubmit()
+  return { ok: true, action: 'requestSubmit' }
 }
 
 function press(key) {
   const target = document.activeElement || document.body
-  target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
-  target.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }))
-  return { ok: true, key }
+  if (key === 'Tab' || key === 'Shift+Tab') {
+    const nodes = [...document.querySelectorAll(INTERACTIVE + ', [tabindex]')]
+      .filter((node) => visible(node) && !node.disabled && node.tabIndex >= 0)
+      .sort((a, b) => (a.tabIndex || Infinity) - (b.tabIndex || Infinity))
+    if (!nodes.length) throw new Error('no focusable element')
+    const delta = key === 'Tab' ? 1 : -1
+    const current = nodes.indexOf(target)
+    const index = current === -1 && delta < 0 ? 0 : current
+    const next = nodes[(index + delta + nodes.length) % nodes.length]
+    next.focus()
+    return { ok: document.activeElement === next, key }
+  }
+  if (key === 'Enter') {
+    if (target instanceof HTMLTextAreaElement) {
+      target.setRangeText('\n', target.selectionStart, target.selectionEnd, 'end')
+      target.dispatchEvent(new Event('input', { bubbles: true }))
+      return { ok: true, action: 'insertLineBreak' }
+    }
+    if (target.matches('button, a[href], input[type="submit"], input[type="button"]')) {
+      target.click()
+      return { ok: true, action: 'click' }
+    }
+    return submitForm(target)
+  }
+  throw new Error(`unsupported key: ${key}; only Tab, Shift+Tab and Enter have implemented effects`)
 }

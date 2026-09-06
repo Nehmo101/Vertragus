@@ -747,6 +747,20 @@ describe('AgentRegistry', () => {
     expect(sent.map((event) => (event.payload as { data: string }).data)).toEqual(['fresh'])
   })
 
+  it('keeps an open terminal attached across a same-id process replacement', () => {
+    attach(10)
+    const replacement = new FakePty()
+    registry.registerAgent({pty:replacement,meta:{...meta('agent-a'),provider:'codex',model:'chosen'}})
+    expect(sent[0]).toMatchObject({channel:TERMINAL_CHANNELS.boot,payload:{agentId:'agent-a',meta:{provider:'codex',model:'chosen'}}})
+    ptyA.emitData('retired output')
+    replacement.emitData('new output')
+    vi.advanceTimersByTime(TERMINAL_COALESCE_MS)
+    expect(sent.filter(event=>event.channel===TERMINAL_CHANNELS.data).at(-1)?.payload).toEqual({agentId:'agent-a',data:'new output'})
+    ipc.send(TERMINAL_CHANNELS.input,10,'continue')
+    expect(replacement.written).toEqual(['continue'])
+    expect(ptyA.written).toEqual([])
+  })
+
   it('markDetached stops the stream until the next attach', () => {
     attach(10)
     registry.markDetached('agent-a')

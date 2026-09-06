@@ -154,3 +154,13 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.tl-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.tl-filters input, .tl-filters select { min-width: 0; flex: 1; color: var(--text); background: var(--glass-bottom); border: 1px solid var(--hairline); border-radius: 6px; padding: 6px; }
+.tl-viewport { overflow: auto; flex: 0 0 auto; }
+.tl-virtual-list { position: relative; margin: 0; padding: 0; list-style: none; }
+.tl-virtual-list > li { position: absolute; left: 0; right: 0; }
+.tl-virtual-list .tl-event { width: 100%; height: calc(100% - 4px); border: 0; text-align: left; cursor: pointer; overflow: hidden; }
+.tl-virtual-list .tl-event-detail { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.tl-inspector { padding: 10px; border: 1px solid var(--hairline); border-radius: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.tl-inspector p { white-space: pre-wrap; }

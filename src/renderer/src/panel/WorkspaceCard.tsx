@@ -34,9 +34,14 @@ import {
   workspaceSuccessionLabel,
   workspaceTooltip
 } from './viewModel'
+import { useDraft, useSubmission } from '../lib/useDraft'
+import { AgentControls } from './AgentControls'
+import { RunReviewPanel } from './RunReviewPanel'
 import { RunTimeline } from './RunTimeline'
 
 interface AgentProps {
+  workspaceId: string
+  bridge?: VertragusAppApi
   agent: WorkspaceAgentSummary
   nested?: boolean
   /** Overview window only: paint CLI-recorded token usage on agent rows. */
@@ -44,7 +49,7 @@ interface AgentProps {
   onFocus(agentId: string): void
   onCloseWindow(agentId: string): void
   /** Answer this agent's open question (H1) — absent while it has none. */
-  onAnswer(agentId: string, questionId: string, text: string): void
+  onAnswer(agentId: string, questionId: string, text: string): Promise<void>
   /** E1 Promote: merge this agent's branch into the repo's own checkout. */
   onPromote(agentId: string): void
 }
@@ -57,6 +62,8 @@ interface AgentProps {
  * orchestrator's `send_to_agent{questionId}` uses (H1).
  */
 function AgentRow({
+  workspaceId,
+  bridge,
   agent,
   nested,
   showUsage,
@@ -68,15 +75,19 @@ function AgentRow({
   const { t, i18n } = useTranslation()
   const canClose = agentCanCloseWindow(agent)
   const [answering, setAnswering] = useState(false)
-  const [answer, setAnswer] = useState('')
+  const answerDraft = useDraft(`answer.${agent.agentId}.${agent.pendingQuestionId ?? ''}`, '')
+  const { value: answer, set: setAnswer } = answerDraft
+  const submission = useSubmission(`answer.${agent.agentId}.${agent.pendingQuestionId ?? ''}`)
   const question = agent.pendingQuestion
   const questionId = agent.pendingQuestionId
 
   const submit = (text: string): void => {
     if (!questionId || !text.trim()) return
-    onAnswer(agent.agentId, questionId, text.trim())
-    setAnswer('')
-    setAnswering(false)
+    const version = answerDraft.version()
+    void submission.run(async () => {
+      await onAnswer(agent.agentId, questionId, text.trim())
+      if (answerDraft.clear(version)) setAnswering(false)
+    })
   }
   const display =
     question && questionId
@@ -153,6 +164,7 @@ function AgentRow({
           <CloseIcon size={11} />
         </button>
       ) : null}
+      {bridge ? <AgentControls agent={agent} workspaceId={workspaceId} bridge={bridge} /> : null}
       {answering && question && questionId ? (
         <div className="panel-answer">
           <AnswerFields
@@ -166,7 +178,9 @@ function AgentRow({
             sendLabel={t('panel.answerSend')}
             choiceLabel={(choice) => t('panel.answerChoice', { choice })}
             autoFocus
+            busy={submission.busy}
           />
+          {submission.error ? <p className="panel-retro-error" role="alert">{submission.error}</p> : null}
         </div>
       ) : null}
     </li>
@@ -185,11 +199,11 @@ interface Props {
   onFocusAgent(agentId: string): void
   onCloseAgentWindow(agentId: string): void
   /** H2 refill: hand a run that was started bare its goal (see GoalRefill). */
-  onAssignGoal(workspaceId: string, goal: string): void
+  onAssignGoal(workspaceId: string, goal: string): Promise<void>
   /** H1: answer one agent's open question over the shared host path. */
-  onAnswerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): void
+  onAnswerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): Promise<void>
   /** D2: steer the run — wakes the orchestrator's await_events. */
-  onUserMessage(workspaceId: string, text: string, targetAgentId?: string): void
+  onUserMessage(workspaceId: string, text: string, targetAgentId?: string): Promise<void>
   /** E1 Promote — the user's click, merged by the host into the main checkout. */
   onPromoteAgent(workspaceId: string, agentId: string): void
   /** Reveal this run's artefact folder in the OS file manager (desktop only). */
@@ -213,30 +227,38 @@ interface Props {
  * backend: the answer goes to the reserved agent id `user`, which resolves the
  * parked `ask_user` waiter.
  */
-function UserQuestion({
+export function UserQuestion({
   workspaceId,
+  agentId = 'user',
   question,
   questionId,
   choices,
   onAnswer
 }: {
   workspaceId: string
+  agentId?: string
   question: string
   questionId: string
   choices?: string[]
-  onAnswer(workspaceId: string, agentId: string, questionId: string, text: string): void
+  onAnswer(workspaceId: string, agentId: string, questionId: string, text: string): Promise<void>
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const [answer, setAnswer] = useState('')
+  const answerDraft = useDraft(`answer.${agentId}.${questionId}`, '')
+  const { value: answer, set: setAnswer } = answerDraft
+  const submission = useSubmission(`answer.${agentId}.${questionId}`)
   const display = questionChoicesDisplay(question, choices)
   const submit = (text: string): void => {
     if (!text.trim()) return
-    onAnswer(workspaceId, 'user', questionId, text.trim())
-    setAnswer('')
+    const version = answerDraft.version()
+    void submission.run(async () => {
+      await onAnswer(workspaceId, agentId, questionId, text.trim())
+      answerDraft.clear(version)
+    })
   }
   return (
     <div className="panel-answer panel-user-question">
       <AnswerFields
+        busy={submission.busy}
         prompt={t('panel.userQuestion', { question: display.prompt })}
         choices={display.choices}
         answer={answer}
@@ -246,6 +268,7 @@ function UserQuestion({
         sendLabel={t('panel.answerSend')}
         choiceLabel={(choice) => t('panel.answerChoice', { choice })}
       />
+      {submission.error ? <p className="panel-retro-error" role="alert">{submission.error}</p> : null}
     </div>
   )
 }
@@ -265,7 +288,8 @@ function AnswerFields({
   placeholder,
   sendLabel,
   choiceLabel,
-  autoFocus
+  autoFocus,
+  busy = false
 }: {
   prompt: string
   choices: readonly string[]
@@ -277,6 +301,7 @@ function AnswerFields({
   sendLabel: string
   choiceLabel(choice: string): string
   autoFocus?: boolean
+  busy?: boolean
 }): React.JSX.Element {
   const submitCustom = (): void => {
     if (!answer.trim()) return
@@ -293,6 +318,7 @@ function AnswerFields({
               type="button"
               className="panel-answer-choice"
               aria-label={choiceLabel(choice)}
+              disabled={busy}
               onClick={() => onSubmit(choice)}
             >
               {choice}
@@ -318,7 +344,7 @@ function AnswerFields({
       <button
         type="button"
         className="panel-answer-send"
-        disabled={!answer.trim()}
+        disabled={busy || !answer.trim()}
         onClick={submitCustom}
       >
         {sendLabel}
@@ -393,18 +419,22 @@ function GoalRefill({
 }: {
   workspaceId: string
   hint: string
-  onAssign(workspaceId: string, goal: string): void
+  onAssign(workspaceId: string, goal: string): Promise<void>
   onSaveAttachment?: Props['onSaveAttachment']
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-  const [goal, setGoal] = useState('')
+  const goalDraft = useDraft(`workspace.${workspaceId}.goal`, '')
+  const { value: goal, set: setGoal } = goalDraft
+  const submission = useSubmission()
   const goalRef = useRef<HTMLTextAreaElement>(null)
   const submit = (): void => {
     if (!goal.trim()) return
-    onAssign(workspaceId, goal.trim())
-    setGoal('')
-    setOpen(false)
+    const version = goalDraft.version()
+    void submission.run(async () => {
+      await onAssign(workspaceId, goal.trim())
+      if (goalDraft.clear(version)) setOpen(false)
+    })
   }
   const insertSaved = (result: AttachmentSaveResult): void => {
     setGoal((current) => {
@@ -418,6 +448,7 @@ function GoalRefill({
   }
   return (
     <div className="panel-card-refill">
+      {submission.error ? <p className="panel-retro-error" role="alert">{submission.error}</p> : null}
       <button
         type="button"
         className="panel-card-goal is-empty is-refill"
@@ -442,23 +473,23 @@ function GoalRefill({
               if (!onSaveAttachment) return
               if (!clipboardDataLooksLikeImage(event.clipboardData)) return
               event.preventDefault()
-              void (async () => {
+              void submission.run(async () => {
                 for (const source of await pasteImageSources(event.clipboardData)) {
                   const result = await onSaveAttachment({ workspaceId }, source)
                   if (result) insertSaved(result)
                 }
-              })()
+              })
             }}
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => {
               event.preventDefault()
               if (!onSaveAttachment) return
-              void (async () => {
+              void submission.run(async () => {
                 for (const source of await droppedImageSources(event.dataTransfer.files)) {
                   const result = await onSaveAttachment({ workspaceId }, source)
                   if (result) insertSaved(result)
                 }
-              })()
+              })
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -471,7 +502,7 @@ function GoalRefill({
           <button
             type="button"
             className="panel-answer-send"
-            disabled={!goal.trim()}
+            disabled={submission.busy || !goal.trim()}
             onClick={submit}
           >
             {t('panel.assignGoalSend')}
@@ -491,17 +522,23 @@ function Composer({
 }: {
   workspaceId: string
   agents: WorkspaceAgentSummary[]
-  onSend(workspaceId: string, text: string, targetAgentId?: string): void
+  onSend(workspaceId: string, text: string, targetAgentId?: string): Promise<void>
   onSaveAttachment?: Props['onSaveAttachment']
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const [text, setText] = useState('')
-  const [target, setTarget] = useState('')
+  const textDraft = useDraft(`workspace.${workspaceId}.composer`, '')
+  const { value: text, set: setText } = textDraft
+  const targetDraft = useDraft(`workspace.${workspaceId}.target`, '')
+  const { value: target, set: setTarget } = targetDraft
+  const submission = useSubmission()
   const inputRef = useRef<HTMLInputElement>(null)
   const submit = (): void => {
     if (!text.trim()) return
-    onSend(workspaceId, text.trim(), target || undefined)
-    setText('')
+    const version = textDraft.version()
+    void submission.run(async () => {
+      await onSend(workspaceId, text.trim(), target || undefined)
+      textDraft.clear(version)
+    })
   }
   const insertSaved = (result: AttachmentSaveResult): void => {
     setText((current) => {
@@ -517,6 +554,7 @@ function Composer({
   const targets = agents.filter((agent) => agent.roleId !== 'orchestrator')
   return (
     <div className="panel-composer">
+      {submission.error ? <p className="panel-retro-error" role="alert">{submission.error}</p> : null}
       {targets.length > 0 ? (
         <select
           className="panel-composer-target"
@@ -544,23 +582,23 @@ function Composer({
           if (!onSaveAttachment) return
           if (!clipboardDataLooksLikeImage(event.clipboardData)) return
           event.preventDefault()
-          void (async () => {
+          void submission.run(async () => {
             for (const source of await pasteImageSources(event.clipboardData)) {
               const result = await onSaveAttachment(attachTarget, source)
               if (result) insertSaved(result)
             }
-          })()
+          })
         }}
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
           event.preventDefault()
           if (!onSaveAttachment) return
-          void (async () => {
+          void submission.run(async () => {
             for (const source of await droppedImageSources(event.dataTransfer.files)) {
               const result = await onSaveAttachment(attachTarget, source)
               if (result) insertSaved(result)
             }
-          })()
+          })
         }}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
@@ -569,7 +607,7 @@ function Composer({
           }
         }}
       />
-      <button type="button" className="panel-answer-send" disabled={!text.trim()} onClick={submit}>
+      <button type="button" className="panel-answer-send" disabled={submission.busy || !text.trim()} onClick={submit}>
         {t('panel.composerSend')}
       </button>
     </div>
@@ -631,6 +669,7 @@ export function WorkspaceCard({
 }: Props): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const [timelineOpen, setTimelineOpen] = useState(false)
+  const [reviewOpen, setReviewOpen] = useState(false)
   const stop = t('panel.stopWorkspace', { workspace: workspace.name })
   const succession = workspaceSuccessionLabel(t, workspace)
   const replace = t('panel.replaceOrchestrator', { workspace: workspace.name })
@@ -776,6 +815,8 @@ export function WorkspaceCard({
                 <AgentRow
                   key={agent.agentId}
                   agent={agent}
+                  workspaceId={workspace.workspaceId}
+                  bridge={bridge}
                   showUsage={showUsage}
                   nested={Boolean(
                     workspace.agents.find((row) => row.agentId === agent.parentId)?.parentId
@@ -790,6 +831,8 @@ export function WorkspaceCard({
               ))
             )}
           </ul>
+          {bridge ? <button type="button" className="panel-new" aria-expanded={reviewOpen} onClick={() => setReviewOpen((open) => !open)}>{t('review.title')}</button> : null}
+          {reviewOpen && bridge ? <RunReviewPanel profileId={workspace.profileId} workspaceId={workspace.workspaceId} live={workspace.active} agents={workspace.agents} bridge={bridge} /> : null}
           {workspace.tasks && workspace.tasks.length > 0 ? (
             <TaskBoardSection workspace={workspace} />
           ) : null}

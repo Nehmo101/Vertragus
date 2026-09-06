@@ -118,6 +118,7 @@
     "archiveToggle": "Archived runs of “{{profile}}” — Stop left these journals on disk",
     "archiveLoading": "Loading archived runs …",
     "archiveEmpty": "No runs yet — Stop keeps the journal here.",
+    "archiveNoMatches": "No runs match these filters.",
     "archiveRunning": "Running",
     "archiveEndedUserStop": "Stopped by the user",
     "archiveEndedRetro": "Finished with retro",
@@ -175,7 +176,16 @@
     "onboardingCopied": "Copied",
     "onboardingNewProfile": "+ Create the first profile",
     "onboardingProfileHint": "Pick a repository; the rest can stay as it is. The orchestrator is preset to the first CLI that can start.",
-    "onboardingRunHint": "Then press ▶ next to the profile. The field beside it carries the goal for the orchestrator — empty means it waits for word."
+    "onboardingRunHint": "Then press ▶ next to the profile. The field beside it carries the goal for the orchestrator — empty means it waits for word.",
+    "decisions": "Open decisions ({{count}})",
+    "archiveSearch": "Search run journals",
+    "archiveFilter": "Run status",
+    "archiveAll": "All runs",
+    "archiveStopped": "Stopped",
+    "archiveSince": "Started on or after",
+    "archiveSearched": "Runs searched: {{count}}",
+    "archiveSkipped": "Oversized journals skipped: {{count}}",
+    "cleanupAhead": "{{count}} commits ahead"
   },
   "timeline": {
     "title": "Overview",
@@ -203,8 +213,17 @@
       "integrate_ok": "{{name}} merge succeeded",
       "integrate_conflict": "{{name}} merge conflicted",
       "pull_request": "Pull request",
-      "budget_warning": "Runtime budget warning"
-    }
+      "budget_warning": "Runtime budget warning",
+      "agent_boot": "{{name}}: startup phase",
+      "agent_reseated": "{{name}}: model or provider changed",
+      "agent_reseat_failed": "{{name}}: model or provider change failed"
+    },
+    "search": "Search events",
+    "agentFilter": "Agent",
+    "typeFilter": "Event type",
+    "allAgents": "All agents",
+    "allEvents": "All events",
+    "newEvents": "Show new events ({{count}})"
   },
   "profileEditor": {
     "title": "Edit profile",
@@ -368,7 +387,6 @@
     "mcpKindKimiProject": "Project file .kimi-code/mcp.json (Kimi)",
     "mcpKindCursorProject": "Project file .cursor/mcp.json (Cursor)",
     "mcpKindGrokProject": "Project file .grok/config.toml (Grok Build)",
-
     "mcpKindNone": "none — plain terminal",
     "mcpConfigArg": "Config flag",
     "mcpStrictArg": "Strict flag",
@@ -379,7 +397,6 @@
     "mcpKimiHint": "Kimi has no flag: Vertragus creates .kimi-code/mcp.json in the agent’s working directory.",
     "mcpCursorHint": "Cursor has no flag: Vertragus merges vertragus into .cursor/mcp.json and launches with --approve-mcps.",
     "mcpGrokHint": "Grok has no flag: Vertragus merges [mcp_servers.vertragus] into .grok/config.toml and allows the tools via --allow. Orchestrators also get a permission cage.",
-
     "mcpNoneHint": "The agent can report nothing. Vertragus warns the orchestrator after 120 s without output.",
     "discovery": "Model list",
     "discoveryKind": "Source",
@@ -582,9 +599,9 @@
     "remotePersistHint": "This link stays the same across restarts. Only “Generate a new pairing code” changes it and disconnects every device.",
     "remoteRegenerate": "Generate a new pairing code",
     "remoteRegenerateHint": "Disconnects every paired device and changes the QR code. Not needed after a normal restart.",
-    "remoteClients": "Connected devices",
-    "remoteClientsEmpty": "No devices connected.",
-    "remoteRevoke": "Disconnect",
+    "remoteClients": "Paired devices",
+    "remoteClientsEmpty": "No paired devices.",
+    "remoteRevoke": "Revoke access",
     "remoteWarnExec": "Connected devices can start agents in YOLO mode — that is code execution on this PC. Only trust devices you would trust with the machine itself.",
     "browserExtension": {
       "title": "Browser extension",
@@ -606,7 +623,8 @@
       "regenerate": "Rotate pairing token",
       "regenerateHint": "Disconnects the extension and changes the URL. Use this if the URL leaked.",
       "warnYolo": "A yolo-mode worker can click, type and screenshot any tab the extension can see. Pair only while you are watching the run."
-    }
+    },
+    "remoteLastSeen": "Last seen: {{time}}"
   },
   "zones": {
     "title": "Zones for “{{profile}}”",
@@ -684,5 +702,45 @@
     "minimize": "Minimize window",
     "maximize": "Enlarge window — fills the screen",
     "restore": "Shrink window"
+  },
+  "review": {
+    "title": "Result and recovery",
+    "branch": "Branch",
+    "root": "Root",
+    "head": "Current HEAD",
+    "worktree": "Worktree",
+    "changes": "Working copy",
+    "ahead": "Commits ahead of checkout",
+    "unknown": "Not available",
+    "dirty": "Uncommitted changes",
+    "clean": "Clean",
+    "files": "Changed files ({{count}})",
+    "noBranches": "No surviving branches found.",
+    "report": "{{name}} reported {{status}}",
+    "verificationHint": "Reports are shown with their recorded commit. An agent report alone does not certify that the current HEAD was tested.",
+    "integratedCheckout": "Merged into repository checkout:",
+    "integratedWorktree": "Integrated into a worktree:",
+    "promote": "Promote this branch",
+    "resumeDirty": "Resume starts from the selected branch commit. Uncommitted changes remain in the worktree shown above.",
+    "resume": "Resume from this branch",
+    "openTasks": "Unfinished tasks ({{count}})",
+    "retry": "Retry PR finalization",
+    "attempts": "Attempts: {{count}}",
+    "finalization": {
+      "pending": "PR finalization pending",
+      "running": "PR finalization running",
+      "failed": "PR finalization failed",
+      "completed": "PR finalization completed"
+    }
+  },
+  "controls": {
+    "title": "Startup and model",
+    "failed": "Needs attention",
+    "elapsed": "Startup: {{seconds}} s",
+    "retry": "Retry startup",
+    "keepOrDefault": "Keep current / provider default",
+    "note": "Handoff note",
+    "switchHint": "Switching starts a fresh CLI session from the current work. Empty fields keep the current value for the same provider; another provider uses its defaults.",
+    "switch": "Switch model / provider"
   }
 }

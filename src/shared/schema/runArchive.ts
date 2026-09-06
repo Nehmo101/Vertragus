@@ -36,6 +36,7 @@ export interface RunJournalView {
     workspaceName: string
     goal?: string
     startedAt: number
+    rootSeat?: import('./reseat').AgentSeat
     resumedFrom?: string
     endedAt?: number
     endReason?: RunEndReason

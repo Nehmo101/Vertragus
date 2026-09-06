@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
+import { createRemoteDeviceFile } from './deviceStore'
 import { isRequestAllowed, refreshesIdleTimer, startRemoteServer } from './server'
 import type { RemoteGatewayHost } from './gateway'
 import type { TerminalDirectory } from '@main/ipc'
@@ -132,6 +133,39 @@ describe('startRemoteServer — sessions over a live socket', () => {
         : undefined,
     write: () => false,
     resize: () => false
+  })
+
+  it('lists and revokes an offline enrolled device after a persistent server restart', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vertragus-remote-device-'))
+    const options = {
+      host: '127.0.0.1', port: 0, pairingToken: () => 'pair-secret', gateway, terminals,
+      onWorkspaceChange: () => () => undefined, locale: () => 'en', theme: () => 'dark' as const,
+      staticRoot: root, authDeps: { deviceStore: createRemoteDeviceFile(join(root, 'devices.json')) }
+    }
+    let handle = await startRemoteServer(options)
+    try {
+      const enrolled = await fetch(`http://127.0.0.1:${handle.port}/api/auth`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pairingToken: 'pair-secret' })
+      })
+      const credential = await enrolled.json() as { session: string; deviceCredential: string }
+      const original = handle.clients()[0]
+      await handle.close()
+      handle = await startRemoteServer(options)
+      expect(handle.clients()).toEqual([original])
+      expect(Object.keys(original).sort()).toEqual(['createdAt', 'id', 'lastSeenAt', 'remoteAddress'])
+      expect(JSON.stringify(handle.clients())).not.toContain(credential.deviceCredential)
+      expect(handle.revoke(original.id)).toBe(true)
+      expect(handle.clients()).toEqual([])
+      const renewal = await fetch(`http://127.0.0.1:${handle.port}/api/auth`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceCredential: credential.deviceCredential })
+      })
+      expect(renewal.status).toBe(401)
+    } finally {
+      await handle.close()
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   async function withServer(

@@ -30,12 +30,18 @@ import type { SuccessionRequest } from '@shared/schema/handoff'
 import type { SpillStore } from '@main/workspace/spill'
 import type { ResultSchema } from '@shared/schema/resultSchema'
 import type { TaskBoard } from '@main/workspace/taskBoard'
+import type { ReseatInput, AgentSeat } from '@shared/schema/reseat'
+import type { AgentBootDiagnostic } from '@shared/terminalBoot'
 
 /** What `start_agent` hands the host. */
 export interface StartAgentInput {
   role: string
   /** Full seed text — task plus the appended contract. */
   task: string
+  /** Raw assignment and contract capabilities retained across a provider switch. */
+  assignment?: string
+  resultSchema?: ResultSchema
+  canSpawnHelpers?: boolean
   model?: string
   /**
    * Existing branch the agent's own branch starts from — how one agent builds
@@ -83,6 +89,8 @@ export interface StartedAgent {
   providerId: string
   /** Resolved model; absent = the provider CLI's own default. */
   model?: string
+  effort?: AgentSeat['effort']
+  generation?: number
   /** Every agent works in its own git worktree — this is where. */
   worktreePath: string
   /** The agent's own branch — pass it as another agent's `baseBranch` to chain work. */
@@ -91,6 +99,11 @@ export interface StartedAgent {
 
 /** One row of the host's agent overview — `list_agents` returns it in full. */
 export interface AgentSummary {
+  providerId?: string
+  effort?: AgentSeat['effort']
+  generation?: number
+  boot?: AgentBootDiagnostic
+  lastError?: string
   agentId: string
   name: string
   role: string
@@ -152,6 +165,12 @@ export interface StartingSuccession {
   ready: Promise<StartedAgent>
 }
 
+export interface StartingReseat {
+  agentId: string
+  generation: number
+  ready: Promise<StartedAgent>
+}
+
 /** Read-only views `inspect_agent` can ask of one agent's worktree. */
 export const INSPECT_VIEWS = ['status', 'diff', 'log', 'file'] as const
 export type InspectView = (typeof INSPECT_VIEWS)[number]
@@ -162,6 +181,7 @@ export type InspectView = (typeof INSPECT_VIEWS)[number]
  * {@link AgentHost.snapshotWorktree}.
  */
 export interface WorktreeFacts {
+  snapshotError?: string
   branch: string
   headSha: string
   uncommitted: boolean
@@ -188,6 +208,7 @@ export interface InspectAgentResult extends WorktreeFacts {
 /** Fields copied onto `agent_done` when a worktree snapshot succeeds. */
 export function worktreeEventFields(facts: WorktreeFacts): WorktreeFacts {
   return {
+    ...(facts.snapshotError ? { snapshotError: facts.snapshotError } : {}),
     branch: facts.branch,
     headSha: facts.headSha,
     uncommitted: facts.uncommitted,
@@ -210,6 +231,9 @@ export interface AgentHost {
    * heavy lifting continues behind {@link StartingAgent.ready}.
    */
   beginAgent(input: StartAgentInput): StartingAgent
+  reseatAgent?(input: ReseatInput): StartingReseat
+  agentGeneration?(agentId: string): number | undefined
+  rememberAssignment?(agentId: string, text: string): void
   /**
    * F: reserve and begin one LEAD start — same synchronous-reservation rules
    * as {@link beginAgent}. The lead runs the profile's orchestrator provider,
@@ -307,7 +331,7 @@ export interface AgentHost {
    * `start_agent` before the agent exists; derived from the profile slot's
    * provider (`mcp.kind === 'none'` → sentinel).
    */
-  reportingMode(role: string): ReportingMode
+  reportingMode(role: string, choice?: { slotId?: string; providerId?: string }): ReportingMode
   /**
    * A3: run the profile's end-of-report automation for an agent that just
    * reported `status` — auto-integrate into the orchestrator's worktree,
@@ -519,6 +543,8 @@ export interface WorkspaceRuntime {
    * neither would see them).
    */
   onLeadCreated?: (lead: LeadRuntime) => void
+  /** Revoke the terminal identity regardless of which subtree receives its event. */
+  onAgentTerminated?: (agentId: string) => void
   /**
    * The latest assignment the orchestrator handed out, shortened via
    * {@link taskNote}. Last delegated work, not the user's workspace goal —
@@ -559,7 +585,7 @@ export interface WorkspaceRuntime {
    * `await_events` long-poll (~50 s) touches when it returns, so a live loop
    * never looks idle even though no *new* call happened while it blocked.
    */
-  onOrchestratorToolCall?: () => void
+  onOrchestratorToolCall?: (phase?: 'enter' | 'exit') => void
   /** E4: which budget thresholds were already announced. */
   budgetFlags?: BudgetFlags
 }
@@ -597,6 +623,7 @@ export function taskNote(task: string): string | undefined {
  * — a blank note must not overwrite a meaningful one.
  */
 export function recordAssignment(runtime: WorkspaceRuntime, agentId: string, task: string): void {
+  runtime.ctx.host.rememberAssignment?.(agentId, task)
   const note = taskNote(task)
   if (!note) return
   runtime.agentTasks.set(agentId, note)
@@ -662,11 +689,29 @@ export function ensureNest(runtime: WorkspaceRuntime, agentId: string): LeadRunt
 export function attachSubtreeAdoptionTap(runtime: WorkspaceRuntime, subtree: LeadRuntime): void {
   subtree.events.onPush((event) => {
     if (event.type !== 'agent_exited' && event.type !== 'agent_stopped') return
+    runtime.onAgentTerminated?.(event.agentId)
     runtime.resultSchemas.delete(event.agentId)
     if (runtime.leads.has(event.agentId) || runtime.nests.has(event.agentId)) {
       adoptSubtree(runtime, event.agentId)
     }
   })
+}
+
+/** Recreate only a stopped lead's own queue; already-adopted children stay put. */
+export function restoreLeadRuntime(
+  runtime: WorkspaceRuntime,
+  agentId: string,
+  input: { area: string; maxSubagents?: number }
+): LeadRuntime {
+  const existing = runtime.leads.get(agentId)
+  if (existing && !existing.events.isClosed) return existing
+  if (!existing && runtime.leads.size >= MAX_LEADS) throw new Error('Lead cap reached; stop another lead before restarting this one.')
+  const lead: LeadRuntime = { agentId, area: input.area, events: new EventQueue(),
+    ...(input.maxSubagents !== undefined ? { maxSubagents: input.maxSubagents } : {}) }
+  runtime.leads.set(agentId, lead)
+  attachSubtreeAdoptionTap(runtime, lead)
+  runtime.onLeadCreated?.(lead)
+  return lead
 }
 
 /**
@@ -699,8 +744,8 @@ export function adoptSubtree(runtime: WorkspaceRuntime, parentAgentId: string): 
   if (adopted.length === 0) return
   const dest = grandparent
     ? (runtime.nests.get(grandparent)?.events ??
-        runtime.leads.get(grandparent)?.events ??
-        runtime.ctx.events)
+      runtime.leads.get(grandparent)?.events ??
+      runtime.ctx.events)
     : runtime.ctx.events
   if (!dest.isClosed) {
     dest.push({

@@ -12,6 +12,7 @@
  * one belt-and-braces refresh left is window focus: if a push was ever lost
  * while the panel was in the background, looking at it makes it true again.
  */
+import { useTranslation } from 'react-i18next'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Profile } from '@shared/schema/profile'
 import type {
@@ -38,7 +39,7 @@ export interface PanelData {
   error: string | null
   dismissError(): void
   /** Start a workspace; a non-empty goal is seeded into the orchestrator (H2). */
-  startWorkspace(profileId: string, goal?: string, attachmentIds?: string[]): void
+  startWorkspace(profileId: string, goal?: string, attachmentIds?: string[]): Promise<void>
   saveAttachment(
     target: { profileId: string } | { workspaceId: string; agentId?: string },
     source: 'clipboard' | { absPath: string } | { bytes: Uint8Array; mime?: string }
@@ -47,16 +48,16 @@ export interface PanelData {
    * H2 refill: hand a bare-started run its goal now. The card offers this only
    * while the run has none — a goal is the orchestrator's first user turn.
    */
-  assignGoal(workspaceId: string, goal: string): void
+  assignGoal(workspaceId: string, goal: string): Promise<void>
   /** E3: start a workspace briefed on the profile's newest journaled run. */
-  resumeWorkspace(profileId: string): void
+  resumeWorkspace(profileId: string): Promise<void>
   stopWorkspace(workspaceId: string): void
   /** C6/S3: replace a dead or silent orchestrator; the run itself continues. */
   succeedOrchestrator(workspaceId: string): void
   /** Answer an agent's open question from its `?` badge (H1). */
-  answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): void
+  answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): Promise<void>
   /** D2: steer a running workspace — wakes the orchestrator's await_events. */
-  sendUserMessage(workspaceId: string, text: string, targetAgentId?: string): void
+  sendUserMessage(workspaceId: string, text: string, targetAgentId?: string): Promise<void>
   /** E1 Promote: merge this agent's branch into the repo's own checkout. */
   promoteAgent(workspaceId: string, agentId: string): void
   /** Reveal this run's artefacts (spill/, tasks.json, events.jsonl) on disk. */
@@ -89,6 +90,7 @@ export interface PanelData {
 }
 
 export function usePanelData(): PanelData {
+  const { t } = useTranslation()
   const bridge = useMemo(() => window.vertragus?.app, [])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [profilesLoaded, setProfilesLoaded] = useState(false)
@@ -157,6 +159,12 @@ export function usePanelData(): PanelData {
     [bridge, fail]
   )
 
+  const submit = async (action: (api: VertragusAppApi) => Promise<unknown>): Promise<void> => {
+    if (!bridge) throw new Error(t('common.bridgeMissing'))
+    setError(null)
+    try { await action(bridge) } catch (cause) { fail(cause); throw cause }
+  }
+
   return {
     bridge,
     profiles,
@@ -167,9 +175,9 @@ export function usePanelData(): PanelData {
     error,
     dismissError: () => setError(null),
     startWorkspace: (profileId, goal, attachmentIds) =>
-      run(async (api) => {
+      submit(async (api) => {
         await api.startWorkspace(profileId, goal, attachmentIds)
-        setWorkspaces(await api.listWorkspaces())
+        void api.listWorkspaces().then(setWorkspaces, fail)
       }),
     saveAttachment: (target, source) => {
       if (!bridge) return Promise.resolve(null)
@@ -179,32 +187,32 @@ export function usePanelData(): PanelData {
       })
     },
     assignGoal: (workspaceId, goal) =>
-      run(async (api) => {
+      submit(async (api) => {
         await api.assignWorkspaceGoal(workspaceId, goal)
-        setWorkspaces(await api.listWorkspaces())
+        void api.listWorkspaces().then(setWorkspaces, fail)
       }),
     resumeWorkspace: (profileId) =>
-      run(async (api) => {
+      submit(async (api) => {
         await api.resumeWorkspace(profileId)
-        setWorkspaces(await api.listWorkspaces())
+        void api.listWorkspaces().then(setWorkspaces, fail)
       }),
     stopWorkspace: (workspaceId) =>
       run(async (api) => {
         await api.stopWorkspace(workspaceId)
-        setWorkspaces(await api.listWorkspaces())
+        void api.listWorkspaces().then(setWorkspaces, fail)
       }),
     succeedOrchestrator: (workspaceId) =>
       run(async (api) => {
         await api.succeedOrchestrator(workspaceId)
-        setWorkspaces(await api.listWorkspaces())
+        void api.listWorkspaces().then(setWorkspaces, fail)
       }),
     answerQuestion: (workspaceId, agentId, questionId, text) =>
-      run(async (api) => {
+      submit(async (api) => {
         await api.answerQuestion(workspaceId, agentId, questionId, text)
-        setWorkspaces(await api.listWorkspaces())
+        void api.listWorkspaces().then(setWorkspaces, fail)
       }),
     sendUserMessage: (workspaceId, text, targetAgentId) =>
-      run((api) => api.sendUserMessage(workspaceId, text, targetAgentId)),
+      submit((api) => api.sendUserMessage(workspaceId, text, targetAgentId)),
     promoteAgent: (workspaceId, agentId) =>
       run((api) => api.promoteAgentBranch(workspaceId, agentId)),
     openRunFolder: (workspaceId) => run((api) => api.openRunFolder(workspaceId)),

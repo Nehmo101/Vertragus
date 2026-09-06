@@ -1,3 +1,7 @@
+import type { AgentReseatInput, AgentSuccessor } from '@shared/runReview'
+import { searchRuns } from './workspace/searchRuns'
+import { getRunReview } from './workspace/runReview'
+import { retryRunFinalization } from './workspace/runFinalization'
 /**
  * App IPC — the bridge for the panel and the profile editor.
  *
@@ -175,6 +179,7 @@ export const APP_CHANNELS = {
   workspacesSendToOrchestrator: 'workspaces:sendToOrchestrator',
   workspacesStop: 'workspaces:stop',
   workspacesSucceedOrchestrator: 'workspaces:succeedOrchestrator',
+  workspacesReseatAgent: 'workspaces:reseatAgent',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
   workspacesCloseAgent: 'workspaces:closeAgent',
@@ -212,7 +217,11 @@ export const APP_CHANNELS = {
    * Archive of this profile's journals (live + stopped). Panel-only; the
    * timeline is a read of files the host already writes.
    */
+  runsSearch: 'runs:search',
   runsList: 'runs:list',
+  runsRecovery: 'runs:recovery',
+  runsReview: 'runs:review',
+  runsRetryFinalization: 'runs:retryFinalization',
   runsGet: 'runs:get',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
@@ -291,6 +300,13 @@ export type PanelAgentState = 'working' | 'waiting' | 'stopped'
 
 /** One agent row of a workspace card. */
 export interface WorkspaceAgentSummary {
+  providerId?: string
+  model?: string
+  effort?: import('@shared/schema/reseat').AgentSeat['effort']
+  generation?: number
+  boot?: import('@shared/terminalBoot').AgentBootDiagnostic
+  lastError?: string
+  branch?: string
   agentId: string
   /** Commedia code-name; the panel resolves its lore blurb for the tooltip. */
   name: string
@@ -466,6 +482,10 @@ export interface WorkspaceSummary {
 
 /** One stale worktree the panel's cleanup view offers for removal. */
 export interface StaleWorktreeSummary {
+  sizeBytes?: number
+  dirty?: boolean
+  ahead?: number
+  workspaceId?: string
   path: string
   /** Short branch name (`vertragus/paradiso/caronte`); absent when detached. */
   branch?: string
@@ -504,7 +524,7 @@ export interface WorkspaceDirectory {
    * newest journaled run (worktrees/branches survive; processes do not).
    * Rejects with a readable message when the repo holds no journaled run.
    */
-  resume(profileId: string): void | Promise<unknown>
+  resume(profileId: string, options?: {workspaceId?: string; baseBranch?: string}): void | Promise<unknown>
   /**
    * Overlay save / display pick: push the new layout into running workspaces
    * of this profile so hide-all snap uses the saved screen.
@@ -517,7 +537,8 @@ export interface WorkspaceDirectory {
    * died or went silent. Keeps subagents, worktrees, questions and the task
    * board; rejects with a readable message when there is nothing to replace.
    */
-  succeedOrchestrator(workspaceId: string): void | Promise<unknown>
+  reseatAgent?(workspaceId: string, input: AgentReseatInput): void | Promise<unknown>
+  succeedOrchestrator(workspaceId: string, successor?: AgentSuccessor): void | Promise<unknown>
   /**
    * Answer one agent question (H1) — the SAME host path the orchestrator's
    * `send_to_agent{questionId}` takes, so panel, remote and MCP tool share one
@@ -1844,7 +1865,12 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     const profileId =
       typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
     if (!profileId) throw new Error('workspaces:resume rejected — missing profile id')
-    await host.directory.resume(profileId)
+    if (payload && typeof payload === 'object') {
+      const options = payload as {workspaceId?:unknown;baseBranch?:unknown}
+      if (options.workspaceId !== undefined && (typeof options.workspaceId !== 'string' || !/^[\w-]+$/.test(options.workspaceId))) throw new Error('Invalid resume run id')
+      if (options.baseBranch !== undefined && (typeof options.baseBranch !== 'string' || options.baseBranch.length > 500)) throw new Error('Invalid resume base branch')
+    }
+    await host.directory.resume(profileId, typeof payload === 'object' ? payload as {workspaceId?: string; baseBranch?: string} : undefined)
     emitWorkspaces()
   })
 
@@ -1872,7 +1898,19 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     if (!workspaceId) {
       throw new Error('workspaces:succeedOrchestrator rejected — missing workspace id')
     }
-    await host.directory.succeedOrchestrator(workspaceId)
+    await host.directory.succeedOrchestrator(workspaceId, typeof payload === 'object' ? (payload as {successor?:AgentSuccessor}).successor : undefined)
+    emitWorkspaces()
+  })
+
+  handle(APP_CHANNELS.workspacesReseatAgent, requirePanelOrOwnTimeline, async (_event,payload) => {
+    const body = (payload ?? {}) as AgentReseatInput & {workspaceId?:string}
+    if (!body.workspaceId || typeof body.agentId !== 'string' || !body.agentId.trim()) throw new Error('Invalid reseat request')
+    for (const value of [body.providerId,body.model,body.effort,body.reason,body.note]) {
+      if (value !== undefined && (typeof value !== 'string' || value.length > 20000)) throw new Error('Invalid reseat settings')
+    }
+    if (!host.directory.reseatAgent) throw new Error('Agent replacement unavailable')
+    const {workspaceId,...input} = body
+    await host.directory.reseatAgent(workspaceId,input)
     emitWorkspaces()
   })
 
@@ -2010,6 +2048,27 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   })
 
   // --- run archive (panel-only; no remote verb) --------------------------
+
+  handle(APP_CHANNELS.runsSearch, requirePanel, async (_event,payload) => {
+    const body = (payload ?? {}) as {profileId?:string;query?:string}
+    const profile = host.store.getProfiles().find((entry) => entry.id === body.profileId)
+    if (!profile || typeof body.query !== 'string' || body.query.length > 2000) throw new Error('Invalid run search')
+    const result = await searchRuns(profile.repoPath,body.query,{maxRuns:200,maxResults:200})
+    const allowed = new Set((await listRuns(profile.repoPath,profile.id)).map((run) => run.workspaceId))
+    return {...result,hits:result.hits.filter((hit) => allowed.has(hit.workspaceId))}
+  })
+
+  for (const channel of [APP_CHANNELS.runsRecovery, APP_CHANNELS.runsReview, APP_CHANNELS.runsRetryFinalization]) {
+    handle(channel, requirePanel, async (_event, payload) => {
+      const body = (payload ?? {}) as { profileId?: string; workspaceId?: string }
+      if (!body.profileId || !body.workspaceId || !/^[\w-]+$/.test(body.workspaceId)) throw new Error('Invalid run request')
+      const profile = host.store.getProfiles().find((entry) => entry.id === body.profileId)
+      if (!profile) throw new Error('Unknown profile')
+      const review = await getRunReview(profile.repoPath,profile.id,body.workspaceId)
+      if (channel === APP_CHANNELS.runsRetryFinalization) return retryRunFinalization(profile.repoPath,body.workspaceId)
+      return review
+    })
+  }
 
   handle(APP_CHANNELS.runsList, requirePanel, async (_event, payload) => {
     const profileId =

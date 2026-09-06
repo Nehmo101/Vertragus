@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { BindOption, RemoteClientInfo, RemoteStatus } from '@shared/remote/types'
+import { useSubmission } from '../lib/useDraft'
 import { pairingQrSvg } from './qr'
 import {
   bindOptionLabel,
@@ -30,13 +31,14 @@ import {
 import type { VertragusAppApi } from '../../../preload'
 
 export function RemoteSection(): React.JSX.Element | null {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const bridge = useMemo<VertragusAppApi | undefined>(() => window.vertragus?.app, [])
   const [status, setStatus] = useState<RemoteStatus | null>(null)
   const [interfaces, setInterfaces] = useState<BindOption[]>([])
   const [clients, setClients] = useState<RemoteClientInfo[]>([])
   const [allConfirmed, setAllConfirmed] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const mutation = useSubmission()
+  const busy = mutation.busy
   const [copied, setCopied] = useState(false)
 
   const refresh = useCallback(() => {
@@ -60,19 +62,10 @@ export function RemoteSection(): React.JSX.Element | null {
     }
   }, [bridge, refresh])
 
-  const apply = useCallback(
-    async (patch: { enabled?: boolean; bindAddress?: string; port?: number }) => {
-      if (!bridge) return
-      setBusy(true)
-      try {
-        setStatus(await bridge.setRemote(patch))
-        refresh()
-      } finally {
-        setBusy(false)
-      }
-    },
-    [bridge, refresh]
-  )
+  const apply = (patch: { enabled?: boolean; bindAddress?: string; port?: number }): void => {
+    if (!bridge) return
+    void mutation.run(async () => { setStatus(await bridge.setRemote(patch)); refresh() })
+  }
 
   if (!bridge) return null
   if (!status) {
@@ -188,7 +181,7 @@ export function RemoteSection(): React.JSX.Element | null {
         </label>
       ) : null}
 
-      {status.error ? <p className="st-error">{status.error}</p> : null}
+      {status.error || mutation.error ? <p className="st-error" role="alert">{status.error ?? mutation.error}</p> : null}
 
       {status.running && status.pairingUrl ? (
         <div className="st-remote-pairing">
@@ -221,7 +214,7 @@ export function RemoteSection(): React.JSX.Element | null {
               type="button"
               className="st-secondary"
               disabled={busy}
-              onClick={() => bridge.regenerateRemoteToken().then(setStatus)}
+              onClick={() => void mutation.run(async () => { setStatus(await bridge.regenerateRemoteToken()); refresh() })}
             >
               {t('settings.remoteRegenerate')}
             </button>
@@ -240,11 +233,12 @@ export function RemoteSection(): React.JSX.Element | null {
             <ul className="st-client-list">
               {clients.map((client) => (
                 <li key={client.id} className="st-client">
-                  <span className="st-mono">{client.remoteAddress}</span>
+                  <span className="st-mono">{client.remoteAddress}<small className="st-hint">{t('settings.remoteLastSeen', { time: new Date(client.lastSeenAt).toLocaleString(i18n.language) })}</small></span>
                   <button
                     type="button"
                     className="st-ghost"
-                    onClick={() => bridge.revokeRemoteClient(client.id).then(refresh)}
+                    disabled={busy}
+                    onClick={() => void mutation.run(async () => { await bridge.revokeRemoteClient(client.id); refresh() })}
                   >
                     {t('settings.remoteRevoke')}
                   </button>

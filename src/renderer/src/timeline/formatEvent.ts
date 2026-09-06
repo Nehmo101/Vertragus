@@ -38,7 +38,8 @@ function interpolations(event: AgentEvent): Record<string, string | number> {
 function detailOf(event: AgentEvent): string | undefined {
   switch (event.type) {
     case 'agent_done':
-      return event.summary
+      return [event.snapshotError, event.summary].filter(Boolean).join('\n')
+    case 'agent_reseat_failed':
     case 'agent_start_failed':
     case 'orchestrator_handoff_failed':
       return event.message
@@ -48,6 +49,8 @@ function detailOf(event: AgentEvent): string | undefined {
     case 'agent_progress':
     case 'agent_stopped':
       return event.note
+    case 'agent_reseated':
+      return `${event.from.providerId} / ${event.from.model ?? ''} → ${event.to.providerId} / ${event.to.model ?? ''}`
     case 'user_message':
       return event.text
     case 'integrate_conflict':
@@ -85,6 +88,9 @@ export function mergeEvents(
   current: readonly AgentEvent[],
   incoming: readonly AgentEvent[]
 ): AgentEvent[] {
+  if (incoming.length === 1 && (current.length === 0 || incoming[0].seq > current[current.length - 1].seq)) {
+    return [...current, incoming[0]]
+  }
   const bySeq = new Map<number, AgentEvent>()
   for (const event of current) bySeq.set(event.seq, event)
   for (const event of incoming) bySeq.set(event.seq, event)

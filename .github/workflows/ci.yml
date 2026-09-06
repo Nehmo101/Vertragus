@@ -62,7 +62,8 @@ jobs:
           path: ~/.cache/electron
           key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run ci
+      # DOM regression tests boot Chromium, so the suite needs a display too.
+      - run: xvfb-run -a pnpm run ci
       # Xvfb has no compositor, so the transparent glass renders against
       # whatever backdrop the server provides — the check is therefore
       # "a window of the right size was captured", not a pixel comparison.

@@ -75,6 +75,6 @@ describe('WorkspaceCard question choices', () => {
     expect(source).toContain('className="panel-answer-choice"')
     expect(source).toContain('onSubmit(choice)')
     expect(source).toContain('className="panel-answer-send"')
-    expect(source).toContain('disabled={!answer.trim()}')
+    expect(source).toContain('disabled={busy || !answer.trim()}')
   })
 })

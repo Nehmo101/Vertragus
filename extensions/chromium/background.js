@@ -7,6 +7,8 @@ const COMMANDS = ['tabs', 'navigate', 'snapshot', 'click', 'fill', 'press', 'scr
 
 let socket = null
 let pairingUrl = ''
+// Tab activation and captureVisibleTab must be one ordered action across tasks.
+let commandQueue = Promise.resolve()
 
 chrome.runtime.onInstalled.addListener(() => connectFromStore())
 chrome.runtime.onStartup.addListener(() => connectFromStore())
@@ -100,7 +102,9 @@ async function handleFrame(raw) {
   const params = parsed.params && typeof parsed.params === 'object' ? parsed.params : {}
   try {
     if (!COMMANDS.includes(command)) throw new Error(`unknown command: ${command}`)
-    const result = await dispatch(command, params)
+    const request = commandQueue.catch(() => undefined).then(() => dispatch(command, params))
+    commandQueue = request
+    const result = await request
     reply(parsed.id, { ok: true, result })
   } catch (error) {
     reply(parsed.id, { ok: false, error: error instanceof Error ? error.message : String(error) })

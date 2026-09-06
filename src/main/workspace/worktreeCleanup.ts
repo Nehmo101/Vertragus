@@ -15,6 +15,11 @@
  * never deleted — committed work survives every cleanup.
  */
 import { join } from 'node:path'
+import { readdir, lstat } from 'node:fs/promises'
+import { snapshotWorktree } from '@main/agents/inspectWorktree'
+import { commitsAhead } from '@main/agents/pullRequest'
+import { readRunEvents } from './resume'
+import { runsDir } from './journal'
 import { mainMessages } from '@shared/mainMessages'
 import {
   listWorktrees,
@@ -28,6 +33,10 @@ export interface StaleWorktreeSummary {
   path: string
   /** Short branch name; absent for a detached worktree. */
   branch?: string
+  sizeBytes?: number
+  dirty?: boolean
+  ahead?: number
+  workspaceId?: string
 }
 
 export interface WorktreeCleanupDeps {
@@ -78,12 +87,27 @@ export function createWorktreeCleanup(deps: WorktreeCleanupDeps): WorktreeCleanu
     const repoPath = requireRepoPath(profileId)
     const rootPrefix = `${worktreePathKey(join(repoPath, WORKTREE_ROOT))}/`
     const active = new Set(deps.activeWorktreePaths().map(worktreePathKey))
-    return (await list(repoPath, deps.worktreeDeps))
+    const entries = (await list(repoPath, deps.worktreeDeps))
       .filter((entry) => {
         const key = worktreePathKey(entry.path)
         return key.startsWith(rootPrefix) && !active.has(key)
       })
       .map((entry) => ({ path: entry.path, ...(entry.branch ? { branch: entry.branch } : {}) }))
+    return Promise.all(entries.map(async (entry) => {
+      let snapshot
+      try { snapshot = await snapshotWorktree(entry.path,deps.worktreeDeps) } catch { /* unavailable is not clean */ }
+      let sizeBytes: number | undefined
+      try { sizeBytes = await diskBytes(entry.path) } catch { /* inaccessible */ }
+      let workspaceId: string | undefined
+      try {
+        for (const id of await readdir(runsDir(repoPath))) {
+          const events = await readRunEvents(repoPath,id)
+          if (events?.some((event) => 'branch' in event && event.branch === entry.branch)) { workspaceId = id; break }
+        }
+      } catch { /* older worktrees may have no journal */ }
+      return {...entry,...(snapshot ? {dirty:snapshot.uncommitted} : {}),...(sizeBytes === undefined ? {} : {sizeBytes}),
+        ...(workspaceId ? {workspaceId} : {}),...(entry.branch ? {ahead:await commitsAhead(repoPath,'HEAD',entry.branch,deps.worktreeDeps)} : {})}
+    }))
   }
 
   return {
@@ -102,4 +126,12 @@ export function createWorktreeCleanup(deps: WorktreeCleanupDeps): WorktreeCleanu
       return listStale(profileId)
     }
   }
+}
+
+/** Never follow symlinks or junctions outside the checkout while estimating size. */
+async function diskBytes(path: string): Promise<number> {
+  const info = await lstat(path)
+  if (info.isSymbolicLink()) return 0
+  if (!info.isDirectory()) return info.size
+  return (await Promise.all((await readdir(path)).map((name) => diskBytes(join(path,name))))).reduce((a,b) => a+b,0)
 }

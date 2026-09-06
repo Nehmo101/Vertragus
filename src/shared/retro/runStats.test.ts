@@ -23,6 +23,25 @@ function started(agentId: string, roleId: string, providerId?: string, model?: s
 }
 
 describe('deriveRoleModelStats', () => {
+  it('attributes reports and exits to the effective seat at their event position after a same-id reseat', () => {
+    const identity = {agentId:'a1',name:'Caronte',roleId:'worker'}
+    const stats = deriveRoleModelStats([
+      started('a1','worker','claude','sonnet'),
+      event({type:'agent_done',...identity,status:'blocked',summary:'Need another provider'}),
+      event({type:'agent_reseated',...identity,generation:2,from:{providerId:'claude',model:'sonnet'},to:{providerId:'codex',model:'gpt-5.4'},reason:'provider_switch',branch:'vertragus/run/worker'}),
+      event({type:'agent_done',...identity,status:'success',summary:'Completed'}),
+      event({type:'agent_reseated',...identity,generation:3,from:{providerId:'codex',model:'gpt-5.4'},to:{providerId:'codex'},reason:'new_default',branch:'vertragus/run/worker'}),
+      event({type:'agent_done',...identity,status:'failed',summary:'Failed follow-up'}),
+      event({type:'agent_exited',...identity,exitCode:1,confirmed:false}),
+      event({type:'agent_stopped',...identity})
+    ])
+    expect(stats).toEqual([
+      {roleId:'worker',providerId:'claude',model:'sonnet',started:1,succeeded:0,blocked:1,failed:0,unconfirmedExits:0,stopped:0},
+      {roleId:'worker',providerId:'codex',model:'gpt-5.4',started:1,succeeded:1,blocked:0,failed:0,unconfirmedExits:0,stopped:0},
+      {roleId:'worker',providerId:'codex',model:'',started:1,succeeded:0,blocked:0,failed:1,unconfirmedExits:1,stopped:1}
+    ])
+  })
+
   it('folds the event stream into per role+model tallies', () => {
     const stats = deriveRoleModelStats([
       started('a1', 'worker', 'codex', 'gpt-x'),

@@ -66,6 +66,7 @@ import {
   type StartedAgent,
   type StartingAgent,
   type StartingSuccession,
+  type StartingReseat,
   type WorktreeFacts,
   type WorkspaceLimits,
   type WorkspaceMcpContext
@@ -94,6 +95,16 @@ import {
   pullRequestTitle,
   type PullRequestOutcome
 } from '@main/agents/pullRequest'
+import type { OpenPullRequestInput, PullRequestDeps } from '@main/agents/pullRequest'
+import { preflightSeat } from '@main/providers/preflightSeat'
+import {
+  resolveSeat,
+  reseatInputSchema,
+  type AgentSeat,
+  type SeatOverride,
+  type ReseatInput
+} from '@shared/schema/reseat'
+import type { AgentBootDiagnostic } from '@shared/terminalBoot'
 import {
   seedWithReadyHandshake,
   seedOptionsFromProvider,
@@ -102,7 +113,10 @@ import {
 } from '@main/agents/interactiveReady'
 import { formatSeedFailure, type SeedFailurePurpose } from '@main/agents/cliBootFailure'
 import type { AgentPolicy } from '@shared/agentPolicy'
-import { buildReminderSuffix, type ReportingMode } from '@shared/prompts/contract'
+import { buildReminderSuffix,
+  buildTaskContract,
+  type ReportingMode } from '@shared/prompts/contract'
+import type { ResultSchema } from '@shared/schema/resultSchema'
 import {
   buildLeadSystemPrompt,
   buildOrchestratorSystemPrompt,
@@ -248,6 +262,9 @@ export interface WorkspaceMcpUrls {
     orchestratorUrl: string
   }
   applyOrchestratorToken?: (orchToken: string) => { orchestratorUrl: string }
+  rotateSubagentToken?: (agentId: string, kind?: 'subagent' | 'lead') => { subagentUrl: string }
+  revokeSubagentToken?: (agentId: string, kind?: 'subagent' | 'lead') => void
+  restoreAgentContract?: (agentId: string, schema?: ResultSchema, lead?: { area: string; maxSubagents?: number }) => void
   /**
    * Wait until this identity's MCP initialize has completed. Absent in unit
    * tests that do not run the HTTP server — those treat the session as ready
@@ -305,6 +322,12 @@ export interface WorkspaceDeps {
    * a remote.
    */
   openPullRequest?: typeof openPullRequest
+  finalizePullRequest?: (
+    workspaceId: string,
+    input: OpenPullRequestInput,
+    deps: PullRequestDeps
+  ) => Promise<PullRequestOutcome>
+  preflightSeat?: (provider: ProviderConfig, seat: AgentSeat) => Promise<void>
   /** Retro feed: learnings in, accumulated knowledge out. Absent = no retro. */
   retro?: WorkspaceRetroFeed
   /**
@@ -382,6 +405,17 @@ interface PendingStart {
 }
 
 interface AgentRecord {
+  /** A fresh CLI conversation per generation, independent of the stable MCP id. */
+  sessionId: string
+  retrySeat?: AgentSeat
+  effort?: AgentSeat['effort']
+  generation: number
+  boot: AgentBootDiagnostic
+  lastError?: string
+  assignment?: string
+  resultSchema?: ResultSchema
+  canSpawnHelpers?: boolean
+  leadInput?: StartLeadInput
   agentId: string
   name: string
   roleId: string
@@ -536,6 +570,16 @@ export class Workspace implements AgentHost {
    */
   private eventRouter: ((agentId: string) => EventQueue) | undefined
   private closed = false
+  private stopping = false
+  private stoppingProcesses: Promise<void> | undefined
+  private closing: Promise<void> | undefined
+  private rootStarting = false
+  private reseating?: string
+  private readonly cancelledReseats = new Set<string>()
+  private readonly gitOperations = new Set<Promise<unknown>>()
+  private successionCompletion?: Promise<void>
+  private readonly reseatFailures = new Map<string, number>()
+  private retiredAgentRuntimeMs = 0
   /** In-flight root succession; undefined when the seat is stable. */
   private succession:
     | {
@@ -596,6 +640,7 @@ export class Workspace implements AgentHost {
   private finishRunAutomationInFlight: Promise<RunPullRequest | undefined> | undefined
   /** C5 idle watchdog: when the orchestrator last called one of its tools. */
   private orchestratorLastToolAt = 0
+  private orchestratorActiveCalls = 0
   private orchestratorIdleTimer: ReturnType<typeof setTimeout> | undefined
   /** True while the current silence phase has been reported — one event, not a drip. */
   private orchestratorIdleNotified = false
@@ -692,14 +737,21 @@ export class Workspace implements AgentHost {
    * C5: the MCP layer reports an orchestrator tool call (entry and exit).
    * Ends any reported silence phase and re-arms the watchdog.
    */
-  noteOrchestratorActivity(): void {
+  noteOrchestratorActivity(phase?: 'enter' | 'exit'): void {
+    if (phase === 'enter') this.orchestratorActiveCalls += 1
+    if (phase === 'exit')
+      this.orchestratorActiveCalls = Math.max(0, this.orchestratorActiveCalls - 1)
     this.orchestratorLastToolAt = this.now()
     this.orchestratorIdleNotified = false
+    if (this.orchestratorActiveCalls > 0) {
+      this.clearOrchestratorIdleWatchdog()
+      return
+    }
     this.armOrchestratorIdleWatchdog()
   }
 
   private armOrchestratorIdleWatchdog(): void {
-    if (this.closed || !this.orchestratorAlive) return
+    if (this.closed || this.stopping || this.orchestratorActiveCalls > 0 || !this.orchestratorAlive) return
     if (this.orchestratorIdleTimer) clearTimeout(this.orchestratorIdleTimer)
     const timer = setTimeout(() => this.emitOrchestratorIdle(), ORCHESTRATOR_IDLE_MS)
     ;(timer as { unref?: () => void }).unref?.()
@@ -848,8 +900,12 @@ export class Workspace implements AgentHost {
    * CLIs' 60 s default. Margins and guard live in {@link raisedWindow}.
    */
   private awaitTimeout(): { defaultSec: number; maxSec: number } | undefined {
+    const providerId =
+      this.succession?.pkg.successor?.providerId ??
+      this.orchestratorRecord?.providerId ??
+      this.profile.orchestrator.providerId
     const provider = this.deps.providers.find(
-      (candidate) => candidate.id === this.profile.orchestrator.providerId
+      (candidate) => candidate.id === providerId
     )
     return raisedWindow(provider?.mcpToolTimeoutSec)
   }
@@ -874,7 +930,7 @@ export class Workspace implements AgentHost {
   /** The registration payload for `mcp/server.registerWorkspace`. */
   mcpContext(): WorkspaceMcpContext {
     const retro = this.deps.retro
-    const awaitTimeout = this.awaitTimeout()
+    const awaitTimeout = () => this.awaitTimeout()
     // S1: one spill store per workspace, next to the run journal on disk. It
     // does no I/O until the first save, so creating it here is free; kept on
     // the instance so re-registration cannot restart the seq counter.
@@ -891,7 +947,9 @@ export class Workspace implements AgentHost {
       roles: profileRoleIds(this.profile),
       agentPolicy: this.agentPolicy(),
       spill: this.spillStore,
-      ...(awaitTimeout ? { awaitTimeout } : {}),
+      get awaitTimeout() {
+        return awaitTimeout()
+      },
       ...(retro
         ? {
             retro: {
@@ -1025,6 +1083,9 @@ export class Workspace implements AgentHost {
       pty,
       lead: true
     })
+    record.effort = this.profile.orchestrator.effort
+    record.assignment = input.task
+    record.leadInput = input
     this.pendingStarts.delete(pending.agentId)
     this.setBoot(record, 'preparing')
     this.openWindow(record, LEAD_COLOR)
@@ -1064,7 +1125,7 @@ export class Workspace implements AgentHost {
           systemPrompt,
           sessionId: record.agentId
         },
-        { createPty: () => record.pty }
+        { createPty: () => this.spawnPty(record) }
       )
       this.assertOpenDuringStart(pending)
 
@@ -1109,6 +1170,10 @@ export class Workspace implements AgentHost {
       branch: pending.branch,
       pty
     })
+    record.effort = slot.effort
+    record.assignment = input.assignment ?? input.task
+    record.resultSchema = input.resultSchema
+    record.canSpawnHelpers = input.canSpawnHelpers
     // Tracked and un-reserved in the same synchronous step — the agent is
     // never counted twice and never invisible.
     this.pendingStarts.delete(pending.agentId)
@@ -1138,7 +1203,7 @@ export class Workspace implements AgentHost {
         sessionId: record.agentId
       }
       this.setBoot(record, 'mcp')
-      spawned = await (this.deps.spawn ?? spawnAgent)(launchInput, { createPty: () => record.pty })
+      spawned = await (this.deps.spawn ?? spawnAgent)(launchInput, { createPty: () => this.spawnPty(record) })
       this.assertOpenDuringStart(pending)
 
       const seedText = spawned.launch.ptySystemPrompt
@@ -1156,13 +1221,324 @@ export class Workspace implements AgentHost {
 
   /** A workspace that closed while an agent was starting aborts that start. */
   private assertOpenDuringStart(pending: PendingStart): void {
-    if (this.closed) {
+    if (this.closed || this.stopping || this.agents.get(pending.agentId)?.stopped) {
       throw new Error(`Workspace ${this.name} closed while ${pending.name} was starting.`)
+    }
+  }
+
+  private seatOf(record: AgentRecord): AgentSeat {
+    return {
+      providerId: record.providerId,
+      ...(record.model ? { model: record.model } : {}),
+      ...(record.effort ? { effort: record.effort } : {})
+    }
+  }
+
+  agentGeneration(agentId: string): number | undefined {
+    return this.agents.get(agentId)?.generation
+  }
+
+  agentDiagnostic(
+    agentId: string
+  ):
+    | {
+        providerId: string
+        model?: string
+        effort?: AgentSeat['effort']
+        generation: number
+        boot: AgentBootDiagnostic
+        lastError?: string
+      }
+    | undefined {
+    const record = this.agents.get(agentId)
+    if (!record) return undefined
+    return {
+      ...this.seatOf(record),
+      generation: record.generation,
+      boot: {
+        ...record.boot,
+        elapsedMs: record.boot.phase
+          ? Math.max(0, this.now() - record.boot.startedAt)
+          : record.boot.elapsedMs,
+        history: record.boot.history.map((row) => ({ ...row }))
+      },
+      ...(record.lastError ? { lastError: record.lastError } : {})
+    }
+  }
+
+  rememberAssignment(agentId: string, text: string): void {
+    const record = this.agents.get(agentId)
+    if (record && text.trim()) record.assignment = text
+  }
+
+  /** Explicit same-identity restart at a verified task boundary. */
+  reseatAgent(raw: ReseatInput): StartingReseat {
+    this.assertOpen()
+    const input = reseatInputSchema.parse(raw)
+    if (this.succession || this.reseating) throw new Error('already_in_progress')
+    const previous = this.requireAgent(input.agentId)
+    if (previous.orchestrator) throw new Error('Use orchestrator succession for the root.')
+    if ((this.reseatFailures.get(input.agentId) ?? 0) >= 4)
+      throw new Error(
+        'Reseat failed four times. Start a fresh agent after correcting its configuration.'
+      )
+    const startupRetry = input.reason === 'startup_retry' && previous.boot.phase === 'waiting'
+    if (
+      previous.pty.isAlive && !startupRetry &&
+      (!previous.seeded ||
+        previous.bootSubmitPending ||
+        (!this.hasConfirmedSinceAssignment(previous) &&
+          !this.questions?.openForAgent(previous.agentId)))
+    ) {
+      throw new Error('Agent is busy. Wait for its result or an open question before switching.')
+    }
+    const from = this.seatOf(previous)
+    const to = resolveSeat(input.reason === 'startup_retry' ? previous.retrySeat ?? from : from, input)
+    const provider = this.requireProvider(to.providerId)
+    if (provider.mcp.kind === 'none' && (previous.lead || previous.resultSchema)) {
+      throw new Error(
+        'This agent requires MCP for orchestration or its structured result contract.'
+      )
+    }
+    if (JSON.stringify(from) === JSON.stringify(to) && previous.pty.isAlive && !startupRetry)
+      throw new Error('Agent already uses this provider, model and effort.')
+    if (previous.stopped || previous.exit) {
+      if (previous.slotId) this.slotWithCapacity(previous.roleId, { slotId: previous.slotId })
+      const max = this.profile.maxSubagents
+      if (
+        max !== undefined &&
+        this.listAgents().filter((a) => a.status === 'working' || a.status === 'starting').length >=
+          max
+      )
+        throw new Error('Workspace agent limit reached.')
+      if (
+        [...this.agents.values()].some(
+          (other) => other !== previous && other.name === previous.name && !other.stopped
+        )
+      )
+        throw new Error('This name has been reused. Start a fresh agent instead.')
+    }
+    this.reseating = previous.agentId
+    this.names.reserve(previous.name)
+    this.cancelledReseats.delete(previous.agentId)
+    const generation = previous.generation + 1
+    return {
+      agentId: previous.agentId,
+      generation,
+      ready: this.finishReseat(previous, to, input, generation).finally(() => {
+        this.reseating = undefined
+      })
+    }
+  }
+
+  private async finishReseat(
+    previous: AgentRecord,
+    seat: AgentSeat,
+    input: ReseatInput,
+    generation: number
+  ): Promise<StartedAgent> {
+    let current = previous
+    let cutover = false
+    const identity = { agentId: previous.agentId, name: previous.name, roleId: previous.roleId }
+    const check = (): void => {
+      this.assertOpen()
+      if (this.cancelledReseats.has(previous.agentId))
+        throw new Error('Agent replacement was cancelled by Stop.')
+    }
+    try {
+      const provider = this.requireProvider(seat.providerId)
+      await (this.deps.preflightSeat ?? preflightSeat)(provider, seat)
+      check()
+      const facts = await this.snapshotDone(
+        previous.agentId,
+        'Checkpoint before provider or model switch'
+      )
+      check()
+      if (facts.snapshotError || facts.uncommitted)
+        throw new Error(
+          facts.snapshotError ??
+            'Worktree still contains uncommitted changes; finish its snapshot before switching.'
+        )
+      await this.readTokenUsage(previous.agentId)
+      check()
+      // Fence old callbacks before killing; pending questions and tree ownership survive.
+      previous.stopping = true
+      previous.stopped = true
+      previous.endedAt ??= this.now()
+      previous.generation = generation
+      this.clearIdleHint(previous)
+      for (const off of previous.unsubscribe) off()
+      previous.unsubscribe = []
+      previous.pty.kill()
+      cutover = true
+      await awaitPtyExit(previous.pty, 5000)
+      check()
+      if (previous.pty.isAlive)
+        throw new Error('Previous process has not exited. No replacement was started.')
+      const urls = this.requireMcp()
+      urls.rotateSubagentToken?.(previous.agentId, previous.lead ? 'lead' : 'subagent')
+      urls.restoreAgentContract?.(previous.agentId, previous.resultSchema, previous.lead
+        ? { area: previous.leadInput?.area ?? previous.name, maxSubagents: previous.leadInput?.maxSubagents }
+        : undefined)
+      this.retiredAgentRuntimeMs += Math.max(0, previous.endedAt - previous.startedAt)
+      current = this.track({
+        ...identity,
+        slotId: previous.slotId,
+        providerId: seat.providerId,
+        model: seat.model,
+        effort: seat.effort,
+        generation,
+        sessionId: this.newId(),
+        worktreePath: previous.worktreePath,
+        branch: previous.branch,
+        pty: this.newPty(),
+        lead: previous.lead
+      })
+      current.assignment = previous.assignment
+      current.resultSchema = previous.resultSchema
+      current.canSpawnHelpers = previous.canSpawnHelpers
+      current.leadInput = previous.leadInput
+      this.setBoot(current, 'preparing')
+      const slot = this.profile.slots.find((candidate) => candidate.id === previous.slotId)
+      const systemPrompt = previous.lead
+        ? this.systemPromptFor(
+            LEAD_ROLE_ID,
+            buildLeadSystemPrompt({
+              workspaceName: this.name,
+              repoPath: this.repoPath,
+              rolesWithLimits: this.rolesWithLimits(),
+              maxSubagents: this.profile.maxSubagents,
+              area: previous.leadInput?.area ?? previous.name,
+              parentName: this.orchestratorRecord?.name,
+              subtreeBudget: previous.leadInput?.maxSubagents
+            })
+          )
+        : this.systemPromptFor(previous.roleId, this.requireRoleTemplate(previous.roleId).prompt)
+      this.setBoot(current, 'mcp')
+      const spawned = await (this.deps.spawn ?? spawnAgent)(
+        {
+          kind: previous.lead ? 'lead' : 'subagent',
+          provider,
+          model: seat.model,
+          effort: seat.effort,
+          yolo: !previous.lead && this.agentPolicy() !== 'ask-user',
+          cwd: current.worktreePath,
+          mcpUrl: previous.lead ? urls.leadUrl(current.agentId) : urls.subagentUrl(current.agentId),
+          fileTag: `reseat-${current.agentId}-${generation}`,
+          configDir: this.deps.configDir,
+          systemPrompt,
+          sessionId: current.sessionId,
+          ...(!previous.lead
+            ? {
+                extraMcpServers: this.extraMcpServersForLaunch(),
+                ...(slot?.extraMcp ? { extraMcp: slot.extraMcp } : {})
+              }
+            : {})
+        },
+        { createPty: () => this.spawnPty(current) }
+      )
+      check()
+      if (current.stopped) throw new Error('Agent was stopped during replacement.')
+      const pending = this.questions?.openForAgent(current.agentId)
+      this.questions?.rebindDelivery(
+        current.agentId,
+        provider.mcp.kind === 'none'
+            ? async (answer) => {
+                await this.sendToAgent(current.agentId,
+                  `${answer}\n\n${buildReminderSuffix(this.reportingForProvider(current.providerId))}`)
+            }
+          : undefined
+      )
+      const taskContext =
+        this.taskBoard
+          ?.list()
+          .filter((task) => task.ownerAgentId === current.agentId && task.status !== 'deleted') ??
+        []
+      const contract = buildTaskContract({
+        role: current.roleId,
+        agentName: current.name,
+        reporting: this.reportingForProvider(current.providerId),
+        ...(current.resultSchema ? { resultSchema: current.resultSchema } : {}),
+        ...(current.canSpawnHelpers && provider.mcp.kind !== 'none'
+          ? { helpers: true as const }
+          : {}),
+        ...(this.agentPolicy() === 'ask-orchestrator'
+          ? { approvals: 'ask-orchestrator' as const }
+          : {})
+      })
+      const text = [
+        spawned.launch.ptySystemPrompt,
+        `You are continuing as ${current.name}, generation ${generation}, on the SAME branch ${current.branch}. Inspect the existing work before editing.`,
+        current.assignment ? `Latest assignment:\n${current.assignment}` : undefined,
+        taskContext.length ? `Host task board:\n${JSON.stringify(taskContext)}` : undefined,
+        pending
+          ? `Pending question ${pending.questionId}: ${pending.question}${pending.choices?.length ? ` Choices: ${JSON.stringify(pending.choices)}.` : ''} ${provider.mcp.kind === 'none' ? 'Wait for the host to deliver the answer; do not repeat the question.' : 'Resume ask_orchestrator with this ticket; do not create another question.'}`
+          : undefined,
+        input.note,
+        contract
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+      this.setBoot(current, 'cli')
+      await this.seedWhenMcpReady(
+        current,
+        text,
+        this.autoSubmitTasks,
+        provider,
+        previous.lead ? 'area' : 'task',
+        spawned.pty
+      )
+      check()
+      if (current.stopped) throw new Error('Agent was stopped during replacement.')
+      current.assignmentCursor = this.queueFor(current.agentId).cursor
+      this.reseatFailures.delete(current.agentId)
+      const queue = this.queueFor(current.agentId)
+      if (!queue.isClosed)
+        queue.push({
+          type: 'agent_reseated',
+          ...identity,
+          generation,
+          from: this.seatOf(previous),
+          to: seat,
+          reason: input.reason ?? 'user_requested',
+          branch: current.branch
+        })
+      return this.startedOf(current)
+    } catch (error) {
+      this.reseatFailures.set(
+        previous.agentId,
+        (this.reseatFailures.get(previous.agentId) ?? 0) + 1
+      )
+      current.lastError = errorText(error)
+      current.retrySeat = seat
+      if (cutover) {
+        this.requireMcp().revokeSubagentToken?.(
+          previous.agentId,
+          previous.lead ? 'lead' : 'subagent'
+        )
+        current.stopped = true
+        current.stopping = true
+        current.endedAt ??= this.now()
+        for (const off of current.unsubscribe) off()
+        current.unsubscribe = []
+        current.pty.kill()
+        this.setBoot(current, null)
+      }
+      const queue = this.queueFor(previous.agentId)
+      if (!queue.isClosed)
+        queue.push({
+          type: 'agent_reseat_failed',
+          ...identity,
+          generation,
+          message: errorText(error)
+        })
+      throw error
     }
   }
 
   async sendToAgent(agentId: string, text: string): Promise<void> {
     const record = this.requireAgent(agentId)
+    if (this.reseating === agentId) throw new Error('Agent replacement is in progress.')
     if (!record.pty.isAlive) {
       throw new Error(`${record.name} is no longer running — its process has ended.`)
     }
@@ -1187,6 +1563,7 @@ export class Workspace implements AgentHost {
   }
 
   async stopAgent(agentId: string): Promise<boolean> {
+    if (this.reseating === agentId) this.cancelledReseats.add(agentId)
     const record = this.agents.get(agentId)
     if (!record) return false
     const wasRunning = record.pty.isAlive && !record.stopped
@@ -1266,10 +1643,9 @@ export class Workspace implements AgentHost {
         changedFiles: before.changedFiles,
         diffStat: before.diffStat
       }
-    } catch {
-      // The dirty snapshot is still the truth; a failed commit must neither
-      // drop the done event nor pretend the branch carries the work.
-      return this.factsOf(before)
+    } catch (error) {
+      // Preserve both the dirty facts and the concrete reason adoption is unsafe.
+      return { ...this.factsOf(before), snapshotError: errorText(error).slice(0, 2000) }
     }
   }
 
@@ -1285,7 +1661,12 @@ export class Workspace implements AgentHost {
 
   async integrateBranch(agentId: string, branch: string): Promise<IntegrateOutcome> {
     const record = this.requireAgent(agentId)
-    return mergeBranchIntoWorktree(record.worktreePath, branch, this.deps.worktreeDeps)
+    return this.trackGitOperation(mergeBranchIntoWorktree(record.worktreePath, branch, this.deps.worktreeDeps))
+  }
+
+  private trackGitOperation<T>(operation: Promise<T>): Promise<T> {
+    this.gitOperations.add(operation)
+    return operation.finally(() => { this.gitOperations.delete(operation) })
   }
 
   /**
@@ -1338,14 +1719,19 @@ export class Workspace implements AgentHost {
     const { autoIntegrate, autoPromote } = this.automation
     if (!autoIntegrate && !autoPromote) return
     if (status !== 'success') return
+    // Existing merges finish before the successor forks. New reports wait for
+    // cutover so their results are integrated into the new root's worktree.
+    if (this.succession) await this.successionCompletion
     // A workspace on its way out adopts nothing: the run is being torn down,
     // and a merge nobody can be told about is a merge nobody asked for.
     if (this.closed || this.events.isClosed) return
     const record = this.agents.get(agentId)
     if (!record || record.orchestrator) return
     if (this.queueFor(agentId) !== this.events) return
-    if (autoIntegrate) await this.autoIntegrate(record)
-    if (autoPromote) await this.autoPromote(record)
+    await this.trackGitOperation((async () => {
+      if (autoIntegrate) await this.autoIntegrate(record)
+      if (autoPromote) await this.autoPromote(record)
+    })())
   }
 
   /** A3: merge the finished branch into the ORCHESTRATOR's own worktree. */
@@ -1454,7 +1840,10 @@ export class Workspace implements AgentHost {
     this.pullRequestStarted = true
 
     const deps = this.deps.worktreeDeps
-    const open = this.deps.openPullRequest ?? openPullRequest
+    const open = this.deps.finalizePullRequest
+      ? (input: OpenPullRequestInput, gitDeps: PullRequestDeps) =>
+          this.deps.finalizePullRequest!(this.workspaceId, input, gitDeps)
+      : (this.deps.openPullRequest ?? openPullRequest)
     let base = automation.prBaseBranch?.trim() ?? ''
     try {
       if (!base) base = await currentBranch(this.repoPath, deps)
@@ -1599,7 +1988,7 @@ export class Workspace implements AgentHost {
    */
   budget(): WorkspaceBudget {
     const now = this.now()
-    let usedMs = 0
+    let usedMs = this.retiredAgentRuntimeMs
     for (const record of this.agents.values()) {
       if (record.orchestrator) continue
       usedMs += Math.max(0, (record.endedAt ?? now) - record.startedAt)
@@ -1664,6 +2053,7 @@ export class Workspace implements AgentHost {
           name: record.name,
           role: record.roleId,
           status: this.statusOf(record),
+          ...this.agentDiagnostic(record.agentId),
           model: record.model,
           worktreePath: record.worktreePath,
           branch: record.branch,
@@ -1693,8 +2083,10 @@ export class Workspace implements AgentHost {
   }
 
   private recordOf(agentId: string): AgentRecord | undefined {
-    return this.agents.get(agentId) ??
+    return (
+      this.agents.get(agentId) ??
       (this.orchestratorRecord?.agentId === agentId ? this.orchestratorRecord : undefined)
+    )
   }
 
   private async probeTokenUsage(record: AgentRecord): Promise<void> {
@@ -1704,7 +2096,7 @@ export class Workspace implements AgentHost {
       const usage = await (this.deps.readTokenUsage ?? readTokenUsage)({
         source: provider.usageSource,
         cwd: record.worktreePath,
-        sessionId: record.agentId,
+        sessionId: record.sessionId,
         startedAt: record.startedAt
       })
       if (usage) record.tokenUsage = usage
@@ -1765,9 +2157,11 @@ export class Workspace implements AgentHost {
    * Reporting dialect for a *new* agent of this role — used by `start_agent`
    * before the agent exists. Derived from the profile slot's provider.
    */
-  reportingMode(role: string): ReportingMode {
-    const slot = this.profile.slots.find((candidate) => candidate.roleId === role)
-    if (!slot) return 'mcp'
+  reportingMode(role: string,
+    choice: { slotId?: string; providerId?: string } = {}
+  ): ReportingMode {
+    if (!this.profile.slots.some((candidate) => candidate.roleId === role)) return 'mcp'
+    const slot = this.slotWithCapacity(role, choice)
     return this.reportingForProvider(slot.providerId)
   }
 
@@ -1800,22 +2194,31 @@ export class Workspace implements AgentHost {
      */
     displayGoal?: string
     attachmentIds?: readonly string[]
+    baseBranch?: string
+    seat?: AgentSeat
   }): Promise<StartedAgent> {
     this.assertOpen()
     if (this.succession) {
       throw new Error('A successor orchestrator is already starting.')
     }
-    if (this.orchestratorRecord) throw new Error('This workspace already has an orchestrator.')
+    if (this.orchestratorRecord || this.rootStarting) throw new Error('This workspace already has an orchestrator.')
     const agentId = this.newId()
     const name = this.names.allocate('orchestrator')
     const initialPrompt = options?.initialPrompt?.trim()
+    const mcpUrl = this.requireMcp().orchestratorUrl
+    this.rootStarting = true
     const record = await this.spawnOrchestratorRecord({
       agentId,
       name,
-      mcpUrl: this.requireMcp().orchestratorUrl,
+      mcpUrl,
+      seat: options?.seat,
       ...(initialPrompt ? { initialPrompt } : {}),
+      ...(options?.baseBranch ? { baseBranch: options.baseBranch } : {}),
       ...(options?.attachmentIds?.length ? { attachmentIds: options.attachmentIds } : {})
+    }).finally(() => {
+      this.rootStarting = false
     })
+    this.assertOpen()
     this.orchestratorRecord = record
     // C5: the idle clock starts at boot — an orchestrator that never makes
     // its first tool call is exactly as idle as one that stopped mid-run.
@@ -1841,9 +2244,9 @@ export class Workspace implements AgentHost {
    * goal, no decisions, no notes, and inventing them would be the one lie this
    * whole feature exists to avoid.
    */
-  async replaceOrchestratorFromHost(): Promise<StartedAgent> {
+  async replaceOrchestratorFromHost(successor?: SeatOverride): Promise<StartedAgent> {
     const starting = this.requestSuccession(
-      { reason: 'user_requested' },
+      { reason: 'user_requested', ...(successor ? { successor } : {}) },
       { allowDeadPredecessor: true }
     )
     return starting.ready
@@ -1854,7 +2257,7 @@ export class Workspace implements AgentHost {
     options: { allowDeadPredecessor?: boolean } = {}
   ): StartingSuccession {
     this.assertOpen()
-    if (this.succession) throw new Error('already_in_progress')
+    if (this.succession || this.reseating) throw new Error('already_in_progress')
     const predecessor = this.orchestratorRecord
     // The tool path requires a LIVE incumbent (a dead one cannot have called
     // it); the host path accepts a corpse, which is its whole point.
@@ -1863,9 +2266,15 @@ export class Workspace implements AgentHost {
     }
     const predecessorAlive = this.orchestratorAlive
 
+    const successorSeat = resolveSeat(this.seatOf(predecessor), input.successor ?? {})
+    if (this.requireProvider(successorSeat.providerId).mcp.kind === 'none') {
+      throw new Error('The orchestrator requires an MCP-capable provider.')
+    }
+
     const successorAgentId = this.newId()
     const successorName = this.names.allocate('orchestrator')
     const pkg = this.buildSuccessionPackage(input, predecessor, successorAgentId)
+    pkg.successor = successorSeat
     const packagePath = this.persistSuccession(pkg)
 
     this.succession = {
@@ -1889,12 +2298,14 @@ export class Workspace implements AgentHost {
       successorAgentId
     })
 
+    const ready = this.finishSuccession()
+    this.successionCompletion = ready.then(() => undefined, () => undefined)
     return {
       successorAgentId,
       successorName,
       predecessorAgentId: predecessor.agentId,
       eventCursor: pkg.eventCursor,
-      ready: this.finishSuccession()
+      ready
     }
   }
 
@@ -1968,6 +2379,8 @@ export class Workspace implements AgentHost {
       role: record.roleId,
       providerId: record.providerId,
       model: record.model,
+      effort: record.effort,
+      generation: record.generation,
       worktreePath: record.worktreePath,
       branch: record.branch
     }
@@ -1985,17 +2398,21 @@ export class Workspace implements AgentHost {
     mcpUrl: string
     initialPrompt?: string
     attachmentIds?: readonly string[]
+    baseBranch?: string
+    seat?: AgentSeat
     /** Pre-built prompt (succession). Cold start collects it after the window opens. */
     systemPrompt?: string
   }): Promise<AgentRecord> {
-    const provider = this.requireProvider(this.profile.orchestrator.providerId)
+    const seat = input.seat ?? this.profile.orchestrator
+    const provider = this.requireProvider(seat.providerId)
     const pty = this.newPty()
     const record = this.track({
       agentId: input.agentId,
       name: input.name,
       roleId: ORCHESTRATOR_ROLE_ID,
       providerId: provider.id,
-      model: this.profile.orchestrator.model,
+      model: seat.model,
+      effort: seat.effort,
       worktreePath: worktreePathFor(this.repoPath, input.agentId),
       branch: worktreeBranchName(this.name, input.name),
       pty,
@@ -2006,12 +2423,15 @@ export class Workspace implements AgentHost {
     let spawned: SpawnedAgent | undefined
     try {
       const systemPrompt = input.systemPrompt ?? (await this.orchestratorPrompt())
+      this.assertOpen()
       this.setBoot(record, 'worktree')
-      const worktree = await this.createWorktreeFor(input.agentId, input.name)
+      const worktree = await this.createWorktreeFor(input.agentId, input.name, input.baseBranch)
+      this.assertOpen()
       record.worktreePath = worktree.path
       record.branch = worktree.branch
       if (input.attachmentIds?.length) {
         await this.deps.materializeAttachments?.(input.attachmentIds, worktree.path)
+        this.assertOpen()
       }
       this.setBoot(record, 'mcp')
       const argvInitialPrompt = buildInitialPromptArgs(provider, input.initialPrompt)[0]
@@ -2019,8 +2439,8 @@ export class Workspace implements AgentHost {
         {
           kind: 'orchestrator',
           provider,
-          model: this.profile.orchestrator.model,
-          effort: this.profile.orchestrator.effort,
+          model: seat.model,
+          effort: seat.effort,
           yolo: false,
           cwd: worktree.path,
           mcpUrl: input.mcpUrl,
@@ -2030,8 +2450,9 @@ export class Workspace implements AgentHost {
           sessionId: record.agentId,
           ...(argvInitialPrompt ? { initialPrompt: argvInitialPrompt } : {})
         },
-        { createPty: () => record.pty }
+        { createPty: () => this.spawnPty(record) }
       )
+      this.assertOpen()
       this.setBoot(record, 'cli')
       // Argv-delivered goals (Grok positional) must not also ride the
       // PTY. When the system prompt IS the first paste, the start-goal joins
@@ -2049,6 +2470,7 @@ export class Workspace implements AgentHost {
         'orchestrator-prompt',
         spawned.pty
       )
+      this.assertOpen()
       if (promptSeed && ptyGoal) this.recordDeliveredGoal(ptyGoal)
       record.assignmentCursor = this.events.cursor
       return record
@@ -2064,6 +2486,19 @@ export class Workspace implements AgentHost {
     const predecessor = this.agents.get(pending.predecessorId)
 
     try {
+      await Promise.allSettled([...this.gitOperations])
+      this.assertOpen()
+      if (
+        pending.pkg.successor &&
+        predecessor &&
+        JSON.stringify(pending.pkg.successor) !== JSON.stringify(this.seatOf(predecessor))
+      ) {
+        await (this.deps.preflightSeat ?? preflightSeat)(
+          this.requireProvider(pending.pkg.successor.providerId),
+          pending.pkg.successor
+        )
+        this.assertOpen()
+      }
       const rotated = this.rotateOrchToken()
       pending.previousToken = rotated.previousToken
       pending.previousUrl = rotated.previousUrl
@@ -2071,6 +2506,8 @@ export class Workspace implements AgentHost {
       const record = await this.spawnOrchestratorRecord({
         agentId: pending.successorAgentId,
         name: pending.successorName,
+        baseBranch: predecessor?.branch,
+        seat: pending.pkg.successor,
         systemPrompt: this.systemPromptFor(
           ORCHESTRATOR_ROLE_ID,
           buildSuccessorOrchestratorSystemPrompt(this.orchestratorPromptInput(), pending.pkg)
@@ -2087,7 +2524,7 @@ export class Workspace implements AgentHost {
       // gone anyway, and its window plus scrollback are the post-mortem the
       // user pressed the button in front of.
       if (predecessor && predecessor !== record && pending.predecessorAlive) {
-        this.terminate(predecessor)
+        this.terminate(predecessor, { preserveQuestions: true })
       }
       this.retireSuccessionPackage(pending.packagePath, 'consumed')
       this.succession = undefined
@@ -2097,11 +2534,13 @@ export class Workspace implements AgentHost {
         name: record.name,
         roleId: record.roleId,
         predecessorAgentId: pending.predecessorId,
-        eventCursor: pending.pkg.eventCursor
+        eventCursor: pending.pkg.eventCursor,
+        ...this.seatOf(record)
       })
       return this.startedOf(record)
     } catch (error) {
-      this.restoreOrchToken(pending.previousToken, pending.previousUrl)
+      if (!this.closed && !this.stopping)
+        this.restoreOrchToken(pending.previousToken, pending.previousUrl)
       // The cutover did not happen, so nothing crashed and nothing is waiting
       // to be recovered — the predecessor is back in the seat (or the run is
       // being torn down). A surviving package would out-live every event this
@@ -2212,7 +2651,11 @@ export class Workspace implements AgentHost {
     successorAgentId: string
   ): OrchestratorHandoffPackage {
     const notes = new Map((input.agentNotes ?? []).map((entry) => [entry.agentId, entry.note]))
-    const lastDone = new Map<string, { summary: string; headSha?: string; uncommitted?: boolean; changedFiles?: string[]; result?: string }>()
+    const lastDone = new Map<string, { summary: string
+        headSha?: string
+        uncommitted?: boolean
+        changedFiles?: string[]
+        result?: string }>()
     for (const event of this.events.all()) {
       if (event.type !== 'agent_done') continue
       lastDone.set(event.agentId, {
@@ -2524,23 +2967,36 @@ export class Workspace implements AgentHost {
    * `taskkill`, POSIX SIGTERM→SIGKILL escalation), and an app that exits
    * before the kills land leaves yolo-mode CLIs orphaned on the machine.
    */
-  async close(options: { awaitExitMs?: number } = {}): Promise<void> {
-    if (this.closed) return
+  stopProcesses(options: { awaitExitMs?: number } = {}): Promise<void> {
+    if (this.stoppingProcesses) return this.stoppingProcesses
+    this.stopping = true
+    this.clearOrchestratorIdleWatchdog()
+    const records = [...this.agents.values()].sort(
+      (a, b) => Number(a.orchestrator) - Number(b.orchestrator)
+    )
+    // Request every kill before awaiting anything, including usage or network.
+    // Retain records and the root branch for finalization and recovery facts.
+    for (const record of records) if (!record.stopped) this.terminate(record)
+    this.stoppingProcesses = Promise.all(
+      records.map((record) => awaitPtyExit(record.pty, options.awaitExitMs ?? 0))
+    ).then(() => undefined)
+    return this.stoppingProcesses
+  }
+
+  close(options: { awaitExitMs?: number } = {}): Promise<void> {
+    if (this.closing) return this.closing
     this.closed = true
-    // Capture before stopAll — it is the records that know the PTYs, and
-    // `agents.clear()` below forgets them.
-    const live = [...this.agents.values()].filter((record) => record.pty.isAlive)
-    await this.stopAll()
-    if (options.awaitExitMs !== undefined && options.awaitExitMs > 0) {
-      await Promise.all(live.map((record) => awaitPtyExit(record.pty, options.awaitExitMs!)))
-    }
-    this.agents.clear()
+    this.closing = this.stopProcesses(options).then(() => {
+      this.agents.clear()
+      this.orchestratorRecord = undefined
+    })
+    return this.closing
   }
 
   // --- internals ---------------------------------------------------------
 
   private assertOpen(): void {
-    if (this.closed) throw new Error(`Workspace ${this.name} is closed.`)
+    if (this.closed || this.stopping) throw new Error(`Workspace ${this.name} is closed.`)
   }
 
   private requireMcp(): WorkspaceMcpUrls {
@@ -2651,8 +3107,35 @@ export class Workspace implements AgentHost {
     return this.deps.createPty ? this.deps.createPty() : new PtyAgent()
   }
 
+  /** The last admission check runs inside spawnAgent after executable resolution. */
+  private spawnPty(record: AgentRecord): AgentPty {
+    this.assertOpen()
+    if (record.stopped || this.agents.get(record.agentId) !== record) throw new Error('Agent start was cancelled.')
+    return record.pty
+  }
+
   private setBoot(record: AgentRecord, phase: TerminalBootPhase | null): void {
+    const now = this.now()
+    const previous = record.boot.history.at(-1)
+    if (previous && previous.durationMs === undefined)
+      previous.durationMs = Math.max(0, now - previous.startedAt)
+    record.boot.phase = phase
+    record.boot.elapsedMs = Math.max(0, now - record.boot.startedAt)
+    if (phase) record.boot.history.push({ phase, startedAt: now })
     this.deps.registry.setAgentBoot(record.agentId, phase)
+    const queue = record.orchestrator ? this.events : this.queueFor(record.agentId)
+    if (!queue.isClosed)
+      queue.push(
+        {
+          type: 'agent_boot',
+          agentId: record.agentId,
+          name: record.name,
+          roleId: record.roleId,
+          phase,
+          elapsedMs: record.boot.elapsedMs
+        },
+        { quiet: true }
+      )
   }
 
   private mcpWaitKey(
@@ -2676,8 +3159,13 @@ export class Workspace implements AgentHost {
 
   private watchLateMcp(record: AgentRecord, submit: boolean): void {
     void this.waitForMcpSession(record, MCP_SESSION_LATE_WAIT_MS).then((ok) => {
-      if (!record.pty.isAlive) return
-      if (submit && ok && record.bootSubmitPending) {
+      if (this.agents.get(record.agentId) !== record || record.stopped || !record.pty.isAlive) return
+      if (!ok) {
+        record.lastError = 'The provider did not connect to Vertragus MCP before the startup deadline. Retry the start after checking its MCP configuration.'
+        this.deps.onTokenUsageRefreshed?.()
+        return
+      }
+      if (submit && record.bootSubmitPending) {
         record.bootSubmitPending = false
         record.pty.write(SUBMIT_KEY)
       }
@@ -2700,8 +3188,12 @@ export class Workspace implements AgentHost {
   ): Promise<void> {
     this.setBoot(record, 'handshake')
     const mcpOk = await this.waitForMcpSession(record, MCP_SESSION_WAIT_MS)
+    this.assertOpen()
+    if (record.stopped || this.agents.get(record.agentId) !== record)
+      throw new Error('Agent start was cancelled.')
     if (seedText) {
       const accepted = await this.seed(record, seedText, autoSubmit && mcpOk)
+      this.spawnPty(record)
       if (!accepted) {
         throw this.seedNotAccepted(record.name, provider, purpose, pty)
       }
@@ -2718,6 +3210,7 @@ export class Workspace implements AgentHost {
       this.setBoot(record, 'waiting')
       this.watchLateMcp(record, false)
     }
+    this.spawnPty(record)
     record.seeded = true
   }
 
@@ -2748,18 +3241,22 @@ export class Workspace implements AgentHost {
   }
 
   private statusOf(record: AgentRecord): string {
+    if (this.reseating === record.agentId) return AGENT_STATUS.starting
     if (record.stopped) return AGENT_STATUS.stopped
     if (record.exit || !record.pty.isAlive) return AGENT_STATUS.exited
     return record.seeded ? AGENT_STATUS.working : AGENT_STATUS.starting
   }
 
   private track(input: {
+    sessionId?: string
     agentId: string
     name: string
     roleId: string
     slotId?: string
     providerId: string
     model?: string
+    effort?: AgentSeat['effort']
+    generation?: number
     worktreePath: string
     branch: string
     pty: AgentPty
@@ -2767,12 +3264,16 @@ export class Workspace implements AgentHost {
     lead?: boolean
   }): AgentRecord {
     const record: AgentRecord = {
+      sessionId: input.sessionId ?? input.agentId,
       agentId: input.agentId,
       name: input.name,
       roleId: input.roleId,
       slotId: input.slotId,
       providerId: input.providerId,
       model: input.model,
+      effort: input.effort,
+      generation: input.generation ?? 1,
+      boot: { phase: null, startedAt: this.now(), elapsedMs: 0, history: [] },
       worktreePath: input.worktreePath,
       branch: input.branch,
       pty: input.pty,
@@ -2908,7 +3409,10 @@ export class Workspace implements AgentHost {
     summary: string,
     status: AgentDoneStatus
   ): Promise<void> {
+    const generation = record.generation
+    const stillCurrent = (): boolean => this.agents.get(record.agentId) === record && record.generation === generation
     const usage = await this.readTokenUsage(record.agentId)
+    if (!stillCurrent()) return
     const payload = {
       type: 'agent_done' as const,
       agentId: record.agentId,
@@ -2918,12 +3422,17 @@ export class Workspace implements AgentHost {
       status,
       ...(usage ? { tokenUsage: usage } : {})
     }
-    const queue = this.queueFor(record.agentId)
     try {
       const facts = await this.snapshotDone(record.agentId, summary)
+      if (!stillCurrent()) return
+      const queue = this.queueFor(record.agentId)
       if (!queue.isClosed) queue.push({ ...payload, ...facts })
-    } catch {
-      if (!queue.isClosed) queue.push(payload)
+      if (facts.snapshotError || facts.uncommitted) return
+    } catch (error) {
+      if (!stillCurrent()) return
+      const queue = this.queueFor(record.agentId)
+      if (!queue.isClosed) queue.push({...payload,snapshotError:errorText(error).slice(0,2000)})
+      return
     }
     // A3: the sentinel counterpart of the MCP `report_done` hook — a PTY-only
     // agent's branch is adopted by exactly the same rules.
@@ -2932,9 +3441,7 @@ export class Workspace implements AgentHost {
 
   /** True for a provider that declared `mcp: none` — reports via sentinel lines. */
   private isPtyOnly(providerId: string): boolean {
-    return (
-      this.deps.providers.find((candidate) => candidate.id === providerId)?.mcp.kind === 'none'
-    )
+    return this.deps.providers.find((candidate) => candidate.id === providerId)?.mcp.kind === 'none'
   }
 
   /**
@@ -3148,21 +3655,21 @@ export class Workspace implements AgentHost {
   }
 
   /** Kill chain plus window and name release — the shared part of stop/close. */
-  private terminate(record: AgentRecord): void {
+  private terminate(record: AgentRecord, options: { preserveQuestions?: boolean } = {}): void {
     record.stopping = true
     record.stopped = true
     record.endedAt = record.endedAt ?? this.now()
     this.clearIdleHint(record)
     if (record.orchestrator) {
       this.clearOrchestratorIdleWatchdog()
-      this.questions?.cancelForAgent(USER_QUESTION_AGENT_ID)
+      if (!options.preserveQuestions) this.questions?.cancelForAgent(USER_QUESTION_AGENT_ID)
     }
     // Cancel here too: pty.kill() is async and we unsubscribe onExit below, so
     // handleExit's cancelForAgent would not run on the stop path.
-    this.questions?.cancelForAgent(record.agentId)
-    record.pty.kill()
+    if (!options.preserveQuestions) this.questions?.cancelForAgent(record.agentId)
     for (const off of record.unsubscribe) off()
     record.unsubscribe = []
+    record.pty.kill()
     this.deps.registry.removeAgent(record.agentId)
     this.deps.windows.close(record.agentId)
     this.names.release(record.name)

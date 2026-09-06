@@ -608,7 +608,7 @@ describe('agent_exited — the one event the host owns', () => {
 
     spawns[0]!.pty.exit({ exitCode: 137 })
 
-    expect(workspace.events.all()).toEqual([
+    expect(workspace.events.all().filter((event) => event.type !== 'agent_boot')).toEqual([
       expect.objectContaining({
         type: 'agent_exited',
         agentId: started.agentId,
@@ -662,7 +662,7 @@ describe('agent_exited — the one event the host owns', () => {
     const { workspace } = harness()
     const started = await workspace.startAgent({ role: 'worker', task: 'x' })
     await workspace.stopAgent(started.agentId)
-    expect(workspace.events.all()).toHaveLength(0)
+    expect(workspace.events.all().filter((event) => event.type !== 'agent_boot')).toHaveLength(0)
   })
 
   it('pushes orchestrator_exited when the orchestrator dies unasked', async () => {
@@ -674,7 +674,7 @@ describe('agent_exited — the one event the host owns', () => {
 
     // Not agent_exited — the orchestrator is no subagent, and its death flips
     // the workspace to inactive instead of freeing a slot.
-    expect(workspace.events.all()).toEqual([
+    expect(workspace.events.all().filter((event) => event.type !== 'agent_boot')).toEqual([
       expect.objectContaining({
         type: 'orchestrator_exited',
         agentId: orchestrator.agentId,
@@ -692,7 +692,7 @@ describe('agent_exited — the one event the host owns', () => {
     const { workspace } = harness()
     await workspace.startOrchestrator()
     await workspace.stopAll()
-    expect(workspace.events.all()).toHaveLength(0)
+    expect(workspace.events.all().filter((event) => event.type !== 'agent_boot')).toHaveLength(0)
     expect(workspace.orchestratorAlive).toBe(false)
   })
 })
@@ -1556,6 +1556,34 @@ describe('C6 crash recovery seed', () => {
 })
 
 describe('stopAll / close', () => {
+  it('cancels a root start while worktree creation is still pending', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const create = fakeWorktrees().createWorktree
+    const h = harness({ deps: { createWorktree: async (...args) => {
+      await gate
+      return create(...args)
+    } } })
+    const starting = h.workspace.startOrchestrator()
+    const rejected = expect(starting).rejects.toThrow(/closed/)
+    await h.workspace.close()
+    release()
+    await rejected
+    expect(h.spawns).toHaveLength(0)
+    expect(h.registry.listAgents()).toEqual([])
+  })
+
+  it('quiesces processes and admission while retaining the root branch for finalization', async () => {
+    const h = harness()
+    const root = await h.workspace.startOrchestrator()
+    await h.workspace.startAgent({ role: 'worker', task: 'work' })
+    await h.workspace.stopProcesses()
+    expect(h.spawns.every((spawn) => !spawn.pty.isAlive)).toBe(true)
+    expect(h.workspace.orchestrator?.branch).toBe(root.branch)
+    expect(h.workspace.events.isClosed).toBe(false)
+    expect(() => h.workspace.beginAgent({ role: 'worker', task: 'late' })).toThrow(/closed/)
+    await h.workspace.close()
+  })
   it('stops subagents first and the orchestrator last', async () => {
     const { workspace, windows } = harness()
     const orchestrator = await workspace.startOrchestrator()
@@ -2110,7 +2138,7 @@ describe('sentinel reporting (mcp: none / Ollama)', () => {
     spawns[0]!.pty.emit(line)
     await waitForDone(workspace)
 
-    expect(workspace.events.all()).toEqual([
+    expect(workspace.events.all().filter((event) => event.type !== 'agent_boot')).toEqual([
       expect.objectContaining({
         type: 'agent_done',
         agentId: started.agentId,
@@ -2252,7 +2280,7 @@ describe('sentinel reporting (mcp: none / Ollama)', () => {
       `@@VERTRAGUS:DONE@@${JSON.stringify({ summary: 'shipped', status: 'success' })}@@END@@`
     )
     await waitForDone(workspace)
-    expect(workspace.events.all()[0]).toMatchObject({
+    expect(workspace.events.all().find((event) => event.type === 'agent_done')).toMatchObject({
       type: 'agent_done',
       uncommitted: true,
       changedFiles: ['src/a.ts'],
@@ -2531,6 +2559,17 @@ describe('orchestrator idle watchdog — C5', () => {
     }
     expect(idleEvents(h)).toEqual([])
     expect(h.workspace.orchestratorIdle).toBe(false)
+  })
+
+  it('does not call a pending five-minute tool idle and resumes the clock after its exit', async () => {
+    const h = harness()
+    await h.workspace.startOrchestrator()
+    h.workspace.noteOrchestratorActivity('enter')
+    advance(h, 300_000)
+    expect(idleEvents(h)).toEqual([])
+    h.workspace.noteOrchestratorActivity('exit')
+    advance(h, ORCHESTRATOR_IDLE_MS)
+    expect(idleEvents(h)).toHaveLength(1)
   })
 
   it('a tool call ends the reported phase; the NEXT silence earns its own event', async () => {

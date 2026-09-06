@@ -1,3 +1,5 @@
+import { getRunReview } from './workspace/runReview'
+import { readRun } from './workspace/listRuns'
 import { homedir, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, clipboard, nativeImage, safeStorage, ipcMain, shell } from 'electron'
@@ -83,6 +85,7 @@ import {
   openSettingsWindow
 } from './windows/settingsWindow'
 import { createRemoteController, type RemoteController } from './remote/controller'
+import { createRemoteDeviceFile } from './remote/deviceStore'
 import { registerRemoteIpc } from './remote/ipc'
 import { bindOptions } from './remote/interfaces'
 import { createPairingTokenFile } from './remote/tokenFile'
@@ -271,6 +274,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
               ? [
                   {
                     agentId: orchestrator.agentId,
+                    ...ws.agentDiagnostic(orchestrator.agentId),
                     name: orchestrator.name,
                     roleId: 'orchestrator',
                     roleLabel: 'Orchestrator',
@@ -298,6 +302,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
               const parentId = mcp.agentParent(ws.workspaceId, agent.agentId)
               return {
                 agentId: agent.agentId,
+                ...ws.agentDiagnostic(agent.agentId),
                 name: agent.name,
                 roleId: agent.role,
                 roleLabel: agent.kind === 'lead' ? 'Lead' : roleLabel(agent.role),
@@ -353,7 +358,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         throw error
       }
     },
-    async resume(profileId) {
+    async resume(profileId, options) {
       const profile = getProfile(profileId)
       if (!profile) {
         const locale = readLocale(() => getSettings().ui.locale)
@@ -362,13 +367,16 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       // E3: brief a NEW orchestrator on the newest journaled run. The old
       // run's goal (when its meta recorded one) is re-seeded over the same
       // handshake, so the card and the orchestrator agree on what continues.
-      const run = await latestRun(profile.repoPath, profile.id)
+      const run = options?.workspaceId ? await readRun(profile.repoPath,profile.id,options.workspaceId) : await latestRun(profile.repoPath, profile.id)
       if (!run) {
         const locale = readLocale(() => getSettings().ui.locale)
         throw new Error(mainMessages(locale).resumeNoRun(profile.repoPath))
       }
       // S4 (fail-soft): the old run's task board — dead owners freed — seeds
       // the new board and gets one honest mention in the briefing.
+      const recovery = await getRunReview(profile.repoPath,profile.id,run.workspaceId)
+      const baseBranch = options?.baseBranch ?? recovery.baseBranch
+      if (options?.baseBranch && !recovery.branches.some((entry) => entry.branch === options.baseBranch)) throw new Error('Resume base must belong to the selected run')
       const rawTasks = await readRunTasks(profile.repoPath, run.workspaceId)
       const tasks = rawTasks ? boardForResume(rawTasks) : undefined
       // C6: that run may have died mid-handoff. Its frozen package briefs the
@@ -389,6 +397,8 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         resume: {
           briefing: buildResumeBriefing(run, tasks),
           fromWorkspaceId: run.workspaceId,
+          ...(baseBranch ? {baseBranch} : {}),
+          ...(recovery.seat ? {seat:recovery.seat} : {}),
           ...(tasks ? { tasks } : {}),
           ...(succession ? { succession } : {})
         },
@@ -419,13 +429,18 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       }
       return workspace.sendToAgent(orchestrator.agentId, text)
     },
-    async succeedOrchestrator(workspaceId) {
+    async reseatAgent(workspaceId,input) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) throw new Error('Unknown workspace')
+      await workspace.reseatAgent(input).ready
+    },
+    async succeedOrchestrator(workspaceId,successor) {
       const workspace = manager.get(workspaceId)
       if (!workspace) {
         throw new Error(`orchestrator replacement rejected — unknown workspace ${workspaceId}`)
       }
       try {
-        await workspace.replaceOrchestratorFromHost()
+        await workspace.replaceOrchestratorFromHost(successor)
       } catch (error) {
         // The host codes are the MCP contract's, not a sentence for a human
         // who just pressed a button.
@@ -691,6 +706,7 @@ function buildRemoteController(
   manager: WorkspaceManager
 ): RemoteController {
   return createRemoteController({
+    deviceStore: createRemoteDeviceFile(join(app.getPath('userData'), 'remote-devices.json')),
     readSettings: () => getSettings().remote,
     writeSettings: (next) => setSetting('remote', next),
     locale: () => readLocale(() => getSettings().ui.locale),
@@ -953,9 +969,11 @@ app.on('before-quit', (event) => {
     // devRun shares the app's manager/server, so stopping twice must be safe.
     appVoice?.dispose()
     appVoice = undefined
-    await remote?.stop().catch(() => undefined)
-    await devRun?.stop().catch(() => undefined)
-    await appManager?.stopAll({ awaitExitMs: QUIT_SHUTDOWN_CEILING_MS - 1_000 }).catch(() => undefined)
+    await Promise.all([
+      appManager?.stopAll({ awaitExitMs: QUIT_SHUTDOWN_CEILING_MS - 1_000, finalizationTimeoutMs: QUIT_SHUTDOWN_CEILING_MS - 2_500 }).catch(() => undefined),
+      remote?.stop().catch(() => undefined),
+      devRun?.stop().catch(() => undefined)
+    ])
     await appMcp?.close().catch(() => undefined)
   })()
   const ceiling = new Promise<void>((resolve) => {

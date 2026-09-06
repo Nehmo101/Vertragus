@@ -11,6 +11,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { parseNewAskChoices, questionChoicesToolFieldSchema } from '@shared/questionChoices'
 import { buildHandoffBlock, buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
 import { successionRequestSchema } from '@shared/schema/handoff'
+import { reseatInputSchema } from '@shared/schema/reseat'
 import { searchRuns } from '@main/workspace/searchRuns'
 import {
   assertSupportedResultSchema,
@@ -95,6 +96,7 @@ function agentStartedEvent(
  * invisible to strict-allowlist providers like Claude.
  */
 export const ORCHESTRATOR_TOOL_NAMES = [
+  'reseat_agent',
   'start_agent',
   'send_to_agent',
   'await_events',
@@ -121,6 +123,7 @@ export type OrchestratorToolName = (typeof ORCHESTRATOR_TOOL_NAMES)[number]
  * exactly 1), upward the three subagent tools. Union by design.
  */
 export const LEAD_TOOL_NAMES = [
+  'reseat_agent',
   'start_agent',
   'send_to_agent',
   'await_events',
@@ -235,11 +238,11 @@ function withOrchestratorTouch(
   return {
     registerTool: ((name: string, config: unknown, handler: (...args: unknown[]) => Promise<unknown>) =>
       register(name, config, (async (...args: unknown[]) => {
-        runtime.onOrchestratorToolCall?.()
+        runtime.onOrchestratorToolCall?.('enter')
         try {
           return await handler(...args)
         } finally {
-          runtime.onOrchestratorToolCall?.()
+          runtime.onOrchestratorToolCall?.('exit')
         }
       }) as unknown as (...args: never[]) => unknown)) as unknown as McpServer['registerTool']
   }
@@ -260,7 +263,7 @@ export function registerOrchestratorTools(
 ): void {
   const { ctx } = runtime
   const server =
-    scope?.nest === 'worker' ? rawServer : withOrchestratorTouch(rawServer, runtime)
+    scope ? rawServer : withOrchestratorTouch(rawServer, runtime)
   const leadId = scope?.leadId
   const workerNest = scope?.nest === 'worker'
   if (workerNest && leadId) ensureNest(runtime, leadId)
@@ -279,8 +282,7 @@ export function registerOrchestratorTools(
    * predecessor must stop driving. Leads are agents of the run and keep
    * working through the handoff, so a scoped registration never gates.
    */
-  const successionGate = (): ToolText | undefined =>
-    leadId ? undefined : successionBlock(runtime)
+  const successionGate = (): ToolText | undefined => (leadId ? undefined : successionBlock(runtime))
 
   /** The caller's own event queue: the lead's, a worker nest, or the workspace root queue. */
   const ownQueue = (): EventQueue => {
@@ -322,6 +324,38 @@ export function registerOrchestratorTools(
       note: 'The workspace runtime budget is spent — no new agents. Verify what exists, stop your agents, and wrap up (record_retro, final summary).'
     })
   }
+
+  if (!workerNest)
+    server.registerTool(
+      'reseat_agent',
+      {
+        description:
+          'Restart one direct child with a different provider, model or effort at a task boundary. The host preserves its identity, branch, assignment and open question. Wait for agent_reseated or agent_reseat_failed before sending more work. Busy agents refuse; use request_succession to replace yourself.',
+        inputSchema: reseatInputSchema.shape
+      },
+      async (input): Promise<ToolText> => {
+        const blocked = successionGate() ?? budgetGate()
+        if (blocked) return blocked
+        if (!inScope(runtime, input.agentId, leadId))
+          return toolError({ error: 'unknown_agent', agentId: input.agentId })
+        if (!ctx.host.reseatAgent)
+          return toolError({
+            error: 'unsupported',
+            message: 'This host cannot replace agent processes.'
+          })
+        try {
+          const started = ctx.host.reseatAgent(input)
+          void started.ready.catch(() => undefined)
+          return toolJson({
+            state: 'starting',
+            agentId: started.agentId,
+            generation: started.generation
+          })
+        } catch (error) {
+          return toolError({ error: 'reseat_failed', message: errorMessage(error) })
+        }
+      }
+    )
 
   /**
    * S1: oversized text spills to a file — the model gets head/tail plus the
@@ -626,7 +660,12 @@ export function registerOrchestratorTools(
         boardTask = found
       }
 
-      const reporting = ctx.host.reportingMode(role)
+      let reporting: ReturnType<typeof ctx.host.reportingMode>
+      try {
+        reporting = ctx.host.reportingMode(role, { slotId, providerId })
+      } catch (error) {
+        return toolError({ error: 'start_failed', role, message: errorMessage(error) })
+      }
       // S3: a sentinel agent has no report_done call to validate — a schema
       // there would be a promise nobody keeps, so it is refused, not ignored.
       if (vettedSchema && reporting !== 'mcp') {
@@ -675,7 +714,10 @@ export function registerOrchestratorTools(
       // arrives as an event instead.
       let started: StartingAgent
       try {
-        started = ctx.host.beginAgent({ role, task: seed, model, baseBranch, slotId, providerId })
+        started = ctx.host.beginAgent({ role, task: seed,
+          assignment: task,
+          resultSchema: vettedSchema,
+          canSpawnHelpers: !workerNest, model, baseBranch, slotId, providerId })
       } catch (error) {
         return toolError({ error: 'start_failed', role, message: errorMessage(error) })
       }
@@ -967,11 +1009,11 @@ export function registerOrchestratorTools(
       }
     },
     async ({ question, ticket, choices }): Promise<ToolText> => {
-      // The same raised window that funds the long await_events poll: ask_user
-      // runs on the orchestrator's own CLI, so awaitMax is exactly the block
-      // this call can afford — a human who answers within it costs zero
-      // `answer: null` round trips, and each of those is a full model turn.
-      const timeoutMs = resolveAskTimeoutMs(
+        // The same raised window that funds the long await_events poll: ask_user
+        // runs on the orchestrator's own CLI, so awaitMax is exactly the block
+        // this call can afford — a human who answers within it costs zero
+        // `answer: null` round trips, and each of those is a full model turn.
+        const timeoutMs = resolveAskTimeoutMs(
         ctx.askTimeoutMs,
         process.env,
         ctx.awaitTimeout ? ctx.awaitTimeout.maxSec * 1_000 : undefined
@@ -1004,9 +1046,9 @@ export function registerOrchestratorTools(
         })
       }
 
-      // One open user question at a time — a second one would give the human
-      // two blocking prompts for one orchestrator.
-      const alreadyOpen = runtime.questions.openForAgent(USER_QUESTION_AGENT_ID)
+        // One open user question at a time — a second one would give the human
+        // two blocking prompts for one orchestrator.
+        const alreadyOpen = runtime.questions.openForAgent(USER_QUESTION_AGENT_ID)
       const newChoices = alreadyOpen ? undefined : parseNewAskChoices(choices)
       const pending =
         alreadyOpen ??
@@ -1014,10 +1056,10 @@ export function registerOrchestratorTools(
           ...(newChoices ? { choices: newChoices } : {})
         })
       if (!alreadyOpen) {
-        // Quiet: the badge/remote signal for the PANEL — the asker itself is
-        // blocked right here on waitForAnswer and must not be woken by the
-        // echo of its own question.
-        ctx.events.push(
+          // Quiet: the badge/remote signal for the PANEL — the asker itself is
+          // blocked right here on waitForAnswer and must not be woken by the
+          // echo of its own question.
+          ctx.events.push(
           {
             type: 'user_question',
             questionId: pending.questionId,
@@ -1123,13 +1165,13 @@ export function registerOrchestratorTools(
       }
       retro.recordSummary(summary)
       const { applied } = retro.recordLearnings(learnings)
-      const appliedNotes = repoNotes.length > 0 ? retro.recordRepoNotes?.(repoNotes)?.applied ?? 0 : 0
-      // A3: the retro is the run's "work is done" — so it is where the
-      // profile's auto-PR is opened and the orchestrator branch is
-      // auto-promoted (PR first, so the branch is still ahead). Never able
-      // to fail the retro: a pull request that could not be opened is a line
-      // in the answer, not a lost retrospective.
-      let pullRequest: RunPullRequest | undefined
+      const appliedNotes = repoNotes.length > 0 ? (retro.recordRepoNotes?.(repoNotes)?.applied ?? 0) : 0
+        // A3: the retro is the run's "work is done" — so it is where the
+        // profile's auto-PR is opened and the orchestrator branch is
+        // auto-promoted (PR first, so the branch is still ahead). Never able
+        // to fail the retro: a pull request that could not be opened is a line
+        // in the answer, not a lost retrospective.
+        let pullRequest: RunPullRequest | undefined
       try {
         pullRequest = ctx.host.finishRunAutomation
           ? await ctx.host.finishRunAutomation({ summary })
@@ -1229,9 +1271,9 @@ export function registerOrchestratorTools(
       } catch (error) {
         return toolError({ error: 'start_failed', area, message: errorMessage(error) })
       }
-      // The lead's own queue exists from the reservation on — its children's
-      // events have somewhere to go before the lead even finished booting.
-      const lead: LeadRuntime = {
+        // The lead's own queue exists from the reservation on — its children's
+        // events have somewhere to go before the lead even finished booting.
+        const lead: LeadRuntime = {
         agentId: started.agentId,
         area,
         events: new EventQueue(),
@@ -1247,9 +1289,9 @@ export function registerOrchestratorTools(
           ctx.events.push(agentStartedEvent(started, runtime, task))
         },
         (error: unknown) => {
-          // The reservation is gone; so is the lead — adopt would-be children
-          // (there are none yet) and close its queue.
-          runtime.leads.delete(started.agentId)
+            // The reservation is gone; so is the lead — adopt would-be children
+            // (there are none yet) and close its queue.
+            runtime.leads.delete(started.agentId)
           lead.events.close()
           if (ctx.events.isClosed) return
           ctx.events.push({
@@ -1280,11 +1322,11 @@ export function registerOrchestratorTools(
     }
   )
 
-  // S5: the pull side of the run memory. Root-only like record_retro — the
-  // history is the ROOT's institutional memory, a lead gets its slice from
-  // its task. The repo path comes from the workspace context; the CURRENT
-  // run's journal lives on disk like every other, so it is searched for free.
-  server.registerTool(
+    // S5: the pull side of the run memory. Root-only like record_retro — the
+    // history is the ROOT's institutional memory, a lead gets its slice from
+    // its task. The repo path comes from the workspace context; the CURRENT
+    // run's journal lives on disk like every other, so it is searched for free.
+    server.registerTool(
     'search_runs',
     {
       description:
@@ -1312,9 +1354,9 @@ export function registerOrchestratorTools(
         const { hits, searchedRuns, skipped } = await searchRuns(ctx.repoPath, query, {
           maxResults
         })
-        // The empty answer names its coverage — "no match" over zero searched
-        // runs and over twenty are very different facts.
-        const note =
+          // The empty answer names its coverage — "no match" over zero searched
+          // runs and over twenty are very different facts.
+          const note =
           hits.length === 0
             ? `searched ${searchedRuns} runs, no match`
             : `${hits.length} matching runs of ${searchedRuns} searched, newest first`
@@ -1582,10 +1624,10 @@ export function registerOrchestratorTools(
       }
       const created = board.create({ subject, description, blockedBy, ownerAgentId })
       if (!created.ok) return taskFailure(created)
-      // The board is on the workspace card now, and a board mutation pushes no
-      // agent event — the assignment feed is what wakes the panel. Same hook as
-      // recordAssignment on purpose: one change channel, not a second one.
-      runtime.onTasksChanged?.()
+        // The board is on the workspace card now, and a board mutation pushes no
+        // agent event — the assignment feed is what wakes the panel. Same hook as
+        // recordAssignment on purpose: one change channel, not a second one.
+        runtime.onTasksChanged?.()
       return toolJson({ taskId: created.task.taskId, revision: created.task.revision })
     }
   )
@@ -1627,9 +1669,9 @@ export function registerOrchestratorTools(
       if (blocked) return blocked
       const board = runtime.taskBoard
       if (!board) return boardUnavailable()
-      // The dsh authorization matrix, one step simpler: destructive and
-      // cross-team actions belong to the root alone.
-      if (leadId && (action === 'delete' || action === 'reassign')) {
+        // The dsh authorization matrix, one step simpler: destructive and
+        // cross-team actions belong to the root alone.
+        if (leadId && (action === 'delete' || action === 'reassign')) {
         return toolError({
           error: 'root_only_action',
           action,
@@ -1686,6 +1728,7 @@ export function registerOrchestratorTools(
           'this returns, stop: the successor takes the loop. This is serial replacement, not a second ' +
           'concurrent orchestrator.',
         inputSchema: {
+          successor: successionRequestSchema.shape.successor.describe('Optional provider, model and effort for your successor. The host checks CLI availability and capabilities before replacing you.'),
           reason: successionRequestSchema.shape.reason.describe(
             'Why you are handing off. context_full is the usual case.'
           ),
@@ -1706,6 +1749,7 @@ export function registerOrchestratorTools(
         }
         try {
           const started = ctx.host.requestSuccession(parsed)
+          void started.ready.catch(() => undefined)
           return toolJson({
             successorAgentId: started.successorAgentId,
             successorName: started.successorName,

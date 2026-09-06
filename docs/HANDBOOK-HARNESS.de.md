@@ -54,7 +54,7 @@ Remote-Server.
 | C3 Snapshot-Commit / C4 Handoff-Paket | **umgesetzt** (Track 1) — `snapshotDone` committet dirty Worktrees beim Done; `start_agent{baseBranch}` trägt Handoff-Block |
 | C5 Orchestrator-Idle-Watchdog | **umgesetzt** (Track 2) — `orchestrator_idle` Event + Panel/Remote-Hinweis; Timeouts ≠ Idle (Touch bei Call-Start und -Ende) |
 | C6 Orchestrator-Succession (Context-Handoff) | **S1 im Code** — siehe [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
-| C7 Modell/Provider-Reseat (Wechsel mitten im Lauf) | **nur Spec** — siehe [`MODEL-PROVIDER-SWITCH.md`](./MODEL-PROVIDER-SWITCH.md) |
+| C7 Modell/Provider-Reseat (Wechsel mitten im Lauf) | **Kern umgesetzt** — siehe [`MODEL-PROVIDER-SWITCH.md`](./MODEL-PROVIDER-SWITCH.md) |
 | D Mensch im Loop | **D1–D4 umgesetzt** (Track 3 + Follow-up) — Goal-UI, `user_message` weckt `await_events`, `ask_user` mit Ticket; D4 Stufen `yolo`/`ask-user`/`ask-orchestrator` (Store-Spiegel zu `yoloMaster`, Contract-Approval-Regel, Threat-Model im README) |
 | E integrate / briefing / eval | **Kern umgesetzt** (Track 6) — `integrate_branch` + Gate-Warnung + Promote-Klick, Briefing + `repoNotes`, Journal + Resume (E3, Briefing statt Re-Spawn), Budget-Wanduhr, Janitor/Explorer, Playbooks, Extra-MCP an Worker (E6), Loop-Eval (E5, `tests/integration/loopEval`) — Phase E vollständig |
 | F Multi-Orch (Lead, Tiefe 1) | **umgesetzt** (Track 5) — dritte Identität `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder, Reparent (`subtree_adopted`), Caps host-seitig |
@@ -240,7 +240,7 @@ Beim `report_done` / Sentinel-DONE hängt der Host an das Event:
 - `branch`, `headSha`, `changedFiles[]`, `uncommitted`, `diffStat`
 
 Git-Hänger dürfen das Done-Event nicht schlucken: Snapshot schlägt fehl
-→ Event ohne Fakten, Orchestrator inspectet danach. Sentinel-DONE setzt
+→ expliziter `snapshotError` neben den verfügbaren Fakten; der Orchestrator prüft danach. Sentinel-DONE setzt
 `doneSinceAssignment` synchron, damit `agent_exited.confirmed` auch
 stimmt, wenn der Snapshot noch läuft.
 
@@ -259,6 +259,24 @@ vertragus: <agent> / <role> — <erste Zeile der Summary>
 
 Kein Push, kein `--force`. Worker-Prompt: „committe nicht selbst — der
 Host snapshotet.“ `baseBranch` zeigt danach auf Arbeit.
+
+Host-Snapshot- und Merge-Commits deaktivieren geerbte GPG-Signierung. Beim
+Snapshot bleiben Projekt-MCP-Dateien vom allgemeinen Add ausgeschlossen;
+ihre Index-Blobs enthalten keine unveränderten Host-Ergänzungen. Andere
+Benutzeränderungen und die aktive CLI-Konfiguration bleiben erhalten.
+Linked-Profile ermitteln die gemeinsame Exclude-Datei über Git. Unbekannte
+oder veränderte Host-Zugangsdaten lassen den Snapshot sicher scheitern.
+
+Stop beendet zuerst Agentenprozesse; langsame Push-/PR-Schritte folgen danach.
+Finalisierungsversuche werden pro Lauf gespeichert und lassen sich nach einem
+Neustart ansehen und ausdrücklich wiederholen. Quit bricht Push/gh vor der
+Shutdown-Obergrenze ab und bewahrt einen wiederholbaren Fehlerzustand, auch
+bei einer laufenden Wiederholung aus dem Archiv. Recovery/Review im Archiv
+verbindet Journal-Identität mit aktuellen Git-Fakten zu Branch, SHA, Dirty-Status
+und geänderten Dateien sowie Integrations-Events. Resume kann einen früheren
+Lauf und dessen Integrationsbranch wählen. Cleanup zeigt Speicherbedarf,
+Dirty-Status, zusätzliche Commits gegenüber dem Checkout und Laufzugehörigkeit;
+Entfernen bleibt explizit, ohne Force und ohne Löschen des Branches.
 
 ### C4 Handoff-Paket an `start_agent`
 
@@ -320,11 +338,13 @@ Fragen), neuer Prozess, Kontext in einem host-gebauten Paket. Für den Root ist
 das C6 mit einem zusätzlichen Feld (`request_succession{successor:{providerId,
 model, effort}}`) plus Preflight, denn ein falscher Modellstring muss abweisen,
 statt den Lauf ohne Fahrer zurückzulassen. Für einen Worker ist es ein neues
-Tool (`reseat_agent`), weil das heutige `stop_agent` + `start_agent` die nicht
-committete Arbeit, die offene Frage, die Identität und den Slot verliert — und
-die Profil-Slots gar nicht verlassen kann.
+Tool (`reseat_agent`): Es erhält Identität, Worktree, Frage und Slot über den
+Prozesswechsel. `stop_agent` bewahrt Dateien und Branches; ein späteres
+`start_agent` erzeugt aber eine neue Identität und bleibt an Profil-Slots gebunden.
 
-Vollständiger Plan: [`docs/MODEL-PROVIDER-SWITCH.md`](./MODEL-PROVIDER-SWITCH.md).
+Der explizite Root-/Worker-/Lead-Reseat-Pfad ist umgesetzt, mit Preflight, Snapshot vor dem Kill, Token-Rotation und Generationstrennung. Der Host zeigt effektiven Sitz und Boot-Verlauf; Recovery übernimmt den bisherigen Root-Sitz. Der optionale In-Session-Modellbefehl bleibt eine Designoption.
+
+Vollständiger Plan: [docs/MODEL-PROVIDER-SWITCH.md](./MODEL-PROVIDER-SWITCH.md).
 
 ---
 
@@ -795,7 +815,7 @@ PR #17   A1–A3 + B Remote + H3 + C1 inspect_agent + C2 Done-Fakten
      └─ Phase C   C3/C4 Snapshot-Commit + Handoff-Paket     später
             C5 Orchestrator-Idle-Watchdog             später
             C6 Orchestrator-Succession (Context-Handoff)  S1
-            C7 Modell/Provider-Reseat (braucht C3 + C6)   Spec
+            C7 Modell/Provider-Reseat (braucht C3 + C6)   umgesetzt
             F   Multi-Orch (Root entscheidet; braucht C, braucht B nicht)
             D   Goal-UI, user_message, ask_user (braucht H1/H2)
             E   integrate/gate, Briefing, Resume, Budget, Eval

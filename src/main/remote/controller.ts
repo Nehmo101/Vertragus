@@ -14,6 +14,7 @@ import type { RemoteStatus } from '@shared/remote/types'
 import { detectTailscaleAddress, type NetworkInterfaces } from './interfaces'
 import { mintPairingToken, pairingUrl } from './pairing'
 import { startRemoteServer, type RemoteServerHandle, type RemoteServerOptions } from './server'
+import type { RemoteDeviceStore } from './deviceStore'
 import type { PairingTokenFallback } from './tokenFile'
 
 export type { RemoteStatus } from '@shared/remote/types'
@@ -37,6 +38,7 @@ export interface RemoteControllerDeps {
    * is plaintext JSON. Production injects a 0600 file under userData.
    */
   tokenFallback?: PairingTokenFallback
+  deviceStore?: RemoteDeviceStore
   /** Everything the server needs that is not remote-config: gateway, terminals… */
   serverBase: Omit<RemoteServerOptions, 'host' | 'port' | 'pairingToken' | 'staticRoot'>
   startServer?: typeof startRemoteServer
@@ -76,6 +78,12 @@ export function resolveBindAddress(
 export function createRemoteController(deps: RemoteControllerDeps): RemoteController {
   const startServer = deps.startServer ?? startRemoteServer
   let handle: RemoteServerHandle | undefined
+  let lifecycle: Promise<unknown> = Promise.resolve()
+  const serialize = <T>(action: () => Promise<T>): Promise<T> => {
+    const next = lifecycle.then(action, action)
+    lifecycle = next.catch(() => undefined)
+    return next
+  }
   let lastError: string | undefined
   /**
    * Process-local cache. Persistence is encrypted settings and/or the
@@ -183,6 +191,7 @@ export function createRemoteController(deps: RemoteControllerDeps): RemoteContro
     try {
       handle = await startServer({
         ...deps.serverBase,
+        authDeps: { ...deps.serverBase.authDeps, deviceStore: deps.deviceStore },
         host: resolved.address,
         port: settings.port,
         staticRoot: deps.staticRoot,
@@ -196,23 +205,27 @@ export function createRemoteController(deps: RemoteControllerDeps): RemoteContro
   return {
     status,
     clients: () => handle?.clients() ?? [],
-    async apply(next): Promise<RemoteStatus> {
-      const merged: RemoteSettings = { ...deps.readSettings(), ...next }
-      deps.writeSettings(merged)
-      await stop()
-      if (merged.enabled) await start(merged)
-      return status()
+    apply(next): Promise<RemoteStatus> {
+      return serialize(async () => {
+        const merged: RemoteSettings = { ...deps.readSettings(), ...next }
+        deps.writeSettings(merged)
+        await stop()
+        if (merged.enabled) await start(merged)
+        return status()
+      })
     },
-    async regenerateToken(): Promise<RemoteStatus> {
-      const settings = deps.readSettings()
-      persistToken(settings, mintPairingToken())
-      // Every existing session dies with the old token — a regenerate is a
-      // "lock everyone out and re-pair" action.
-      await stop()
-      if (settings.enabled) await start(deps.readSettings())
-      return status()
+    regenerateToken(): Promise<RemoteStatus> {
+      return serialize(async () => {
+        const settings = deps.readSettings()
+        persistToken(settings, mintPairingToken())
+        // Every existing session dies with the old token — a regenerate is a
+        // "lock everyone out and re-pair" action.
+        await stop()
+        if (settings.enabled) await start(deps.readSettings())
+        return status()
+      })
     },
     revoke: (token) => handle?.revoke(token) ?? false,
-    stop
+    stop: () => serialize(stop)
   }
 }

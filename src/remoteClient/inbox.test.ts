@@ -33,10 +33,11 @@ describe('the reserved addressee', () => {
   })
 
   it('is the same string the desktop panel sends', () => {
-    const call = /onAnswer\(workspaceId, '([^']+)', questionId/.exec(
+    const call = /agentId = '([^']+)'/.exec(
       read('renderer/src/panel/WorkspaceCard.tsx')
     )
-    expect(call, 'the panel answer call not found — has it been reshaped?').not.toBeNull()
+    expect(call, 'the panel default addressee not found — has it been reshaped?').not.toBeNull()
+    expect(read('renderer/src/panel/WorkspaceCard.tsx')).toContain('await onAnswer(workspaceId, agentId, questionId')
     expect(USER_AGENT_ID).toBe(call?.[1])
   })
 })

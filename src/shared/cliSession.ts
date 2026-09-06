@@ -17,6 +17,7 @@ export type CliSessionKind = 'orchestrator' | 'lead' | 'agent'
 export interface CliSessionQuestion {
   questionId: string
   question: string
+  choices?: string[]
 }
 
 export type CliLogKind =

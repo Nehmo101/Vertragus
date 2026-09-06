@@ -16,6 +16,7 @@
 import { appendFile, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { agentSeatSchema } from '@shared/schema/reseat'
 import type { AgentEvent } from '@shared/schema/events'
 import { RUN_END_REASONS } from '@shared/schema/runArchive'
 import { VERTRAGUS_DIR } from '@main/agents/worktree'
@@ -28,6 +29,7 @@ export const runMetaSchema = z
     workspaceName: z.string().min(1),
     goal: z.string().max(20_000).optional(),
     startedAt: z.number().finite(),
+    rootSeat: agentSeatSchema.optional(),
     /** Set when this run itself was started as a resume of an older run. */
     resumedFrom: z.string().min(1).optional(),
     /** Wall-clock end; absent while the run is still live, and on pre-A1 journals. */

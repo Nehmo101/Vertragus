@@ -73,7 +73,13 @@ export function WorktreeCleanup({ profileId, bridge }: Props): React.JSX.Element
         <ul className="panel-worktrees-list">
           {entries.map((entry) => (
             <li key={entry.path} className="panel-worktrees-row" title={entry.path}>
-              <span className="panel-worktrees-branch">{worktreeLabel(entry)}</span>
+              <span className="panel-worktrees-branch">{worktreeLabel(entry)}
+                <small className="panel-worktree-facts">
+                  {entry.sizeBytes !== undefined ? `${(entry.sizeBytes / 1_048_576).toFixed(1)} MiB · ` : ''}
+                  {entry.dirty === undefined ? t('review.unknown') : entry.dirty ? t('review.dirty') : t('review.clean')}
+                  {entry.ahead !== undefined ? ` · ${t('panel.cleanupAhead', { count: entry.ahead })}` : ''}
+                </small>
+              </span>
               <button
                 type="button"
                 className="panel-icon-button panel-worktrees-remove"

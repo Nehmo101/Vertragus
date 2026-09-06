@@ -8,11 +8,14 @@
  */
 import { z } from 'zod'
 import { questionChoicesFieldSchema } from '../questionChoices'
+import { agentSeatSchema, seatOverrideSchema, type AgentSeat } from './reseat'
 
 export const SUCCESSION_REASONS = [
   'context_full',
   'long_run',
   'user_requested',
+  'provider_limit',
+  'provider_switch',
   'other'
 ] as const
 export const successionReasonSchema = z.enum(SUCCESSION_REASONS)
@@ -155,6 +158,7 @@ export const orchestratorHandoffPackageSchema = z
     reason: successionReasonSchema,
     predecessor: handoffPredecessorSchema,
     successorAgentId: z.string().min(1),
+    successor: agentSeatSchema.optional(),
     goal: handoffGoalSchema.optional(),
     eventCursor: z.number().int().nonnegative(),
     recentEvents: z.array(handoffRecentEventSchema).max(RECENT_EVENTS_MAX),
@@ -197,6 +201,7 @@ export const successionRequestSchema = z
   .object({
     reason: successionReasonSchema,
     goal: handoffGoalSchema.optional(),
+    successor: seatOverrideSchema.optional(),
     decisions: z.array(z.string().min(1).max(1_000)).max(DECISIONS_MAX).optional(),
     risks: z.array(z.string().min(1).max(1_000)).max(RISKS_MAX).optional(),
     nextActions: z.array(z.string().min(1).max(1_000)).max(NEXT_ACTIONS_MAX).optional(),
@@ -276,6 +281,7 @@ export interface BuildHandoffPackageInput {
   reason: SuccessionReason
   predecessor: z.infer<typeof handoffPredecessorSchema>
   successorAgentId: string
+  successor?: AgentSeat
   eventCursor: number
   agents: HandoffAgent[]
   openQuestions: HandoffOpenQuestion[]
@@ -346,6 +352,7 @@ export function buildHandoffPackage(input: BuildHandoffPackageInput): Orchestrat
     reason: input.reason,
     predecessor: input.predecessor,
     successorAgentId: input.successorAgentId,
+    ...(input.successor ? { successor: input.successor } : {}),
     eventCursor: input.eventCursor,
     recentEvents,
     agents: input.agents,

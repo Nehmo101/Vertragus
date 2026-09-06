@@ -62,6 +62,8 @@ export function useProfileEditor(
   providerHint?: string
 ): ProfileEditorState {
   const { t } = useTranslation()
+  const translate = useRef(t)
+  useEffect(() => { translate.current = t }, [t])
   const bridge = useMemo(() => window.vertragus?.app, [])
   const [draft, setDraft] = useState<ProfileDraft | null>(null)
   const [fatal, setFatal] = useState<string | null>(bridge ? null : t('common.bridgeMissing'))
@@ -77,6 +79,7 @@ export function useProfileEditor(
   // --- fast load: the profile itself and the role templates ---------------
   useEffect(() => {
     if (!bridge) return
+    const t = translate.current
     let alive = true
     Promise.all([bridge.listProfiles(), bridge.listRoles()]).then(
       ([profiles, custom]) => {
@@ -97,7 +100,7 @@ export function useProfileEditor(
     return () => {
       alive = false
     }
-  }, [bridge, profileId, providerHint, t])
+  }, [bridge, profileId, providerHint])
 
   // Zones are saved by the overlay, not by this form. When that write lands,
   // fold the fresh layout into the draft so a later "Save" cannot ship a stale

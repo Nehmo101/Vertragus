@@ -4,6 +4,8 @@ import { activeLocale, applyLocale } from '../i18n'
 import { LoreTip } from '../lore/LoreTip'
 import { applyTheme } from '../theme'
 import { metaBlurb } from './titleBlurb'
+import { useDraft, useSubmission } from '../lib/useDraft'
+import { questionChoicesDisplay } from '@shared/questionChoicesDisplay'
 import { SessionPane } from './SessionPane'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -142,8 +144,11 @@ function QuestionOverlay({
   onSubmit(agentId: string, questionId: string, text: string): Promise<void>
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const [answer, setAnswer] = useState('')
-  const [answerError, setAnswerError] = useState<string | null>(null)
+  const draft = useDraft(`answer.${question.agentId}.${question.questionId}`, '')
+  const { value: answer, set: setAnswer } = draft
+  const submission = useSubmission()
+  const answerError = submission.error
+  const display = questionChoicesDisplay(question.question, question.choices)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -155,13 +160,13 @@ function QuestionOverlay({
     inputRef.current?.focus()
   }, [])
 
-  const submit = (): void => {
-    if (!canSubmitAnswer(answer)) return
-    const text = answer.trim()
-    void onSubmit(question.agentId, question.questionId, text).then(
-      () => setAnswer(''),
-      (cause: unknown) => setAnswerError(cause instanceof Error ? cause.message : String(cause))
-    )
+  const submit = (value = answer): void => {
+    if (!canSubmitAnswer(value)) return
+    const version = draft.version()
+    void submission.run(async () => {
+      await onSubmit(question.agentId, question.questionId, value.trim())
+      draft.clear(version)
+    })
   }
 
   return (
@@ -176,9 +181,12 @@ function QuestionOverlay({
         {question.fromName ? <p className="cli-question-from">{question.fromName}</p> : null}
         <p className="cli-question-text">
           {isUserQuestion(question)
-            ? t('terminal.userQuestion', { question: question.question })
-            : question.question}
+            ? t('terminal.userQuestion', { question: display.prompt })
+            : display.prompt}
         </p>
+        {display.choices.length > 0 ? <div className="panel-answer-choices">
+          {display.choices.map((choice) => <button key={choice} type="button" className="cli-session-send" disabled={submission.busy} onClick={() => submit(choice)}>{choice}</button>)}
+        </div> : null}
         <textarea
           ref={inputRef}
           className="cli-question-input"
@@ -200,7 +208,7 @@ function QuestionOverlay({
           }}
         />
         {answerError ? <p className="cli-question-error">{answerError}</p> : null}
-        <button type="submit" className="cli-question-send" disabled={!canSubmitAnswer(answer)}>
+        <button type="submit" className="cli-question-send" disabled={submission.busy || !canSubmitAnswer(answer)}>
           {t('terminal.answerSend')}
         </button>
       </form>
@@ -380,7 +388,13 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       term.write(`\r\n\x1b[90m${t('terminal.exitLine', { code: event.exitCode })}\x1b[0m\r\n`)
     })
     const offTask = bridge.onTask((event) => setTask(event.task))
+    let generation = 0
     const offBoot = bridge.onBoot((event) => {
+      if (event.meta) setMeta(event.meta)
+      if (event.generation !== undefined && event.generation > generation) {
+        generation = event.generation
+        setExit(null)
+      }
       setBoot(isTerminalBootPhase(event.boot) ? event.boot : null)
     })
     const offSession = bridge.onSession((event) => setSession(event.session))
@@ -634,6 +648,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       {sessionOpen && session ? (
         <SessionPane
           session={session}
+          agentId={agentId}
           task={task}
           running={running}
           onFollowUp={followUp}

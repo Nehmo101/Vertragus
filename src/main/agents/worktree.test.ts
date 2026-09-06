@@ -1,3 +1,4 @@
+import { WORKTREE_SECRET_FILES } from '@main/mcp/attach'
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -61,6 +62,49 @@ describe('naming', () => {
   })
 })
 
+it('snapshots tracked MCP settings without the injected token and without changing the live config', async () => {
+  const { writeCursorProjectMcpConfig } = await import('@main/mcp/attach')
+  const { commitWorktree } = await import('./worktree')
+  const tree = await createWorktree(repoPath,'secret-test','vertragus/test/secret')
+  mkdirSync(join(tree.path,'.cursor'),{recursive:true})
+  const config = join(tree.path,'.cursor/mcp.json')
+  writeFileSync(config,JSON.stringify({mcpServers:{user:{url:'https://example.com'}},theme:'old'}))
+  await git(['add','-f','.cursor/mcp.json'],tree.path)
+  await git(['commit','-m','user config'],tree.path)
+  writeCursorProjectMcpConfig('http://localhost/mcp?token=synthetic-secret',tree.path)
+  const { snapshotWorktree } = await import('./inspectWorktree')
+  expect(await snapshotWorktree(tree.path)).toMatchObject({uncommitted:false,changedFiles:[],diffStat:''})
+  const live = JSON.parse(readFileSync(config,'utf8'))
+  live.theme = 'new'
+  writeFileSync(config,JSON.stringify(live))
+  await git(['config','commit.gpgsign','true'])
+  try { await commitWorktree(tree.path,'safe snapshot') }
+  finally { await git(['config','commit.gpgsign','false']) }
+  const {stdout} = await execFileAsync('git',['show','HEAD:.cursor/mcp.json'],{cwd:tree.path,windowsHide:true})
+  expect(stdout).not.toContain('synthetic-secret')
+  expect(JSON.parse(stdout)).toEqual({mcpServers:{user:{url:'https://example.com'}},theme:'new'})
+  expect(readFileSync(config,'utf8')).toContain('synthetic-secret')
+  expect(await snapshotWorktree(tree.path)).toMatchObject({uncommitted:false,changedFiles:[]})
+  const source = await createWorktree(repoPath,'secret-source','vertragus/test/secret-source',{startPoint:tree.branch})
+  writeFileSync(join(source.path,'.cursor/mcp.json'),JSON.stringify({mcpServers:{user:{url:'https://example.com'}},theme:'merged'}))
+  await git(['add','.cursor/mcp.json'],source.path)
+  await git(['commit','-m','legitimate config change'],source.path)
+  const {mergeBranchIntoWorktree} = await import('./worktree')
+  expect(await mergeBranchIntoWorktree(tree.path,source.branch)).toMatchObject({ok:true})
+  expect(JSON.parse(readFileSync(config,'utf8'))).toMatchObject({theme:'merged'})
+  expect(readFileSync(config,'utf8')).toContain('synthetic-secret')
+  expect(await snapshotWorktree(tree.path)).toMatchObject({uncommitted:false})
+},30_000)
+
+it('installs common secret excludes when the profile itself is a linked worktree', async () => {
+  const parent = await createWorktree(repoPath,'linked-parent','vertragus/test/parent')
+  const child = await createWorktree(parent.path,'linked-child','vertragus/test/child')
+  mkdirSync(join(child.path,'.cursor'),{recursive:true})
+  writeFileSync(join(child.path,'.cursor/mcp.json'),'synthetic-secret')
+  const {stdout} = await execFileAsync('git',['status','--porcelain'],{cwd:child.path,windowsHide:true})
+  expect(stdout).not.toContain('mcp.json')
+},30_000)
+
 describe('createWorktree', () => {
   it('creates a checkout on a new branch and lists it', async () => {
     const created = await createWorktree(repoPath, 'agent-one', 'vertragus/paradiso/caronte')
@@ -96,7 +140,7 @@ describe('createWorktree', () => {
 
   it('passes the startPoint as the final git argument', async () => {
     const git = vi.fn(async (args: string[]) => {
-      if (args[0] === 'rev-parse') throw new Error('no such ref')
+      if (args[0] === 'rev-parse' && args[1] !== '--git-path') throw new Error('no such ref')
       return { stdout: '', stderr: '' }
     })
     const fakeRepo = mkdtempSync(join(tmpdir(), 'vg-startpoint-'))
@@ -181,7 +225,7 @@ describe('createWorktree', () => {
 
   it('never builds a shell string — git is called with an argument array', async () => {
     const git = vi.fn(async (args: string[]) => {
-      if (args[0] === 'rev-parse') throw new Error('no such ref')
+      if (args[0] === 'rev-parse' && args[1] !== '--git-path') throw new Error('no such ref')
       return { stdout: '', stderr: '' }
     })
     // A real tmp path: createWorktree mkdirs the parent even with an injected
@@ -284,12 +328,14 @@ describe('commitWorktree — C3 snapshot commit', () => {
 
     await commitWorktree('/wt', 'vertragus: Caronte / worker — fixed', { git })
 
-    expect(calls[0]).toEqual(['add', '-A'])
-    expect(calls[1]).toEqual([
+    expect(calls[0]).toEqual(['add', '-A', '--', '.', ...WORKTREE_SECRET_FILES.map((file) => ':(exclude)' + file)])
+    expect(calls.find((args) => args.includes('commit'))).toEqual([
       '-c',
       `user.name=${SNAPSHOT_AUTHOR_NAME}`,
       '-c',
       `user.email=${SNAPSHOT_AUTHOR_EMAIL}`,
+      '-c',
+      'commit.gpgsign=false',
       'commit',
       '-m',
       'vertragus: Caronte / worker — fixed',
@@ -309,6 +355,26 @@ describe('commitWorktree — C3 snapshot commit', () => {
 })
 
 describe('mergeBranchIntoWorktree — E1 host merge', () => {
+  it('serializes merges of the same checkout so overlay suspension cannot overlap', async () => {
+    const {mergeBranchIntoWorktree} = await import('./worktree')
+    let release!: () => void
+    const blocked = new Promise<void>((resolve)=>{release=resolve})
+    const branches: string[] = []
+    const runner = vi.fn(async(args:string[])=>{
+      if (args.includes('merge')) {
+        branches.push(args.at(-1)!)
+        if (branches.length===1) await blocked
+      }
+      return {stdout:'a'.repeat(40),stderr:''}
+    })
+    const first = mergeBranchIntoWorktree('/serialized-worktree','first',{git:runner})
+    const second = mergeBranchIntoWorktree('/serialized-worktree','second',{git:runner})
+    await vi.waitFor(()=>expect(branches).toEqual(['first']))
+    release()
+    await Promise.all([first,second])
+    expect(branches).toEqual(['first','second'])
+  })
+
   it('merges with the pinned identity and returns the new HEAD', async () => {
     const { mergeBranchIntoWorktree } = await import('./worktree')
     const calls: string[][] = []

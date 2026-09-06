@@ -1,3 +1,5 @@
+import { abortRunFinalizations, finalizeRunPullRequest, waitForRunFinalizations } from './runFinalization'
+import { openPullRequest } from '@main/agents/pullRequest'
 /**
  * The app-level registry of running workspaces — what the Play button drives.
  *
@@ -23,7 +25,7 @@
  * against fakes with no Electron runtime in sight.
  */
 import type { McpServerHandle } from '@main/mcp/server'
-import { queueForAgent } from '@main/mcp/types'
+import { queueForAgent, restoreLeadRuntime } from '@main/mcp/types'
 import { workspacePlaceName } from '@shared/workspaceNames'
 import type { Profile } from '@shared/schema/profile'
 import type { RecipeId } from '@shared/goal/recipes'
@@ -93,6 +95,8 @@ export interface StopOptions {
    * yolo-mode CLIs. Absent = fire the kills and return (interactive stop).
    */
   awaitExitMs?: number
+  /** Quit only: abort in-flight push/gh with time left to persist a retryable failure. */
+  finalizationTimeoutMs?: number
 }
 
 /** Options for {@link WorkspaceManager.startWorkspace}. */
@@ -122,6 +126,8 @@ export interface StartWorkspaceOptions {
   resume?: {
     briefing: string
     fromWorkspaceId: string
+    baseBranch?: string
+    seat?: import('@shared/schema/reseat').AgentSeat
     /**
      * S4: the resumed run's task board, already transformed for the new run
      * (dead owners freed — see `resume.boardForResume`). Seeds the new board.
@@ -188,6 +194,8 @@ function resolveValue<T>(source: T | (() => T)): T {
 
 export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceManager {
   const workspaces = new Map<string, Workspace>()
+  const stopping = new Map<string, Promise<boolean>>()
+  const finalizationControllers = new Map<string, AbortController>()
   /** Per-profile Commedia sequence. In memory by design — see the file comment. */
   const sequences = new Map<string, number>()
   /**
@@ -296,10 +304,17 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     if (!profile.repoPath.trim()) {
       throw new Error(`Profile "${profile.name}" has no repository path.`)
     }
+    const finalizationController = new AbortController()
     const workspace = new Workspace(
       { profile, name: nextName(profile.id) },
       {
         ...workspaceDeps(),
+        finalizePullRequest: (id, input, gitDeps) => {
+          const bounded = {...gitDeps,signal:finalizationController.signal}
+          return deps.journal
+            ? finalizeRunPullRequest(profile.repoPath,id,input,bounded,deps.openPullRequest)
+            : (deps.openPullRequest ?? openPullRequest)(input,bounded)
+        },
         onTokenUsageRefreshed: () => notifyChange(),
         // E3: the previous run's briefing rides into the orchestrator prompt —
         // unless C6 left a succession package, which says the same and more
@@ -317,11 +332,18 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     // Hand URLs and the PendingQuestions registry to the workspace — sentinel
     // ASK lines create entries in the same registry MCP tools use.
     const registered = deps.mcp.registerWorkspace(workspace.mcpContext())
-    workspace.attachMcp(registered)
+    workspace.attachMcp(Object.assign(registered, {
+      restoreAgentContract: (agentId: string, schema?: import('@shared/schema/resultSchema').ResultSchema, lead?: { area: string; maxSubagents?: number }) => {
+        if (lead) restoreLeadRuntime(registered.runtime, agentId, lead)
+        if (schema) registered.runtime.resultSchemas.set(agentId,schema)
+        else registered.runtime.resultSchemas.delete(agentId)
+      }
+    }))
     workspace.attachQuestions(registered.runtime.questions)
     // F: host events about a lead's child go to the lead's queue, not the root's.
     workspace.attachEventRouter((agentId) => queueForAgent(registered.runtime, agentId))
     workspaces.set(workspace.workspaceId, workspace)
+    finalizationControllers.set(workspace.workspaceId,finalizationController)
     // E3: the durable journal outlives the ring buffer. Never a blocker.
     const journal = ((): RunJournal | undefined => {
       try {
@@ -357,6 +379,11 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       profileId: profile.id,
       workspaceName: workspace.name,
       startedAt: Date.now(),
+      rootSeat: options?.resume?.seat ?? {
+        providerId:profile.orchestrator.providerId,
+        ...(profile.orchestrator.model ? {model:profile.orchestrator.model} : {}),
+        ...(profile.orchestrator.effort ? {effort:profile.orchestrator.effort} : {})
+      },
       ...(options?.resume ? { resumedFrom: options.resume.fromWorkspaceId } : {})
     }
     journal?.writeMeta(meta)
@@ -394,7 +421,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     // the panel's status lines and the CLI hover cards would lag behind it.
     registered.runtime.onTasksChanged = () => notifyChange()
     // C5: every orchestrator tool call feeds the host's idle watchdog.
-    registered.runtime.onOrchestratorToolCall = () => workspace.noteOrchestratorActivity()
+    registered.runtime.onOrchestratorToolCall = (phase) => workspace.noteOrchestratorActivity(phase)
     // Visible right away — the card renders "starting" while the orchestrator
     // boots instead of appearing only once it is done.
     notifyChange()
@@ -406,6 +433,8 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
         ? await seedCompiledGoal(workspace, goal, options?.recipe, journal)
         : undefined
       const orchestrator = await workspace.startOrchestrator({
+        ...(options?.resume?.baseBranch ? {baseBranch: options.resume.baseBranch} : {}),
+        ...(options?.resume?.seat ? {seat: options.resume.seat} : {}),
         ...(compiled ? { initialPrompt: compiled.seed, displayGoal: compiled.display } : {}),
         ...(attachmentIds.length ? { attachmentIds } : {})
       })
@@ -429,6 +458,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       // orchestrator with an undelivered goal stays up (see above).
       if (workspace.orchestratorAlive) throw error
       workspaces.delete(workspace.workspaceId)
+      finalizationControllers.delete(workspace.workspaceId)
       runMetas.delete(workspace.workspaceId)
       timelineListeners.delete(workspace.workspaceId)
       dropTap(workspace.workspaceId)
@@ -466,7 +496,15 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     run.journal.writeMeta(run.meta)
   }
 
-  async function stopWorkspace(workspaceId: string, options?: StopOptions): Promise<boolean> {
+  function stopWorkspace(workspaceId: string, options?: StopOptions): Promise<boolean> {
+    const pending = stopping.get(workspaceId)
+    if (pending) return pending
+    const operation = stopWorkspaceOnce(workspaceId, options).finally(() => stopping.delete(workspaceId))
+    stopping.set(workspaceId, operation)
+    return operation
+  }
+
+  async function stopWorkspaceOnce(workspaceId: string, options?: StopOptions): Promise<boolean> {
     const workspace = workspaces.get(workspaceId)
     if (!workspace) return false
     const run = runMetas.get(workspaceId)
@@ -476,6 +514,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       (event) => event.type === 'orchestrator_exited'
     )
     const endReason = workspace.pendingRetroSummary ? 'retro' : crashed ? 'crash' : 'user_stop'
+    await workspace.stopProcesses(options)
     workspaces.delete(workspaceId)
     timelineListeners.delete(workspaceId)
     // A3: the user pressing Stop is the other "the work is done" — open the
@@ -523,6 +562,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     }
     dropChangeTap(workspaceId)
     deps.mcp.unregisterWorkspace(workspaceId)
+    finalizationControllers.delete(workspaceId)
     notifyChange()
     return true
   }
@@ -533,7 +573,18 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     stopWorkspace,
 
     async stopAll(options?: StopOptions): Promise<void> {
-      for (const workspaceId of [...workspaces.keys()]) await stopWorkspace(workspaceId, options)
+      const timer = options?.finalizationTimeoutMs === undefined ? undefined : setTimeout(() => {
+        for (const controller of finalizationControllers.values()) controller.abort(new Error('Finalization interrupted by app shutdown. Retry from the run archive.'))
+        abortRunFinalizations()
+      },Math.max(0,options.finalizationTimeoutMs))
+      try {
+        const outcomes = await Promise.allSettled([
+          ...[...new Set([...workspaces.keys(), ...stopping.keys()])].map((id) => stopWorkspace(id, options)),
+          ...(options?.finalizationTimeoutMs === undefined ? [] : [waitForRunFinalizations()])
+        ])
+        const failed = outcomes.find((outcome) => outcome.status === 'rejected')
+        if (failed?.status === 'rejected') throw failed.reason
+      } finally { if (timer) clearTimeout(timer) }
     },
 
     worktreePathOf(workspaceId: string, agentId?: string): string | undefined {

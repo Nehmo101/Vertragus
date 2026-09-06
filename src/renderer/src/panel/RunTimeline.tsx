@@ -9,6 +9,7 @@ import {
   type TimelineLane
 } from '@shared/runTimeline'
 import type { RunJournalView, VertragusAppApi } from '../../../preload'
+import { followHostChanges } from '../lib/hostInvalidation'
 import { errorText } from './viewModel'
 import {
   spanStyle,
@@ -37,20 +38,34 @@ export function RunTimeline({ profileId, workspaceId, live, bridge }: Props): Re
   const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [fetchedAt, setFetchedAt] = useState(0)
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!live) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [live])
 
   useEffect(() => {
     let alive = true
-    bridge.getRun(profileId, workspaceId).then(
+    let revision = 0
+    const refresh = (): void => {
+      const request = ++revision
+      bridge.getRun(profileId, workspaceId).then(
       (next) => {
-        if (!alive) return
+        if (!alive || request !== revision) return
+        setError(null)
         setView(next)
         setFetchedAt(next.events.reduce((max, event) => (event.ts > max ? event.ts : max), 0))
       },
       (cause) => {
-        if (alive) setError(errorText(cause))
+        if (alive && request === revision) setError(errorText(cause))
       }
-    )
+      )
+    }
+    refresh()
+    const off = followHostChanges(bridge, refresh)
     return () => {
+      off()
       alive = false
     }
   }, [bridge, profileId, workspaceId])
@@ -63,10 +78,10 @@ export function RunTimeline({ profileId, workspaceId, live, bridge }: Props): Re
             meta: view.meta,
             events: view.events,
             tasks: view.tasks,
-            now: fetchedAt || undefined
+            now: live ? now : fetchedAt || undefined
           })
         : null,
-    [view, fetchedAt]
+    [view, fetchedAt, live, now]
   )
 
   if (error) return <p className="panel-timeline-error">{error}</p>
