@@ -202,6 +202,7 @@ describe('runRemoteCommand', () => {
     // Opening a directory means something on the machine the app runs on and
     // nothing at all in a paired browser, so the phone never gets a verb for it.
     expect([...REMOTE_COMMANDS]).not.toContain('workspaces:openRunFolder')
+    expect([...REMOTE_COMMANDS]).not.toContain('workspaces:openTimeline')
   })
 
   it('S4: forwards the panel summary as it stands — the board rides workspaces:list', async () => {

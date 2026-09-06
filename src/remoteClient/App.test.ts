@@ -131,6 +131,19 @@ describe('Return/Send on composer and answer submits instead of inserting a newl
   })
 })
 
+describe('opening a terminal is a named pending screen', () => {
+  it('finds the fallback it is about to police', () => {
+    expect(source).toContain('className="terminal-pending"')
+    expect(source).toContain('function TerminalPending(')
+  })
+
+  it('renders the connecting copy and the agent name, not a blank box', () => {
+    expect(source).toContain('copy.terminalConnecting')
+    expect(source).toContain('className="terminal-pending-title"')
+    expect(source).not.toMatch(/fallback=\{<div className="terminal-pending"[^/]*\/>\}/)
+  })
+})
+
 describe('start and goal-refill primaries sit in a reveal cluster', () => {
   const start = sliceFunction('StartForm', 'LimitedTextarea')
   const goal = sliceFunction('GoalRefillForm', 'AnswerForm')

@@ -2,11 +2,20 @@ import { useTranslation } from 'react-i18next'
 import { DEFAULT_PR_REMOTE } from '@shared/schema/profile'
 import { WORKER_ROLE_ID, roleColor } from '@shared/prompts/roles'
 import { FolderIcon } from '../panel/icons'
-import { EffortSelect, Field, ModelCombo, ProviderSelect, QuestionModeSelect, SwitchField } from './fields'
+import {
+  EffortSelect,
+  Field,
+  GoalCompileSelect,
+  ModelCombo,
+  ProviderSelect,
+  QuestionModeSelect,
+  SwitchField
+} from './fields'
 import {
   coerceRowEffort,
   newSlotDraft,
   promptIdentities,
+  roleOptions,
   rowEffortOptions,
   type ProfileDraft,
   type SlotDraft
@@ -36,6 +45,9 @@ export function ProfileEditorApp({
   const { t } = useTranslation()
   const editor = useProfileEditor(profileId, providerHint)
   const { draft } = editor
+  // The slot role select: every template plus Lead as a fixed entry. Computed
+  // once per role list — the row renders it, it does not derive it.
+  const slotRoles = roleOptions(editor.roles, roleColor)
 
   if (editor.fatal) {
     return (
@@ -207,7 +219,7 @@ export function ProfileEditorApp({
                   key={slot.id}
                   slot={slot}
                   index={index}
-                  roles={editor.roles}
+                  roles={slotRoles}
                   providers={editor.providers}
                   providersLoading={editor.providersLoading}
                   models={editor.models}
@@ -238,6 +250,14 @@ export function ProfileEditorApp({
               value={draft.questionMode}
               onChange={(questionMode) =>
                 editor.update((current) => ({ ...current, questionMode }))
+              }
+            />
+          </Field>
+          <Field label={t('profileEditor.goalCompileLabel')} hint={t('profileEditor.goalCompileHint')}>
+            <GoalCompileSelect
+              value={draft.goalCompile}
+              onChange={(goalCompile) =>
+                editor.update((current) => ({ ...current, goalCompile }))
               }
             />
           </Field>

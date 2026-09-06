@@ -16,7 +16,9 @@ import {
   profileSchema,
   type Profile,
   type QuestionMode,
-  type RoleTemplate
+  type GoalCompileMode,
+  type RoleTemplate,
+  type Slot
 } from '@shared/schema/profile'
 import { LEAD_ROLE_ID, ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
 import { initialRolePromptDraft } from '@shared/prompts/rolePrompt'
@@ -35,6 +37,11 @@ export interface SlotDraft {
   model: string
   effort: EffortChoice
   maxCount: string
+  /**
+   * E6: carried through untouched — the slot row has no field for it. Absent
+   * on a lead slot: leads never get extra MCP servers (see `slotWithRole`).
+   */
+  extraMcp?: Slot['extraMcp']
 }
 
 export interface ProfileDraft {
@@ -52,6 +59,8 @@ export interface ProfileDraft {
   autoSubmitTasks: boolean
   /** How often the root orchestrator asks the user via ask_user. */
   questionMode: QuestionMode
+  /** Host compile of the Play goal into a run contract. */
+  goalCompile: GoalCompileMode
   /** A3: end-of-work automation — merges without a click, and the auto-PR. */
   automation: {
     autoIntegrate: boolean
@@ -83,6 +92,7 @@ export function emptyDraft(defaultProviderId: string, id = createLocalId('profil
     maxSubagents: '',
     autoSubmitTasks: true,
     questionMode: 'few',
+    goalCompile: 'scout',
     automation: emptyAutomationDraft(),
     rolePrompts: initialRolePromptDraft()
   }
@@ -116,11 +126,13 @@ export function draftFromProfile(profile: Profile): ProfileDraft {
       providerId: slot.providerId,
       model: slot.model ?? '',
       effort: slot.effort ?? '',
-      maxCount: slot.maxCount === undefined ? '' : String(slot.maxCount)
+      maxCount: slot.maxCount === undefined ? '' : String(slot.maxCount),
+      ...(slot.extraMcp ? { extraMcp: slot.extraMcp } : {})
     })),
     maxSubagents: profile.maxSubagents === undefined ? '' : String(profile.maxSubagents),
     autoSubmitTasks: profile.autoSubmitTasks,
     questionMode: profile.questionMode,
+    goalCompile: profile.goalCompile,
     automation: {
       autoIntegrate: profile.automation.autoIntegrate,
       autoPromote: profile.automation.autoPromote,
@@ -184,13 +196,16 @@ export function toProfileInput(draft: ProfileDraft): unknown {
       ...(slot.effort ? { effort: slot.effort } : {}),
       ...(optionalNumber(slot.maxCount) === undefined
         ? {}
-        : { maxCount: optionalNumber(slot.maxCount) })
+        : { maxCount: optionalNumber(slot.maxCount) }),
+      // A lead slot never carries extra MCP servers, whatever the draft says.
+      ...(slot.extraMcp && !isLeadRole(slot.roleId) ? { extraMcp: slot.extraMcp } : {})
     })),
     ...(optionalNumber(draft.maxSubagents) === undefined
       ? {}
       : { maxSubagents: optionalNumber(draft.maxSubagents) }),
     autoSubmitTasks: draft.autoSubmitTasks,
     questionMode: draft.questionMode,
+    goalCompile: draft.goalCompile,
     automation: {
       autoIntegrate: draft.automation.autoIntegrate,
       autoPromote: draft.automation.autoPromote,
@@ -502,16 +517,40 @@ export interface RoleOption {
   color: string
 }
 
-/** Role select entries with their accent colour, custom roles last. */
+/** The Lead (sub-orchestrator started via `start_orchestrator`) as a slot role. */
+export function isLeadRole(roleId: string): boolean {
+  return roleId === LEAD_ROLE_ID
+}
+
+/**
+ * Role select entries with their accent colour: the role templates (custom
+ * roles last), then Lead as a fixed entry. Lead is not a template — it has no
+ * editable prompt here (its extra prompt lives in the Role prompts section)
+ * and its name stays English (WP-1) — so it is appended rather than looked up,
+ * and a template that happens to reuse its id is dropped so it appears once.
+ */
 export function roleOptions(
   templates: readonly RoleTemplate[],
   colorOf: (roleId: string, index: number) => string
 ): RoleOption[] {
-  return templates.map((template, index) => ({
-    id: template.id,
-    name: template.name,
-    color: colorOf(template.id, index)
-  }))
+  const options: RoleOption[] = []
+  for (const [index, template] of templates.entries()) {
+    if (isLeadRole(template.id)) continue
+    options.push({ id: template.id, name: template.name, color: colorOf(template.id, index) })
+  }
+  options.push({ id: LEAD_ROLE_ID, name: 'Lead', color: colorOf(LEAD_ROLE_ID, 0) })
+  return options
+}
+
+/**
+ * The slot with a new role. Switching TO lead drops the extra MCP servers the
+ * slot may still carry from its subagent days, so the saved profile stays
+ * valid against the schema (leads never get extra MCP servers).
+ */
+export function slotWithRole(slot: SlotDraft, roleId: string): SlotDraft {
+  const next: SlotDraft = { ...slot, roleId }
+  if (isLeadRole(roleId)) delete next.extraMcp
+  return next
 }
 
 /**

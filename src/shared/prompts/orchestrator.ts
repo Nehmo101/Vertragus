@@ -41,6 +41,8 @@ export interface OrchestratorPromptInput {
   workspaceName: string
   repoPath: string
   rolesWithLimits: RoleWithLimit[]
+  /** F: configured Lead slots, addressed by start_orchestrator rather than start_agent. */
+  leadSlots?: Array<{ providerId: string; model?: string; maxCount?: number }>
   /** Cap across all roles; undefined = orchestrator decides. */
   maxSubagents?: number
   /** Track record from previous runs on this machine; empty = no block rendered. */
@@ -168,6 +170,7 @@ export function buildOrchestratorSystemPrompt({
   workspaceName,
   repoPath,
   rolesWithLimits,
+  leadSlots = [],
   maxSubagents,
   knowledge = [],
   briefing,
@@ -233,6 +236,8 @@ export function buildOrchestratorSystemPrompt({
     'Task board: maintain your plan on the task board instead of in your head — one task per unit of work, one task per start_agent assignment as the normal case (pass taskId and the host claims the task for the new agent and appends its text to the seed). task_update needs the revision you last saw; on stale_revision the error carries the current task — reconcile, do not re-read. Mark a task completed only after you verified the work, never on the agent’s word alone.',
     '',
     ...renderLoop(resolvedQuestionMode),
+    'A plan, a list of next steps, or a promise ("I\'ll…", "Next, I\'ll…") in the last paragraph is unfinished work: call the tools now. Before the next await_events, write one short recap that stands on its own — outcome, what is running, what comes next — so someone who only reads that message can follow.',
+    '',
     'How to handle each event:',
     '- agent_started: the agent accepted its task and is working. Only from now on may you send_to_agent it.',
     '- agent_start_failed: the start failed (the message says why) and the slot is free again. The agentId is dead — retry with a fresh start_agent if the task still matters.',
@@ -246,8 +251,15 @@ export function buildOrchestratorSystemPrompt({
     '- orchestrator_handoff_started / orchestrator_started: a successor has taken over. If you still see these, you are the successor — continue from the packaged cursor.',
     '- orchestrator_handoff_failed: succession did not complete; if you are still the active orchestrator, keep driving the loop.',
     '',
-    'Leads (optional, default is a flat team): start_orchestrator{area, task, maxSubagents?, model?, baseBranch?} starts a sub-orchestrator that owns one independent area with its own team and verification loop. Nest only when there are two or more independent workstreams that barely share files, each needing its own review/test loop, or when a flat team would drown your await_events loop (more than ~6 busy parallel agents). Stay flat for one area, one bug, one module — a pipeline on the same files is baseBranch chaining, not a lead. Hybrid is fine: workers for small things next to a lead for a big stream. A lead reports to you like a subagent (agent_done / agent_question / agent_progress); its team’s events never reach you — do not poll its workers with read_output, inspect the LEAD’s branch instead. Questions climb one level: workers ask their lead, the lead asks you, you ask the user (ask_user). To coordinate two areas, instruct the other lead yourself with send_to_agent — leads never talk to each other.',
+    'Leads (optional, default is a flat team): start_orchestrator{area, task, maxSubagents?, model?, providerId?, baseBranch?} starts a sub-orchestrator that owns one independent area with its own team and verification loop. Nest only when there are two or more independent workstreams that barely share files, each needing its own review/test loop, or when a flat team would drown your await_events loop (more than ~6 busy parallel agents). Stay flat for one area, one bug, one module — a pipeline on the same files is baseBranch chaining, not a lead. Hybrid is fine: workers for small things next to a lead for a big stream. A lead reports to you like a subagent (agent_done / agent_question / agent_progress); its team’s events never reach you — do not poll its workers with read_output, inspect the LEAD’s branch instead. Questions climb one level: workers ask their lead, the lead asks you, you ask the user (ask_user). To coordinate two areas, instruct the other lead yourself with send_to_agent — leads never talk to each other.',
     '',
+    ...leadSlots.map((slot) =>
+      `Lead slot: ${slot.providerId}${slot.model ? ` (${slot.model})` : ''}, ${
+        slot.maxCount === undefined ? 'no slot cap' : `max ${slot.maxCount}`
+      }. Select with start_orchestrator{providerId}; the workspace and lead caps still apply.`
+    ),
+    // Only when slots exist: keep the Lead-slot block its own paragraph.
+    ...(leadSlots.length > 0 ? [''] : []),
     'Workers you start over MCP may start helpers of their own (one extra level, cap 3). You will not see helper events — inspect the worker, not its helpers. Helpers cannot start further helpers. Lead-starts-lead remains forbidden.',
     '',
     'Finishing: when the goal is reached, verify the result with inspect_agent (or a reviewer/tester agent), stop every remaining agent with stop_agent, then call record_retro exactly once: a one-or-two-sentence verdict on the run, plus per-model learnings. Fill both a strength and a weakness slot for every model that ran when the run gave evidence for it; leave a slot empty otherwise, and never invent a weakness. These learnings steer model choice in future runs. Finally give the user one summary: what was changed, by whom, what was verified, and what is still open.',
@@ -312,7 +324,7 @@ export function buildLeadSystemPrompt({
     '- report_done when your area’s goal is reached and verified — summarize what changed, on which branch, and how it was verified. You may report done again after follow-up work.',
     '- ask_orchestrator when you need a decision outside your area (scope conflicts, another area’s files, anything only the user could decide — the root escalates for you). For a decision, pass short labels in choices; the question is the prompt only. Wait for the answer; never guess. If it returns answer: null with a ticket, resume with that ticket.',
     '- report_progress for real milestones, one line, no heartbeats.',
-    'Never end your turn without either report_done or an open ask_orchestrator, and stay available after report_done.',
+    'Never end your turn without either report_done or an open ask_orchestrator, and stay available after report_done. A plan or a promise in the last paragraph is unfinished work: call the tools now.',
     '',
     'You do not call record_retro — the retro is the root’s. Never invent agent ids or roles.'
   ].join('\n')

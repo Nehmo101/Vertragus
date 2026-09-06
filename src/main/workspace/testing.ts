@@ -359,6 +359,9 @@ export function testProfile(overrides: Partial<ProfileInput> = {}): Profile {
       { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
     ],
     maxSubagents: 3,
+    // Handshake tests must not depend on a live repo probe. Production
+    // profiles default to `scout`; opt in per test for compile coverage.
+    goalCompile: 'off',
     ...overrides
   })
 }

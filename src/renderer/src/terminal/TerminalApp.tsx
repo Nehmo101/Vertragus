@@ -29,6 +29,7 @@ import {
 import type { CliSession } from '@shared/cliSession'
 import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
+import { ptyFitSize } from './terminalFit'
 import { shouldFocusTerminal, trackWindowFocus } from './windowFocus'
 import { XTERM_THEME } from './xtermTheme'
 import {
@@ -336,17 +337,38 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
     host.addEventListener('dragover', onDragOver)
     host.addEventListener('drop', onDrop)
 
-    const applyFit = (): void => {
-      try {
-        fit.fit()
-        bridge.resize(term.cols, term.rows)
-      } catch {
-        // Fitting before the window has a layout is expected and harmless.
-      }
-    }
-
+    let sentSize: { cols: number; rows: number } | undefined
     let attached = false
     let disposed = false
+    const applyFit = (): void => {
+      // Asked, not caught: FitAddon.fit() returns silently when the view is
+      // not laid out, so a try/catch around it would still send xterm's
+      // untouched 80×24. No proposal → no PTY resize.
+      const fitted = fit.proposeDimensions()
+      if (!fitted) return
+      const size = ptyFitSize(fitted, sentSize)
+      fit.fit()
+      if (!size) return
+      sentSize = size
+      bridge.resize(size.cols, size.rows)
+    }
+
+    const rafIds: number[] = []
+    const scheduleFitRetries = (): void => {
+      // A show that does not change CSS pixels never fires ResizeObserver.
+      // Two rAFs after mount/attach wait for layout without a user drag.
+      const id = window.requestAnimationFrame(() => {
+        if (disposed) return
+        applyFit()
+        const id2 = window.requestAnimationFrame(() => {
+          if (disposed) return
+          applyFit()
+        })
+        rafIds.push(id2)
+      })
+      rafIds.push(id)
+    }
+
     const queued: string[] = []
 
     const offData = bridge.onData(({ data }) => {
@@ -372,6 +394,8 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
 
     const observer = new ResizeObserver(() => applyFit())
     observer.observe(host)
+    window.addEventListener('resize', applyFit)
+    scheduleFitRetries()
 
     // Panel click / later OS focus after showInactive: attach skipped term.focus().
     const onWindowFocus = (): void => {
@@ -410,6 +434,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
         for (const chunk of queued) term.write(chunk)
         queued.length = 0
         applyFit()
+        scheduleFitRetries()
         if (!result.question && !sessionOpenRef.current && shouldFocusTerminal(document.hasFocus())) {
           term.focus()
         }
@@ -425,6 +450,8 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       host.removeEventListener('dragover', onDragOver)
       host.removeEventListener('drop', onDrop)
       window.removeEventListener('focus', onWindowFocus)
+      window.removeEventListener('resize', applyFit)
+      for (const id of rafIds) window.cancelAnimationFrame(id)
       observer.disconnect()
       offData()
       offExit()

@@ -20,17 +20,17 @@
  * to read.
  *
  * Scroll lives on the document (`html { overflow-y: auto }`). A window-level
- * `{ passive: false }` `touchmove` — even one that returns without
- * `preventDefault` — janks or kills that pan on iOS Safari. The lifetime
- * listener therefore stays `{ passive: true }`. An eligible `touchstart`
- * (scroll top, not a field/control/scroller) arms a *second*, cancelable
- * `touchmove` before the first move of that gesture: WebKit ignores
- * `preventDefault` on a listener added mid-move (184250), and a passive
- * delivery cannot cancel its own event. That cancelable listener still only
- * `preventDefault`s once `pullIntent` is `pull`; slop and list pans are
- * never cancelled. It is removed on lift.
+ * non-passive `touchmove` janks or kills that pan on iOS Safari even when the
+ * handler returns without cancelling, and Safari starts a native pan on the
+ * first uncancelled move then ignores a later cancel for the rest of that
+ * gesture. The hook therefore never claims the pan: every window listener is
+ * `{ passive: true }` for its whole lifetime, the indicator is `position:
+ * fixed` and moved with `transform` / `opacity` (a CSS custom property write
+ * on the element, not a React state update), and the refresh decision is
+ * taken on `touchend`. React phase state changes only at gesture boundaries
+ * (claimed start, armed, release, refreshing, done).
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { LIVENESS_PROBE_TIMEOUT_MS, LIVENESS_TICK_MS } from './connection'
 import { haptic } from './haptics'
 
@@ -39,7 +39,7 @@ export type PullPhase = 'idle' | 'pulling' | 'armed' | 'refreshing' | 'unanswere
 /** How far the finger must travel before the release fires a refresh. */
 export const PULL_THRESHOLD_PX = 64
 
-/** Where the indicator stops growing, however far the finger goes. */
+/** Where the distance curve stops growing, however far the finger goes. */
 const PULL_MAX_PX = 96
 
 /** Finger travel per pixel of indicator — the drag has to feel weighted. */
@@ -72,7 +72,7 @@ export type PullIntent = 'undecided' | 'pull' | 'list'
  * flick must not become a pull when the finger later reverses, and an
  * already-claimed pull must not be re-read as a list pan mid-gesture.
  * A mostly-horizontal swipe is a list pan even at scroll top — claiming it
- * as a pull would `preventDefault` and kill the swipe.
+ * as a pull would fight the swipe the document already owns.
  *
  * `rawDeltaX` is optional so existing vertical-only callers stay valid; the
  * hook passes the finger's horizontal travel.
@@ -100,123 +100,47 @@ export function pullIntent(
 }
 
 /**
- * Only a claimed pull may `preventDefault`. A list pan, and the slop before
- * either axis has won, must not — that is what used to leave the overview
- * stuck until lift.
- */
-export function shouldPreventPullMove(intent: PullIntent): boolean {
-  return intent === 'pull'
-}
-
-/**
  * The tracking listener is on `window`, so every touch in the app passes
  * through it — including ones that belong to something else. `window.scrollY
  * <= 0` is not enough of a filter: at the top of a short document a text
- * field, a horizontally scrolling strip and the composer's textarea are all
- * *at* scroll zero, and each of them would have its own gesture cancelled by
- * our `preventDefault`.
+ * field, a control and a nested scroller are all *at* scroll zero.
  *
- * So the start is also filtered by where the finger landed: the chain from the
- * touched element up to the root is walked once, at `touchstart`, and the pull
- * is refused if anything in it owns touches of its own. Once refused the
- * gesture is never claimed — `startY` stays null and `touchmove` returns before
- * it can call `preventDefault`.
+ * Ownership is one `closest()` against this list, not an ancestor walk that
+ * forces style. Fields and controls are tags; an inner scroller opts in
+ * with `data-scroller` because overflow is not a selector.
  */
-const SCROLLABLE_OVERFLOW = new Set(['auto', 'scroll', 'overlay'])
+export const PULL_REFUSE_SELECTOR = [
+  'input',
+  'textarea',
+  'select',
+  '[contenteditable]:not([contenteditable="false"])',
+  'button',
+  'a',
+  'summary',
+  'label',
+  '[data-scroller]'
+].join(', ')
 
-/**
- * The subpixel tolerance. Layout rounding leaves an element one fractional
- * pixel of "scrollable" content it cannot actually scroll; treating that as a
- * scroller would refuse the pull over most of the list.
- */
-const SCROLL_SLACK_PX = 1
-
-/** The properties of one ancestor that decide whether it owns the gesture. */
-export interface GestureNode {
-  /** Uppercase, as `Element.tagName` reports it. */
-  tagName: string
-  /** `HTMLElement.isContentEditable` — a rich-text host is a field too. */
-  editable: boolean
-  overflowX: string
-  overflowY: string
-  scrollWidth: number
-  clientWidth: number
-  scrollHeight: number
-  clientHeight: number
+/** Enough of an element to answer `closest` — the DOM read is this one call. */
+export interface GestureTarget {
+  closest(selectors: string): unknown
 }
 
 /**
- * A field owns every touch that starts inside it: placing a caret, dragging a
- * selection, and — in a `<textarea>` — scrolling its own overflowing text.
- * None of those may be turned into a page pull.
+ * Whether the pull may claim a gesture that started on this target. A miss
+ * (or no target at all — `event.target` outside the app) belongs to the
+ * document. One matching ancestor is enough to refuse: the finger landing on
+ * the label text inside Composer Send still finds the `<button>`.
  */
-export function ownsTouchAsField(node: GestureNode): boolean {
-  if (node.editable) return true
-  return node.tagName === 'TEXTAREA' || node.tagName === 'INPUT' || node.tagName === 'SELECT'
+export function claimsGesture(target: GestureTarget | null): boolean {
+  return target === null || target.closest(PULL_REFUSE_SELECTOR) === null
 }
 
-/**
- * Interactive controls own the gesture the same way a field does. A tap on
- * Composer Send (`.primary`, `type="button"`) at `scrollY <= 0` with a few
- * pixels of finger noise used to be claimed as a pull; `preventDefault` on
- * that `touchmove` cancelled the click, so the follow-up never left.
- */
-const CONTROL_TAGS = new Set(['BUTTON', 'A', 'SUMMARY', 'LABEL'])
-
-export function ownsTouchAsControl(node: GestureNode): boolean {
-  return CONTROL_TAGS.has(node.tagName)
-}
-
-/**
- * An element that can pan under the finger itself, in either axis. Horizontal
- * matters as much as vertical: a swipe across a scrolling strip starts with a
- * few vertical pixels of noise, and claiming those would leave the strip stuck
- * while the whole page bounced instead.
- */
-export function ownsTouchAsScroller(node: GestureNode): boolean {
-  const horizontal =
-    SCROLLABLE_OVERFLOW.has(node.overflowX) &&
-    node.scrollWidth > node.clientWidth + SCROLL_SLACK_PX
-  const vertical =
-    SCROLLABLE_OVERFLOW.has(node.overflowY) &&
-    node.scrollHeight > node.clientHeight + SCROLL_SLACK_PX
-  return horizontal || vertical
-}
-
-/**
- * Whether the pull may claim a gesture that started inside this ancestor chain
- * (touched element first, root last). One owner anywhere in the chain is
- * enough to refuse: a field, a control (Composer Send), or a nested scroller
- * keeps the gesture; the strip is what scrolls, not the element inside it
- * that the finger happened to land on.
- */
-export function claimsGesture(chain: readonly GestureNode[]): boolean {
-  return !chain.some(
-    (node) => ownsTouchAsField(node) || ownsTouchAsControl(node) || ownsTouchAsScroller(node)
-  )
-}
-
-/** Read the chain out of the DOM. Live values only — no cache to go stale. */
-function gestureChain(target: EventTarget | null): GestureNode[] {
-  const chain: GestureNode[] = []
-  let element = target instanceof Element ? target : null
-  // `documentElement` is excluded on purpose: it *is* the document scroller,
-  // and the pull is precisely the gesture that belongs to it.
-  while (element && element !== document.documentElement) {
-    const style = window.getComputedStyle(element)
-    chain.push({
-      tagName: element.tagName,
-      editable: element instanceof HTMLElement && element.isContentEditable,
-      overflowX: style.overflowX,
-      overflowY: style.overflowY,
-      scrollWidth: element.scrollWidth,
-      clientWidth: element.clientWidth,
-      scrollHeight: element.scrollHeight,
-      clientHeight: element.clientHeight
-    })
-    element = element.parentElement
-  }
-  return chain
+/** Resolve `event.target` to an Element, including a Text node inside one. */
+function gestureTarget(target: EventTarget | null): GestureTarget | null {
+  if (target instanceof Element) return target
+  if (target instanceof Node) return target.parentElement
+  return null
 }
 
 /**
@@ -299,11 +223,20 @@ export function pullDistance(rawDelta: number): number {
 /** What a fired pull is doing, as the hook tracks it between renders. */
 export type RefreshStage = 'idle' | 'waiting' | 'unanswered'
 
+/** Finger phase while the refresh machine is idle. */
+export type PullGesture = 'idle' | 'pulling' | 'armed'
+
 export function pullPhase(distance: number, stage: RefreshStage): PullPhase {
   // Both outcomes outrank the finger: it left the screen when the pull fired.
   if (stage !== 'idle') return stage === 'waiting' ? 'refreshing' : 'unanswered'
   if (distance >= PULL_THRESHOLD_PX) return 'armed'
   return distance > 0 ? 'pulling' : 'idle'
+}
+
+/** Discrete finger phase from the distance curve, for boundary setState. */
+export function pullGesture(distance: number): PullGesture {
+  const phase = pullPhase(distance, 'idle')
+  return phase === 'armed' || phase === 'pulling' ? phase : 'idle'
 }
 
 export function pullLabel(
@@ -327,15 +260,28 @@ export function pullLabel(
 }
 
 /**
- * How tall the indicator strip is. While the refresh is in flight the finger
- * is already gone, so there is no distance left to follow and the strip holds
- * a fixed height instead of snapping shut under the label it is showing.
+ * How many pixels of the fixed indicator are on screen. The element itself
+ * never changes height — a CSS custom property drives `translateY` — so the
+ * document is the same length under the finger as it was at touchstart.
  */
-const REFRESHING_HEIGHT_PX = 34
+export const PULL_INDICATOR_PX = 34
 
-export function pullIndicatorHeight(phase: PullPhase, distance: number): number {
-  if (phase === 'refreshing' || phase === 'unanswered') return REFRESHING_HEIGHT_PX
-  return Math.round(Math.max(0, distance))
+export function pullIndicatorShown(phase: PullPhase, distance: number): number {
+  if (phase === 'idle') return 0
+  if (phase === 'refreshing' || phase === 'unanswered') return PULL_INDICATOR_PX
+  return Math.round(Math.min(PULL_INDICATOR_PX, Math.max(0, distance)))
+}
+
+export function pullIndicatorOpacity(phase: PullPhase, distance: number): number {
+  if (phase === 'idle') return 0
+  if (phase === 'refreshing' || phase === 'unanswered' || phase === 'armed') return 1
+  return Math.min(1, Math.max(0, distance) / PULL_INDICATOR_PX)
+}
+
+function paintIndicator(el: HTMLElement | null, phase: PullPhase, distance: number): void {
+  if (!el) return
+  el.style.setProperty('--pull-shown', `${pullIndicatorShown(phase, distance)}px`)
+  el.style.setProperty('--pull-opacity', String(pullIndicatorOpacity(phase, distance)))
 }
 
 /**
@@ -354,21 +300,22 @@ export function shouldFireRefresh(distance: number, claimed: boolean): boolean {
 
 export interface PullState {
   phase: PullPhase
-  distance: number
 }
 
 export function usePullToRefresh(
   onRefresh: () => void,
   enabled: boolean,
-  link: PullLink
+  link: PullLink,
+  indicator: RefObject<HTMLDivElement>
 ): PullState {
-  const [distance, setDistance] = useState(0)
+  const [gesture, setGesture] = useState<PullGesture>('idle')
   const [stage, setStage] = useState<RefreshStage>('idle')
   const [timedOut, setTimedOut] = useState(false)
   const startY = useRef<number | null>(null)
   const startX = useRef<number | null>(null)
   const distanceRef = useRef(0)
-  const armedRef = useRef(false)
+  const gestureRef = useRef<PullGesture>('idle')
+  const stageRef = useRef<RefreshStage>('idle')
   const refreshRef = useRef(onRefresh)
   /**
    * Whether this pull's question has been seen on the wire. A ref, not state:
@@ -387,59 +334,37 @@ export function usePullToRefresh(
 
   useEffect(() => {
     let intent: PullIntent = 'undecided'
-    /**
-     * The tracking `touchmove` is passive for the lifetime of the overview.
-     * iOS Safari janks or kills document pan for a window-level non-passive
-     * `touchmove` even when the handler returns without `preventDefault`.
-     * A second, cancelable listener is armed from an *eligible* `touchstart`
-     * (before the first `touchmove` of that gesture) and only
-     * `preventDefault`s once the intent is `pull`.
-     */
-    let cancelableBound = false
 
-    function onCancelableMove(event: TouchEvent): void {
-      if (shouldPreventPullMove(intent) && event.cancelable) event.preventDefault()
+    const publishGesture = (next: PullGesture): void => {
+      if (next === gestureRef.current) return
+      if (next === 'armed') haptic('tap')
+      gestureRef.current = next
+      setGesture(next)
     }
 
-    function armCancelableMove(): void {
-      if (cancelableBound) return
-      window.addEventListener('touchmove', onCancelableMove, { passive: false })
-      cancelableBound = true
-    }
-
-    function disarmCancelableMove(): void {
-      if (!cancelableBound) return
-      window.removeEventListener('touchmove', onCancelableMove)
-      cancelableBound = false
+    const hide = (): void => {
+      paintIndicator(indicator.current, 'idle', 0)
     }
 
     const reset = (): void => {
       startY.current = null
       startX.current = null
       distanceRef.current = 0
-      armedRef.current = false
       intent = 'undecided'
-      disarmCancelableMove()
-      setDistance(0)
+      hide()
+      publishGesture('idle')
     }
     if (!enabled) {
       reset()
       return
     }
 
-    const track = (next: number): void => {
-      distanceRef.current = next
-      setDistance(next)
-      const armed = next >= PULL_THRESHOLD_PX
-      if (armed !== armedRef.current) {
-        armedRef.current = armed
-        if (armed) haptic('tap')
-      }
-    }
-
     const onStart = (event: TouchEvent): void => {
       const eligible =
-        event.touches.length === 1 && window.scrollY <= 0 && claimsGesture(gestureChain(event.target))
+        event.touches.length === 1 &&
+        window.scrollY <= 0 &&
+        stageRef.current === 'idle' &&
+        claimsGesture(gestureTarget(event.target))
       // A full reset, not just `startY`: an ineligible start is the second
       // finger of a pinch as often as it is a tap in a text field, and
       // whatever distance the first finger had already travelled must not
@@ -451,13 +376,13 @@ export function usePullToRefresh(
       startY.current = event.touches[0]?.clientY ?? null
       startX.current = event.touches[0]?.clientX ?? null
       intent = 'undecided'
-      armCancelableMove()
     }
 
     function onMove(event: TouchEvent): void {
       const start = startY.current
       const touch = event.touches[0]
       if (start === null || !touch || event.touches.length !== 1) return
+      if (stageRef.current !== 'idle') return
       const raw = touch.clientY - start
       const originX = startX.current
       const rawX = originX === null ? 0 : touch.clientX - originX
@@ -473,25 +398,49 @@ export function usePullToRefresh(
           reset()
           return
         }
-        track(pullDistance(raw))
+        const distance = pullDistance(raw)
+        distanceRef.current = distance
+        const next = pullGesture(distance)
+        // The document height must not change under a native pan: write the
+        // overlay through the element, never through React.
+        paintIndicator(indicator.current, next, distance)
+        // React only at the claim / arm / disarm edges, not per move.
+        publishGesture(next)
         return
       }
 
-      // Still inside the slop: preview the indicator at the top, never claim.
-      if (raw > 0 && window.scrollY <= 0) track(pullDistance(raw))
-      else track(0)
+      // Still inside the slop: preview the overlay, never publish a phase.
+      if (raw > 0 && window.scrollY <= 0) {
+        const distance = pullDistance(raw)
+        distanceRef.current = distance
+        paintIndicator(indicator.current, pullGesture(distance), distance)
+      } else {
+        distanceRef.current = 0
+        paintIndicator(indicator.current, 'idle', 0)
+      }
     }
 
     const onEnd = (): void => {
       const fire = shouldFireRefresh(distanceRef.current, startY.current !== null)
-      reset()
-      if (!fire) return
+      startY.current = null
+      startX.current = null
+      intent = 'undecided'
+      if (!fire) {
+        distanceRef.current = 0
+        hide()
+        publishGesture('idle')
+        return
+      }
       // Everything the verdict is measured from is stamped here; the effects
       // below own the outcome, because only the link knows what it is.
       asked.current = false
       firedAt.current = Date.now()
+      gestureRef.current = 'idle'
+      stageRef.current = 'waiting'
+      setGesture('idle')
       setTimedOut(false)
       setStage('waiting')
+      paintIndicator(indicator.current, 'refreshing', 0)
       refreshRef.current()
     }
 
@@ -502,11 +451,10 @@ export function usePullToRefresh(
     return () => {
       window.removeEventListener('touchstart', onStart)
       window.removeEventListener('touchmove', onMove)
-      window.removeEventListener('touchmove', onCancelableMove)
       window.removeEventListener('touchend', onEnd)
       window.removeEventListener('touchcancel', reset)
     }
-  }, [enabled])
+  }, [enabled, indicator])
 
   // The ceiling. Restarted whenever a new pull enters `waiting`, cleared with
   // it, so a second pull is never convicted by the first one's clock.
@@ -526,23 +474,35 @@ export function usePullToRefresh(
     const verdict = refreshVerdict(asked.current, timedOut, current)
     if (verdict === 'waiting') return
     if (verdict === 'unanswered') {
+      stageRef.current = 'unanswered'
       setStage('unanswered')
+      paintIndicator(indicator.current, 'unanswered', 0)
       return
     }
     // Answered: close the strip, but never sooner than the floor — an
     // indicator that vanishes in 80 ms reads as a gesture that did not take.
     const remaining = Math.max(0, REFRESH_FLOOR_MS - (Date.now() - firedAt.current))
-    const timer = window.setTimeout(() => setStage('idle'), remaining)
+    const timer = window.setTimeout(() => {
+      stageRef.current = 'idle'
+      setStage('idle')
+      paintIndicator(indicator.current, 'idle', 0)
+    }, remaining)
     return () => window.clearTimeout(timer)
-  }, [stage, timedOut, probing, ready])
+  }, [stage, timedOut, probing, ready, indicator])
 
   // The honest outcome gets read time, then gets out of the way. The header
   // pill keeps saying what the link is doing after this strip has closed.
   useEffect(() => {
     if (stage !== 'unanswered') return
-    const timer = window.setTimeout(() => setStage('idle'), UNANSWERED_HOLD_MS)
+    const timer = window.setTimeout(() => {
+      stageRef.current = 'idle'
+      setStage('idle')
+      paintIndicator(indicator.current, 'idle', 0)
+    }, UNANSWERED_HOLD_MS)
     return () => window.clearTimeout(timer)
-  }, [stage])
+  }, [stage, indicator])
 
-  return { phase: pullPhase(distance, stage), distance }
+  return {
+    phase: pullPhase(gesture === 'armed' ? PULL_THRESHOLD_PX : gesture === 'pulling' ? 1 : 0, stage)
+  }
 }

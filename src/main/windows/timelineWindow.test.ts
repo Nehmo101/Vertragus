@@ -110,7 +110,7 @@ describe('openTimelineWindow', () => {
     expect(loadRoute).toHaveBeenCalledWith(expect.anything(), '/timeline/ws%2Fodd')
   })
 
-  it('is identity on a second open of the same workspace — Play twice does not twin', () => {
+  it('is identity on a second open of the same workspace — does not twin', () => {
     const first = timelineWindow.openTimelineWindow('ws-1') as unknown as FakeBrowserWindow
     first.minimized = true
 

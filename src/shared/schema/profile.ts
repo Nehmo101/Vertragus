@@ -14,6 +14,7 @@ import { z } from 'zod'
 import { effortLevelSchema } from './provider'
 import { zoneLayoutSchema } from './zones'
 import { initialRolePromptEntries } from '../prompts/rolePrompt'
+import { GOAL_COMPILE_MODES, RECIPE_IDS } from '../goal/recipes'
 
 /** Upper bounds. High enough to never be in the way, low enough to be a bug net. */
 export const MAX_SLOTS = 16
@@ -54,6 +55,19 @@ export const MAX_ROLE_PROMPTS = 32
 export const QUESTION_MODES = ['none', 'few', 'thorough'] as const
 export type QuestionMode = (typeof QUESTION_MODES)[number]
 export const questionModeSchema = z.enum(QUESTION_MODES)
+
+/**
+ * How the host compiles a short Play goal into the orchestrator's first turn.
+ * Prompt-adjacent, but host-side: `off` is today's pass-through; `cheap` /
+ * `scout` probe the repo and write `.vertragus/runs/<id>/brief.md`.
+ * Default `scout` so a one-line goal still becomes a run contract.
+ */
+export const goalCompileSchema = z.enum(GOAL_COMPILE_MODES)
+export type GoalCompileMode = (typeof GOAL_COMPILE_MODES)[number]
+export { GOAL_COMPILE_MODES }
+
+export const recipeIdSchema = z.enum(RECIPE_IDS)
+export type PlaybookRecipeId = (typeof RECIPE_IDS)[number]
 
 export const rolePromptEntrySchema = z
   .object({
@@ -174,6 +188,16 @@ export const slotSchema = z
     extraMcp: z.array(extraMcpServerSchema).max(MAX_EXTRA_MCP).optional()
   })
   .strict()
+  .superRefine((slot, ctx) => {
+    // Literal 'lead': roles.ts imports this schema, so importing its constant would cycle.
+    if (slot.roleId === 'lead' && slot.extraMcp?.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Lead slots cannot attach extra MCP servers.',
+        path: ['extraMcp']
+      })
+    }
+  })
 export type Slot = z.infer<typeof slotSchema>
 
 export const orchestratorConfigSchema = z
@@ -215,6 +239,12 @@ export const profileSchema = z
      */
     questionMode: questionModeSchema.default('few'),
     /**
+     * Host-side compile of the Play goal into a run contract. Default `scout`
+     * so every run gets a contract unless the profile opts out. Old profiles
+     * that never named the field pick up the default on next parse.
+     */
+    goalCompile: goalCompileSchema.default('scout'),
+    /**
      * E4: wall-clock budget — the sum of agent-seconds a run may burn before
      * new starts are refused (`budget_warning` fires at 80% and at 100%).
      * Deliberately time, not tokens: the host can measure time truthfully.
@@ -229,7 +259,9 @@ export const profileSchema = z
         z
           .object({
             name: z.string().trim().min(1).max(60),
-            goal: z.string().trim().min(1).max(4_000)
+            goal: z.string().trim().min(1).max(4_000),
+            /** Optional recipe override when this playbook is used as-is. */
+            recipe: recipeIdSchema.optional()
           })
           .strict()
       )
@@ -396,9 +428,15 @@ export function slotLimitFor(
   return { configured: true, max: Math.min(max, MAX_SUBAGENTS) }
 }
 
-/** Role ids a profile can actually staff, in slot order, deduplicated. */
+/** Lead slots in profile order. Literal 'lead' avoids the roles.ts import cycle. */
+export function leadSlots(profile: Pick<Profile, 'slots'>): Slot[] {
+  return profile.slots.filter((slot) => slot.roleId === 'lead')
+}
+
+/** Role ids start_agent can staff, in slot order, deduplicated; leads use start_orchestrator. */
 export function profileRoleIds(profile: Pick<Profile, 'slots'>): string[] {
-  return [...new Set(profile.slots.map((slot) => slot.roleId))]
+  // Literal 'lead' avoids the roles.ts import cycle.
+  return [...new Set(profile.slots.filter((slot) => slot.roleId !== 'lead').map((slot) => slot.roleId))]
 }
 
 /**

@@ -132,10 +132,6 @@ export interface RemoteCopy {
   fontSmaller: string
   fontLarger: string
   keyRowLabel: string
-  pageUp: string
-  pageDown: string
-  toTop: string
-  toBottom: string
   jumpToLatest: string
   following: string
   paused: string
@@ -147,12 +143,13 @@ export interface RemoteCopy {
   searchNoMatch: string
   searchResult: (index: number, count: number) => string
   terminalRegion: string
-  historyControls: string
   keysShow: string
   keysHide: string
   copyBuffer: string
   copyDone: string
   copyFailed: string
+  terminalMenu: string
+  terminalConnecting: string
 }
 
 const de: RemoteCopy = {
@@ -260,10 +257,6 @@ const de: RemoteCopy = {
   fontSmaller: 'Schrift kleiner',
   fontLarger: 'Schrift größer',
   keyRowLabel: 'Steuertasten',
-  pageUp: 'Seite hoch',
-  pageDown: 'Seite runter',
-  toTop: 'Zum Anfang',
-  toBottom: 'Zum Ende',
   jumpToLatest: 'Neueste Ausgabe',
   following: 'folgt der Ausgabe',
   paused: 'Verlauf angehalten',
@@ -275,12 +268,13 @@ const de: RemoteCopy = {
   searchNoMatch: 'kein Treffer',
   searchResult: (index, count) => `Treffer ${index} von ${count}`,
   terminalRegion: 'Terminal-Ausgabe',
-  historyControls: 'Verlaufssteuerung',
   keysShow: 'Steuertasten zeigen',
   keysHide: 'Steuertasten verbergen',
   copyBuffer: 'Verlauf kopieren',
   copyDone: 'kopiert',
-  copyFailed: 'Kopieren fehlgeschlagen'
+  copyFailed: 'Kopieren fehlgeschlagen',
+  terminalMenu: 'Weitere Aktionen',
+  terminalConnecting: 'verbinde …'
 }
 
 const en: RemoteCopy = {
@@ -387,10 +381,6 @@ const en: RemoteCopy = {
   fontSmaller: 'Smaller type',
   fontLarger: 'Larger type',
   keyRowLabel: 'Control keys',
-  pageUp: 'Page up',
-  pageDown: 'Page down',
-  toTop: 'To the top',
-  toBottom: 'To the end',
   jumpToLatest: 'Latest output',
   following: 'following output',
   paused: 'history paused',
@@ -402,12 +392,13 @@ const en: RemoteCopy = {
   searchNoMatch: 'no match',
   searchResult: (index, count) => `Match ${index} of ${count}`,
   terminalRegion: 'Terminal output',
-  historyControls: 'History controls',
   keysShow: 'Show control keys',
   keysHide: 'Hide control keys',
   copyBuffer: 'Copy the history',
   copyDone: 'copied',
-  copyFailed: 'Copying failed'
+  copyFailed: 'Copying failed',
+  terminalMenu: 'More actions',
+  terminalConnecting: 'connecting …'
 }
 
 /**

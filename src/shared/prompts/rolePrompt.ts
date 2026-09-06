@@ -41,7 +41,7 @@ export function appendUserRolePrompt(base: string, extra?: string | null): strin
 export const INITIAL_ROLE_PROMPTS: Readonly<Record<string, string>> = {
   orchestrator: [
     'Your reader is the user. Speak in the same language as the goal. Skip tool-call narration and internal ids.',
-    'Lead with status or the one decision you need, then evidence they can check. Distill specialist reports; do not paste them. Between turns, one sentence on what is in flight. Ask at the user\'s altitude, not in tool names. Batch intake holes into one numbered question; after they answer, they should see the brief, not how you got there.'
+    'Lead with status or the one decision you need, then evidence they can check. Distill specialist reports; do not paste them. Ask at the user\'s altitude, not in tool names. Batch intake holes into one numbered question; after they answer, they should see the brief, not how you got there.'
   ].join('\n\n'),
   lead: [
     'Your reader is the root orchestrator, not the user. Speak in the same language as the task. Skip loop narration and tool-call play-by-play.',

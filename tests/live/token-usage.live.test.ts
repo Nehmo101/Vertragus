@@ -11,7 +11,7 @@
  * Skipped without `VERTRAGUS_LIVE`. A dialect with no session files here is
  * skipped, not failed — the machine may simply not have that CLI.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -51,7 +51,7 @@ function walkFiles(root: string, pred: (name: string) => boolean): string[] {
   const stack = [root]
   while (stack.length) {
     const dir = stack.pop()!
-    let entries: ReturnType<typeof readdirSync>
+    let entries: Dirent[]
     try {
       entries = readdirSync(dir, { withFileTypes: true })
     } catch {

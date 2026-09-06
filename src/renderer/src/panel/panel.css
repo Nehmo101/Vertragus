@@ -1226,6 +1226,11 @@
   font-style: italic;
 }
 
+.panel-card-goal.is-compiled {
+  color: var(--text-4, var(--text-3));
+  font-style: italic;
+}
+
 /*
  * H2 refill: the "no goal" line of a RUNNING workspace is a button — pressing
  * it folds the goal field out. It keeps the line's look; only the pointer and
@@ -1323,8 +1328,9 @@
   background: rgba(245, 165, 36, 0.08);
 }
 
-/* Sits beside Stop in the card head, so it takes Stop's footprint. */
-.panel-run-folder {
+/* Sit beside Stop in the card head, so they take Stop's footprint. */
+.panel-run-folder,
+.panel-open-timeline {
   width: 22px;
   height: 22px;
   border-radius: 7px;

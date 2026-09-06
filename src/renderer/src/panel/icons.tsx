@@ -218,6 +218,27 @@ export function TrashIcon({ size = 12 }: IconProps): React.JSX.Element {
   )
 }
 
+/** The workspace card's "open the overview sheet" mark — a journal, not a folder. */
+export function OverviewIcon({ size = 11 }: IconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M7 4.5h10a1.6 1.6 0 0 1 1.6 1.6v12.3A1.6 1.6 0 0 1 17 20H7a1.6 1.6 0 0 1-1.6-1.6V6.1A1.6 1.6 0 0 1 7 4.5Z" />
+      <path d="M9.2 9h5.6M9.2 12.5h5.6M9.2 16h3.6" />
+    </svg>
+  )
+}
+
 export function FolderIcon({ size = 13 }: IconProps): React.JSX.Element {
   return (
     <svg

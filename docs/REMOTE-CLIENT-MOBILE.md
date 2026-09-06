@@ -86,7 +86,9 @@ permission TUIs on the phone.
 - **Question inbox** at the top, independent of the card — `ask_user` must
   not disappear under the fold.
 - Terminal: optional **wrap** instead of horizontal xterm scrolling;
-  snapshot search.
+  snapshot search. **Shipped:** search in the second pass, wrap in the
+  native-scrolling pass (soft wrap on the reader; the phone no longer
+  mounts xterm).
 - Override light/dark locally instead of only following the desktop.
 
 ### Needs a new gateway verb — not in v1
@@ -136,11 +138,11 @@ restored because nothing is lost.
 
 | Area | Change |
 | --- | --- |
-| Terminal history | A touch scroller with inertia over the rendered cell height, jump-to-latest, page and end controls, search over the scrollback, copy that works over plain HTTP (a tailnet URL is not a secure context, so `navigator.clipboard` is absent), font size 11–24 persisted. |
+| Terminal history | A touch scroller with inertia over the rendered cell height, jump-to-latest, page and end controls, search over the scrollback, copy that works over plain HTTP (a tailnet URL is not a secure context, so `navigator.clipboard` is absent), font size 11–24 persisted. **Superseded by the native-scrolling pass below:** the JS scroller and the page/end controls are gone; jump-to-latest, search, copy and persisted font size remain. |
 | Overview | Question inbox across all workspaces with a jump from the header, the task board the wire always carried, deterministic ordering, pull-to-refresh, collapse-all, a local theme override, drafts that survive every transition. |
 | Navigation | The hardware back gesture closes the terminal instead of leaving the app; one history entry, pushed without a URL so the pairing fragment stays stripped. |
 | Connection | Reconnect on wake (visibility, `online`, bfcache) instead of waiting out the backoff ceiling; a socket the browser still calls `OPEN` is proven dead by a `refresh` round-trip; identical pushes keep their array identity. Re-attaching a terminal names the tail the client already holds, so the wire sends the remainder rather than the whole scrollback; and a pairing that reaches nobody is told apart from one that was refused — only the refusal leads back to the QR code, the unreachable one waits on the same backoff and tries again on wake. |
-| Frame | Installable (manifest, maskable and apple-touch icons), WCAG-corrected palette in both themes, `prefers-contrast` and dynamic type honoured, the visual-viewport geometry published as a documented three-variable contract. |
+| Frame | Installable (manifest, maskable and apple-touch icons), WCAG-corrected palette in both themes, `prefers-contrast` and dynamic type honoured, the visual-viewport geometry published as a documented three-variable contract. **The three-variable contract is superseded by the native-scrolling pass:** only `--keyboard-inset` remains. |
 
 ### What the split bought
 
@@ -148,9 +150,10 @@ The client's one stylesheet became three — shell, overview, terminal — each
 owned by the component that uses it, and the decisions came out of the
 `.tsx` files into pure modules with tests. That is not tidiness for its own
 sake: this project has no DOM test runner, so logic left inside a component
-is untested by construction. The scroll accumulator, the momentum decay, the
-inbox aggregation, the task grouping, the history state machine and the
-reveal predicate are all argued about in tests now, not in a browser.
+is untested by construction. The inbox aggregation, the task grouping, the
+history state machine and the reveal predicate are argued about in tests now,
+not in a browser. The scroll accumulator and the momentum decay went with the
+JS pan in the native-scrolling pass.
 
 ## The third pass — scrolling that actually pans
 
@@ -196,3 +199,19 @@ is why a hand-held terminal still felt like 3/10 after the third pass.
 | --- | --- |
 | Finger / wheel / fling | The gesture owns a pixel `desiredTop`. xterm is written a line-aligned `scrollTop` so its rounding cannot snap the position back; `.xterm-screen` is shifted by the sub-row remainder, so the paint follows the finger inside a cell. One extra local row (never sent to the host) means that remainder reveals the next line instead of a blank band. |
 | Chrome | Compact keys follow layout, not a `setState` effect (a 390 → 1280 resize reopens them). The phone header stays one row (ellipsis, no wrap). The composer is gone while reading on compact chrome; opening the keys is how you type. Jump pills sit on padding so they do not cover the last rows. |
+
+## The third pass — native scrolling
+
+The JS pans of the third and fourth passes could not feel native. This pass
+replaces them with a reader the browser pans, as specified in
+[REMOTE-CLIENT-SCROLL.md](REMOTE-CLIENT-SCROLL.md).
+
+| Area | Change |
+| --- | --- |
+| Terminal history | Headless xterm parser (`@xterm/headless`) sized to the PTY; scrollback is DOM text in a native scroller (`overflow-y: auto`, `touch-action: pan-y`). No `touchmove` handler. The phone never sends a PTY `resize`. |
+| Overlay | `position: fixed; inset: 0` on the layout viewport. No `--vv-height` / `--vv-offset-top` chase. |
+| Overview | Pull-to-refresh rebuilt as passive listeners and a fixed indicator moved by `transform`; pulses compositor-only; solid header under a coarse pointer. |
+| Chrome | Header reduced to back, title, status and an overflow menu. Permanent bottom bar: keys toggle, input, send. Named pending screen while the terminal chunk loads. |
+
+Work-package status, and which acceptance items are test-pinned versus still
+needing a phone, live in the scroll document.

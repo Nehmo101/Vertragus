@@ -42,6 +42,12 @@ describe('BUILTIN_ROLE_TEMPLATES', () => {
     }
   })
 
+  it('tells the worker to edit surgically and leave scratch checks out of the tree', () => {
+    const prompt = builtinRoleTemplate('worker')!.prompt
+    expect(prompt).toMatch(/surgical edit/i)
+    expect(prompt).toMatch(/scratch checks/i)
+  })
+
   it('points every role at the escalation tools without restating the contract', () => {
     for (const template of BUILTIN_ROLE_TEMPLATES) {
       expect(template.prompt).toMatch(/orchestrator/i)

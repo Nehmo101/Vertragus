@@ -36,6 +36,7 @@ import {
   workspaceCanReplaceOrchestrator,
   workspaceCardClass,
   workspaceCountByProfile,
+  workspaceCompileLine,
   workspaceGoalLine,
   workspaceHasWaitingSubagent,
   workspaceIdToFocusForProfile,
@@ -224,6 +225,11 @@ describe('tooltips', () => {
 
 describe('goal line', () => {
   it('quotes a delivered goal from the summary — expansion is a card concern', () => {
+    expect(
+      workspaceCompileLine(t, workspace({ compiledPreview: 'Compiled · fix-and-verify · src' }))
+    ).toBe('Compiled · fix-and-verify · src')
+    expect(workspaceCompileLine(t, workspace())).toBeUndefined()
+
     expect(workspaceGoalLine(t, workspace({ goalText: 'Parser-Bug in tokenizer.ts fixen' }))).toBe(
       'Ziel: Parser-Bug in tokenizer.ts fixen'
     )

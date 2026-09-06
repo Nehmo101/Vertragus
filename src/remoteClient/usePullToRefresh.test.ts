@@ -4,22 +4,21 @@ import { describe, expect, it } from 'vitest'
 import { LIVENESS_PROBE_TIMEOUT_MS } from './connection'
 import {
   claimsGesture,
-  ownsTouchAsControl,
-  ownsTouchAsField,
-  ownsTouchAsScroller,
   PULL_CLAIM_PX,
+  PULL_INDICATOR_PX,
+  PULL_REFUSE_SELECTOR,
+  PULL_THRESHOLD_PX,
   pullDistance,
-  pullIndicatorHeight,
+  pullGesture,
+  pullIndicatorOpacity,
+  pullIndicatorShown,
   pullIntent,
   pullLabel,
   pullPhase,
-  PULL_THRESHOLD_PX,
   refreshOutstanding,
   refreshVerdict,
   REFRESH_VERDICT_MS,
   shouldFireRefresh,
-  shouldPreventPullMove,
-  type GestureNode,
   type PullLink
 } from './usePullToRefresh'
 
@@ -52,6 +51,12 @@ describe('pull phase', () => {
     expect(pullPhase(0, 'unanswered')).toBe('unanswered')
     expect(pullPhase(PULL_THRESHOLD_PX, 'unanswered')).toBe('unanswered')
     expect(pullPhase(0, 'unanswered')).not.toBe(pullPhase(0, 'idle'))
+  })
+
+  it('discretises the finger for boundary setState', () => {
+    expect(pullGesture(0)).toBe('idle')
+    expect(pullGesture(1)).toBe('pulling')
+    expect(pullGesture(PULL_THRESHOLD_PX)).toBe('armed')
   })
 })
 
@@ -149,19 +154,28 @@ describe('pull label', () => {
   })
 })
 
-describe('pull indicator height', () => {
-  it('follows the finger, in whole pixels', () => {
-    expect(pullIndicatorHeight('idle', 0)).toBe(0)
-    expect(pullIndicatorHeight('pulling', 20.4)).toBe(20)
-    expect(pullIndicatorHeight('armed', 96)).toBe(96)
+describe('pull indicator reveal', () => {
+  it('stays off-screen at rest and follows the finger in whole pixels', () => {
+    expect(pullIndicatorShown('idle', 0)).toBe(0)
+    expect(pullIndicatorShown('pulling', 20.4)).toBe(20)
+    expect(pullIndicatorShown('pulling', 96)).toBe(PULL_INDICATOR_PX)
+    expect(pullIndicatorShown('armed', 96)).toBe(PULL_INDICATOR_PX)
   })
 
-  it('holds a strip open while the refresh is in flight', () => {
-    expect(pullIndicatorHeight('refreshing', 0)).toBe(34)
+  it('holds the overlay open while the refresh is in flight', () => {
+    expect(pullIndicatorShown('refreshing', 0)).toBe(PULL_INDICATOR_PX)
+    expect(pullIndicatorOpacity('refreshing', 0)).toBe(1)
   })
 
-  it('keeps the strip open to say the pull got nothing', () => {
-    expect(pullIndicatorHeight('unanswered', 0)).toBe(34)
+  it('keeps the overlay open to say the pull got nothing', () => {
+    expect(pullIndicatorShown('unanswered', 0)).toBe(PULL_INDICATOR_PX)
+    expect(pullIndicatorOpacity('unanswered', 0)).toBe(1)
+  })
+
+  it('fades in with travel and is solid once armed', () => {
+    expect(pullIndicatorOpacity('idle', 0)).toBe(0)
+    expect(pullIndicatorOpacity('pulling', PULL_INDICATOR_PX / 2)).toBe(0.5)
+    expect(pullIndicatorOpacity('armed', PULL_THRESHOLD_PX)).toBe(1)
   })
 })
 
@@ -170,24 +184,20 @@ describe('pull intent / axis lock', () => {
     expect(pullIntent(0, 0, 'undecided')).toBe('undecided')
     expect(pullIntent(PULL_CLAIM_PX, 0, 'undecided')).toBe('undecided')
     expect(pullIntent(-PULL_CLAIM_PX, 0, 'undecided')).toBe('undecided')
-    expect(shouldPreventPullMove('undecided')).toBe(false)
   })
 
   it('claims a downward first axis at the top of the document', () => {
     expect(pullIntent(PULL_CLAIM_PX + 0.1, 0, 'undecided')).toBe('pull')
     expect(pullIntent(40, 0, 'undecided')).toBe('pull')
-    expect(shouldPreventPullMove('pull')).toBe(true)
   })
 
   it('refuses an upward first axis as a list pan, even at scrollY 0', () => {
     expect(pullIntent(-(PULL_CLAIM_PX + 0.1), 0, 'undecided')).toBe('list')
     expect(pullIntent(-40, 0, 'undecided')).toBe('list')
-    expect(shouldPreventPullMove('list')).toBe(false)
   })
 
   it('refuses a downward first axis once the document has left the top', () => {
     expect(pullIntent(40, 12, 'undecided')).toBe('list')
-    expect(shouldPreventPullMove(pullIntent(40, 12, 'undecided'))).toBe(false)
   })
 
   it('treats rubber-band scrollY below zero as still at the top', () => {
@@ -201,7 +211,6 @@ describe('pull intent / axis lock', () => {
     expect(intent).toBe('list')
     intent = pullIntent(80, 0, intent)
     expect(intent).toBe('list')
-    expect(shouldPreventPullMove(intent)).toBe(false)
   })
 
   it('keeps a claimed pull even if the finger later reverses', () => {
@@ -209,7 +218,6 @@ describe('pull intent / axis lock', () => {
     expect(intent).toBe('pull')
     intent = pullIntent(-40, 0, intent)
     expect(intent).toBe('pull')
-    expect(shouldPreventPullMove(intent)).toBe(true)
   })
 
   it('does not lock on a broken delta or scroll position', () => {
@@ -221,27 +229,15 @@ describe('pull intent / axis lock', () => {
   it('refuses a mostly-horizontal swipe as a list pan, even at scroll top', () => {
     expect(pullIntent(4, 0, 'undecided', 20)).toBe('list')
     expect(pullIntent(12, 0, 'undecided', 40)).toBe('list')
-    expect(shouldPreventPullMove(pullIntent(6, 0, 'undecided', 30))).toBe(false)
   })
 
   it('still claims a downward first axis when the horizontal noise is smaller', () => {
     expect(pullIntent(40, 0, 'undecided', 10)).toBe('pull')
-    expect(shouldPreventPullMove(pullIntent(40, 0, 'undecided', 10))).toBe(true)
   })
 })
 
-describe('cancelable touchmove is armed at eligible start, not mid-move', () => {
+describe('the pull never claims the document pan', () => {
   const source = readFileSync(fileURLToPath(new URL('./usePullToRefresh.ts', import.meta.url)), 'utf8')
-
-  function helper(name: string): string {
-    const start = source.indexOf(`function ${name}(`)
-    if (start < 0) throw new Error(`self-check: ${name} is gone`)
-    const next = source.indexOf('\n    function ', start + 1)
-    const fallback = source.indexOf('\n    const onStart', start + 1)
-    const end = next > 0 && (fallback < 0 || next < fallback) ? next : fallback
-    if (end < 0) throw new Error(`self-check: ${name} has no end`)
-    return source.slice(start, end)
-  }
 
   function onStartBody(): string {
     const start = source.indexOf('const onStart = (event: TouchEvent)')
@@ -259,151 +255,89 @@ describe('cancelable touchmove is armed at eligible start, not mid-move', () => 
     return source.slice(start, end)
   }
 
-  it('finds the arm/disarm helpers it is about to police', () => {
-    expect(helper('armCancelableMove')).toContain('onCancelableMove')
-    expect(helper('disarmCancelableMove')).toContain('onCancelableMove')
+  it('finds the listeners it is about to police', () => {
     expect(onStartBody().length).toBeGreaterThan(0)
     expect(onMoveBody().length).toBeGreaterThan(0)
   })
 
-  it('registers the overview touchmove as passive', () => {
-    expect(source).toContain("window.addEventListener('touchmove', onMove, { passive: true })")
+  it('registers every window touch listener as passive', () => {
     expect(source).toContain("window.addEventListener('touchstart', onStart, { passive: true })")
+    expect(source).toContain("window.addEventListener('touchmove', onMove, { passive: true })")
+    expect(source).toContain("window.addEventListener('touchend', onEnd, { passive: true })")
+    expect(source).toContain("window.addEventListener('touchcancel', reset, { passive: true })")
   })
 
-  it('does not rebind the lifetime listener from inside touchmove', () => {
-    expect(source).not.toContain('claimNonPassive')
-    expect(source).not.toContain('releaseNonPassive')
+  it('has no preventDefault call and no non-passive listener', () => {
+    expect(source).not.toMatch(/\.preventDefault\s*\(/)
+    expect(source).not.toMatch(/passive:\s*false/)
+  })
+
+  it('does not rebind listeners from inside touchmove', () => {
     expect(onMoveBody()).not.toContain('addEventListener')
     expect(onMoveBody()).not.toContain('removeEventListener')
-    expect(onMoveBody()).not.toContain('armCancelableMove')
-    expect(onMoveBody()).not.toContain('preventDefault')
   })
 
-  it('arms the cancelable listener from eligible touchstart, before the first move', () => {
-    expect(helper('armCancelableMove')).toContain('{ passive: false }')
-    expect(helper('disarmCancelableMove')).not.toContain('addEventListener')
-    expect(onStartBody()).toContain('armCancelableMove()')
-    expect(onStartBody()).toContain('claimsGesture')
+  it('does not walk computed style on touchstart', () => {
+    expect(source).not.toMatch(/getComputedStyle\s*\(/)
+    expect(source).toContain('claimsGesture(gestureTarget(event.target))')
+    expect(source).toContain('.closest(PULL_REFUSE_SELECTOR)')
     expect(onStartBody()).toContain('window.scrollY <= 0')
-    expect(onStartBody().indexOf('if (!eligible)')).toBeLessThan(
-      onStartBody().indexOf('armCancelableMove()')
-    )
-    // The lifetime registration (next to touchstart) must not be the
-    // non-passive one: that is the iOS document-pan killer.
-    const setupStart = source.indexOf("window.addEventListener('touchstart', onStart, { passive: true })")
-    expect(setupStart).toBeGreaterThan(-1)
-    const setup = source.slice(setupStart, source.indexOf("window.addEventListener('touchend'", setupStart))
-    expect(setup).toContain('{ passive: true }')
-    expect(setup).not.toContain('{ passive: false }')
   })
 
-  it('gates preventDefault on pull intent, not on raw travel', () => {
-    expect(helper('onCancelableMove')).toContain(
-      'if (shouldPreventPullMove(intent) && event.cancelable) event.preventDefault()'
-    )
-    expect(source).not.toContain('raw > PULL_CLAIM_PX && event.cancelable')
-    expect(source).toContain('intent = pullIntent(raw, window.scrollY, intent, rawX)')
+  it('paints the overlay through the element, not through distance state', () => {
+    expect(source).not.toContain('setDistance')
+    expect(source).toContain("setProperty('--pull-shown'")
+    expect(source).toContain("setProperty('--pull-opacity'")
+    expect(onMoveBody()).toContain('paintIndicator(')
+    expect(onMoveBody()).not.toContain('setStage')
+    expect(onMoveBody()).not.toContain('setGesture')
+    expect(onMoveBody()).toContain('publishGesture(')
   })
 
-  it('refuses a control the same way it refuses a field', () => {
-    expect(source).toContain('ownsTouchAsControl(node)')
-    expect(source).toContain("['BUTTON', 'A', 'SUMMARY', 'LABEL']")
+  it('fires a tap haptic only when the pull becomes armed', () => {
+    expect(source).toContain("if (next === 'armed') haptic('tap')")
+    expect(onMoveBody()).not.toContain('haptic(')
   })
 })
 
 describe('gesture ownership', () => {
-  const plain = (over: Partial<GestureNode> = {}): GestureNode => ({
-    tagName: 'DIV',
-    editable: false,
-    overflowX: 'visible',
-    overflowY: 'visible',
-    scrollWidth: 320,
-    clientWidth: 320,
-    scrollHeight: 200,
-    clientHeight: 200,
-    ...over
+  const tokens = PULL_REFUSE_SELECTOR.split(',').map((part) => part.trim())
+
+  function target(hit: unknown): { closest(selectors: string): unknown } {
+    return {
+      closest(selectors: string) {
+        expect(selectors).toBe(PULL_REFUSE_SELECTOR)
+        return hit
+      }
+    }
+  }
+
+  it('lists fields, controls and the scroller marker', () => {
+    expect(tokens).toEqual(
+      expect.arrayContaining([
+        'input',
+        'textarea',
+        'select',
+        'button',
+        'a',
+        'summary',
+        'label'
+      ])
+    )
+    expect(tokens.some((part) => part.includes('contenteditable'))).toBe(true)
+    expect(tokens.some((part) => part.includes('data-scroller'))).toBe(true)
   })
 
   it('leaves an ordinary card to the document', () => {
-    expect(ownsTouchAsField(plain())).toBe(false)
-    expect(ownsTouchAsScroller(plain())).toBe(false)
-    expect(claimsGesture([plain(), plain({ tagName: 'MAIN' })])).toBe(true)
+    expect(claimsGesture(target(null))).toBe(true)
   })
 
-  it('refuses a gesture that starts in a field, wherever the page is scrolled', () => {
-    expect(ownsTouchAsField(plain({ tagName: 'TEXTAREA' }))).toBe(true)
-    expect(ownsTouchAsField(plain({ tagName: 'INPUT' }))).toBe(true)
-    expect(ownsTouchAsField(plain({ tagName: 'SELECT' }))).toBe(true)
-    expect(ownsTouchAsField(plain({ editable: true }))).toBe(true)
-    expect(claimsGesture([plain({ tagName: 'TEXTAREA' })])).toBe(false)
-  })
-
-  it('refuses a tap on an interactive control, even at the top of the list', () => {
-    // Composer Send: a few pixels of noise on `.primary` used to be claimed
-    // as a pull, preventDefault cancelled the click, the follow-up never left.
-    expect(ownsTouchAsControl(plain({ tagName: 'BUTTON' }))).toBe(true)
-    expect(ownsTouchAsControl(plain({ tagName: 'A' }))).toBe(true)
-    expect(ownsTouchAsControl(plain({ tagName: 'SUMMARY' }))).toBe(true)
-    expect(ownsTouchAsControl(plain({ tagName: 'LABEL' }))).toBe(true)
-    expect(ownsTouchAsControl(plain({ tagName: 'DIV' }))).toBe(false)
-    expect(ownsTouchAsField(plain({ tagName: 'BUTTON' }))).toBe(false)
-    expect(claimsGesture([plain({ tagName: 'BUTTON' })])).toBe(false)
-    expect(claimsGesture([plain({ tagName: 'A' })])).toBe(false)
-    expect(claimsGesture([plain({ tagName: 'SUMMARY' })])).toBe(false)
-    expect(claimsGesture([plain({ tagName: 'LABEL' })])).toBe(false)
-    // The finger lands on the label text, not the <button> itself.
-    expect(claimsGesture([plain({ tagName: 'SPAN' }), plain({ tagName: 'BUTTON' })])).toBe(false)
-  })
-
-  it('refuses a textarea the user is scrolling internally', () => {
-    const textarea = plain({ tagName: 'TEXTAREA', overflowY: 'auto', scrollHeight: 600 })
-    expect(claimsGesture([textarea])).toBe(false)
-  })
-
-  it('refuses a horizontally scrolling strip', () => {
-    const strip = plain({ overflowX: 'auto', scrollWidth: 900, clientWidth: 320 })
-    expect(ownsTouchAsScroller(strip)).toBe(true)
-    // The finger lands on a key inside the strip, not on the strip itself.
-    expect(claimsGesture([plain({ tagName: 'BUTTON' }), strip, plain()])).toBe(false)
-  })
-
-  it('refuses a nested vertical scroller', () => {
-    const pane = plain({ overflowY: 'scroll', scrollHeight: 900, clientHeight: 200 })
-    expect(ownsTouchAsScroller(pane)).toBe(true)
-    expect(claimsGesture([pane])).toBe(false)
-  })
-
-  it('reads `overlay` as a scroller too', () => {
-    expect(
-      ownsTouchAsScroller(plain({ overflowX: 'overlay', scrollWidth: 900, clientWidth: 320 }))
-    ).toBe(true)
-  })
-
-  it('does not mistake clipped overflow for a scroller', () => {
-    expect(
-      ownsTouchAsScroller(plain({ overflowX: 'hidden', scrollWidth: 900, clientWidth: 320 }))
-    ).toBe(false)
-    expect(
-      ownsTouchAsScroller(plain({ overflowX: 'clip', scrollWidth: 900, clientWidth: 320 }))
-    ).toBe(false)
-  })
-
-  it('tolerates a subpixel of overflow', () => {
-    const rounded = plain({
-      overflowX: 'auto',
-      scrollWidth: 320.5,
-      clientWidth: 320,
-      overflowY: 'auto',
-      scrollHeight: 200.5,
-      clientHeight: 200
-    })
-    expect(ownsTouchAsScroller(rounded)).toBe(false)
-    expect(claimsGesture([rounded])).toBe(true)
+  it('refuses a gesture that starts in a field, control or marked scroller', () => {
+    expect(claimsGesture(target({}))).toBe(false)
   })
 
   it('claims a gesture that starts on nothing at all', () => {
     // `event.target` outside the app — an empty chain is the document's own.
-    expect(claimsGesture([])).toBe(true)
+    expect(claimsGesture(null)).toBe(true)
   })
 })

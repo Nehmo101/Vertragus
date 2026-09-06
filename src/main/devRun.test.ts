@@ -35,9 +35,9 @@ describe('createAppWorkspaceManager', () => {
     expect(source).toMatch(/locale:\s*\(\)\s*=>\s*getSettings\(\)\.ui\.locale/)
   })
 
-  it('opens a timeline after startWorkspace and closes it on stop', () => {
+  it('does not open a timeline after startWorkspace and still closes it on stop', () => {
     const source = readFileSync(join(__dirname, 'devRun.ts'), 'utf8')
-    expect(source).toMatch(/openTimelineWindow\(running\.workspace\.workspaceId\)/)
+    expect(source).not.toMatch(/openTimelineWindow/)
     expect(source).toMatch(/closeTimelineWindow\(workspaceId\)/)
   })
 })

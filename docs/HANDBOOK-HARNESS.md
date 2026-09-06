@@ -57,10 +57,11 @@ server.
 | C7 model/provider reseat (switch mid-run) | **spec only** — see [`MODEL-PROVIDER-SWITCH.md`](./MODEL-PROVIDER-SWITCH.md) |
 | D human in the loop | **D1–D4 implemented** (Track 3 + follow-up) — goal UI, `user_message` wakes `await_events`, `ask_user` with ticket; D4 tiers `yolo`/`ask-user`/`ask-orchestrator` (store mirror to `yoloMaster`, contract approval rule, threat model in the README) |
 | E integrate / briefing / eval | **core implemented** (Track 6) — `integrate_branch` + gate warning + promote click, briefing + `repoNotes`, journal + resume (E3, briefing instead of re-spawn), budget wall clock, Janitor/Explorer, playbooks, extra MCP for workers (E6), loop eval (E5, `tests/integration/loopEval`) — Phase E complete |
-| F multi-orch (Lead, depth 1) | **implemented** (Track 5) — third identity `lead=`, own queues, `start_orchestrator`, fan-in of direct children only, reparent (`subtree_adopted`), caps host-side |
+| F multi-orch (Lead, depth 1) | **implemented** (Track 5) — third identity `lead=`, own queues, `start_orchestrator`, fan-in of direct children only, reparent (`subtree_adopted`), caps host-side; a profile slot with `roleId: lead` sets the lead's provider/model/effort and `maxCount` |
 | H nested workers / live steer / browser | **implemented** — workers may spawn one helper level; composer targeting on `user_message`; first-party `/browser` loopback (not a second MCP) |
 | I intake / Scout / run archive timeline | **implemented** — intake loop (prompt + `ask_user`), Scout builtin, `parentId` on `agent_started`, archive fold-out + timeline over the journal. See [`PLAN-INTAKE-ARCHIVE.md`](./PLAN-INTAKE-ARCHIVE.md) |
 | CLI-recorded token usage | **implemented** — overview card only; claude/codex consumption, grok context occupancy, cursor/kimi/ollama nothing. See E4. |
+| Goal compile | **implemented** — host turns a short Play sentence into `.vertragus/runs/<id>/brief.md` before the first turn. Profile `goalCompile`: `off` / `cheap` / `scout` (default `scout`). Not a second product, not RAG, not a pre-started scout agent. |
 
 ---
 
@@ -107,8 +108,10 @@ the same registry, otherwise there are two truths.
 Play today starts an empty orchestrator; the goal is typed into the TUI
 (`devRun.ts`, `workspaces:start(profileId)`). On the desktop this is already
 the class of bug that `autoSubmitTasks` was meant to solve. On the phone
-with xterm + software keyboard it is the worst path in the entire remote
-plan.
+it is the worst path in the entire remote plan: the client renders the PTY
+through a headless xterm parser into a native DOM scroller and never
+resizes the PTY, so a start-goal typed into a vendor TUI has no grid the
+phone owns.
 
 Cheap in B1/B2:
 
@@ -410,9 +413,10 @@ looks like Vertragus. Default `ui.cliSurface: session`. Title-bar peek
 to raw (permission dialogs live in the TUI). Boot phase `waiting` forces
 raw so leftover Cursor MCP approvals stay clickable. Follow-ups and
 answers take `postUserMessage` / `answerQuestion` — never a PTY write.
-Phone xterm is out of scope. This is not a TUI parser. Hide-all (panel eye
-and the global hotkey) hides CLI, timeline and editor windows with `hide()`
-and never the panel. Restore opens the last selected workspace's agents in
+The phone renders the PTY through a headless xterm parser into a native
+DOM scroller and never resizes the PTY. This is not a TUI parser. Hide-all
+(panel eye and the global hotkey) hides CLI, timeline and editor windows
+with `hide()` and never the panel. Restore opens the last selected workspace's agents in
 their zones; eye or hotkey with nothing visible does the same instead
 of recording an empty hide.
 
@@ -519,6 +523,18 @@ A cockpit trace (goal, porcelain dot, last events) falls out largely as a
 derivation of C2 + the A3.1 feed — panel and remote client can draw the
 same `WorkspaceSummary`. No third store.
 
+### Goal compile
+
+**Status: implemented.** The Play field stays a short sentence. Between
+Play and the first user turn the host classifies a recipe (fix, ship,
+presence, docs, invariants, research), probes the repo (`AGENTS.md`,
+scripts, folders; `scout` also lists `apps/` / `packages/` / `src/`),
+and writes `brief.md` + `brief.json` next to the run journal. The
+orchestrator is seeded with that contract; the card still shows the
+raw goal plus a one-line preview. `goalCompile: off` is the escape
+hatch (today's pass-through). This is not intake (`ask_user` still
+follows `questionMode`) and not a compile-phase subagent.
+
 ---
 
 ## Phase F — multi-orchestration (the root decides)
@@ -565,8 +581,9 @@ Added:
 
 A sub-orchestrator is **not** a slot `roleId: orchestrator`. It draws a
 guide name (`NameAllocator` kind `orchestrator`), the bronze colour (or a
-darker bronze), the same provider/model as the profile's `orchestrator`
-(overridable), and **no yolo**.
+darker bronze), and **no yolo**. Provider, model and effort come from a
+slot with `roleId: lead` when the profile has one, otherwise from the
+profile's `orchestrator` (a `model` argument overrides either).
 
 **Lead tools** (a union, deliberately):
 
@@ -579,13 +596,26 @@ darker bronze), the same provider/model as the profile's `orchestrator`
 **Root tools** additionally:
 
 ```
-start_orchestrator{area, task, maxSubagents?, model?, baseBranch?}
+start_orchestrator{area, task, maxSubagents?, model?, providerId?, baseBranch?}
 ```
 
 `area` is a short label for prompt and panel ("payments", `docs`).
 `maxSubagents` is the **sub-budget** the root gives away — not a second
 profile limit. `profile.maxSubagents` remains the global cap over root
 children + all grandchildren (A1.3 reservation workspace-wide).
+
+**Lead slot.** A slot with `roleId: lead` staffs the lead like any other
+role: provider, model, effort, and `maxCount` as the cap on concurrent
+leads — on top of the host cap `MAX_LEADS = 4` (`src/main/mcp/types.ts`,
+enforced in `toolsOrchestrator.ts`), which a profile can only tighten, never
+raise. With several lead slots `providerId` picks one; an explicit `model`
+still wins over the slot's. Without a lead slot nothing changes: the lead
+runs on the profile's `orchestrator` config. The doctrine holds either way
+— the schema rejects `extraMcp` on a lead slot, `start_agent{role: 'lead'}`
+is refused (leads start only via `start_orchestrator`), and the Lead is not
+listed under "Available roles" in the orchestrator prompt; it appears as a
+lead-slot line instead. The Lead's extra system prompt stays where it was,
+in the Role prompts section of the profile editor.
 
 `start_agent` stays on the root. Without the tool it could not work flat
 and could not work hybrid.

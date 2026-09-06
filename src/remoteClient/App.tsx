@@ -92,7 +92,7 @@ import {
 } from './themePreference'
 import { shouldSubmitSendInput, shouldSubmitSendKey } from './sendKey'
 import { useRemote, type RemoteApi } from './useRemote'
-import { pullIndicatorHeight, pullLabel, usePullToRefresh } from './usePullToRefresh'
+import { pullLabel, usePullToRefresh } from './usePullToRefresh'
 import { useVisualViewport } from './useVisualViewport'
 import {
   advanceSeenLive,
@@ -151,6 +151,64 @@ function askBadgeDomId(entryKey: string): string {
 
 function answerPanelDomId(entryKey: string): string {
   return `answer-${entryKey}`
+}
+
+function findAgent(
+  workspaces: readonly RemoteWorkspaceSummary[],
+  agentId: string
+): RemoteAgentSummary | undefined {
+  for (const workspace of workspaces) {
+    const agent = workspace.agents.find((entry) => entry.agentId === agentId)
+    if (agent) return agent
+  }
+  return undefined
+}
+
+/**
+ * Named surface while the terminal chunk loads: a blank box reads as a missed
+ * tap over Tailscale. Lives here, not in the chunk, so the header paints in
+ * the same frame as the tap.
+ */
+function TerminalPending({
+  agentId,
+  workspaces,
+  copy,
+  onBack
+}: {
+  agentId: string
+  workspaces: readonly RemoteWorkspaceSummary[]
+  copy: RemoteCopy
+  onBack: () => void
+}): React.JSX.Element {
+  const agent = findAgent(workspaces, agentId)
+  const name = agent?.name ?? agentId
+  return (
+    <div className="terminal-pending">
+      <header className="terminal-pending-header">
+        <button
+          type="button"
+          className="terminal-pending-back"
+          onClick={onBack}
+          aria-label={copy.back}
+        >
+          ‹
+        </button>
+        <span
+          className="terminal-pending-title"
+          style={
+            agent
+              ? ({ '--role': safeRoleColor(agent.roleColor) } as React.CSSProperties)
+              : undefined
+          }
+        >
+          {name}
+        </span>
+      </header>
+      <p className="terminal-pending-note" role="status" aria-live="polite">
+        {copy.terminalConnecting}
+      </p>
+    </div>
+  )
 }
 
 /**
@@ -454,7 +512,16 @@ export function App(): React.JSX.Element {
         />
       </div>
       {openAgent ? (
-        <Suspense fallback={<div className="terminal-pending" role="status" aria-live="polite" />}>
+        <Suspense
+          fallback={
+            <TerminalPending
+              agentId={openAgent}
+              workspaces={api.workspaces}
+              copy={copy}
+              onBack={() => setOpenAgent(null)}
+            />
+          }
+        >
           <RemoteTerminal
             agentId={openAgent}
             api={api}
@@ -702,10 +769,16 @@ function Overview({
   // The link is what tells the pull whether it got an answer: `api.refresh` is
   // the hook's `wake()`, which probes an open socket and reconnects a closed
   // one, and both outcomes show up here before they show up in the list.
-  const pull = usePullToRefresh(api.refresh, !paused, {
-    probing: api.probing,
-    ready: api.phase === 'ready'
-  })
+  const pullIndicator = useRef<HTMLDivElement>(null)
+  const pull = usePullToRefresh(
+    api.refresh,
+    !paused,
+    {
+      probing: api.probing,
+      ready: api.phase === 'ready'
+    },
+    pullIndicator
+  )
   const scrolledDown = useScrolledDown(!paused)
   const rows = overviewRows(api.workspaces, seenLive, showEnded)
   const visible = rowWorkspaces(rows)
@@ -727,8 +800,8 @@ function Overview({
        * has already moved off "connected" by the time this strip says so.
        */}
       <div
+        ref={pullIndicator}
         className={`pull-indicator is-${pull.phase}`}
-        style={{ height: pullIndicatorHeight(pull.phase, pull.distance) }}
         aria-hidden="true"
       >
         <span>{pullLabel(pull.phase, copy)}</span>

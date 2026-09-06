@@ -34,6 +34,9 @@
  *   auto-approved on Grok, and `--tools`/`--disallowed-tools` are headless-only
  *   (ignored in the interactive TUI). Native spawn is killed with
  *   `GROK_SUBAGENTS=0` / `--no-subagents` plus a project agent file; see spawn.
+ *   Every native Grok launch also passes `--session-id <uuid>` so the TUI
+ *   starts a conversation: bare `grok` stays on the welcome screen and never
+ *   connects MCP.
  *
  * Verified Cursor facts (cursor-agent 2026.08.11-e8db854 on this machine):
  * - Project file shape: `{ "mcpServers": { "<id>": { "url": "http://…" } } }`.
@@ -70,6 +73,7 @@
  * `--allowedTools` at all: they are meant to work, and restricting them is what
  * produced the "permission-starved" workers in the old retros.
  */
+import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -825,6 +829,14 @@ export const GROK_AGENT_NAME = 'vertragus-orchestrator'
 export const GROK_AGENT_FILE = `${GROK_AGENT_NAME}.md`
 export const GROK_NO_SUBAGENTS_FLAG = '--no-subagents'
 export const GROK_AGENT_FLAG = '--agent'
+/**
+ * Creates a **new** TUI conversation (`grok --help` / user-guide 17). Bare
+ * `grok` with no trailing prompt opens the welcome screen, so project
+ * `.grok/config.toml` MCP never connects. A fresh UUID every launch skips
+ * welcome without inventing a first-turn prompt. Never `-p` / `--single` /
+ * `--max-turns` (headless; the process exits).
+ */
+export const GROK_SESSION_ID_FLAG = '--session-id'
 
 /**
  * Auto-approve every tool on the Vertragus MCP server for this launch.
@@ -869,7 +881,11 @@ export const GROK_ORCHESTRATOR_DENY = ['Edit', 'Write', 'Bash'] as const
  */
 export const GROK_ORCHESTRATOR_ALLOW = ['MCPTool(vertragus__*)', 'Read', 'Grep'] as const
 
-/** Argv cage matching {@link GROK_ORCHESTRATOR_DENY} / {@link GROK_ORCHESTRATOR_ALLOW}. */
+/**
+ * Argv cage matching {@link GROK_ORCHESTRATOR_DENY} / {@link GROK_ORCHESTRATOR_ALLOW}.
+ * Session id is appended beside this helper ({@link grokSessionIdArgs}), not
+ * inside it — exact cage snapshots stay stable.
+ */
 export function grokOrchestratorArgv(): string[] {
   return [
     GROK_NO_SUBAGENTS_FLAG,
@@ -878,6 +894,16 @@ export function grokOrchestratorArgv(): string[] {
     ...GROK_ORCHESTRATOR_DENY.flatMap((rule) => ['--deny', rule]),
     ...GROK_ORCHESTRATOR_ALLOW.flatMap((rule) => ['--allow', rule])
   ]
+}
+
+/**
+ * `--session-id <uuid>` pair. Pass `sessionId` in tests so exact argv
+ * equality does not flake on a random id. Production omits it and gets a
+ * fresh UUID every call (must not already exist under the target session
+ * directory).
+ */
+export function grokSessionIdArgs(sessionId: string = randomUUID()): string[] {
+  return [GROK_SESSION_ID_FLAG, sessionId]
 }
 
 /**
@@ -1191,36 +1217,43 @@ export function writeGrokOrchestratorAgentFile(workspaceDir: string): string {
 /**
  * Grok launch arguments: the MCP attachment is a file (so it contributes no
  * path flag). Subagents get `--allow MCPTool(vertragus__*)`. Orchestrators get
- * the permission cage argv and the project agent file.
+ * the permission cage argv and the project agent file. Every launch also
+ * gets `--session-id <uuid>` so the TUI opens a conversation (welcome
+ * screen otherwise never handshakes MCP).
  */
 export function buildGrokMcpArgs(target: {
   url: string
   workspaceDir: string
   orchestrator?: boolean
   extraMcpServers?: readonly AttachableExtra[]
+  /** Test seam: omit in production for a fresh UUID every spawn. */
+  sessionId?: string
 }): string[] {
   writeGrokProjectMcpConfig(target.url, target.workspaceDir, target.extraMcpServers, {
     orchestrator: Boolean(target.orchestrator)
   })
-  if (!target.orchestrator) return grokAllowMcpArgs()
+  const session = grokSessionIdArgs(target.sessionId)
+  if (!target.orchestrator) return [...grokAllowMcpArgs(), ...session]
   writeGrokOrchestratorAgentFile(target.workspaceDir)
-  return grokOrchestratorArgv()
+  return [...grokOrchestratorArgv(), ...session]
 }
 
-/** Grok args for an orchestrator: permission cage + agent file. */
+/** Grok args for an orchestrator: permission cage + agent file + session. */
 export function buildGrokOrchestratorArgs(target: {
   url: string
   workspaceDir: string
   extraMcpServers?: readonly AttachableExtra[]
+  sessionId?: string
 }): string[] {
   return buildGrokMcpArgs({ ...target, extraMcpServers: undefined, orchestrator: true })
 }
 
-/** Grok args for a subagent: attached, uncaged, MCP tools pre-allowed. */
+/** Grok args for a subagent: attached, uncaged, MCP tools pre-allowed + session. */
 export function buildGrokSubagentArgs(target: {
   url: string
   workspaceDir: string
   extraMcpServers?: readonly AttachableExtra[]
+  sessionId?: string
 }): string[] {
   return buildGrokMcpArgs({ ...target, orchestrator: false })
 }

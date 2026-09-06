@@ -13,6 +13,13 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Added
 
+- **Goal-Compile bei jedem Play.** Das kurze Zielfeld ist kein
+  Durchreichekanal mehr. Der Host klassifiziert ein Rezept, sondiert das
+  Repo und schreibt `.vertragus/runs/<id>/brief.md` (plus `brief.json`)
+  vor dem ersten Turn. Die Karte behält den Satz des Users und zeigt eine
+  Preview-Zeile. Profil-Picker `goalCompile`: `scout` (Standard), `cheap`
+  oder `off`. Playbooks dürfen ein Rezept nennen. Kein RAG, kein zweiter
+  Orchestrator, kein vorstarteter Scout-Agent.
 - **Auto-Promote des Orchestrator-Branches am Laufende.** Bei
   eingeschaltetem `autoPromote` mergt der Host den eigenen Branch des
   Orchestrators am Ende des Laufs (`record_retro` oder Stop) ins
@@ -230,6 +237,12 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Fixed
 
+- **Ein Play ohne Ziel startete Grok ohne MCP.** `grok` ohne trailing Prompt
+  öffnet den Welcome-Screen, daher wird `.grok/config.toml` nie geladen und
+  `waitForSession` läuft in den Timeout. Jeder native Grok-Start übergibt
+  jetzt `--session-id <uuid>` (neue TUI-Conversation, kein erfundener
+  erster Turn). Ein Start ohne Ziel lässt `goalText` weiter ungesetzt;
+  H2-Nachtrag funktioniert. Nie `-p` / `--single` / `--max-turns`.
 - **Start-mit-Ziel unter Cursor/Ollama schickte zwei Turns.** Provider, die
   den Orchestrator-Prompt ins PTY tippen (kein Launch-Flag), haben zuerst
   diesen Prompt abgeschickt und danach das Ziel als zweites Enter — genau
@@ -354,6 +367,10 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Changed
 
+- **Ein Workspace-Start und ein Klick auf die Karte öffnen die Übersicht
+  nicht mehr.** Play, Resume, Remote-Start und `VERTRAGUS_DEV_RUN` lassen
+  das Glas-Timeline-Blatt geschlossen. Ein Button auf der Workspace-Karte
+  öffnet oder fokussiert es.
 - **Die App-Version ist `1.0.0`** — das erste getaggte Release. Die
   eingecheckte Version ist eine Patch-BASIS (`X.Y.0`): Prereleases des
   `main`-Kanals addieren die Run-Nummer darauf, main wird deshalb direkt nach
@@ -384,3 +401,9 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 - Der Prompt der Docs-Rolle nennt jetzt die neue Sprachpolicy: Doku ist
   englisch-kanonisch mit gepflegten deutschen `.de.md`-Zwillingen — wer
   Doku anfasst, schreibt beide.
+- Der Worker-Rollenprompt bevorzugt chirurgische Datei-Edits und lässt
+  Scratch-Checks draußen, außer Task oder Repo wollen dafür Tests. Der
+  Subagent-Contract bündelt unabhängige Reads in einer Response.
+  Orchestrator- und Lead-Systemprompt werten einen Plan oder ein Versprechen
+  im letzten Absatz als unerledigte Arbeit; der Orchestrator schreibt vor
+  dem nächsten `await_events` einen Recap, der allein steht.

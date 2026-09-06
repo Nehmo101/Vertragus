@@ -10,6 +10,7 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { parseNewAskChoices, questionChoicesToolFieldSchema } from '@shared/questionChoices'
 import { buildHandoffBlock, buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
+import { LEAD_ROLE_ID } from '@shared/prompts/roles'
 import { successionRequestSchema } from '@shared/schema/handoff'
 import { searchRuns } from '@main/workspace/searchRuns'
 import {
@@ -500,12 +501,15 @@ export function registerOrchestratorTools(
     }): Promise<ToolText> => {
       const blocked = successionGate()
       if (blocked) return blocked
-      if (!ctx.roles.includes(role)) {
+      if (role === LEAD_ROLE_ID || !ctx.roles.includes(role)) {
         return toolError({
           error: 'unknown_role',
           role,
           availableRoles: ctx.roles,
-          note: 'Use one of availableRoles exactly as written.'
+          note:
+            role === LEAD_ROLE_ID
+              ? 'Leads are started with start_orchestrator, not start_agent.'
+              : 'Use one of availableRoles exactly as written.'
         })
       }
       // S3: vet the result schema BEFORE anything is reserved — fail-loud like
@@ -1158,7 +1162,9 @@ export function registerOrchestratorTools(
         'Start a LEAD: a sub-orchestrator that owns one independent area with its own team and its ' +
         'own verification loop. Use it only when the goal has two or more independent workstreams ' +
         'that barely share files, or when a flat team would drown your await_events loop; stay flat ' +
-        'otherwise. The lead runs your orchestrator provider, gets its own worktree and branch, and ' +
+        'otherwise. The lead runs the profile\'s Lead slot when one is configured ' +
+        '(provider/model/effort from that slot), otherwise your orchestrator provider. ' +
+        'It gets its own worktree and branch, and ' +
         'reports upward to you like a subagent (report_done / ask_orchestrator). Its team’s events ' +
         'go to the lead, not to you — await_events only shows you the lead itself. Leads cannot ' +
         'start leads (depth is exactly 1).',
@@ -1183,7 +1189,21 @@ export function registerOrchestratorTools(
             'Subtree budget you hand down — how many agents the lead may run at once. The global ' +
               'workspace cap still counts leads and their agents together.'
           ),
-        model: z.string().min(1).max(200).optional().describe('Override the orchestrator model'),
+        model: z
+          .string()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe('Override the Lead slot or orchestrator fallback model'),
+        providerId: z
+          .string()
+          .min(1)
+          .max(64)
+          .optional()
+          .describe(
+            'Pick a Lead slot running this provider. Unknown or full choices are an error. ' +
+              'Without a Lead slot, only the orchestrator provider is available.'
+          ),
         baseBranch: z
           .string()
           .min(1)
@@ -1192,15 +1212,16 @@ export function registerOrchestratorTools(
           .describe('Existing branch the lead’s branch starts from. Default: the repository HEAD.')
       }
     },
-    async ({ area, task, maxSubagents, model, baseBranch }): Promise<ToolText> => {
+    async ({ area, task, maxSubagents, model, providerId, baseBranch }): Promise<ToolText> => {
       const overBudget = budgetGate()
       if (overBudget) return overBudget
-      if (runtime.leads.size >= MAX_LEADS) {
+      const leadCap = Math.min(MAX_LEADS, ctx.limits.perRole.get(LEAD_ROLE_ID) ?? MAX_LEADS)
+      if (runtime.leads.size >= leadCap) {
         return toolError({
           error: 'limit_exceeded',
           scope: 'leads',
           running: runtime.leads.size,
-          max: MAX_LEADS,
+          max: leadCap,
           note: 'Lead cap reached. Finish or stop a lead before starting another — or stay flat.'
         })
       }
@@ -1225,7 +1246,7 @@ export function registerOrchestratorTools(
 
       let started: StartingAgent
       try {
-        started = ctx.host.beginLead({ area, task: seed, model, baseBranch, maxSubagents })
+        started = ctx.host.beginLead({ area, task: seed, model, providerId, baseBranch, maxSubagents })
       } catch (error) {
         return toolError({ error: 'start_failed', area, message: errorMessage(error) })
       }
