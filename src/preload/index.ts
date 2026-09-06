@@ -1,3 +1,6 @@
+import type { AgentReseatInput, AgentSuccessor } from '@shared/runReview'
+import type { RunSearchResult } from '@shared/runSearch'
+import type { RunRecovery, RunReview, RunFinalization } from '@shared/runReview'
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Profile, RoleTemplate } from '@shared/schema/profile'
 import type { EffortLevel, ProviderConfig } from '@shared/schema/provider'
@@ -119,6 +122,7 @@ export interface TerminalAttachResult {
 
 /** One open MCP question the CLI overlay can show and answer. */
 export interface TerminalQuestionInbox {
+  choices?: string[]
   questionId: string
   question: string
   /** Registry addressee: "user" for ask_user, otherwise the asking agent. */
@@ -146,6 +150,8 @@ export interface TerminalTaskEvent {
 
 /** Boot overlay phase for this window's agent — `null` hides the overlay. */
 export interface TerminalBootEvent {
+  meta?: TerminalAgentMeta
+  generation?: number
   agentId: string
   boot: TerminalBootPhase | null
 }
@@ -313,6 +319,7 @@ const APP = {
   workspacesResume: 'workspaces:resume',
   workspacesStop: 'workspaces:stop',
   workspacesSucceedOrchestrator: 'workspaces:succeedOrchestrator',
+  workspacesReseatAgent: 'workspaces:reseatAgent',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
   workspacesCloseAgent: 'workspaces:closeAgent',
@@ -329,7 +336,11 @@ const APP = {
   retroDeleteLearning: 'retro:deleteLearning',
   retroRepoNotes: 'retro:repoNotes',
   retroDeleteRepoNote: 'retro:deleteRepoNote',
+  runsSearch: 'runs:search',
   runsList: 'runs:list',
+  runsRecovery: 'runs:recovery',
+  runsReview: 'runs:review',
+  runsRetryFinalization: 'runs:retryFinalization',
   runsGet: 'runs:get',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
@@ -402,6 +413,13 @@ export interface PanelPointerEvent {
 export type PanelAgentState = 'working' | 'waiting' | 'stopped'
 
 export interface WorkspaceAgentSummary {
+  providerId?: string
+  model?: string
+  effort?: import('@shared/schema/reseat').AgentSeat['effort']
+  generation?: number
+  boot?: import('@shared/terminalBoot').AgentBootDiagnostic
+  lastError?: string
+  branch?: string
   agentId: string
   name: string
   roleId: string
@@ -489,6 +507,10 @@ export interface WorkspaceSummary {
 
 /** One stale worktree the panel's cleanup view offers for removal. */
 export interface StaleWorktreeSummary {
+  sizeBytes?: number
+  dirty?: boolean
+  ahead?: number
+  workspaceId?: string
   path: string
   /** Short branch name; absent for a detached worktree. */
   branch?: string
@@ -759,8 +781,8 @@ const app = {
   assignWorkspaceGoal: (workspaceId: string, goal: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesGoal, { workspaceId, goal }),
   /** E3: start a workspace briefed on the profile's newest journaled run. */
-  resumeWorkspace: (profileId: string): Promise<void> =>
-    ipcRenderer.invoke(APP.workspacesResume, { profileId }),
+  resumeWorkspace: (profileId: string, options?: {workspaceId?: string; baseBranch?: string}): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesResume, { profileId, ...options }),
   /** Panel-only: type text into the orchestrator's terminal (voice control). */
   sendToOrchestrator: (workspaceId: string, text: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesSendToOrchestrator, { workspaceId, text }),
@@ -772,8 +794,9 @@ const app = {
    * Subagents, worktrees and the task board stay; rejects readably when there
    * is nothing to replace.
    */
-  succeedOrchestrator: (workspaceId: string): Promise<void> =>
-    ipcRenderer.invoke(APP.workspacesSucceedOrchestrator, { workspaceId }),
+  succeedOrchestrator: (workspaceId: string, successor?: AgentSuccessor): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesSucceedOrchestrator, { workspaceId, successor }),
+  reseatAgent: (workspaceId: string, input: AgentReseatInput): Promise<void> => ipcRenderer.invoke(APP.workspacesReseatAgent, {workspaceId, ...input}),
   focusAgent: (agentId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesFocusAgent, { agentId }),
   /**
@@ -855,6 +878,10 @@ const app = {
   deleteRepoNote: (id: string): Promise<RepoNote[]> =>
     ipcRenderer.invoke(APP.retroDeleteRepoNote, { id }),
   /** Archived and live journals of this profile, newest first. */
+  getRunRecovery: (profileId: string, workspaceId: string): Promise<RunRecovery> => ipcRenderer.invoke(APP.runsRecovery, {profileId, workspaceId}),
+  getRunReview: (profileId: string, workspaceId: string): Promise<RunReview> => ipcRenderer.invoke(APP.runsReview, {profileId, workspaceId}),
+  retryRunFinalization: (profileId: string, workspaceId: string): Promise<RunFinalization> => ipcRenderer.invoke(APP.runsRetryFinalization, {profileId, workspaceId}),
+  searchRuns: (profileId: string, query: string): Promise<RunSearchResult> => ipcRenderer.invoke(APP.runsSearch, {profileId, query}),
   listRuns: (profileId: string): Promise<RunListEntry[]> =>
     ipcRenderer.invoke(APP.runsList, { profileId }),
   /** One run's events + meta + tasks — the timeline input. */

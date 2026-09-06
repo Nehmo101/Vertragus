@@ -6,6 +6,7 @@
  * Orchestrators and leads do not get these tools: they delegate. A
  * disconnected extension is a tool error, never a silent no-op.
  */
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { toolError, toolJson, type ToolText } from './types'
@@ -14,6 +15,7 @@ import type { BrowserBridge } from './browserBridge'
 export const BROWSER_TOOL_NAMES = [
   'browser_status',
   'browser_tabs',
+  'browser_release',
   'browser_navigate',
   'browser_snapshot',
   'browser_click',
@@ -40,7 +42,13 @@ function asError(error: unknown): ToolText {
   return toolError({ error: 'browser_error', message })
 }
 
-export function registerBrowserTools(server: McpServer, bridge: BrowserBridge): void {
+export function registerBrowserTools(server: McpServer, bridge: BrowserBridge, owner?: string, isCurrent: () => boolean = () => true): void {
+  const call = async (command: string, params: Record<string, unknown> = {}): Promise<unknown> => {
+    if (!isCurrent()) throw new Error('browser_session_replaced')
+    const result = await (owner ? bridge.callOwned(owner, command, params) : bridge.call(command, params))
+    if (!isCurrent()) throw new Error('browser_session_replaced')
+    return result
+  }
   server.registerTool(
     'browser_status',
     {
@@ -70,13 +78,23 @@ export function registerBrowserTools(server: McpServer, bridge: BrowserBridge): 
     },
     async (): Promise<ToolText> => {
       try {
-        const result = await bridge.call('tabs')
+        const result = await call('tabs')
         return toolJson(result)
       } catch (error) {
         return asError(error)
       }
     }
   )
+
+  server.registerTool('browser_release', {
+    description: 'Release your claimed tabs so another task can use them. Take a new snapshot after claiming a tab again.',
+    inputSchema: {}
+  }, async (): Promise<ToolText> => {
+    if (!isCurrent()) return toolError({ error: 'browser_session_replaced' })
+    if (!isCurrent()) return toolError({ error: 'browser_session_replaced' })
+    if (owner) bridge.releaseOwner(owner)
+    return toolJson({ ok: true })
+  })
 
   server.registerTool(
     'browser_navigate',
@@ -90,7 +108,7 @@ export function registerBrowserTools(server: McpServer, bridge: BrowserBridge): 
     },
     async ({ url, tabId }): Promise<ToolText> => {
       try {
-        const result = await bridge.call('navigate', { url, ...(tabId !== undefined ? { tabId } : {}) })
+        const result = await call('navigate', { url, ...(tabId !== undefined ? { tabId } : {}) })
         return toolJson(result)
       } catch (error) {
         return asError(error)
@@ -110,7 +128,7 @@ export function registerBrowserTools(server: McpServer, bridge: BrowserBridge): 
     },
     async ({ tabId }): Promise<ToolText> => {
       try {
-        const result = await bridge.call('snapshot', tabId !== undefined ? { tabId } : {})
+        const result = await call('snapshot', tabId !== undefined ? { tabId } : {})
         return toolJson(result)
       } catch (error) {
         return asError(error)
@@ -123,13 +141,13 @@ export function registerBrowserTools(server: McpServer, bridge: BrowserBridge): 
     {
       description: 'Click the element with this snapshot ref in the given (or active) tab.',
       inputSchema: {
-        ref: z.string().min(1).max(40).describe('Ref from the last browser_snapshot, e.g. e12'),
+        ref: z.string().min(1).max(80).describe('Ref from the last browser_snapshot, from the latest snapshot'),
         tabId: z.number().int().positive().optional()
       }
     },
     async ({ ref, tabId }): Promise<ToolText> => {
       try {
-        const result = await bridge.call('click', { ref, ...(tabId !== undefined ? { tabId } : {}) })
+        const result = await call('click', { ref, ...(tabId !== undefined ? { tabId } : {}) })
         return toolJson(result)
       } catch (error) {
         return asError(error)
@@ -140,9 +158,9 @@ export function registerBrowserTools(server: McpServer, bridge: BrowserBridge): 
   server.registerTool(
     'browser_fill',
     {
-      description: 'Type into the input/textarea with this snapshot ref. Optionally submit with Enter.',
+      description: 'Type into the input/textarea with this snapshot ref. Optionally request native form submission.',
       inputSchema: {
-        ref: z.string().min(1).max(40),
+        ref: z.string().min(1).max(80),
         text: z.string().max(8_000),
         submit: z.boolean().optional().describe('Press Enter after filling'),
         tabId: z.number().int().positive().optional()
@@ -150,7 +168,7 @@ export function registerBrowserTools(server: McpServer, bridge: BrowserBridge): 
     },
     async ({ ref, text, submit, tabId }): Promise<ToolText> => {
       try {
-        const result = await bridge.call('fill', {
+        const result = await call('fill', {
           ref,
           text,
           ...(submit ? { submit: true } : {}),
@@ -168,13 +186,13 @@ export function registerBrowserTools(server: McpServer, bridge: BrowserBridge): 
     {
       description: 'Press a key in the active element of the tab (Enter, Escape, Tab, ArrowDown, …).',
       inputSchema: {
-        key: z.string().min(1).max(40),
+        key: z.string().min(1).max(80),
         tabId: z.number().int().positive().optional()
       }
     },
     async ({ key, tabId }): Promise<ToolText> => {
       try {
-        const result = await bridge.call('press', { key, ...(tabId !== undefined ? { tabId } : {}) })
+        const result = await call('press', { key, ...(tabId !== undefined ? { tabId } : {}) })
         return toolJson(result)
       } catch (error) {
         return asError(error)
@@ -186,16 +204,18 @@ export function registerBrowserTools(server: McpServer, bridge: BrowserBridge): 
     'browser_screenshot',
     {
       description:
-        'PNG screenshot of the visible tab, returned as base64 in the JSON result (data + mimeType). ' +
+        'PNG screenshot of the visible tab, returned as native MCP image content. ' +
         'Use after a click or navigation to verify what the user would see.',
       inputSchema: {
         tabId: z.number().int().positive().optional()
       }
     },
-    async ({ tabId }): Promise<ToolText> => {
+    async ({ tabId }): Promise<CallToolResult> => {
       try {
-        const result = await bridge.call('screenshot', tabId !== undefined ? { tabId } : {})
-        return toolJson(result)
+        const result = await call('screenshot', tabId !== undefined ? { tabId } : {})
+        const picture = result as { data: string; mimeType: string }
+        if (typeof picture?.data !== 'string' || picture.mimeType !== 'image/png') throw new Error('Invalid screenshot')
+        return { content: [{ type: 'image', data: picture.data, mimeType: picture.mimeType }] }
       } catch (error) {
         return asError(error)
       }

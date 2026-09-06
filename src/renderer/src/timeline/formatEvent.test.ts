@@ -15,6 +15,17 @@ function event(partial: Partial<AgentEvent> & Pick<AgentEvent, 'type'>): AgentEv
 }
 
 describe('formatEvent', () => {
+  it('keeps reseat failures and snapshot uncertainty visible in both languages', () => {
+    for (const locale of ['en', 'de'] as const) {
+      const failed = formatEvent(translator(locale), event({ type: 'agent_reseat_failed', message: 'Provider missing', generation: 2 }), locale)
+      expect(failed.detail).toBe('Provider missing')
+      const changed = formatEvent(translator(locale), event({ type: 'agent_reseated', generation: 2, from: { providerId: 'codex' }, to: { providerId: 'claude', model: 'live-model' }, reason: 'user_request', branch: 'fix' }), locale)
+      expect(changed.detail).toBe('codex /  → claude / live-model')
+      const reset = formatEvent(translator(locale), event({ type: 'agent_reseated', generation: 3, from: { providerId: 'claude', model: 'live-model' }, to: { providerId: 'codex' }, reason: 'user_request', branch: 'fix' }), locale)
+      expect(reset.detail).toBe('claude / live-model → codex /')
+      expect(formatEvent(translator(locale), event({ type: 'agent_done', summary: 'Done', snapshotError: 'Snapshot failed', status: 'success' }), locale).detail).toBe('Snapshot failed\nDone')
+    }
+  })
   it('uses the i18n label and the done summary as detail', () => {
     const row = formatEvent(
       translator('en'),

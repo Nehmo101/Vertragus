@@ -164,6 +164,19 @@ describe('authorizeCliAnswer', () => {
 })
 
 describe('sameQuestionInbox', () => {
+  it('preserves structured choices through both CLI question paths and invalidates a changed choice', () => {
+    const context = cliQuestionContext('orch-1', [workspace({
+      userQuestion: { questionId: 'user-choice', question: 'Ship?', choices: ['Yes', 'Wait'] },
+      agents: [agent({ agentId: 'orch-1', roleId: 'orchestrator' }), agent({ pendingQuestionId: 'worker-choice', pendingQuestion: 'Method?', pendingQuestionChoices: ['Fast', 'Safe'] })]
+    })])!
+    expect(context.open[0].choices).toEqual(['Yes', 'Wait'])
+    expect(context.open[1].choices).toEqual(['Fast', 'Safe'])
+    expect(inboxForCliWindow(context)?.choices).toEqual(['Yes', 'Wait'])
+    const question = context.open[1]
+    expect(sameQuestionInbox(question, { ...question, choices: ['Fast', 'Safe'] })).toBe(true)
+    expect(sameQuestionInbox(question, { ...question, choices: ['Safe', 'Fast'] })).toBe(false)
+    expect(sameQuestionInbox(question, { ...question, choices: undefined })).toBe(false)
+  })
   it('treats two nulls as equal and differs on any field', () => {
     const a = { questionId: 'q', question: 'Hi?', agentId: 'worker-a', fromName: 'Caronte' }
     expect(sameQuestionInbox(null, null)).toBe(true)

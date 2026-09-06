@@ -148,3 +148,47 @@ describe('RemoteAuthStore session lifecycle', () => {
     expect(session!.id).not.toBe(result.ok ? result.session : '')
   })
 })
+
+it('persists device identity and enforces revocation even after a server restart', () => {
+  let rows: import('./deviceStore').RemoteDevice[] = []
+  const deviceStore = { read: () => rows, write: (next: typeof rows) => { rows = next } }
+  const deps = { pairingToken: () => 'pair', deviceStore }
+  const first = new RemoteAuthStore(deps)
+  const alice = first.authenticate('pair', 'alice')
+  const bob = first.authenticate('pair', 'bob')
+  if (!alice.ok || !bob.ok) throw new Error('pair failed')
+  expect(JSON.stringify(rows)).not.toContain(alice.deviceCredential)
+  const restarted = new RemoteAuthStore(deps)
+  expect(restarted.authenticate(alice.deviceCredential!, 'alice', true).ok).toBe(true)
+  expect(restarted.revoke(rows[0].id)).toBe(true)
+  const again = new RemoteAuthStore(deps)
+  expect(again.authenticate(alice.deviceCredential!, 'alice', true).ok).toBe(false)
+  expect(again.authenticate(bob.deviceCredential!, 'bob', true).ok).toBe(true)
+})
+
+it('rejects invalid enrollment, throttles device renewal and invalidates devices on token rotation', () => {
+  let pairing = 'old-pair'
+  const auth = new RemoteAuthStore({ pairingToken: () => pairing, attemptLimit: 1 })
+  expect(auth.authenticate('wrong', 'attacker')).toEqual({ ok: false, reason: 'invalid' })
+  const paired = auth.authenticate(pairing, 'phone')
+  if (!paired.ok) throw new Error('pair failed')
+  expect(auth.authenticate(paired.deviceCredential!, 'phone', true)).toEqual({ ok: false, reason: 'rate_limited' })
+  pairing = 'new-pair'
+  expect(auth.pairedDevices()).toEqual([])
+  expect(auth.authenticate(paired.deviceCredential!, 'new-address', true)).toEqual({ ok: false, reason: 'invalid' })
+})
+
+it('revoking one persistent device invalidates every renewed session but preserves another device', () => {
+  const auth = new RemoteAuthStore({ pairingToken: () => 'pair' })
+  const first = auth.authenticate('pair', 'alice')
+  const other = auth.authenticate('pair', 'bob')
+  if (!first.ok || !other.ok) throw new Error('enrollment failed')
+  const renewed = auth.authenticate(first.deviceCredential!, 'alice', true)
+  if (!renewed.ok) throw new Error('renewal failed')
+  const id = auth.verify(first.session)!.id
+  expect(auth.revoke(id)).toBe(true)
+  expect(auth.verify(first.session)).toBeUndefined()
+  expect(auth.verify(renewed.session)).toBeUndefined()
+  expect(auth.verify(other.session)).toBeDefined()
+  expect(auth.revoke(id)).toBe(false)
+})

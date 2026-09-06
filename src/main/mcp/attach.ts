@@ -73,6 +73,7 @@
  * `--allowedTools` at all: they are meant to work, and restricting them is what
  * produced the "permission-starved" workers in the old retros.
  */
+import { writeProjectConfig } from './projectConfigOverlay'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -604,7 +605,7 @@ export function writeKimiProjectMcpConfig(
   const dir = join(workspaceDir, KIMI_PROJECT_DIR)
   mkdirSync(dir, { recursive: true })
   const configPath = join(dir, KIMI_MCP_FILE)
-  writeFileSync(configPath, JSON.stringify(toKimiMcpConfig(url, allowedTools, extras), null, 2))
+  writeProjectConfig(configPath, JSON.stringify(toKimiMcpConfig(url, allowedTools, extras), null, 2))
   assertWrittenKimiMcpConfig(configPath)
   return configPath
 }
@@ -803,7 +804,7 @@ export function writeCursorProjectMcpConfig(
     // Absent file or unparseable JSON → replace / create.
   }
 
-  writeFileSync(configPath, JSON.stringify(toCursorMcpConfig(existing, url, extras), null, 2))
+  writeProjectConfig(configPath, JSON.stringify(toCursorMcpConfig(existing, url, extras), null, 2))
   assertWrittenCursorMcpConfig(configPath)
   return configPath
 }
@@ -1181,7 +1182,7 @@ export function writeGrokProjectMcpConfig(
     // Absent file → create.
   }
 
-  writeFileSync(configPath, mergeGrokConfigToml(existing, url, extras, orchestrator))
+  writeProjectConfig(configPath, mergeGrokConfigToml(existing, url, extras, orchestrator))
   assertWrittenGrokMcpConfig(configPath, url, { orchestrator })
   return configPath
 }

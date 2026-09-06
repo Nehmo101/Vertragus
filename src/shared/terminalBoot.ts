@@ -26,6 +26,13 @@ export const TERMINAL_BOOT_PHASES = [
 
 export type TerminalBootPhase = (typeof TERMINAL_BOOT_PHASES)[number]
 
+export interface AgentBootDiagnostic {
+  phase: TerminalBootPhase | null
+  startedAt: number
+  elapsedMs: number
+  history: Array<{ phase: TerminalBootPhase; startedAt: number; durationMs?: number }>
+}
+
 /** True only while waiting for a late MCP session — full greyhound overlay. */
 export function bootOverlayVisible(
   phase: TerminalBootPhase | null | undefined

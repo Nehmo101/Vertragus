@@ -26,7 +26,7 @@ Agents are named after the Divine Comedy — orchestrators get guides
 workspaces get places (Paradiso, Inferno, …).
 
 > **Status: first stable milestone.** Vertragus works and is heavily
-> tested — around 1900 tests, a coverage ratchet, and a real-Electron boot
+> tested — automated regression tests, a coverage ratchet, and a real-Electron boot
 > check on Windows, macOS and Linux. It is also young: downloads are
 > unsigned by choice, releases carry no macOS build, and agents are not
 > sandboxed. Those limits are named where they matter, not buried.
@@ -92,11 +92,12 @@ second path:
 | `await_events{cursor, timeoutSec?}` | The main loop: block until something happens. True long-poll, no busy polling. |
 | `list_agents` / `read_output` / `inspect_agent` | Snapshot, raw terminal tail, and **read-only git facts** (status/diff/log/file) from an agent's worktree — verification is host truth, not the agent's word. Oversized output spills to a file (preview + path) instead of being truncated. |
 | `stop_agent` | End an agent; files, branch and worktree stay. |
+| `reseat_agent{agentId, providerId?, model?, effort?, reason?, note?}` | Replace a worker or lead at a task boundary, keeping its identity, worktree, branch, task contract and pending questions. |
 | `integrate_branch{agentId, branch}` | The one sanctioned merge path: a **host-side** merge into the target agent's worktree. Conflicts abort cleanly and are reported (`integrate_conflict`); a gate warning flags integrating unverified work. |
 | `ask_user{question, choices?, ticket?}` | Ask the human and block for the answer (panel badge, CLI overlay, and phone); `choices` are short labels the human taps; ticket-resume survives the MCP request timeout. Volume is per profile (`questionMode`: none / few / thorough; default few, prompt-only). |
 | `start_orchestrator{area, task, …}` | Start a **lead** (see below). |
 | `record_retro{summary, learnings, repoNotes?}` | The run retrospective, once at the end. |
-| `request_succession{reason, …}` | Replace a context-full root with a successor that keeps the same team, queue and open questions. |
+| `request_succession{reason, successor?, …}` | Replace a root with a successor that keeps the team, queue and questions; optionally choose the successor's provider, model and effort for this run. |
 | `task_create` / `task_update` / `task_list` | The shared **task board**: host state with CAS revisions, `blockedBy` dependencies and ownership. It survives succession and resume — the plan lives on the host, not in the model context. |
 | `search_runs{query, maxResults?}` | Full-text search over this repository's past run journals — the root's institutional memory. |
 
@@ -136,6 +137,14 @@ keeps the last 1000 and the on-disk journal keeps everything.
   the same refusals; the PR is pushed with `git push -u` (never `--force`)
   and opened with the GitHub CLI — no `gh`, no problem: the card then shows
   the ready-made compare link instead.
+  Stop shuts down agent processes before network finalization. The run archive
+  shows durable PR status and offers an explicit retry after failure or restart;
+  quit cancels outstanding network attempts before its shutdown ceiling.
+
+The archive also searches past runs and reviews branch/SHA, changed files,
+recorded reports and adoption events. Recovery can choose a previous run and
+integration branch. Cleanup lists disk size, dirty work and unintegrated commits;
+deletion remains an explicit user action.
 
 ## The human stays in the loop
 
@@ -268,8 +277,10 @@ your PC. It is **off by default**; enable it under **Settings → Remote access*
   for a session; the token is stored encrypted at rest (Electron `safeStorage`)
   and, so the QR survives a restart even without a keyring, in a 0600 file
   under userData. Regenerating it is the only way the link changes — it
-  disconnects every paired device. The phone also keeps the pairing token in
-  `localStorage` and silently mints a new session if the desktop restarted.
+  disconnects every paired device. After enrollment the phone erases the QR
+  secret and keeps only its own device credential and session in `localStorage`.
+  The host stores a hash of that credential. Revoking a device deletes its
+  credential hash and sessions, preventing silent re-pairing after restart.
 - **What a remote device can do.** Watch any agent's terminal live, type into
   it, start a workspace **with a goal** (the host seeds it into the
   orchestrator over the same handshake as any assignment; starting without a

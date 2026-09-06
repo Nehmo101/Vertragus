@@ -5,9 +5,7 @@ English | [Deutsch](MODEL-PROVIDER-SWITCH.de.md)
 Plan for changing the **model, the provider, or the effort level of a running
 agent** — root orchestrator and worker alike — without throwing the run away.
 
-**Status:** spec only. Nothing of this is in the runtime yet. The orchestrator
-half is a small extension of C6 succession (already shipped as S1); the worker
-half is a new tool with no predecessor.
+**Status:** the explicit reseat core is implemented: root successor seat overrides, worker/lead replacement at a task boundary, preflight, snapshot-before-kill, token rotation, generation fencing, task/question continuity and host diagnostics. Effective root seats survive journal recovery. The in-session `/model` optimization remains a design option; the detailed plan below also records the intended validation and rollout.
 
 **Not this feature:**
 
@@ -16,9 +14,9 @@ half is a new tool with no predecessor.
 | Profile editor provider/model fields | Configuration for the *next* Play, not for the run in flight |
 | `start_agent{providerId, model}` | Choice at birth, bounded by the profile slots |
 | C4 `start_agent{baseBranch}` | A *different* agent continues on a branch — a new seat, not the same one |
-| C6 succession | Same feature family, but the seat keeps the profile's provider today |
-| Phase F `start_orchestrator{model}` | A nested Lead, started once, never re-seated |
-| `stop_agent` + `start_agent` | Today's workaround — and it silently loses work (see §3.2) |
+| C6 succession | Root reseat uses its existing cutover with a successor seat override |
+| Phase F `start_orchestrator{model}` | Creates a nested Lead; later reseat uses the same explicit worker/lead path |
+| `stop_agent` + `start_agent` | A different lifecycle: stopped work remains, but a new identity does not preserve the same seat |
 
 **One-line verdict:** A running CLI cannot change its provider, so a switch is
 either a provider-declared in-session command (model only, same provider) or a
@@ -45,8 +43,8 @@ Every real reason to switch, however, arrives *mid-run*:
   point of having six of them.
 - The user watches a terminal and knows better than the run does.
 
-Today the answers are: restart the workspace (throws away the run), or
-`stop_agent` + `start_agent` (see §3.2 for what that loses), or nothing at all
+Before reseat, the choices were restarting the workspace, or
+`stop_agent` + `start_agent` (see §3.2 for the different lifecycle), or no direct switch
 for the root.
 
 ---
@@ -97,47 +95,32 @@ reseat is a *decision*, not something the host does on its own.
 
 ### 3.1 The orchestrator seat
 
-C6 succession already performs a full seat handover: `requestSuccession` freezes
-a package (`buildSuccessionPackage`), persists it, rotates `orchToken`, spawns
-and seeds the successor, then kills the predecessor's PTY — with the same
-`EventQueue`, the same `PendingQuestions` and the same subagents throughout.
-`replaceOrchestratorFromHost()` is the same path from the host, and it accepts
-a dead predecessor.
+C6 succession freezes and persists a host package, checks the requested seat,
+rotates the root token and seeds the successor through the existing cutover.
+The queue, questions and team survive. `replaceOrchestratorFromHost(successor)`
+uses that same path and accepts a dead predecessor.
 
-The single thing it cannot do is change the seat's brain:
-`spawnOrchestratorRecord` reads `this.profile.orchestrator.providerId` and
-`this.profile.orchestrator.model` directly. A successor is therefore always the
-same model as the incumbent that ran out of context — or out of quota.
-
-That makes the orchestrator half of this feature **one parameter plus a
-preflight**, not a new mechanism.
+The optional successor selects provider, model and effort for this run without
+rewriting the profile. The successor worktree starts from the predecessor's
+integration branch. Current seat facts are recorded in the journal and restored
+by recovery.
 
 ### 3.2 The worker seat
 
-There is no reseat. The nearest thing an orchestrator can do is
-`stop_agent{agentId}` followed by `start_agent{role, providerId?, model?,
-baseBranch: <the branch>}`. That works — C3 and C4 make the branch and the
-handoff block real — but it is not the same seat, and four things go missing:
+`reseat_agent` and the panel action replace a worker or lead at a verified task
+boundary. The host preflights the provider, snapshots work before killing the
+old process, rotates credentials and seeds a new process in the same worktree
+and branch. Agent identity, slot ownership, assignment, structured result
+contract and pending questions survive. A lead's children stay with the lead.
 
-1. **Uncommitted work.** `stopAgent` goes straight to `terminate`, which kills
-   the PTY. Only `snapshotDone` commits a dirty worktree, and it runs on
-   `agent_done`. Stopping a worker mid-task therefore discards everything it
-   has not committed — and the role prompts tell workers *not* to commit.
-   This is the sharpest edge in the current workaround.
-2. **The open question.** `terminate` calls `questions.cancelForAgent`. A
-   worker parked in `ask_orchestrator` loses its waiter on the way out.
-3. **Identity.** New `agentId`, new name (`names.release`), new window. The
-   task board's `ownerAgentId`, every note the orchestrator wrote about that
-   agent, and every event already on the queue now point at a corpse.
-4. **The provider is not free.** `beginAgent` resolves the slot through
-   `slotWithCapacity(role, {providerId})`, which is a **hard error** when no
-   slot of that role runs the requested provider. Moving a reviewer from Codex
-   to Claude is impossible unless the profile happens to declare a Claude
-   reviewer slot. The stop also frees the slot, so a concurrent `start_agent`
-   can take it before the replacement does.
+A generation fence rejects late callbacks from the previous process; a fresh
+CLI session separates token usage. Retro outcomes are attributed to the seat
+active when each report arrived. Busy agents and failed preflight/snapshots
+are refused before cutover. A stopped seat can be explicitly retried.
 
-The assignment text is not stored on `AgentRecord` at all, so even a perfect
-caller has to remember and resend the task verbatim.
+`stop_agent` still stops an agent and preserves its files and branch; a later
+`start_agent` creates another identity. It is not a substitute for retaining
+the same seat and its questions.
 
 ---
 

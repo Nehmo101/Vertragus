@@ -91,7 +91,7 @@ function publicQuestion(entry: OpenEntry): PendingQuestion {
 export class PendingQuestions {
   private readonly open = new Map<string, OpenEntry>()
   /** questionId -> answer, insertion-ordered, capped at {@link ANSWERED_MEMORY}. */
-  private readonly answered = new Map<string, string>()
+  private readonly answered = new Map<string, { agentId: string; answer: string }>()
   private readonly mutationListeners = new Set<() => void>()
 
   constructor(
@@ -172,7 +172,9 @@ export class PendingQuestions {
     signal?: AbortSignal
   ): Promise<AwaitAnswerResult> {
     const remembered = this.answered.get(questionId)
-    if (remembered !== undefined) return Promise.resolve({ state: 'answered', answer: remembered })
+    if (remembered !== undefined) return Promise.resolve(remembered.agentId === agentId
+      ? { state: 'answered', answer: remembered.answer }
+      : { state: 'unknown' })
 
     const entry = this.open.get(questionId)
     // A ticket from another agent is not a valid resume — treat it as unknown
@@ -216,7 +218,7 @@ export class PendingQuestions {
     const entry = this.open.get(questionId)
     if (!entry) return undefined
     this.open.delete(questionId)
-    this.remember(questionId, answer)
+    this.remember(questionId, entry.agentId, answer)
     for (const waiter of [...entry.waiters]) {
       entry.waiters.delete(waiter)
       waiter.dispose()
@@ -224,6 +226,15 @@ export class PendingQuestions {
     }
     this.notifyMutation()
     return publicQuestion(entry)
+  }
+
+  /** Preserve ticket identity while replacing its transport after a provider reseat. */
+  rebindDelivery(agentId: string, deliverAnswer?: (answer: string) => Promise<void>): void {
+    for (const entry of this.open.values()) {
+      if (entry.agentId !== agentId) continue
+      if (deliverAnswer) entry.deliverAnswer = deliverAnswer
+      else delete entry.deliverAnswer
+    }
   }
 
   /** Drop every open question of an agent (it is being stopped or died). */
@@ -251,8 +262,8 @@ export class PendingQuestions {
     this.answered.clear()
   }
 
-  private remember(questionId: string, answer: string): void {
-    this.answered.set(questionId, answer)
+  private remember(questionId: string, agentId: string, answer: string): void {
+    this.answered.set(questionId, { agentId, answer })
     while (this.answered.size > ANSWERED_MEMORY) {
       const oldest = this.answered.keys().next()
       if (oldest.done) break

@@ -27,7 +27,7 @@ bekommen Führer (Virgilio, Beatrice, …), Subagenten die Figuren (Caronte,
 Ulisse, …), Workspaces die Orte (Paradiso, Inferno, …).
 
 > **Status: erster stabiler Meilenstein.** Vertragus funktioniert und ist
-> gründlich getestet — rund 1900 Tests, ein Coverage-Ratchet und ein echter
+> gründlich getestet — automatisierte Regressionstests, ein Coverage-Ratchet und ein echter
 > Electron-Boot-Check auf Windows, macOS und Linux. Es ist auch jung:
 > Downloads sind bewusst unsigniert, Releases enthalten keinen macOS-Build,
 > und Agenten laufen nicht in einer Sandbox. Diese Grenzen stehen dort, wo
@@ -99,11 +99,12 @@ keinen zweiten Pfad:
 | `await_events{cursor, timeoutSec?}` | Die Hauptschleife: blockieren, bis etwas passiert. Echter Long-Poll, kein Busy-Polling. |
 | `list_agents` / `read_output` / `inspect_agent` | Snapshot, roher Terminal-Schwanz und **read-only Git-Fakten** (status/diff/log/file) aus dem Worktree eines Agenten — Verifikation ist Host-Wahrheit, nicht das Wort des Agenten. Übergroße Ausgaben spillen in eine Datei (Preview + Pfad) statt gekappt zu werden. |
 | `stop_agent` | Beendet einen Agenten; Dateien, Branch und Worktree bleiben. |
+| `reseat_agent{agentId, providerId?, model?, effort?, reason?, note?}` | Ersetzt Worker oder Lead an einer Aufgabengrenze und erhält Identität, Worktree, Branch, Aufgabenvertrag und offene Fragen. |
 | `integrate_branch{agentId, branch}` | Der eine sanktionierte Merge-Pfad: ein **host-seitiger** Merge in das Worktree des Ziel-Agenten. Konflikte brechen sauber ab und werden gemeldet (`integrate_conflict`); eine Gate-Warnung markiert das Integrieren unverifizierter Arbeit. |
 | `ask_user{question, choices?, ticket?}` | Fragt den Menschen und blockiert auf die Antwort (Panel-Badge, CLI-Overlay und Handy); `choices` sind kurze Labels, die der Mensch antippt; Ticket-Resume überlebt den MCP-Request-Timeout. Das Volumen ist pro Profil (`questionMode`: none / few / thorough; Standard few, nur Prompt). |
 | `start_orchestrator{area, task, …}` | Startet einen **Lead** (siehe unten). |
 | `record_retro{summary, learnings, repoNotes?}` | Die Lauf-Retrospektive, einmal am Ende. |
-| `request_succession{reason, …}` | Ersetzt einen kontextvollen Root durch einen Nachfolger, der dasselbe Team, dieselbe Queue und dieselben offenen Fragen behält. |
+| `request_succession{reason, successor?, …}` | Ersetzt den Root durch einen Nachfolger mit demselben Team, derselben Queue und denselben Fragen; optional mit anderem Provider, Modell und Effort für diesen Lauf. |
 | `task_create` / `task_update` / `task_list` | Das geteilte **Task-Board**: Host-Zustand mit CAS-Revisionen, `blockedBy`-Abhängigkeiten und Ownership. Es überlebt Succession und Resume — der Plan lebt auf dem Host, nicht im Modell-Kontext. |
 | `search_runs{query, maxResults?}` | Volltextsuche über die vergangenen Lauf-Journale dieses Repositorys — das institutionelle Gedächtnis des Roots. |
 
@@ -146,6 +147,15 @@ Cursors an; der Ring behält die letzten 1000, das On-Disk-Journal alles.
   Ablehnungen; gepusht wird mit `git push -u` (nie `--force`), geöffnet mit
   der GitHub-CLI — kein `gh`, kein Problem: Die Karte zeigt dann den
   fertigen Compare-Link.
+  Stop beendet Agentenprozesse vor der Netzwerk-Finalisierung. Das Lauf-Archiv
+  zeigt den gespeicherten PR-Status und bietet nach Fehler oder Neustart einen
+  ausdrücklichen Wiederholungsversuch; Quit bricht offene Netzwerkversuche vor
+  seiner Shutdown-Obergrenze ab.
+
+Das Archiv durchsucht frühere Läufe und zeigt Branch/SHA, geänderte Dateien,
+gespeicherte Berichte und Übernahme-Events. Recovery kann einen früheren Lauf
+und Integrationsbranch wählen. Cleanup zeigt Speicherbedarf, Dirty-Status und
+nicht integrierte Commits; Löschen bleibt eine ausdrückliche Nutzeraktion.
 
 ## Der Mensch bleibt im Loop
 
@@ -293,9 +303,11 @@ es auf deinem PC läuft. Es ist **standardmäßig aus**; aktiviere es unter
   gespeichert (Electron `safeStorage`) und, damit der QR auch ohne
   Schlüsselbund einen Neustart überlebt, in einer 0600-Datei unter userData.
   Ihn neu zu erzeugen ist der einzige Weg, den Link zu ändern — es trennt
-  jedes gekoppelte Gerät. Das Handy behält den Pairing-Token zusätzlich in
-  `localStorage` und mintet still eine neue Session, wenn der Desktop neu
-  gestartet ist.
+  jedes gekoppelte Gerät. Nach der Registrierung löscht das Handy das QR-Geheimnis
+  und behält nur seine eigene Gerätekennung und Session in localStorage.
+  Der Host speichert einen Hash dieser Zugangsdaten. Widerrufen löscht den
+  Geräte-Hash und seine Sessions; danach kann sich das Gerät auch nach einem
+  Neustart nicht still erneut koppeln.
 - **Was ein Remote-Gerät kann.** Jedes Agenten-Terminal live ansehen,
   hineintippen, einen Workspace **mit Ziel** starten (der Host seedet es über
   denselben Handshake in den Orchestrator wie jede Assignment; Starten ohne

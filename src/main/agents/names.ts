@@ -79,4 +79,9 @@ export class NameAllocator {
   release(name: string): void {
     this.taken.delete(name)
   }
+
+  /** Reclaim a stopped identity after the host checked that it is not in use. */
+  reserve(name: string): void {
+    this.taken.add(name)
+  }
 }

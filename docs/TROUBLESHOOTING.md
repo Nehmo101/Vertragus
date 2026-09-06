@@ -103,10 +103,14 @@ Remote access is off by default and binds to your Tailscale address. If the
 settings show no address, Tailscale is not running or this machine is not in
 your tailnet.
 
-The pairing token is stored encrypted through the OS keyring. On a machine
-with a locked or absent keyring, unlocking fails — the settings say so.
+The pairing token is encrypted through the OS keyring when available and has
+a protected file fallback under userData, so a missing keyring does not rotate
+the QR on every restart. The settings report unavailable stored credentials.
 Regenerating the code is the only rotation path, and it severs every existing
-session immediately.
+session immediately. The QR is an enrollment secret: after pairing the phone
+erases it and retains only its individually revocable device credential.
+Revoking a device deletes its host credential hash and sessions, including
+when the device is offline. Re-enrollment requires the QR again.
 
 ## The panel looks black instead of translucent
 

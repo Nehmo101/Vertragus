@@ -24,6 +24,7 @@ const DEFAULT_CALL_TIMEOUT_MS = 20_000
 const MAX_CLIENTS = 4
 
 interface PendingCall {
+  client: WebSocket
   resolve: (value: unknown) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
@@ -39,6 +40,8 @@ export class BrowserBridge {
   private token: string
   private readonly clients = new Set<WebSocket>()
   private readonly pending = new Map<string, PendingCall>()
+  private readonly claims = new Map<number, string>()
+  private readonly ownerGenerations = new Map<string, number>()
   private nextId = 1
   private readonly wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD_BYTES })
   private readonly onToken?: (token: string) => void
@@ -73,6 +76,7 @@ export class BrowserBridge {
     this.onToken?.(this.token)
     for (const client of [...this.clients]) client.close()
     this.clients.clear()
+    this.claims.clear()
     this.failAll(new Error('pairing token rotated'))
     this.onChange?.()
     return this.token
@@ -120,6 +124,41 @@ export class BrowserBridge {
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, ...this.status() }))
   }
 
+  releaseOwner(owner: string): void {
+    this.ownerGenerations.set(owner, (this.ownerGenerations.get(owner) ?? 0) + 1)
+    for (const [tab, claimed] of this.claims) if (claimed === owner) this.claims.delete(tab)
+  }
+
+  releaseWorkspace(workspaceId: string): void {
+    const owners = new Set([...this.claims.values(), ...this.ownerGenerations.keys()])
+    for (const owner of owners) {
+      if (owner.startsWith(`${workspaceId}:`)) this.releaseOwner(owner)
+    }
+  }
+
+  async callOwned(owner: string, command: string, params: Record<string, unknown> = {}): Promise<unknown> {
+    const generation = this.ownerGenerations.get(owner) ?? 0
+    this.ownerGenerations.set(owner, generation)
+    if (command === 'tabs') return this.call(command, params)
+    let tabId = params.tabId as number | undefined
+    if (tabId === undefined && command !== 'navigate') {
+      tabId = [...this.claims].find(([, claimed]) => claimed === owner)?.[0]
+      if (tabId === undefined) throw new Error('Select an explicit tabId or navigate to create a task tab first')
+    }
+    if (tabId !== undefined) {
+      const claimant = this.claims.get(tabId)
+      if (claimant && claimant !== owner) throw new Error('browser_tab_owned_by_another_task')
+      this.claims.set(tabId, owner)
+    }
+    const result = await this.call(command, { ...params, ...(tabId === undefined ? {} : { tabId }) })
+    if (generation !== (this.ownerGenerations.get(owner) ?? 0)) throw new Error('browser_task_released')
+    if (result && typeof result === 'object' && 'error' in result) throw new Error(String(result.error))
+    if (command === 'navigate' && result && typeof result === 'object' && 'id' in result && typeof result.id === 'number') {
+      this.claims.set(result.id, owner)
+    }
+    return result
+  }
+
   async call(
     command: string,
     params: Record<string, unknown> = {},
@@ -141,7 +180,7 @@ export class BrowserBridge {
         reject(new Error('browser_timeout'))
       }, timeoutMs)
       timer.unref?.()
-      this.pending.set(id, { resolve, reject, timer })
+      this.pending.set(id, { client, resolve, reject, timer })
       try {
         client.send(JSON.stringify({ id, type: 'command', command, params }))
       } catch (error) {
@@ -153,6 +192,7 @@ export class BrowserBridge {
   }
 
   close(): void {
+    this.claims.clear()
     this.failAll(new Error('browser bridge closed'))
     for (const client of [...this.clients]) client.close()
     this.clients.clear()
@@ -180,7 +220,7 @@ export class BrowserBridge {
       if (message.type === 'hello') return
       if (message.type !== 'result' || typeof message.id !== 'string') return
       const pending = this.pending.get(message.id)
-      if (!pending) return
+      if (!pending || pending.client !== ws) return
       this.pending.delete(message.id)
       clearTimeout(pending.timer)
       if (message.ok === false) {
@@ -190,7 +230,15 @@ export class BrowserBridge {
       pending.resolve(message.result)
     })
     ws.on('close', () => {
+      const wasPrimary = [...this.clients][0] === ws
       this.clients.delete(ws)
+      if (wasPrimary) this.claims.clear()
+      for (const [id, pending] of this.pending) {
+        if (pending.client !== ws) continue
+        clearTimeout(pending.timer)
+        this.pending.delete(id)
+        pending.reject(new Error('browser_disconnected'))
+      }
       if (this.clients.size === 0) this.failAll(new Error('browser_disconnected'))
       this.onChange?.()
     })

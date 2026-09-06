@@ -3,7 +3,9 @@
  * login rate limiter. Pure logic with an injected clock and id source, so the
  * whole thing tests without a socket or a timer.
  *
- * Two secrets, two lifetimes:
+ * Pairing bootstraps a persistent, individually revocable device credential.
+ * Only its hash is stored on the host; sessions remain ephemeral.
+ * Two additional secrets, two lifetimes:
  * - the **pairing token** is the long-lived shared secret (256-bit), shown to
  *   the user as a QR / URL; regenerating it invalidates every session.
  * - a **session token** is minted per successful pairing, kept in memory only,
@@ -13,34 +15,11 @@
  * MCP server), and every failure is a flat rejection that leaks nothing about
  * which part was wrong — same posture the loopback MCP endpoint already holds.
  */
-import { randomBytes, timingSafeEqual } from 'node:crypto'
+import type { RemoteDevice, RemoteDeviceStore } from './deviceStore'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 
-/**
- * Idle lifetime of a session token before it must re-pair.
- *
- * What this bounds, said plainly: the life of one minted SESSION token. It does
- * not bound a paired device's access, and the remote client is the proof —
- * when a session ages out the server sends `session_revoked{reason:'expired'}`,
- * and `useRemote` answers it by re-pairing from the pairing token in
- * `localStorage`, with no user action and nothing on screen. End to end, the
- * expiry rotates a secret; a phone abandoned in a drawer on day 400 still has
- * access, because it still has the pairing token.
- *
- * That is deliberate — the alternative is sending every phone back to the QR
- * code every seven days, and a desktop restart already drops every in-memory
- * session — but it means this constant is NOT the answer to "how do I cut a
- * device off". Regenerating the pairing token is (it calls `revokeAll` and
- * invalidates every stored copy); see the `session_revoked` note in
- * `protocol.ts` for why the per-device answer needs a device identity the
- * protocol does not yet have.
- *
- * What it does buy is real but narrower: a session token that leaks on its own
- * — captured from a client that kept the session but not the pairing token, or
- * from a stale process — stops working after a week rather than never, and the
- * connected-clients list stops listing devices that have not been used in one.
- * `refreshesIdleTimer` (`server.ts`) is what keeps the window from renewing
- * itself forever on a client's own liveness traffic.
- */
+/** Session idle expiry rotates the ephemeral secret. Device credentials can renew
+ * it across restarts until that device is revoked or the pairing token rotates. */
 export const SESSION_IDLE_MS = 7 * 24 * 60 * 60 * 1_000
 
 /** Login attempts allowed per window before pairing is throttled. */
@@ -69,6 +48,7 @@ export function secretEquals(a: string | undefined, b: string | undefined): bool
 export interface AuthStoreDeps {
   /** The current pairing token; read fresh so a regeneration takes effect at once. */
   pairingToken: () => string | undefined
+  deviceStore?: RemoteDeviceStore
   now?: () => number
   newToken?: () => string
   idleMs?: number
@@ -81,6 +61,7 @@ export type PairResult =
   | { ok: false; reason: 'rate_limited' | 'invalid' }
 
 export class RemoteAuthStore {
+  private readonly devices = new Map<string, RemoteDevice>()
   private readonly sessions = new Map<string, RemoteSession>()
   private readonly attempts = new Map<string, number[]>()
   private readonly now: () => number
@@ -90,6 +71,7 @@ export class RemoteAuthStore {
   private readonly windowMs: number
 
   constructor(private readonly deps: AuthStoreDeps) {
+    for (const device of deps.deviceStore?.read() ?? []) this.devices.set(device.id, device)
     this.now = deps.now ?? Date.now
     this.newToken = deps.newToken ?? (() => randomBytes(32).toString('base64url'))
     this.idleMs = deps.idleMs ?? SESSION_IDLE_MS
@@ -120,6 +102,44 @@ export class RemoteAuthStore {
     })
     return { ok: true, session: token }
   }
+
+  /** Enroll from a QR secret, or renew using an independently revocable credential. */
+  authenticate(token: string, address: string, deviceCredential = false): PairResult & { deviceCredential?: string } {
+    if (!deviceCredential) {
+      const paired = this.pair(token, address)
+      if (!paired.ok) return paired
+      const session = this.sessions.get(paired.session)!
+      const credential = 'device.' + randomBytes(32).toString('base64url')
+      this.devices.set(session.id, {
+        id: session.id, credentialHash: this.hash(credential),
+        pairingHash: this.hash(this.deps.pairingToken() ?? ''),
+        remoteAddress: address, createdAt: session.createdAt, lastSeenAt: session.lastSeenAt
+      })
+      this.persistDevices()
+      return { ...paired, deviceCredential: credential }
+    }
+    if (this.isRateLimited(address)) return { ok: false, reason: 'rate_limited' }
+    this.recordAttempt(address)
+    const device = [...this.devices.values()].find((item) =>
+      secretEquals(item.credentialHash, this.hash(token)) &&
+      secretEquals(item.pairingHash, this.hash(this.deps.pairingToken() ?? '')))
+    if (!device) return { ok: false, reason: 'invalid' }
+    const session = this.newToken()
+    device.lastSeenAt = this.now()
+    device.remoteAddress = address
+    this.sessions.set(session, { id: device.id, token: session, createdAt: device.createdAt,
+      lastSeenAt: device.lastSeenAt, remoteAddress: address })
+    this.persistDevices()
+    return { ok: true, session, deviceCredential: token }
+  }
+
+  pairedDevices(): RemoteDevice[] {
+    return [...this.devices.values()].filter((device) =>
+      secretEquals(device.pairingHash, this.hash(this.deps.pairingToken() ?? '')))
+  }
+
+  private hash(token: string): string { return createHash('sha256').update(token).digest('hex') }
+  private persistDevices(): void { this.deps.deviceStore?.write([...this.devices.values()]) }
 
   /**
    * Validate a session token and refresh its idle timer. Returns the session
@@ -156,13 +176,15 @@ export class RemoteAuthStore {
 
   /** Revoke one session by its public id (from the connected-clients list). */
   revoke(id: string): boolean {
+    let revoked = this.devices.delete(id)
+    if (revoked) this.persistDevices()
     for (const [key, session] of this.sessions) {
       if (session.id === id) {
         this.sessions.delete(key)
-        return true
+        revoked = true
       }
     }
-    return false
+    return revoked
   }
 
   /** Drop every session — server disabled, or the pairing token regenerated. */

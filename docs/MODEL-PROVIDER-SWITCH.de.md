@@ -5,9 +5,7 @@ Deutsch | [English](MODEL-PROVIDER-SWITCH.md)
 Plan, um **Modell, Provider oder Effort-Level eines laufenden Agenten** zu
 wechseln — Root-Orchestrator wie Worker — ohne den Lauf wegzuwerfen.
 
-**Status:** nur Spec. Nichts davon ist in der Runtime. Die Orchestrator-Hälfte
-ist eine kleine Erweiterung der C6-Succession (als S1 bereits im Code); die
-Worker-Hälfte ist ein neues Tool ohne Vorläufer.
+**Status:** der explizite Reseat-Kern ist umgesetzt: Sitz-Overrides für Root-Nachfolger, Worker-/Lead-Wechsel an einer Aufgabengrenze, Preflight, Snapshot vor dem Kill, Token-Rotation, Generationstrennung, Fortführung von Aufgaben/Fragen und Host-Diagnose. Effektive Root-Sitze bleiben beim Journal-Recovery erhalten. Die In-Session-Optimierung `/model` bleibt eine Designoption; der Detailplan unten hält auch vorgesehene Validierung und Einführung fest.
 
 **Nicht dieses Feature:**
 
@@ -16,9 +14,9 @@ Worker-Hälfte ist ein neues Tool ohne Vorläufer.
 | Provider/Modell-Felder im Profil-Editor | Konfiguration für das *nächste* Play, nicht für den laufenden Run |
 | `start_agent{providerId, model}` | Wahl bei der Geburt, begrenzt durch die Profil-Slots |
 | C4 `start_agent{baseBranch}` | Ein *anderer* Agent macht auf einem Branch weiter — neuer Sitz, nicht derselbe |
-| C6 Succession | Dieselbe Feature-Familie, aber der Sitz behält heute den Provider des Profils |
-| Phase F `start_orchestrator{model}` | Ein verschachtelter Lead, einmal gestartet, nie neu besetzt |
-| `stop_agent` + `start_agent` | Der heutige Workaround — und er verliert stillschweigend Arbeit (siehe §3.2) |
+| C6 Succession | Root-Reseat nutzt den bestehenden Cutover mit einem Sitz-Override für den Nachfolger |
+| Phase F `start_orchestrator{model}` | Erzeugt einen verschachtelten Lead; späteres Reseat nutzt denselben expliziten Worker-/Lead-Pfad |
+| `stop_agent` + `start_agent` | Anderer Lebenszyklus: Arbeit bleibt erhalten, eine neue Identität erhält aber nicht denselben Sitz |
 
 **Ein-Satz-Urteil:** Ein laufendes CLI kann seinen Provider nicht wechseln —
 ein Wechsel ist also entweder ein provider-deklariertes In-Session-Kommando
@@ -46,8 +44,8 @@ Jeder echte Grund für einen Wechsel kommt aber *mitten im Lauf*:
   Meinung ist der ganze Sinn davon, sechs davon zu haben.
 - Der Mensch sieht ein Terminal und weiß es besser als der Lauf.
 
-Heute lauten die Antworten: Workspace neu starten (Lauf weg), oder
-`stop_agent` + `start_agent` (was das kostet, steht in §3.2), oder für den Root
+Vor Reseat waren die Optionen: Workspace neu starten, oder
+`stop_agent` + `start_agent` (anderer Lebenszyklus, siehe §3.2), oder für den Root
 schlicht gar nichts.
 
 ---
@@ -100,51 +98,35 @@ der Host von sich aus tut.
 
 ### 3.1 Der Orchestrator-Sitz
 
-Die C6-Succession führt bereits eine vollständige Sitzübergabe durch:
-`requestSuccession` friert ein Paket ein (`buildSuccessionPackage`),
-persistiert es, rotiert `orchToken`, spawnt und seedet den Nachfolger und
-tötet dann das PTY des Vorgängers — durchgehend mit derselben `EventQueue`,
-derselben `PendingQuestions` und denselben Subagenten.
-`replaceOrchestratorFromHost()` ist derselbe Pfad vom Host aus und akzeptiert
+C6-Succession friert ein Host-Paket ein, speichert es, prüft den angefragten
+Sitz, rotiert den Root-Token und seedet den Nachfolger über den bestehenden
+Cutover. Queue, Fragen und Team bleiben erhalten.
+`replaceOrchestratorFromHost(successor)` nutzt denselben Pfad und akzeptiert
 einen toten Vorgänger.
 
-Das Einzige, was es nicht kann, ist das Gehirn des Sitzes wechseln:
-`spawnOrchestratorRecord` liest `this.profile.orchestrator.providerId` und
-`this.profile.orchestrator.model` direkt. Ein Nachfolger ist damit immer
-dasselbe Modell wie der Amtsinhaber, dem der Kontext ausging — oder das
-Kontingent.
-
-Damit ist die Orchestrator-Hälfte dieses Features **ein Parameter plus ein
-Preflight**, kein neuer Mechanismus.
+Der optionale Nachfolger wählt Provider, Modell und Effort für diesen Lauf,
+ohne das Profil umzuschreiben. Sein Worktree startet vom Integrationsbranch
+des Vorgängers. Aktuelle Sitz-Fakten stehen im Journal und werden bei Recovery
+wiederhergestellt.
 
 ### 3.2 Der Worker-Sitz
 
-Es gibt kein Reseat. Das Nächstliegende ist `stop_agent{agentId}` gefolgt von
-`start_agent{role, providerId?, model?, baseBranch: <der Branch>}`. Das
-funktioniert — C3 und C4 machen Branch und Handoff-Block echt —, aber es ist
-nicht derselbe Sitz, und vier Dinge gehen verloren:
+`reseat_agent` und die Panel-Aktion ersetzen Worker oder Lead an einer
+geprüften Aufgabengrenze. Der Host prüft den Provider, erstellt vor dem Kill
+einen Snapshot, rotiert Zugangsdaten und seedet einen neuen Prozess im selben
+Worktree und Branch. Agentenidentität, Slot-Belegung, Assignment, strukturierter
+Ergebnisvertrag und offene Fragen bleiben erhalten. Kinder eines Leads bleiben
+bei diesem Lead.
 
-1. **Nicht committete Arbeit.** `stopAgent` geht direkt in `terminate`, und
-   das tötet das PTY. Nur `snapshotDone` committet einen schmutzigen Worktree,
-   und es läuft bei `agent_done`. Einen Worker mitten in der Aufgabe zu
-   stoppen wirft also alles weg, was er nicht committet hat — und die
-   Rollen-Prompts sagen Workern ausdrücklich, *nicht* zu committen. Das ist
-   die schärfste Kante des heutigen Workarounds.
-2. **Die offene Frage.** `terminate` ruft `questions.cancelForAgent`. Ein
-   Worker, der in `ask_orchestrator` parkt, verliert dabei seinen Waiter.
-3. **Identität.** Neue `agentId`, neuer Name (`names.release`), neues Fenster.
-   Der `ownerAgentId` des Task-Boards, jede Notiz, die der Orchestrator zu
-   diesem Agenten geschrieben hat, und jedes Event, das schon in der Queue
-   liegt, zeigen jetzt auf eine Leiche.
-4. **Der Provider ist nicht frei.** `beginAgent` löst den Slot über
-   `slotWithCapacity(role, {providerId})` auf, und das ist ein **harter
-   Fehler**, wenn kein Slot dieser Rolle den gewünschten Provider fährt. Einen
-   Reviewer von Codex auf Claude zu bewegen ist unmöglich, sofern das Profil
-   nicht zufällig einen Claude-Reviewer-Slot deklariert. Der Stop gibt den Slot
-   außerdem frei, sodass ein paralleles `start_agent` ihn vor dem Ersatz nimmt.
+Eine Generationstrennung weist verspätete Callbacks des Vorgängers zurück;
+eine frische CLI-Session trennt die Token-Nutzung. Retro-Ergebnisse werden dem
+Sitz zum Zeitpunkt der jeweiligen Meldung zugeordnet. Beschäftigte Agenten
+sowie fehlgeschlagene Preflights/Snapshots werden vor dem Cutover abgewiesen.
+Ein gestoppter Sitz lässt sich explizit erneut starten.
 
-Der Aufgabentext steht überhaupt nicht auf `AgentRecord`, also muss selbst ein
-perfekter Aufrufer die Aufgabe wortgleich behalten und neu senden.
+`stop_agent` beendet weiterhin einen Agenten und bewahrt Dateien und Branch;
+ein späteres `start_agent` erzeugt eine andere Identität. Es ersetzt nicht die
+Fortführung desselben Sitzes und seiner Fragen.
 
 ---
 

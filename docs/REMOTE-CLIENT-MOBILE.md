@@ -58,13 +58,13 @@ Not a UI bug. In `createRemoteController`:
 | Topic | Change |
 | --- | --- |
 | Stable link | Token additionally in `userData/remote-pairing.token` (0600). Never silently overwrite when the ciphertext cannot be unlocked. `Regenerate` remains the only rotation path. |
-| Phone stays paired | Pairing token + session in `localStorage`. After a desktop restart: silent re-pair via the stored token. |
+| Phone stays paired | Individual device credential + session in `localStorage`; the QR enrollment secret is erased after success. Restart renews through the device credential. Revocation deletes its host-side hash and sessions, including for offline devices. |
 | Scrolling | Document scroll, sticky header, no inner overflow on the list. Terminal as `position: fixed` on `visualViewport.height`. |
 | Reading | 17px body, 16px inputs, goals wrap, agent rows with role·status, 44px touch, warning banner for `ask_user`. |
 | Brand | Caprasimo/Figtree/JetBrains Mono, bronze/verdigris, the Fusione mark. |
 | Terminal | Larger default font, A+/A−, Esc/Tab/Enter/Ctrl-C/arrows, no auto-focus of the hidden xterm textarea on the phone. |
 
-The gateway allow-list stays at six verbs. No promote, no settings, no CLI
+The gateway allow-list contains seven verbs, including goal assignment. No promote, no settings, no CLI
 permission TUIs on the phone.
 
 ## Design ideas (implemented vs. later)

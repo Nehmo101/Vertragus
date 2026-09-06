@@ -7,6 +7,8 @@ import {
 } from './toolsSubagent'
 import { callTool, captureTools, FakeAgentHost, fakeRuntime } from './testing'
 import type { AgentEvent } from '@shared/schema/events'
+import { EventQueue } from './eventQueue'
+import { adoptSubtree } from './types'
 
 async function setup(askTimeoutMs = 50) {
   const runtime = fakeRuntime({ askTimeoutMs })
@@ -29,6 +31,25 @@ describe('subagent tool surface', () => {
 })
 
 describe('report_done', () => {
+  it('delivers to the adopting parent when the old parent dies during the snapshot', async () => {
+    const { runtime, tools, agentId } = await setup()
+    const leadEvents = new EventQueue()
+    runtime.leads.set('lead', { agentId: 'lead', area: 'review', events: leadEvents })
+    runtime.parentOf.set(agentId, 'lead')
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const snapshot = runtime.host.snapshotDone.bind(runtime.host)
+    vi.spyOn(runtime.host, 'snapshotDone').mockImplementation(async (...args) => {
+      await gate
+      return snapshot(...args)
+    })
+    const reporting = callTool(tools, 'report_done', { summary: 'Verified' })
+    await vi.waitFor(() => expect(runtime.host.snapshotDone).toHaveBeenCalled())
+    adoptSubtree(runtime, 'lead')
+    release()
+    expect((await reporting).json.ok).toBe(true)
+    expect(runtime.events.all().filter((event) => event.type === 'agent_done')).toHaveLength(1)
+  })
   it('pushes agent_done with the agent identity and defaults to success', async () => {
     const { runtime, tools, agentId, name } = await setup()
     const result = await callTool(tools, 'report_done', { summary: 'parser fixed, tests green' })

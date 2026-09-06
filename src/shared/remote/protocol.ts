@@ -210,36 +210,13 @@ export type ServerMessage =
   | { type: 'command_result'; id: string; ok: false; error: string }
   | { type: 'error'; message: string }
   /**
-   * The session this socket authenticated with is gone. `reason` says whether
-   * that was a DECISION about this device or merely its clock running out,
-   * because the two want opposite client behaviour: an expired session should
-   * be replaced silently from the stored pairing token (a desktop restart drops
-   * every in-memory session and must not send every phone back to the QR
-   * code), while a revoke the user performed in settings must not be undone by
-   * the revoked device re-pairing itself a second later.
-   *
-   * Optional so an older client — which ignores unknown fields and re-pairs
-   * either way — is not broken by a newer host; a client that understands it
-   * treats a missing value as `'expired'`.
-   *
-   * ## `'revoked'` is device management, not a security boundary
-   *
-   * Read the paragraph above literally: the revoke holds because the CLIENT
-   * chooses to honour it by deleting its own stored pairing token. Nothing on
-   * the host stops a device from presenting that same token to `/api/auth` a
-   * second later and being issued a fresh session, because the host has no way
-   * to tell one holder of the pairing token from another. So revoking a lost
-   * phone from settings ends its current session and drops it off the
-   * connected-clients list; it does not end its ACCESS. Regenerating the
-   * pairing token is the only revocation that holds against a client that does
-   * not cooperate, and it costs every other device a re-pair.
-   *
-   * The real fix is small and is written down here so the next person does not
-   * have to re-derive it: mint a device id at pair time, return it beside the
-   * session, have the client present it on every subsequent `/api/auth`, and
-   * keep a revoked-device set the host checks before minting. That is a
-   * protocol change on both ends plus persistence for the revoked set, which is
-   * why the shipped fix stops at making the reason honest.
+   * Expiry drops only the ephemeral session: the device credential may renew
+   * it across desktop restarts. A settings revoke removes the device's stored
+   * credential hash and every session of that identity, so renewal is refused
+   * by the host even if the client ignores this message. The client also drops
+   * its own credential and returns to pairing. Missing reason retains the
+   * legacy expiry behavior. Older retained pairing secrets migrate once to a
+   * device credential; the updated client then erases the universal secret.
    */
   | { type: 'session_revoked'; reason?: 'revoked' | 'expired' }
 

@@ -5,7 +5,7 @@
  * effective provider list, which is also what tells us whether this id is a
  * preset (and therefore resettable) and which ids are already taken.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ProviderConfig } from '@shared/schema/provider'
 import type { ProviderListEntry, VertragusAppApi } from '../../../preload'
@@ -39,6 +39,8 @@ export interface ProviderEditorState {
 
 export function useProviderEditor(providerId?: string): ProviderEditorState {
   const { t } = useTranslation()
+  const translate = useRef(t)
+  useEffect(() => { translate.current = t }, [t])
   const bridge = useMemo<VertragusAppApi | undefined>(() => window.vertragus?.app, [])
   const [draft, setDraft] = useState<ProviderDraft | null>(null)
   const [fatal, setFatal] = useState<string | null>(bridge ? null : t('common.bridgeMissing'))
@@ -49,6 +51,7 @@ export function useProviderEditor(providerId?: string): ProviderEditorState {
 
   useEffect(() => {
     if (!bridge) return
+    const t = translate.current
     let alive = true
     bridge.listProviders().then(
       (list) => {
@@ -69,7 +72,7 @@ export function useProviderEditor(providerId?: string): ProviderEditorState {
     return () => {
       alive = false
     }
-  }, [bridge, providerId, t])
+  }, [bridge, providerId])
 
   const update = useCallback((mutate: (current: ProviderDraft) => ProviderDraft) => {
     setDraft((current) => (current ? mutate(current) : current))

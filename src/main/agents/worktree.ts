@@ -22,8 +22,10 @@
  *    branch survives either way.
  */
 import { execFile } from 'node:child_process'
-import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { cleanProjectConfig, suspendProjectConfig } from '@main/mcp/projectConfigOverlay'
 import { promisify } from 'node:util'
 import { WORKTREE_SECRET_FILES } from '@main/mcp/attach'
 
@@ -217,9 +219,8 @@ export async function createWorktree(
       if (error.code !== 'EEXIST') throw error
     }
   )
-  await ensureSecretExcludes(repoPath)
-
   try {
+    await ensureSecretExcludes(repoPath, options)
     const args = ['worktree', 'add', path, '-b', branch]
     if (options.startPoint) args.push(options.startPoint)
     await git(args, repoPath)
@@ -253,10 +254,38 @@ export async function commitWorktree(
     '-c',
     `user.name=${SNAPSHOT_AUTHOR_NAME}`,
     '-c',
-    `user.email=${SNAPSHOT_AUTHOR_EMAIL}`
+    `user.email=${SNAPSHOT_AUTHOR_EMAIL}`,
+    '-c',
+    'commit.gpgsign=false'
   ]
   try {
-    await git(['add', '-A'], worktreePath)
+    await git(['add', '-A', '--', '.', ...WORKTREE_SECRET_FILES.map((file) => `:(exclude)${file}`)], worktreePath)
+    for (const file of WORKTREE_SECRET_FILES) {
+      const path = join(worktreePath, file)
+      let raw: string
+      try { raw = await readFile(path, 'utf8') } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          await git(['update-index', '--force-remove', '--', file], worktreePath)
+          continue
+        }
+        throw error
+      }
+      const cleaned = cleanProjectConfig(path, raw)
+      const { stdout: tracked } = await git(['ls-files', '--stage', '--', file], worktreePath)
+      if (!tracked.trim()) continue
+      if (cleaned === undefined) {
+        await git(['update-index', '--force-remove', '--', file], worktreePath)
+        continue
+      }
+      const temporary = await mkdtemp(join(tmpdir(), 'vertragus-index-'))
+      try {
+        const blobPath = join(temporary, 'config')
+        await writeFile(blobPath, cleaned)
+        const { stdout } = await git(['hash-object', '-w', '--', blobPath], worktreePath)
+        const mode = tracked.trim().split(/\s+/)[0]!
+        await git(['update-index', '--add', '--cacheinfo', mode, stdout.trim(), file], worktreePath)
+      } finally { await rm(temporary, { recursive: true, force: true }) }
+    }
     await git([...identity, 'commit', '-m', message, '--no-verify'], worktreePath)
   } catch (error) {
     throw new Error(`git snapshot commit failed in ${worktreePath}: ${gitErrorMessage(error)}`)
@@ -267,6 +296,8 @@ export async function commitWorktree(
 export type MergeOutcome =
   | { ok: true; headSha: string }
   | { ok: false; conflictFiles: string[]; message: string }
+
+const mergeTails = new Map<string, Promise<void>>()
 
 /**
  * E1: merge `branch` into the checkout at `worktreePath` — the host-side
@@ -280,12 +311,38 @@ export async function mergeBranchIntoWorktree(
   branch: string,
   deps: WorktreeDeps = {}
 ): Promise<MergeOutcome> {
+  const absolute = resolve(worktreePath)
+  const key = process.platform === 'win32' ? absolute.toLowerCase() : absolute
+  const previous = mergeTails.get(key) ?? Promise.resolve()
+  const operation = previous.then(() => mergeWithProjectConfigs(worktreePath,branch,deps))
+  const tail = operation.then(() => undefined,() => undefined)
+  mergeTails.set(key,tail)
+  try {return await operation}
+  finally {if (mergeTails.get(key) === tail) mergeTails.delete(key)}
+}
+
+async function mergeWithProjectConfigs(worktreePath:string,branch:string,deps:WorktreeDeps): Promise<MergeOutcome> {
+  const restore: Array<() => void> = []
+  try {
+    for (const file of WORKTREE_SECRET_FILES) {
+      const resume = suspendProjectConfig(join(worktreePath,file))
+      if (resume) restore.push(resume)
+    }
+    return await mergeLogicalWorktree(worktreePath,branch,deps)
+  } finally {
+    for (const resume of restore.reverse()) resume()
+  }
+}
+
+async function mergeLogicalWorktree(worktreePath:string,branch:string,deps:WorktreeDeps): Promise<MergeOutcome> {
   const git = deps.git ?? defaultGitRunner
   const identity = [
     '-c',
     `user.name=${SNAPSHOT_AUTHOR_NAME}`,
     '-c',
-    `user.email=${SNAPSHOT_AUTHOR_EMAIL}`
+    `user.email=${SNAPSHOT_AUTHOR_EMAIL}`,
+    '-c',
+    'commit.gpgsign=false'
   ]
   try {
     await git([...identity, 'merge', '--no-edit', branch], worktreePath)
@@ -320,18 +377,14 @@ export async function mergeBranchIntoWorktree(
  * unrestricted Run Everything config, and an agent running `git add -A` in
  * its own worktree must not be able to commit them into the user's history.
  * Exclude (not `.gitignore`) on purpose — it never touches the user's own
- * tracked files, and a `.cursor/mcp.json` the user tracks deliberately keeps
- * showing its diff. Skipped when `<repo>/.git` is not a directory (the repo
- * is itself a linked worktree); idempotent otherwise.
+ * tracked files. Tracked configurations are sanitized separately in the
+ * snapshot index. Git resolves the common exclude path even when the profile
+ * itself names a linked worktree; adding missing patterns is idempotent.
  */
-async function ensureSecretExcludes(repoPath: string): Promise<void> {
-  const gitDir = join(repoPath, '.git')
-  try {
-    if (!(await stat(gitDir)).isDirectory()) return
-  } catch {
-    return
-  }
-  const excludePath = join(gitDir, 'info', 'exclude')
+async function ensureSecretExcludes(repoPath: string, deps: WorktreeDeps): Promise<void> {
+  const { stdout } = await (deps.git ?? defaultGitRunner)(['rev-parse', '--git-path', 'info/exclude'], repoPath)
+  if (!stdout.trim()) return
+  const excludePath = resolve(repoPath, stdout.trim())
   let current = ''
   try {
     current = await readFile(excludePath, 'utf8')

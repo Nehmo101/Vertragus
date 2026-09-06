@@ -524,3 +524,43 @@ describe('startMcpServer', () => {
     await sub.close()
   })
 })
+
+it('requires a fresh handshake after root and worker rotation and rejects only the old worker token', async () => {
+  const server = await startMcpServer()
+  const registered = server.registerWorkspace(context({ workspaceId: 'rotation' }))
+  const clients: Client[] = []
+  const connect = async (url: string): Promise<void> => {
+    const client = new Client({ name: 'rotation-test', version: '1' })
+    clients.push(client)
+    await client.connect(new StreamableHTTPClientTransport(new URL(url)))
+  }
+  try {
+    await connect(registered.orchestratorUrl)
+    expect(await registered.waitForSession({ kind: 'orchestrator' }, 10)).toBe(true)
+    registered.rotateOrchestratorToken()
+    expect(await registered.waitForSession({ kind: 'orchestrator' }, 10)).toBe(false)
+    const old = registered.subagentUrl('alice')
+    await connect(old)
+    const sibling = registered.subagentUrl('bob')
+    const next = registered.rotateSubagentToken('alice')
+    expect(await registered.waitForSession({ kind: 'subagent', agentId: 'alice' }, 10)).toBe(false)
+    expect((await fetch(old)).status).toBe(401)
+    await connect(next.subagentUrl)
+    await connect(sibling)
+    expect(await registered.waitForSession({ kind: 'subagent', agentId: 'alice' }, 10)).toBe(true)
+    const oldLead = registered.leadUrl('leader')
+    await connect(oldLead)
+    registered.rotateSubagentToken('leader', 'lead')
+    expect((await fetch(oldLead)).status).toBe(401)
+    expect(await registered.waitForSession({ kind: 'lead', agentId: 'leader' }, 10)).toBe(false)
+    const nextLead = registered.leadUrl('leader')
+    await connect(nextLead)
+    registered.revokeSubagentToken('leader', 'lead')
+    expect((await fetch(nextLead)).status).toBe(401)
+    registered.revokeSubagentToken('alice')
+    expect((await fetch(next.subagentUrl)).status).toBe(401)
+  } finally {
+    await Promise.all(clients.map((client) => client.close()))
+    await server.close()
+  }
+})

@@ -13,7 +13,9 @@
  * language the tool contract is not written in, for no human's benefit.
  */
 import { readFile } from 'node:fs/promises'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { isAbsolute, relative, resolve, join } from 'node:path'
+import { cleanProjectConfig } from '@main/mcp/projectConfigOverlay'
+import { WORKTREE_SECRET_FILES } from '@main/mcp/attach'
 import { defaultGitRunner, type WorktreeDeps } from './worktree'
 
 export const INSPECT_VIEWS = ['status', 'diff', 'log', 'file'] as const
@@ -156,7 +158,22 @@ export async function snapshotWorktree(
     gitText(['status', '--porcelain', '--untracked-files=all'], worktreePath, deps),
     gitText(['diff', '--stat', 'HEAD'], worktreePath, deps)
   ])
-  const porcelainTrimmed = porcelain.replace(/\s+$/, '')
+  const logicalLines: string[] = []
+  for (const line of porcelain.replace(/\s+$/, '').split(/\r?\n/)) {
+    const path = line.slice(3).replace(/^"|"$/g,'')
+    if (WORKTREE_SECRET_FILES.some((file) => file === path)) {
+      try {
+        const cleaned = cleanProjectConfig(join(worktreePath,path),await readFile(join(worktreePath,path),'utf8'))
+        let head: string | undefined
+        try { head = await gitText(['show',`HEAD:${path}`],worktreePath,deps) } catch { /* untracked */ }
+        if (cleaned === head) continue
+        if (path.endsWith('.json') && cleaned !== undefined && head !== undefined &&
+            JSON.stringify(JSON.parse(cleaned)) === JSON.stringify(JSON.parse(head))) continue
+      } catch { /* malformed or unknown overlay remains visibly dirty */ }
+    }
+    logicalLines.push(line)
+  }
+  const porcelainTrimmed = logicalLines.filter(Boolean).join('\n')
   const changedFiles = parsePorcelainPaths(porcelainTrimmed)
   return {
     branch: branchRaw.trim(),
@@ -164,7 +181,7 @@ export async function snapshotWorktree(
     porcelain: porcelainTrimmed,
     uncommitted: porcelainTrimmed.length > 0,
     changedFiles,
-    diffStat: cap(diffStat.trim(), INSPECT_DIFFSTAT_MAX)
+    diffStat: porcelainTrimmed ? cap(diffStat.trim(), INSPECT_DIFFSTAT_MAX) : ''
   }
 }
 

@@ -68,6 +68,8 @@ class FakeMcp implements McpServerHandle {
     this.lastRuntime = runtime
     return {
       runtime,
+      rotateSubagentToken: (agentId: string) => ({subagentUrl: 'http://localhost/mcp?agent=' + agentId}),
+      revokeSubagentToken: () => undefined,
       orchestratorUrl: `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&token=${ctx.orchToken}`,
       subagentUrl: (agentId: string) =>
         `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&agent=${agentId}&token=${ctx.subToken}`,
@@ -692,6 +694,42 @@ describe('startWorkspace', () => {
 })
 
 describe('stopWorkspace', () => {
+  it('aborts slow network finalization on the explicit quit deadline after stopping PTYs', async () => {
+    let signal: AbortSignal | undefined
+    const openPullRequest: NonNullable<WorkspaceDeps['openPullRequest']> = async (_input,deps) => {
+      signal = deps?.signal
+      await new Promise<void>((_resolve,reject) => {
+        if (signal?.aborted) reject(signal.reason)
+        else signal?.addEventListener('abort',()=>reject(signal?.reason),{once:true})
+      })
+      return {ok:true,url:'https://github.com/a/b/pull/1',created:true}
+    }
+    const {manager,spawns} = harness({openPullRequest,worktreeDeps:{git:async(args)=>({stdout:args[0]==='rev-list'?'3':args.includes('--abbrev-ref')?'main':'',stderr:''})}})
+    await manager.startWorkspace(testProfile({automation:{autoPr:true}}))
+    await manager.stopAll({finalizationTimeoutMs:20})
+    expect(signal?.aborted).toBe(true)
+    expect(spawns[0]!.pty.isAlive).toBe(false)
+  })
+
+  it('stops all PTYs before waiting for slow finalization and deduplicates concurrent stops', async () => {
+    const {manager,log} = harness()
+    const first = await manager.startWorkspace(testProfile())
+    const second = await manager.startWorkspace(testProfile({id:'second'}))
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {release = resolve})
+    const finalize = vi.spyOn(first.workspace,'finishRunAutomation').mockImplementation(async () => { await blocked; return undefined })
+    const stop = manager.stopWorkspace(first.workspace.workspaceId)
+    const all = manager.stopAll()
+    await vi.waitFor(() => {
+      expect(log).toContain(`close:${first.orchestrator.agentId}`)
+      expect(log).toContain(`close:${second.orchestrator.agentId}`)
+      expect(finalize).toHaveBeenCalledTimes(1)
+    })
+    release()
+    await Promise.all([stop,all])
+    expect(manager.list()).toHaveLength(0)
+  })
+
   it('stops every agent before it unregisters — the queue closes last', async () => {
     const { manager, log } = harness()
     const running = await manager.startWorkspace(testProfile())
@@ -856,7 +894,7 @@ describe('retro finalization', () => {
       profileId: 'profile-1',
       summary: 'Sauberer Lauf.'
     })
-    expect(finalized[0]!.events.map((event) => event.type)).toEqual([
+    expect(finalized[0]!.events.filter((event) => event.type !== 'agent_boot').map((event) => event.type)).toEqual([
       'agent_started',
       'agent_done'
     ])

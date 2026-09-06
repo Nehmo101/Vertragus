@@ -89,6 +89,9 @@ vi.mock('@main/workspace/listRuns', () => ({
   listRuns: vi.fn(async () => []),
   readRun: vi.fn(async () => undefined)
 }))
+vi.mock('@main/workspace/runReview', () => ({getRunReview:vi.fn(async()=>({workspaceId:'ws-1',branches:[],events:[]}))}))
+vi.mock('@main/workspace/runFinalization', () => ({retryRunFinalization:vi.fn(async()=>({status:'completed',attempts:2,updatedAt:1}))}))
+vi.mock('@main/workspace/searchRuns', () => ({searchRuns:vi.fn(async()=>({hits:[],searchedRuns:0,skipped:[]}))}))
 
 import { ipcMain } from 'electron'
 import { isPanelWindowSender } from '@main/windows/panel'
@@ -1649,6 +1652,63 @@ describe('retro', () => {
 })
 
 describe('runs archive IPC', () => {
+  it.each([APP_CHANNELS.runsRecovery,APP_CHANNELS.runsReview,APP_CHANNELS.runsRetryFinalization])('protects %s with profile/run validation and panel authorization', async(channel)=>{
+    for (const payload of [undefined,{}, {profileId:'p1'}, {workspaceId:'ws-1'}, {profileId:'p1',workspaceId:'../escape'}]) {
+      await expect(Promise.resolve(h.ipc.invoke(channel,PANEL_ID,payload))).rejects.toThrow('Invalid run request')
+    }
+    await expect(Promise.resolve(h.ipc.invoke(channel,PANEL_ID,{profileId:'missing',workspaceId:'ws-1'}))).rejects.toThrow('Unknown profile')
+    expect(()=>h.ipc.invoke(channel,CLI_ID,{profileId:'p1',workspaceId:'ws-1'})).toThrow(/not the panel/)
+  })
+
+  it('returns host recovery/review and explicitly retries finalization only after run lookup',async()=>{
+    const {getRunReview} = await import('@main/workspace/runReview')
+    const {retryRunFinalization} = await import('@main/workspace/runFinalization')
+    const review = {workspaceId:'ws-1',branches:[],events:[],baseBranch:'vertragus/run/root'}
+    vi.mocked(getRunReview).mockResolvedValue(review)
+    for (const channel of [APP_CHANNELS.runsRecovery,APP_CHANNELS.runsReview]) {
+      expect(await h.ipc.invoke(channel,PANEL_ID,{profileId:'p1',workspaceId:'ws-1'})).toEqual(review)
+    }
+    expect(await h.ipc.invoke(APP_CHANNELS.runsRetryFinalization,PANEL_ID,{profileId:'p1',workspaceId:'ws-1'})).toMatchObject({status:'completed'})
+    expect(retryRunFinalization).toHaveBeenCalledWith('C:/git/demo','ws-1')
+    vi.mocked(getRunReview).mockRejectedValueOnce(new Error('Unknown run'))
+    await expect(Promise.resolve(h.ipc.invoke(APP_CHANNELS.runsReview,PANEL_ID,{profileId:'p1',workspaceId:'ws-missing'}))).rejects.toThrow('Unknown run')
+  })
+
+  it('searches only this profile and preserves named search gaps',async()=>{
+    const {searchRuns} = await import('@main/workspace/searchRuns')
+    const {listRuns} = await import('@main/workspace/listRuns')
+    vi.mocked(listRuns).mockResolvedValue([{workspaceId:'mine',status:'stopped'}])
+    vi.mocked(searchRuns).mockResolvedValue({hits:[{workspaceId:'mine',matches:[],totalMatches:1},{workspaceId:'foreign',matches:[],totalMatches:1}],searchedRuns:2,skipped:['large']})
+    expect(await h.ipc.invoke(APP_CHANNELS.runsSearch,PANEL_ID,{profileId:'p1',query:'parser'})).toMatchObject({hits:[{workspaceId:'mine'}],skipped:['large']})
+    for (const payload of [undefined,{}, {profileId:'missing',query:'x'},{profileId:'p1'}, {profileId:'p1',query:'x'.repeat(2001)}]) {
+      await expect(Promise.resolve(h.ipc.invoke(APP_CHANNELS.runsSearch,PANEL_ID,payload))).rejects.toThrow('Invalid run search')
+    }
+  })
+
+  it('passes selected resume run/base through but refuses malformed ids and branches',async()=>{
+    const resume = vi.spyOn(h.directory,'resume')
+    await h.ipc.invoke(APP_CHANNELS.workspacesResume,PANEL_ID,{profileId:'p1',workspaceId:'old-run',baseBranch:'vertragus/run/root'})
+    expect(resume).toHaveBeenCalledWith('p1',expect.objectContaining({workspaceId:'old-run',baseBranch:'vertragus/run/root'}))
+    await h.ipc.invoke(APP_CHANNELS.workspacesResume,PANEL_ID,'p1')
+    for (const workspaceId of ['../escape',3]) {
+      await expect(Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesResume,PANEL_ID,{profileId:'p1',workspaceId}))).rejects.toThrow('Invalid resume run id')
+    }
+    for (const baseBranch of [3,'x'.repeat(501)]) {
+      await expect(Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesResume,PANEL_ID,{profileId:'p1',baseBranch}))).rejects.toThrow('Invalid resume base branch')
+    }
+  })
+
+  it('passes an explicit replacement seat and strips the transport workspace id',async()=>{
+    h.directory.reseatAgent = vi.fn(async()=>undefined)
+    await h.ipc.invoke(APP_CHANNELS.workspacesReseatAgent,PANEL_ID,{workspaceId:'w1',agentId:'a1',providerId:'codex',model:'gpt-5.4',effort:'high'})
+    expect(h.directory.reseatAgent).toHaveBeenCalledWith('w1',{agentId:'a1',providerId:'codex',model:'gpt-5.4',effort:'high'})
+    for (const payload of [{},{workspaceId:'w1'}, {workspaceId:'w1',agentId:' '}, {workspaceId:'w1',agentId:4}, {workspaceId:'w1',agentId:'a1',note:'x'.repeat(20001)}, {workspaceId:'w1',agentId:'a1',model:3}]) {
+      await expect(Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesReseatAgent,PANEL_ID,payload))).rejects.toThrow(/Invalid reseat/)
+    }
+    h.directory.reseatAgent = undefined
+    await expect(Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesReseatAgent,PANEL_ID,{workspaceId:'w1',agentId:'a1'}))).rejects.toThrow('unavailable')
+  })
+
   it('lists and gets runs for the panel only', async () => {
     const { listRuns, readRun } = await import('@main/workspace/listRuns')
     vi.mocked(listRuns).mockResolvedValue([

@@ -1259,7 +1259,7 @@ describe('multi-orchestration — F', () => {
     )
     // S4: the task tools are shared with the root — same board, fenced owners.
     expect([...leadTools.keys()].sort()).toEqual(
-      ['start_agent', 'send_to_agent', 'await_events', 'list_agents', 'stop_agent', 'read_output', 'inspect_agent', 'integrate_branch', 'task_create', 'task_update', 'task_list'].sort()
+      ['reseat_agent', 'start_agent', 'send_to_agent', 'await_events', 'list_agents', 'stop_agent', 'read_output', 'inspect_agent', 'integrate_branch', 'task_create', 'task_update', 'task_list'].sort()
     )
     // Depth 1 and root-only surface enforced by ABSENCE, not by prompt.
     expect(leadTools.has('start_orchestrator')).toBe(false)

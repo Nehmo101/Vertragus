@@ -135,6 +135,8 @@ export interface TerminalTaskEvent {
 export interface TerminalBootEvent {
   agentId: string
   boot: TerminalBootPhase | null
+  meta?: AgentMeta
+  generation?: number
 }
 
 /** Push payload of {@link TERMINAL_CHANNELS.session} — host chrome snapshot. */
@@ -627,7 +629,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
 
       const record: AgentRecord = {
         entry,
-        attached: false,
+        attached: previous?.attached ?? false,
         pending: '',
         timer: undefined,
         exit: null,
@@ -640,6 +642,10 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
         unsubscribe: []
       }
       agents.set(agentId, record)
+      if (record.attached) {
+        host.send(agentId, TERMINAL_CHANNELS.boot, {agentId,boot:null,meta:entry.meta,generation:Date.now()} satisfies TerminalBootEvent)
+        host.send(agentId, TERMINAL_CHANNELS.data, {agentId,data:'\x1b[2J\x1b[H'+entry.pty.snapshot()})
+      }
       record.unsubscribe.push(entry.pty.onData((data) => onChunk(record, data)))
       record.unsubscribe.push(
         entry.pty.onExit((info) => {

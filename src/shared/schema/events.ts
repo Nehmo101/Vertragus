@@ -9,9 +9,15 @@
  */
 import { z } from 'zod'
 import { questionChoicesFieldSchema } from '../questionChoices'
+import { agentSeatSchema } from './reseat'
+import { SUCCESSION_REASONS } from './handoff'
+import { TERMINAL_BOOT_PHASES } from '../terminalBoot'
 
 export const AGENT_EVENT_TYPES = [
   'agent_started',
+  'agent_boot',
+  'agent_reseated',
+  'agent_reseat_failed',
   'agent_start_failed',
   'agent_done',
   'agent_question',
@@ -116,6 +122,22 @@ const agentStartedPayload = z.object({
   taskSubject: z.string().min(1).max(200).optional()
 })
 
+const agentBootPayload = z.object({
+  type: z.literal('agent_boot'), ...identity,
+  phase: z.enum(TERMINAL_BOOT_PHASES).nullable(),
+  elapsedMs: z.number().nonnegative()
+})
+const agentReseatedPayload = z.object({
+  type: z.literal('agent_reseated'), ...identity,
+  generation: z.number().int().positive(),
+  from: agentSeatSchema, to: agentSeatSchema,
+  reason: z.string(), branch: z.string()
+})
+const agentReseatFailedPayload = z.object({
+  type: z.literal('agent_reseat_failed'), ...identity,
+  generation: z.number().int().positive(), message: z.string()
+})
+
 /**
  * A start that was reserved (the `start_agent` call already returned the
  * agentId) but never came up: worktree creation, spawn or the seed handshake
@@ -146,6 +168,7 @@ const agentDonePayload = z.object({
   branch: z.string().min(1).optional(),
   headSha: z.string().min(1).optional(),
   uncommitted: z.boolean().optional(),
+  snapshotError: z.string().max(2000).optional(),
   changedFiles: z.array(z.string().min(1).max(400)).max(80).optional(),
   diffStat: z.string().max(850).optional(),
   /**
@@ -348,12 +371,13 @@ const budgetWarningPayload = z.object({
 const orchestratorHandoffStartedPayload = z.object({
   type: z.literal('orchestrator_handoff_started'),
   ...identity,
-  reason: z.enum(['context_full', 'long_run', 'user_requested', 'other']),
+  reason: z.enum(SUCCESSION_REASONS),
   eventCursor: z.number().int().nonnegative(),
   successorAgentId: z.string().min(1)
 })
 
 const orchestratorStartedPayload = z.object({
+  ...agentSeatSchema.partial().shape,
   type: z.literal('orchestrator_started'),
   ...identity,
   predecessorAgentId: z.string().min(1),
@@ -369,6 +393,9 @@ const orchestratorHandoffFailedPayload = z.object({
 
 /** Event body as produced by a caller — no `seq`/`ts` yet. */
 export const agentEventPayloadSchema = z.discriminatedUnion('type', [
+  agentBootPayload,
+  agentReseatedPayload,
+  agentReseatFailedPayload,
   agentStartedPayload,
   agentStartFailedPayload,
   agentDonePayload,
@@ -405,6 +432,9 @@ const envelope = {
 }
 
 export const agentEventSchema = z.discriminatedUnion('type', [
+  agentBootPayload.extend(envelope),
+  agentReseatedPayload.extend(envelope),
+  agentReseatFailedPayload.extend(envelope),
   agentStartedPayload.extend(envelope),
   agentStartFailedPayload.extend(envelope),
   agentDonePayload.extend(envelope),

@@ -19,6 +19,7 @@ export { USER_QUESTION_AGENT_ID }
 export interface TerminalQuestionInbox {
   questionId: string
   question: string
+  choices?: string[]
   /** Registry addressee: {@link USER_QUESTION_AGENT_ID} or the asking agent. */
   agentId: string
   /** Asking agent's Commedia name; absent for `ask_user`. */
@@ -28,13 +29,14 @@ export interface TerminalQuestionInbox {
 /** The workspace row the panel list already computed — enough to pick an inbox. */
 export interface CliQuestionWorkspace {
   workspaceId: string
-  userQuestion?: { questionId: string; question: string }
+  userQuestion?: { questionId: string; question: string; choices?: string[] }
   agents: ReadonlyArray<{
     agentId: string
     name: string
     roleId: string
     pendingQuestion?: string
     pendingQuestionId?: string
+    pendingQuestionChoices?: string[]
   }>
 }
 
@@ -76,6 +78,7 @@ export function cliQuestionContext(
     open.push({
       questionId: asked.questionId,
       question: asked.question.trim(),
+      ...(asked.choices?.length ? { choices: [...asked.choices] } : {}),
       agentId: USER_QUESTION_AGENT_ID
     })
   }
@@ -85,6 +88,7 @@ export function cliQuestionContext(
     open.push({
       questionId: agent.pendingQuestionId,
       question,
+      ...(agent.pendingQuestionChoices?.length ? { choices: [...agent.pendingQuestionChoices] } : {}),
       agentId: agent.agentId,
       fromName: agent.name
     })
@@ -136,6 +140,7 @@ export function sameQuestionInbox(
     left.questionId === right.questionId &&
     left.agentId === right.agentId &&
     left.question === right.question &&
-    left.fromName === right.fromName
+    left.fromName === right.fromName &&
+    JSON.stringify(left.choices ?? []) === JSON.stringify(right.choices ?? [])
   )
 }

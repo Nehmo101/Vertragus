@@ -5,6 +5,7 @@ import { OnboardingCard } from './OnboardingCard'
 import { shouldShowOnboarding } from './onboardingViewModel'
 import { PanelFooter } from './PanelFooter'
 import { ProfileRow } from './ProfileRow'
+import { DecisionInbox } from './DecisionInbox'
 import { WorkspaceCard } from './WorkspaceCard'
 import { ChevronIcon, CloseIcon, MinusIcon } from './icons'
 import { trackPanelPointer } from './pointerOver'
@@ -106,6 +107,7 @@ export function PanelApp(): React.JSX.Element {
       <div className="panel-divider" />
 
       <div className="panel-scroll">
+        <DecisionInbox workspaces={workspaces} onAnswer={panel.answerQuestion} onFocus={panel.openTimeline} />
         {/*
           WP-7: the first-run card. Mounted only while there is no profile, so
           its two shell-outs (provider health, login status) run when somebody

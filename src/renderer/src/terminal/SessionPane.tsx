@@ -8,10 +8,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CliLogEntry, CliSession } from '@shared/cliSession'
+import { useDraft } from '../lib/useDraft'
+import { questionChoicesDisplay } from '@shared/questionChoicesDisplay'
 import HoundLogo from '../panel/HoundLogo'
 
 interface Props {
   session: CliSession
+  agentId: string
   task?: string
   running: boolean
   onFollowUp(text: string): Promise<void>
@@ -22,6 +25,7 @@ interface Props {
 
 export function SessionPane({
   session,
+  agentId,
   task,
   running,
   onFollowUp,
@@ -29,12 +33,20 @@ export function SessionPane({
   focusComposer
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
-  const [draft, setDraft] = useState('')
-  const [answer, setAnswer] = useState('')
+  const followUpDraft = useDraft(`workspace.${session.workspaceId}.${agentId}.composer`, '')
+  const { value: draft, set: setDraft } = followUpDraft
+  const question = session.userQuestion ?? session.pendingQuestion
+  const answerDraft = useDraft(`answer.${session.userQuestion ? 'user' : agentId}.${question?.questionId ?? ''}`, '')
+  const { value: answer, set: setAnswer } = answerDraft
+  const display = questionChoicesDisplay(question?.question ?? '', question?.choices)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const logRef = useRef<HTMLDivElement>(null)
+  const followLog = useRef(true)
+  const [newEvents, setNewEvents] = useState(0)
+  const lastLog = session.log[session.log.length - 1]
+  const logVersion = lastLog ? `${lastLog.ts}:${lastLog.kind}:${lastLog.text}` : ''
 
   useEffect(() => {
     if (focusComposer) composerRef.current?.focus()
@@ -43,10 +55,10 @@ export function SessionPane({
   useEffect(() => {
     const node = logRef.current
     if (!node) return
-    node.scrollTop = node.scrollHeight
-  }, [session.log.length])
+    if (followLog.current) node.scrollTop = node.scrollHeight
+    else setNewEvents((count) => count + 1)
+  }, [logVersion])
 
-  const question = session.userQuestion ?? session.pendingQuestion
   const questionIsUser = Boolean(session.userQuestion)
 
   const submitFollowUp = (): void => {
@@ -54,22 +66,24 @@ export function SessionPane({
     if (!text || busy) return
     setBusy(true)
     setError(null)
+    const version = followUpDraft.version()
     void onFollowUp(text)
-      .then(() => setDraft(''))
+      .then(() => followUpDraft.clear(version))
       .catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : String(cause))
       })
       .finally(() => setBusy(false))
   }
 
-  const submitAnswer = (): void => {
+  const submitAnswer = (value = answer): void => {
     if (!question || busy) return
-    const text = answer.trim()
+    const text = value.trim()
     if (!text) return
     setBusy(true)
     setError(null)
+    const version = answerDraft.version()
     void onAnswer(question.questionId, text)
-      .then(() => setAnswer(''))
+      .then(() => answerDraft.clear(version))
       .catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : String(cause))
       })
@@ -93,7 +107,11 @@ export function SessionPane({
         ) : null}
       </div>
       {task?.trim() ? <p className="cli-session-task">{task.trim()}</p> : null}
-      <div className="cli-session-log" ref={logRef}>
+      <div className="cli-session-log" ref={logRef} onScroll={(event) => {
+        const node = event.currentTarget
+        followLog.current = node.scrollHeight - node.scrollTop - node.clientHeight < 32
+        if (followLog.current) setNewEvents(0)
+      }}>
         {session.log.length === 0 ? (
           <div className="cli-session-empty">
             <p className="cli-session-empty-kicker">{t('terminal.sessionEmptyKicker')}</p>
@@ -105,12 +123,14 @@ export function SessionPane({
           ))
         )}
       </div>
+      {newEvents > 0 ? <button type="button" className="cli-session-send" onClick={() => { followLog.current = true; if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; setNewEvents(0) }}>{t('timeline.newEvents', { count: newEvents })}</button> : null}
       {question ? (
         <div className={`cli-session-ask${questionIsUser ? ' is-user' : ''}`}>
           <p className="cli-session-ask-label">
             {questionIsUser ? t('terminal.sessionUserQuestion') : t('terminal.sessionQuestion')}
           </p>
-          <p className="cli-session-ask-text">{question.question}</p>
+          <p className="cli-session-ask-text">{display.prompt}</p>
+          {display.choices.map((choice) => <button key={choice} type="button" className="cli-session-send" disabled={busy || !running} onClick={() => submitAnswer(choice)}>{choice}</button>)}
           <textarea
             className="cli-session-input"
             rows={2}
@@ -129,7 +149,7 @@ export function SessionPane({
             type="button"
             className="cli-session-send"
             disabled={busy || !running || !answer.trim()}
-            onClick={submitAnswer}
+            onClick={() => submitAnswer()}
           >
             {t('terminal.sessionAnswerSend')}
           </button>

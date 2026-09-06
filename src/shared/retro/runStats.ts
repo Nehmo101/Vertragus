@@ -64,6 +64,16 @@ export function deriveRoleModelStats(events: readonly AgentEvent[]): RoleModelSt
         statsFor(identity).started += 1
         break
       }
+      case 'agent_reseated': {
+        const identity: AgentIdentity = {
+          roleId: event.roleId,
+          providerId: event.to.providerId,
+          model: event.to.model ?? ''
+        }
+        identities.set(event.agentId, identity)
+        statsFor(identity).started += 1
+        break
+      }
       case 'agent_done': {
         const row = statsFor(identityOf(event))
         if (event.status === 'success') row.succeeded += 1

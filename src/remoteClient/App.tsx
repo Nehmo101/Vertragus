@@ -42,6 +42,7 @@
  */
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import HoundLogo from '@renderer/panel/HoundLogo'
+import { useDraft, useSubmission } from '@renderer/lib/useDraft'
 import { questionChoicesDisplay } from '@shared/questionChoicesDisplay'
 import type {
   RemoteAgentSummary,
@@ -226,9 +227,30 @@ function focusTarget(id: string): void {
 type Copy = RemoteCopy
 
 type Drafts = Readonly<Record<string, string>>
-type SetDraft = (key: string, value: string) => void
+type SetDraft = {
+  (key: string, value: string, expectedRevision?: number): void
+  version(key: string): number
+}
 /** Answer sends in flight, keyed by `InboxEntry.key` — see `AnswerForm`. */
 type Sending = Readonly<Record<string, boolean>>
+
+export function createDraftWriter(update: React.Dispatch<React.SetStateAction<Drafts>>): SetDraft {
+  const versions = new Map<string, number>()
+  return Object.assign((key: string, value: string, expectedRevision?: number): void => {
+    const revision = versions.get(key) ?? 0
+    if (expectedRevision !== undefined && expectedRevision !== revision) return
+    versions.set(key, revision + 1)
+    update((current) => {
+      if (value === '') {
+        if (!(key in current)) return current
+        const next = { ...current }
+        delete next[key]
+        return next
+      }
+      return { ...current, [key]: value }
+    })
+  }, { version: (key: string) => versions.get(key) ?? 0 })
+}
 
 export function App(): React.JSX.Element {
   const api = useRemote()
@@ -236,7 +258,13 @@ export function App(): React.JSX.Element {
   const [openAgent, setOpenAgent] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => readExpansionState())
   const [showEnded, setShowEnded] = useState(false)
-  const [drafts, setDrafts] = useState<Drafts>({})
+  const [drafts, setDrafts] = useState<Drafts>(() => {
+    try { return JSON.parse(window.sessionStorage.getItem('vertragus.remote.drafts') ?? '{}') as Drafts }
+    catch { return {} }
+  })
+  useEffect(() => {
+    try { window.sessionStorage.setItem('vertragus.remote.drafts', JSON.stringify(drafts)) } catch { /* Storage is optional. */ }
+  }, [drafts])
   const [sending, setSending] = useState<Sending>({})
   const [everConnected, setEverConnected] = useState(false)
   const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
@@ -287,19 +315,7 @@ export function App(): React.JSX.Element {
   const nextSeenLive = advanceSeenLive(seenLive, api.workspaces)
   if (nextSeenLive !== seenLive) setSeenLive(nextSeenLive)
 
-  const setDraft = useCallback<SetDraft>((key, value) => {
-    // Clearing DELETES: a sent message leaving an empty string behind is how
-    // the map grew a key per workspace and per question and never gave one up.
-    setDrafts((current) => {
-      if (value === '') {
-        if (!(key in current)) return current
-        const next = { ...current }
-        delete next[key]
-        return next
-      }
-      return { ...current, [key]: value }
-    })
-  }, [])
+  const [setDraft] = useState(() => createDraftWriter(setDrafts))
 
   // Only ever holds what is in flight: a finished send gives its key back
   // rather than leaving a `false` behind for every question ever answered.
@@ -382,7 +398,7 @@ export function App(): React.JSX.Element {
   // Bounded in the same pass that changes it, like `seenLive` above and for
   // the same reason: an effect would leave one commit in which the map still
   // holds keys the screen has already stopped drawing fields for.
-  const prunedDrafts = pruneDrafts(drafts, workspaceIds)
+  const prunedDrafts = everConnected ? pruneDrafts(drafts, workspaceIds) : drafts
   if (prunedDrafts !== drafts) setDrafts(prunedDrafts)
 
   // `workspaceIds` stays the third argument: the notice names the run the text
@@ -1160,9 +1176,10 @@ function StartForm({
     setError(null)
     const args: Record<string, string> = { profileId }
     if (goal.trim()) args.goal = goal.trim()
+    const draftVersion = setDraft.version(GOAL_DRAFT_KEY)
     api.runCommand('workspaces:start', undefined, args).then(
       () => {
-        setDraft(GOAL_DRAFT_KEY, '')
+        setDraft(GOAL_DRAFT_KEY, '', draftVersion)
         setBusy(false)
       },
       (cause: Error) => {
@@ -1664,7 +1681,7 @@ function TaskBoard({
  * The "no goal" line opens the field that hands it one — the same host
  * handshake the start goal takes, refused once the run carries a goal.
  */
-function GoalRefillForm({
+export function GoalRefillForm({
   api,
   copy,
   workspaceId,
@@ -1676,26 +1693,19 @@ function GoalRefillForm({
   hint: string
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  const [goal, setGoal] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const draft = useDraft(`remote.goal.${workspaceId}`, '')
+  const goal = draft.value
+  const action = useSubmission(`remote.goal.${workspaceId}`)
+  const { busy, error } = action
 
   const submit = (): void => {
     const trimmed = goal.trim()
     if (!trimmed || busy) return
-    setBusy(true)
-    setError(null)
-    api.runCommand('workspaces:goal', undefined, { workspaceId, goal: trimmed }).then(
-      () => {
-        setGoal('')
-        setBusy(false)
-        setOpen(false)
-      },
-      (cause: Error) => {
-        setError(cause.message)
-        setBusy(false)
-      }
-    )
+    const revision = draft.version()
+    void action.run(async () => {
+      await api.runCommand('workspaces:goal', undefined, { workspaceId, goal: trimmed })
+      if (draft.clear(revision)) setOpen(false)
+    })
   }
 
   return (
@@ -1719,7 +1729,7 @@ function GoalRefillForm({
             value={goal}
             copy={copy}
             enterKeyHint="enter"
-            onChange={setGoal}
+            onChange={draft.set}
           />
           {error ? <p className="form-error">{error}</p> : null}
           <div className="goal-actions">
@@ -1789,9 +1799,7 @@ function AnswerForm({
     if (!trimmed || busy) return
     // Same-turn lock: Return can hit both LimitedTextarea and form onSubmit.
     submitLock.current = true
-    window.setTimeout(() => {
-      submitLock.current = false
-    }, 0)
+    const draftVersion = setDraft.version(draftKey)
     setSending(entry.key, true)
     setError(null)
     api
@@ -1804,14 +1812,14 @@ function AnswerForm({
       .then(
         () => {
           setSending(entry.key, false)
-          setDraft(draftKey, '')
+          setDraft(draftKey, '', draftVersion)
           haptic('confirm')
         },
         (cause: Error) => {
           setError(cause.message)
           setSending(entry.key, false)
         }
-      )
+      ).finally(() => { submitLock.current = false })
   }
 
   return (
@@ -1872,7 +1880,7 @@ function AnswerForm({
 }
 
 /** D2: steer the run from the phone — wakes the orchestrator's await_events. */
-function Composer({
+export function Composer({
   api,
   workspaceId,
   agents,
@@ -1887,9 +1895,12 @@ function Composer({
   drafts: Drafts
   setDraft: SetDraft
 }): React.JSX.Element {
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sent, setSent] = useState(false)
-  const [target, setTarget] = useState('')
+  const targetDraft = useDraft(`remote.target.${workspaceId}`, '')
+  const target = targetDraft.value
+  const setTarget = targetDraft.set
   const sentTimer = useRef<number | undefined>(undefined)
   const draftKey = composerDraftKey(workspaceId)
   const text = drafts[draftKey] ?? ''
@@ -1903,9 +1914,8 @@ function Composer({
     if (!trimmed) return
     // Same-turn lock: Return can hit both LimitedTextarea and form onSubmit.
     submitLock.current = true
-    window.setTimeout(() => {
-      submitLock.current = false
-    }, 0)
+    setBusy(true)
+    const draftVersion = setDraft.version(draftKey)
     setError(null)
     api
       .runCommand('user_message', undefined, {
@@ -1915,7 +1925,7 @@ function Composer({
       })
       .then(
       () => {
-        setDraft(draftKey, '')
+        setDraft(draftKey, '', draftVersion)
         haptic('confirm')
         // The message leaves no trace on this screen — it lands in the
         // orchestrator's terminal — so the confirmation is the only proof the
@@ -1925,7 +1935,7 @@ function Composer({
         sentTimer.current = window.setTimeout(() => setSent(false), SENT_NOTICE_MS)
       },
       (cause: Error) => setError(cause.message)
-    )
+    ).finally(() => { submitLock.current = false; setBusy(false) })
   }
 
   const targets = agents.filter((agent) => agent.roleId !== 'orchestrator')
@@ -1965,8 +1975,8 @@ function Composer({
         onSubmit={submit}
       />
       <div className="composer-actions">
-        <button className="primary" type="submit" disabled={!text.trim()}>
-          {copy.composerSend}
+        <button className="primary" type="submit" disabled={busy || !text.trim()}>
+          {busy ? copy.answerSending : copy.composerSend}
         </button>
         <span className="sent-note" role="status">
           {sent ? copy.composerSent : ''}

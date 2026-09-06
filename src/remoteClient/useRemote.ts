@@ -4,12 +4,12 @@
  * desktop panel.
  *
  * Auth: the pairing URL carries the token in the fragment (`#token=…`); this
- * exchanges it for a session over `POST /api/auth`, keeps the session AND the
- * pairing token in `localStorage` (so a phone home-screen bookmark survives
+ * exchanges it for a session over `POST /api/auth`, keeps the session and a device credential
+ * in `localStorage` (so a phone home-screen bookmark survives
  * a desktop restart), and clears the fragment so a shared screenshot of the
  * URL bar leaks nothing. The WebSocket authenticates with its first frame,
  * then multiplexes workspace state, terminals and commands. If the desktop
- * restarted and in-memory sessions died, the stored pairing token silently
+ * restarted and in-memory sessions died, the stored device credential silently
  * mints a new session — the QR does not have to be scanned again.
  *
  * Pairing has to survive the route as well, because the first thing a phone
@@ -90,6 +90,7 @@ export type RemoteError = 'pairingFailed' | 'unreachable'
 
 const SESSION_KEY = 'vertragus.remote.session'
 const PAIRING_KEY = 'vertragus.remote.pairing'
+const DEVICE_KEY = 'vertragus.remote.device'
 
 export interface TerminalHandlers {
   /**
@@ -183,8 +184,10 @@ function writeSession(session: string): void {
   window.sessionStorage.removeItem(SESSION_KEY)
 }
 
-function writePairing(token: string): void {
-  window.localStorage.setItem(PAIRING_KEY, token)
+function writeDevice(token: string): void {
+  window.localStorage.setItem(DEVICE_KEY, token)
+  window.localStorage.removeItem(PAIRING_KEY)
+  window.sessionStorage.removeItem(PAIRING_KEY)
 }
 
 function clearSession(): void {
@@ -195,6 +198,8 @@ function clearSession(): void {
 function clearAuth(): void {
   clearSession()
   window.localStorage.removeItem(PAIRING_KEY)
+  window.localStorage.removeItem(DEVICE_KEY)
+  window.sessionStorage.removeItem(PAIRING_KEY)
 }
 
 /**
@@ -208,25 +213,25 @@ function clearAuth(): void {
  * no". A body that will not parse is the same class of problem wearing a 200:
  * this endpoint answers JSON, so HTML here is a captive portal in the way.
  */
-async function requestPairing(token: string): Promise<PairingOutcome> {
+async function requestPairing(token: string): Promise<PairingOutcome & { deviceCredential?: string }> {
   let response: Response
   try {
     response = await fetch('/api/auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pairingToken: token })
+      body: JSON.stringify(token.startsWith('device.') ? { deviceCredential: token } : { pairingToken: token })
     })
   } catch {
     return { kind: 'unreachable' }
   }
   if (!response.ok) return { kind: pairingFailureFromStatus(response.status) }
-  let body: { session?: string }
+  let body: { session?: string; deviceCredential?: string }
   try {
-    body = (await response.json()) as { session?: string }
+    body = (await response.json()) as { session?: string; deviceCredential?: string }
   } catch {
     return { kind: 'unreachable' }
   }
-  return body.session ? { kind: 'paired', session: body.session } : { kind: 'rejected' }
+  return body.session ? { kind: 'paired', session: body.session, deviceCredential: body.deviceCredential } : { kind: 'rejected' }
 }
 
 /** One command promise the UI is waiting on. */
@@ -565,9 +570,9 @@ export function useRemote(): RemoteApi {
   }, [connect])
 
   const adoptSession = useCallback(
-    (session: string, pairingToken?: string) => {
+    (session: string, deviceCredential?: string) => {
       writeSession(session)
-      if (pairingToken) writePairing(pairingToken)
+      if (deviceCredential) writeDevice(deviceCredential)
       sessionRef.current = session
       connect()
     },
@@ -608,7 +613,9 @@ export function useRemote(): RemoteApi {
         pendingPairing.current = null
         pairingAttempt.current = 0
         setError(null)
-        adoptSession(outcome.session, token)
+        adoptSession(outcome.session, outcome.deviceCredential)
+        window.localStorage.removeItem(PAIRING_KEY)
+        window.sessionStorage.removeItem(PAIRING_KEY)
         return
       }
       switch (decidePairingRecovery(outcome.kind, source)) {
@@ -638,7 +645,7 @@ export function useRemote(): RemoteApi {
           cancelPairingRetry()
           // Only here, where the desktop answered and declined the token: the
           // stored one is spent, and the QR code is the way back.
-          window.localStorage.removeItem(PAIRING_KEY)
+          clearAuth()
           setPhase('pairing')
           break
         case 'revoke':
@@ -680,11 +687,11 @@ export function useRemote(): RemoteApi {
    * Driven straight from the `session_revoked` frame rather than through a
    * counter and an effect: this is a response to an event, and routing it
    * through state made a render the medium for a message that had already
-   * arrived. Without a stored pairing token there is nothing to re-mint from
+   * arrived. Without a stored device credential there is nothing to re-mint from
    * and the phone has to be paired again.
    */
   const repair = useCallback(() => {
-    const pairing = readStored(PAIRING_KEY)
+    const pairing = (readStored(DEVICE_KEY) ?? readStored(PAIRING_KEY))
     if (!pairing) {
       setPhase('revoked')
       return
@@ -767,7 +774,7 @@ export function useRemote(): RemoteApi {
           }
           // Anything else — an expired session, a desktop that restarted and
           // lost its in-memory sessions — is not a decision about this device,
-          // so the stored pairing token silently mints a new session.
+          // so the stored device credential silently mints a new session.
           clearSession()
           repair()
           break
@@ -810,13 +817,18 @@ export function useRemote(): RemoteApi {
       await attemptPairing(token, 'link')
       return
     }
+    const legacy = readStored(PAIRING_KEY)
+    if (legacy && !readStored(DEVICE_KEY)) {
+      await attemptPairing(legacy, 'stored')
+      return
+    }
     const storedSession = readStored(SESSION_KEY)
     if (storedSession) {
       sessionRef.current = storedSession
       connect()
       return
     }
-    const storedPairing = readStored(PAIRING_KEY)
+    const storedPairing = (readStored(DEVICE_KEY) ?? readStored(PAIRING_KEY))
     if (storedPairing) {
       await attemptPairing(storedPairing, 'stored')
       return

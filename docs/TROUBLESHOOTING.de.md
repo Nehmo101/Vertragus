@@ -111,10 +111,15 @@ Der Fernzugriff ist standardmäßig aus und bindet an deine Tailscale-Adresse.
 Zeigen die Einstellungen keine Adresse, läuft Tailscale nicht oder diese
 Maschine ist nicht in deinem Tailnet.
 
-Der Kopplungs-Token liegt verschlüsselt im Schlüsselbund des Systems. Auf
-einer Maschine mit gesperrtem oder fehlendem Schlüsselbund scheitert das
-Entsperren — die Einstellungen sagen es. Den Code neu zu erzeugen ist der
-einzige Rotationsweg, und er kappt jede bestehende Session sofort.
+Der Kopplungs-Token liegt bei verfügbarem Schlüsselbund verschlüsselt darin
+und hat einen geschützten Datei-Fallback unter userData. Ein fehlender
+Schlüsselbund rotiert den QR daher nicht bei jedem Neustart. Nicht verfügbare
+gespeicherte Zugangsdaten werden in den Einstellungen gemeldet. Den Code neu zu erzeugen ist der
+einzige Rotationsweg, und er kappt jede bestehende Session sofort. Der QR ist
+ein Registrierungsgeheimnis: Nach der Kopplung löscht ihn das Handy und behält
+nur individuell widerrufbare Geräte-Zugangsdaten. Widerrufen löscht deren
+Host-Hash und Sessions, auch wenn das Gerät offline ist. Erneutes Registrieren
+erfordert wieder den QR.
 
 ## Das Panel sieht schwarz aus statt transluzent
 

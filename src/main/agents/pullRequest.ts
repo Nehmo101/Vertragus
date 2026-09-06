@@ -42,12 +42,13 @@ export const GH_TIMEOUT_MS = 60_000
  * would block instead of failing. A configured credential helper (keychain,
  * manager, GUI askpass) still works — only the invisible prompt is refused.
  */
-const pushGitRunner: GitRunner = async (args, cwd) => {
+const pushGitRunner = (signal?: AbortSignal): GitRunner => async (args, cwd) => {
   const { stdout, stderr } = await execFileAsync('git', args, {
     cwd,
     windowsHide: true,
     maxBuffer: 8 * 1024 * 1024,
     timeout: PUSH_TIMEOUT_MS,
+    signal,
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
   })
   return { stdout, stderr }
@@ -59,18 +60,21 @@ export type GhRunner = (args: string[], cwd: string) => Promise<GitResult>
 /** Marker a runner throws (or `code: 'ENOENT'`) when the GitHub CLI is absent. */
 export const GH_MISSING_CODE = 'ENOENT'
 
-export const defaultGhRunner: GhRunner = async (args, cwd) => {
+const ghRunner = (signal?: AbortSignal): GhRunner => async (args, cwd) => {
   const { stdout, stderr } = await execFileAsync('gh', args, {
     cwd,
     windowsHide: true,
     maxBuffer: 4 * 1024 * 1024,
-    timeout: GH_TIMEOUT_MS
+    timeout: GH_TIMEOUT_MS,
+    signal
   })
   return { stdout, stderr }
 }
+export const defaultGhRunner: GhRunner = ghRunner()
 
 export interface PullRequestDeps extends WorktreeDeps {
   gh?: GhRunner
+  signal?: AbortSignal
 }
 
 export interface OpenPullRequestInput {
@@ -189,10 +193,11 @@ export async function openPullRequest(
 ): Promise<PullRequestOutcome> {
   // The push runs on the prompt-free, deadlined runner; the local reads
   // (`remote get-url`) go through the ordinary one inside compareUrlFor.
-  const push = deps.git ?? pushGitRunner
-  const gh = deps.gh ?? defaultGhRunner
+  const push = deps.git ?? pushGitRunner(deps.signal)
+  const gh = deps.gh ?? ghRunner(deps.signal)
 
   try {
+    deps.signal?.throwIfAborted()
     await push(['push', '-u', input.remote, input.head], input.repoPath)
   } catch (error) {
     return { ok: false, reason: 'push_failed', message: gitErrorMessage(error) }
@@ -214,6 +219,7 @@ export async function openPullRequest(
   ]
 
   try {
+    deps.signal?.throwIfAborted()
     const { stdout, stderr } = await gh(args, input.repoPath)
     const url = firstPullRequestUrl(stdout) ?? firstPullRequestUrl(stderr)
     if (url) return { ok: true, url, created: true }

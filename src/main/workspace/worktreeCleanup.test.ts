@@ -1,8 +1,29 @@
 import { describe, expect, it, vi } from 'vitest'
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { WorktreeEntry } from '@main/agents/worktree'
 import { createWorktreeCleanup, worktreePathKey } from './worktreeCleanup'
 
 const REPO = '/repo'
+
+it('reports disk size, dirty work and run affiliation while surfacing a refused removal',async()=>{
+  const repo=await mkdtemp(join(tmpdir(),'vertragus-cleanup-'))
+  const path=join(repo,'.vertragus/worktrees/worker')
+  const branch='vertragus/run/worker'
+  try {
+    await mkdir(join(path,'nested'),{recursive:true})
+    await writeFile(join(path,'file.txt'),'abc')
+    await writeFile(join(path,'nested/other.txt'),'de')
+    const run=join(repo,'.vertragus/runs/run-1');await mkdir(run,{recursive:true})
+    await writeFile(join(run,'events.jsonl'),JSON.stringify({type:'agent_started',seq:1,ts:1,agentId:'worker',name:'Worker',roleId:'worker',branch}))
+    const cleanup=createWorktreeCleanup({repoPathFor:()=>repo,activeWorktreePaths:()=>[],list:async()=>[{path,branch,detached:false}],
+      remove:async()=>{throw new Error('dirty checkout refused')},
+      worktreeDeps:{git:async(args)=>({stdout:args[0]==='status'?' M file.txt':args[0]==='rev-list'?'3':args.includes('--abbrev-ref')?branch:args[0]==='rev-parse'?'a'.repeat(40):'',stderr:''})}})
+    expect(await cleanup.listStale('p1')).toEqual([{path,branch,sizeBytes:5,dirty:true,ahead:3,workspaceId:'run-1'}])
+    await expect(cleanup.remove('p1',path)).rejects.toThrow('dirty checkout refused')
+  } finally {await rm(repo,{recursive:true,force:true})}
+})
 
 /** The main checkout plus two Vertragus worktrees, one of them detached. */
 function entries(): WorktreeEntry[] {

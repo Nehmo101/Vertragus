@@ -56,7 +56,7 @@ export const MCP_SERVER_NAME = 'vertragus'
  * every release that did not make one. `docs/RELEASE-CHECKLIST.md` carries the
  * reminder to bump it when the surface actually moved.
  */
-export const MCP_SERVER_VERSION = '1.2.0'
+export const MCP_SERVER_VERSION = '1.3.0'
 export const MCP_PATH = '/mcp'
 export const MCP_BIND_HOST = '127.0.0.1'
 
@@ -105,6 +105,8 @@ export interface RegisteredWorkspace {
   subagentUrl(agentId: string): string
   /** F: the MCP URL a lead process attaches with (`lead=` identity). */
   leadUrl(agentId: string): string
+  rotateSubagentToken(agentId: string, kind?: 'subagent' | 'lead'): { subagentUrl: string }
+  revokeSubagentToken(agentId: string, kind?: 'subagent' | 'lead'): void
   /**
    * Invalidate the current orchestrator secret, close orchestrator MCP
    * sessions, and return the new URL. Subagent URLs stay valid.
@@ -336,7 +338,8 @@ function instructionsFor(identity: McpIdentity, runtime: WorkspaceRuntime): stri
 function buildServerFor(
   identity: McpIdentity,
   runtime: WorkspaceRuntime,
-  browser: BrowserBridge
+  browser: BrowserBridge,
+  isCurrent: () => boolean
 ): McpServer {
   const server = new McpServer(
     { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
@@ -353,7 +356,7 @@ function buildServerFor(
     if (canSpawnHelpers(runtime, identity.agentId)) {
       registerOrchestratorTools(server, runtime, { leadId: identity.agentId, nest: 'worker' })
     }
-    registerBrowserTools(server, browser)
+    registerBrowserTools(server, browser, `${identity.workspaceId}:${identity.agentId}`, isCurrent)
   }
   return server
 }
@@ -385,6 +388,8 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
   const host = options.host ?? MCP_BIND_HOST
   const workspaces = new Map<string, WorkspaceRuntime>()
   const sessions = new Map<string, SessionRecord>()
+  const agentTokens = new Map<string, string | null>()
+  const identityGenerations = new Map<string, number>()
   const sessionWaiters = new Set<{
     identity: McpIdentity
     resolve: (ok: boolean) => void
@@ -438,7 +443,22 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
       return
     }
 
-    const identity = resolveIdentity(url.searchParams, (id) => workspaces.get(id)?.ctx)
+    const params = new URLSearchParams(url.searchParams)
+    const agentKey = params.has('lead')
+      ? `${params.get('ws')}:lead:${params.get('lead')}`
+      : `${params.get('ws')}:${params.get('agent')}`
+    const override = params.has('agent') || params.has('lead') ? agentTokens.get(agentKey) : undefined
+    if (override !== undefined) {
+      if (override === null || !secretEquals(params.get('token'), override)) {
+        res.writeHead(401).end()
+        return
+      }
+      const context = workspaces.get(params.get('ws') ?? '')?.ctx
+      if (context) params.set('token', params.has('lead')
+        ? leadToken(context.subToken, params.get('lead')!)
+        : subagentToken(context.subToken, params.get('agent')!))
+    }
+    const identity = resolveIdentity(params, (id) => workspaces.get(id)?.ctx)
     if (!identity) {
       res.writeHead(401).end()
       return
@@ -459,27 +479,37 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     }
 
     if (req.method === 'POST') {
+      const generation = identityGenerations.get(sessionIdentityKey(identity)) ?? 0
       const body = await readBody(req)
+      if (generation !== (identityGenerations.get(sessionIdentityKey(identity)) ?? 0) || workspaces.get(identity.workspaceId) !== runtime) {
+        res.writeHead(401).end()
+        return
+      }
       let record = existing
 
       if (!record && isInitializeRequest(body)) {
-        const server = buildServerFor(identity, runtime, browser)
+        const server = buildServerFor(identity, runtime, browser, () =>
+          generation === (identityGenerations.get(sessionIdentityKey(identity)) ?? 0) && workspaces.get(identity.workspaceId) === runtime)
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (sid) => {
+            if (generation !== (identityGenerations.get(sessionIdentityKey(identity)) ?? 0) || workspaces.get(identity.workspaceId) !== runtime) {
+              void transport.close()
+              return
+            }
             sessions.set(sid, { transport, server, identity })
             notifySession(identity)
           }
         })
         transport.onclose = (): void => {
           if (transport.sessionId) sessions.delete(transport.sessionId)
+          if (![...sessions.values()].some((record) => sameIdentity(record.identity, identity))) {
+            liveIdentities.delete(sessionIdentityKey(identity))
+          }
         }
         await server.connect(transport)
         record = { transport, server, identity }
-        // Don't wait for `onsessioninitialized`: the SDK can return from
-        // `connect()` before that callback, and the host's first-turn gate
-        // would otherwise sit on the full timeout while the session is live.
-        notifySession(identity)
+
       }
 
       if (!record) {
@@ -596,10 +626,25 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     return runtime
   }
 
-  function closeSessionsOf(workspaceId: string, kind?: McpIdentity['kind']): void {
+  function resetIdentity(identity: McpIdentity): void {
+    const key = sessionIdentityKey(identity)
+    identityGenerations.set(key, (identityGenerations.get(key) ?? 0) + 1)
+    liveIdentities.delete(key)
+    for (const waiter of [...sessionWaiters]) {
+      if (!sameIdentity(waiter.identity, identity)) continue
+      sessionWaiters.delete(waiter)
+      clearTimeout(waiter.timer)
+      waiter.resolve(false)
+    }
+  }
+
+  function closeSessionsOf(workspaceId: string, kind?: McpIdentity['kind'], agentId?: string): void {
+    if (kind === 'orchestrator') resetIdentity({ kind, workspaceId })
+    if ((kind === 'subagent' || kind === 'lead') && agentId) resetIdentity({ kind, workspaceId, agentId })
     for (const [sid, record] of [...sessions.entries()]) {
       if (record.identity.workspaceId !== workspaceId) continue
       if (kind && record.identity.kind !== kind) continue
+      if (agentId && (record.identity.kind === 'orchestrator' || record.identity.agentId !== agentId)) continue
       sessions.delete(sid)
       void record.transport.close()
     }
@@ -632,6 +677,23 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     return { orchestratorUrl: buildOrchestratorUrl(port, workspaceId, orchToken, host) }
   }
 
+  function agentUrl(workspaceId: string, agentId: string): string {
+    const runtime = requireWorkspace(workspaceId)
+    const url = new URL(buildSubagentUrl(port, workspaceId, agentId, runtime.ctx.subToken, host))
+    const override = agentTokens.get(`${workspaceId}:${agentId}`)
+    if (override === null) throw new Error('Agent MCP credential revoked')
+    if (override) url.searchParams.set('token', override)
+    return url.toString()
+  }
+
+  function revokeAgent(workspaceId: string, agentId: string): void {
+    browser.releaseOwner(`${workspaceId}:${agentId}`)
+    agentTokens.set(`${workspaceId}:${agentId}`, null)
+    agentTokens.set(`${workspaceId}:lead:${agentId}`, null)
+    closeSessionsOf(workspaceId, 'subagent', agentId)
+    closeSessionsOf(workspaceId, 'lead', agentId)
+  }
+
   function registerWorkspace(ctx: WorkspaceMcpContext): RegisteredWorkspace {
     if (workspaces.has(ctx.workspaceId)) {
       throw new Error(`MCP workspace already registered: ${ctx.workspaceId}`)
@@ -650,6 +712,7 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
       nests: new Map(),
       parentOf: new Map(),
       resultSchemas: new Map(),
+      onAgentTerminated: (agentId) => revokeAgent(ctx.workspaceId, agentId),
       get taskBoard(): TaskBoard | undefined {
         return ctx.host.attachedTaskBoard?.() ?? fallback
       },
@@ -667,6 +730,7 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     // tap the registry entry would leak until workspace unregistration.
     ctx.events.onPush((event) => {
       if (event.type === 'agent_exited' || event.type === 'agent_stopped') {
+        runtime.onAgentTerminated?.(event.agentId)
         runtime.resultSchemas.delete(event.agentId)
         if (runtime.leads.has(event.agentId) || runtime.nests.has(event.agentId)) {
           adoptSubtree(runtime, event.agentId)
@@ -678,8 +742,31 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
       runtime,
       orchestratorUrl: buildOrchestratorUrl(port, ctx.workspaceId, ctx.orchToken, host),
       subagentUrl: (agentId: string) =>
-        buildSubagentUrl(port, ctx.workspaceId, agentId, ctx.subToken, host),
-      leadUrl: (agentId: string) => buildLeadUrl(port, ctx.workspaceId, agentId, ctx.subToken, host),
+        agentUrl(ctx.workspaceId, agentId),
+      rotateSubagentToken: (agentId, kind = 'subagent') => {
+        const key = kind === 'lead' ? `${ctx.workspaceId}:lead:${agentId}` : `${ctx.workspaceId}:${agentId}`
+        const token = randomUUID()
+        agentTokens.set(key, token)
+        closeSessionsOf(ctx.workspaceId, kind, agentId)
+        browser.releaseOwner(`${ctx.workspaceId}:${agentId}`)
+        const url = new URL(kind === 'lead'
+          ? buildLeadUrl(port, ctx.workspaceId, agentId, ctx.subToken, host)
+          : buildSubagentUrl(port, ctx.workspaceId, agentId, ctx.subToken, host))
+        url.searchParams.set('token', token)
+        return { subagentUrl: url.toString() }
+      },
+      revokeSubagentToken: (agentId) => {
+        revokeAgent(ctx.workspaceId, agentId)
+        runtime.resultSchemas.delete(agentId)
+        adoptSubtree(runtime, agentId)
+      },
+      leadUrl: (agentId: string) => {
+        const url = new URL(buildLeadUrl(port, ctx.workspaceId, agentId, ctx.subToken, host))
+        const override = agentTokens.get(`${ctx.workspaceId}:lead:${agentId}`)
+        if (override === null) throw new Error('Agent MCP credential revoked')
+        if (override) url.searchParams.set('token', override)
+        return url.toString()
+      },
       rotateOrchestratorToken: () => rotateOrchestratorToken(ctx.workspaceId),
       applyOrchestratorToken: (token) => applyOrchestratorToken(ctx.workspaceId, token),
       waitForSession: (key, timeoutMs) => waitForSession(ctx.workspaceId, key, timeoutMs)
@@ -690,8 +777,10 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     const runtime = workspaces.get(workspaceId)
     if (!runtime) return
     workspaces.delete(workspaceId)
+    browser.releaseWorkspace(workspaceId)
     closeSessionsOf(workspaceId)
     failSessionWaiters(workspaceId)
+    for (const key of agentTokens.keys()) if (key.startsWith(`${workspaceId}:`)) agentTokens.delete(key)
     runtime.questions.clear()
     for (const lead of runtime.leads.values()) lead.events.close()
     runtime.leads.clear()
@@ -715,8 +804,7 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     },
 
     subagentUrl(workspaceId: string, agentId: string): string {
-      const runtime = requireWorkspace(workspaceId)
-      return buildSubagentUrl(port, workspaceId, agentId, runtime.ctx.subToken, host)
+      return agentUrl(workspaceId, agentId)
     },
 
     pendingQuestion(workspaceId: string, agentId: string): string | undefined {
