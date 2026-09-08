@@ -97,6 +97,11 @@ export interface FakeHostOptions {
    */
   holdSuccession?: boolean
   successionError?: string
+  /**
+   * When set, the `ready` of every begun succession REJECTS with this message
+   * — the cutover / kick-off failure path becomes testable from the tool side.
+   */
+  successionReadyError?: string
   /** When set, {@link FakeAgentHost.readTokenUsage} throws this message. */
   usageError?: string
 }
@@ -359,10 +364,14 @@ export class FakeAgentHost implements AgentHost {
       ? new Promise<typeof started>((resolve) => {
           this.successionResolvers.push(resolve)
         })
-      : Promise.resolve(started).then((agent) => {
-          this.successionHeld = false
-          return agent
-        })
+      : this.options.successionReadyError
+        ? Promise.reject(new Error(this.options.successionReadyError)).finally(() => {
+            this.successionHeld = false
+          })
+        : Promise.resolve(started).then((agent) => {
+            this.successionHeld = false
+            return agent
+          })
     return {
       successorAgentId,
       successorName,

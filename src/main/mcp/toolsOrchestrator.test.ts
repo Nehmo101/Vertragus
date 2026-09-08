@@ -1748,6 +1748,30 @@ describe('request_succession', () => {
     expect(runtime.host.successionCalls[0]).toMatchObject({ reason: 'context_full' })
   })
 
+  it('observes a rejected cutover / kick-off — no unhandled rejection in the main process', async () => {
+    // The caller is the predecessor and is told to stop; nobody else awaits
+    // `ready`. The host journals the failure (or leaves the diagnosis in the
+    // successor's scrollback), so the tool only has to keep it from surfacing
+    // as an unhandled rejection.
+    const host = new FakeAgentHost({ successionReadyError: 'kick-off refused' })
+    const { tools } = setup({ host })
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason)
+    }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      const result = await callTool(tools, 'request_succession', { reason: 'context_full' })
+      expect(result.isError).toBe(false)
+      expect(result.json.state).toBe('succession_started')
+      // Node reports unhandled rejections once the microtask queue drains.
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(unhandled).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
+
   it('refuses a second succession and mutating tools while one is in flight', async () => {
     const host = new FakeAgentHost({ holdSuccession: true })
     const { tools } = setup({ host, retro: { recordLearnings: () => ({ applied: 0 }), recordSummary: () => undefined } })
