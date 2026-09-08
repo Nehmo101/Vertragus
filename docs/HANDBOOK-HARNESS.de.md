@@ -309,14 +309,15 @@ Event-Schwanz), kein zusätzlicher JSON-Dump —, Fence `succession_in_progress`
 mutierenden Tools, `record_retro` währenddessen verboten. Das Briefing fährt
 im System-Prompt mit; der ERSTE USER-TURN des Successors ist ein kurzer
 Kick-off (`buildSuccessorKickoffPrompt`: Run-Ziel, Zeiger auf das Briefing,
-`await_events` am Paket-Cursor fortsetzen), zugestellt wie ein Kaltstart-Ziel
-— Argv bei Providern mit `initialPromptDelivery` (Grok), in den
-PTY-System-Prompt-Paste eingefaltet bei `pty`-Providern (Cursor, Ollama),
-sonst nach MCP-Bereitschaft über den Assignment-Handshake getippt (Claude,
-Codex, Kimi), deren Successors zuvor vor einem leeren Composer saßen. Ein
-abgelehnter Kick-off lässt den Successor im Sitz, druckt eine gelbe Diagnose
-mit dem Cursor in sein Terminal und meldet den Fehler an den Aufrufer. Seitdem
-gelandet: der „Replace orchestrator“-Button des Panels
+`await_events` am Paket-Cursor fortsetzen, fortsetzen statt neu starten),
+zugestellt wie ein Kaltstart-Ziel — Argv bei Providern mit
+`initialPromptDelivery` (Grok), in den PTY-System-Prompt-Paste eingefaltet bei
+`pty`-Providern (Cursor, Ollama), sonst nach MCP-Bereitschaft über den
+Assignment-Handshake getippt (Claude, Codex, Kimi), deren Successors zuvor vor
+einem leeren Composer saßen, mit einem Briefing, auf das sie niemand handeln
+hieß. Ein abgelehnter Kick-off lässt den Successor im Sitz, druckt eine gelbe
+Diagnose mit dem Cursor in sein Terminal und meldet den Fehler an den
+Aufrufer. Seitdem gelandet: der „Replace orchestrator“-Button des Panels
 (`workspaceCanReplaceOrchestrator` → `succeedOrchestrator` →
 `replaceOrchestratorFromHost`, Paket allein aus Host-Zustand gebaut), die
 C5-Idle-Karte, die ihn anbietet, C3s committete Worker-Wahrheit im Paket
@@ -325,19 +326,15 @@ einer eingefrorenen `succession.json` (`readSuccessionPackage` → Resume seedet
 den Successor im `recovered`-Modus). Noch offen: derselbe Button im
 Remote-Client.
 
-**Erster User-Turn:** das Briefing reist nur im System-Prompt, deshalb bekommt
-der Successor zusätzlich einen kurzen Kick-off in seine CLI getippt (Ziel,
-`package.eventCursor`, „fortsetzen, nicht neu starten“) — ohne ihn sitzt ein
-Provider, dessen System-Prompt ein Launch-Flag oder eine Datei ist, vor einem
-leeren Composer. Resume liefert ebenfalls einen: das Ziel des alten Laufs
-(`meta.json`, sonst das aktuelle Ziel des eingefrorenen Pakets, sonst dessen
-ursprüngliches) wird über den normalen Ziel-Pfad neu geseedet, damit die Karte
-es zeigt, und ein Lauf, der nirgends ein Ziel aufgeschrieben hat, aber
-*getrieben* wurde (eingefrorenes Paket oder ein `orchestrator_*`-Event im
-Journal), bekommt stattdessen einen Recovery-Kick-off — Laufname, Name des
-toten Orchestrators, „`await_events` bei Cursor 0 starten, Agenten auf den
-gelisteten Branches neu anlegen“ — einmal getippt und nie als Ziel der Karte
-aufgezeichnet. Ein Lauf ohne Paket und mit leerem Journal wird zum blanken
+**Erster Turn beim Resume:** die Recovery aus einem eingefrorenen Paket stellt
+denselben Kick-off zu. Das Ziel des alten Laufs (`meta.json`, sonst das
+aktuelle Ziel des eingefrorenen Pakets, sonst dessen ursprüngliches) wird über
+den normalen Ziel-Pfad neu geseedet, damit die Karte es zeigt, und ein Lauf,
+der nirgends ein Ziel aufgeschrieben hat, aber *getrieben* wurde (eingefrorenes
+Paket oder ein `orchestrator_*`-Event im Journal), bekommt stattdessen einen
+Recovery-Kick-off — Laufname, Name des toten Orchestrators, „`await_events`
+bei Cursor 0 starten, Agenten auf den gelisteten Branches neu anlegen“ —
+einmal getippt und nie als Ziel der Karte aufgezeichnet. Ein Lauf ohne Paket und mit leerem Journal wird zum blanken
 Play; PTY-Provider, deren abgeschickte System-Prompt-Paste schon ein erster
 Turn ist, behalten genau ein Submit; ein abgelehnter Kick-off lässt den
 Workspace stehen, der Fehler geht an den Aufrufer.

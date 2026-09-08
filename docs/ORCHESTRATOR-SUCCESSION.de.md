@@ -221,8 +221,7 @@ Pointer-Event auf der Queue.
 - Nach dem Aufruf: aufhören; weitere Tools können fehlschlagen
   (`succeeded` / `succession_in_progress`).
 
-**Successor** (Briefing = System-Prompt + Paket-Block; erster User-Turn =
-vom Host gebauter Kick-off mit Ziel und Cursor):
+**Successor** (Briefing = System-Prompt + Paket-Block):
 
 - Du bist eine **Fortsetzung**, kein neuer Lauf.
 - Zuerst: Paket lesen → `list_agents` → offene Fragen abräumen →
@@ -231,7 +230,8 @@ vom Host gebauter Kick-off mit Ziel und Cursor):
 - `record_retro` nur bei echter Zielerreichung.
 
 Dieser Seed ist allein der System-Prompt, deshalb bekommt der Successor
-zusätzlich einen kurzen **Kick-off als ersten User-Turn**
+zusätzlich einen kurzen **Kick-off als ersten User-Turn**, vom Host gebaut und
+auf demselben Weg zugestellt wie ein Kaltstart-Ziel
 (`buildSuccessorKickoffPrompt`: Ziel, `package.eventCursor`, „fortsetzen, nicht
 neu starten“) — ein Provider, dessen System-Prompt ein Launch-Flag oder eine
 Datei ist, säße sonst vor einem leeren Composer mit einem Briefing, auf das

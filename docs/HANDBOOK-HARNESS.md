@@ -305,12 +305,13 @@ no additional JSON dump —, fence `succession_in_progress` on mutating tools,
 `record_retro` forbidden meanwhile. The briefing rides the system prompt; the
 successor's FIRST USER TURN is a short kick-off
 (`buildSuccessorKickoffPrompt`: run goal, pointer to the briefing, resume
-`await_events` at the package cursor), delivered the way a cold-start goal is
-— argv for providers with `initialPromptDelivery` (Grok), folded into the PTY
-system-prompt paste for `pty` providers (Cursor, Ollama), otherwise typed
-through the assignment handshake once MCP is ready (Claude, Codex, Kimi),
-whose successors used to sit at an empty composer. A refused kick-off leaves
-the successor in the seat, prints a yellow diagnostic with the cursor into its
+`await_events` at the package cursor, continue rather than restart), delivered
+the way a cold-start goal is — argv for providers with `initialPromptDelivery`
+(Grok), folded into the PTY system-prompt paste for `pty` providers (Cursor,
+Ollama), otherwise typed through the assignment handshake once MCP is ready
+(Claude, Codex, Kimi), whose successors used to sit at an empty composer with a
+briefing nobody had asked them to act on. A refused kick-off leaves the
+successor in the seat, prints a yellow diagnostic with the cursor into its
 terminal and reports the error to the caller. Landed since: the panel's
 “Replace orchestrator” button (`workspaceCanReplaceOrchestrator` →
 `succeedOrchestrator` → `replaceOrchestratorFromHost`, package built from host
@@ -320,17 +321,14 @@ recovery from a frozen `succession.json` (`readSuccessionPackage` → resume
 seeds the successor in `recovered` mode). Still open: the same button in the
 Remote client.
 
-**First user turn:** the briefing only rides the system prompt, so the
-successor is additionally handed a short kick-off typed into its CLI (goal,
-`package.eventCursor`, "continue, do not restart") — without it a provider
-whose system prompt is a launch flag or file sits at an empty composer. Resume
-delivers one too: the old run's goal (`meta.json`, else the frozen package's
-current goal, else its original) is re-seeded over the ordinary goal path so
-the card shows it, and a run that recorded no goal anywhere but *was* driven (a
-frozen package, or an `orchestrator_*` event in the journal) gets a recovery
-kick-off instead — run name, dead orchestrator's name, "start `await_events` at
-cursor 0, re-create agents on the listed branches" — typed once and never
-recorded as the card's goal. A run with no package and an empty journal resumes
+**Resume's first turn:** recovery from a frozen package hands over the same
+kick-off. The old run's goal (`meta.json`, else the frozen package's current
+goal, else its original) is re-seeded over the ordinary goal path so the card
+shows it, and a run that recorded no goal anywhere but *was* driven (a frozen
+package, or an `orchestrator_*` event in the journal) gets a recovery kick-off
+instead — run name, dead orchestrator's name, "start `await_events` at cursor
+0, re-create agents on the listed branches" — typed once and never recorded as
+the card's goal. A run with no package and an empty journal resumes
 as a bare Play; PTY providers, whose submitted system-prompt paste already is a
 first turn, keep exactly one submit; a refused kick-off leaves the workspace up
 and the error travels to the caller.

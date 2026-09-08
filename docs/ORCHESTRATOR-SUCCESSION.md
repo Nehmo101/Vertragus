@@ -216,8 +216,7 @@ the queue.
 - After calling it, stop; further tools may fail (`succeeded` /
   `succession_in_progress`).
 
-**Successor** (briefing = system prompt + package block; first user turn =
-host-built kick-off naming goal and cursor):
+**Successor** (briefing = system prompt + package block):
 
 - You are a **continuation**, not a new run.
 - First: read package → `list_agents` → clear open questions →
@@ -226,7 +225,8 @@ host-built kick-off naming goal and cursor):
 - `record_retro` only at true goal completion.
 
 That seed is the system prompt alone, so the successor also gets a short
-**kick-off as its first user turn** (`buildSuccessorKickoffPrompt`: goal,
+**kick-off as its first user turn**, host-built and delivered on the same road
+as a cold-start goal (`buildSuccessorKickoffPrompt`: goal,
 `package.eventCursor`, "continue, do not restart") — a provider whose system
 prompt is a launch flag or file would otherwise sit at an empty composer with a
 briefing nobody asked it to act on.
