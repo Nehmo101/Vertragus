@@ -270,3 +270,32 @@ describe('buildSuccessorKickoffPrompt — the successor’s first user turn', ()
     expect(kickoff.split('\n')).toHaveLength(3)
   })
 })
+
+describe('buildSuccessorKickoffPrompt — recovery (C6 / E3)', () => {
+  it('names the run and its dead orchestrator, starts at cursor 0 and does not ask to answer void questions', () => {
+    const kickoff = buildSuccessorKickoffPrompt({
+      eventCursor: 0,
+      predecessorName: 'Virgilio',
+      recovery: { runName: 'Inferno' }
+    })
+    expect(kickoff).toContain('recovering the run "Inferno" of Virgilio')
+    expect(kickoff).toContain('processes are gone')
+    expect(kickoff).toContain('Run goal: not recorded')
+    expect(kickoff).toContain('await_events at cursor 0')
+    expect(kickoff).toContain('questions are void')
+    expect(kickoff).not.toContain('taking over the run from')
+    expect(kickoff).not.toContain('answer any open agent questions')
+    expect(kickoff.split('\n')).toHaveLength(3)
+  })
+
+  it('does without the orchestrator name when the journal never recorded one', () => {
+    const kickoff = buildSuccessorKickoffPrompt({
+      eventCursor: 0,
+      goal: 'Fix the login bug',
+      recovery: { runName: 'Inferno' }
+    })
+    expect(kickoff).toContain('recovering the run "Inferno", whose processes are gone')
+    expect(kickoff).not.toContain(' of undefined')
+    expect(kickoff).toContain('Run goal: Fix the login bug')
+  })
+})

@@ -1652,6 +1652,31 @@ describe('C6 crash recovery seed', () => {
     expect(seed).toContain('vertragus/inferno/caronte')
   })
 
+  describe('kickOffRecoveredOrchestrator — the first turn when the dead run had no goal', () => {
+    it('is a no-op once a goal was delivered over the handshake', async () => {
+      const { workspace, prompts } = harness()
+      await workspace.startOrchestrator()
+      await workspace.assignGoal('Fix the login bug')
+      const seedsBefore = prompts.length
+      expect(await workspace.kickOffRecoveredOrchestrator({ runName: 'Inferno' })).toBe(false)
+      expect(prompts).toHaveLength(seedsBefore)
+    })
+
+    it('types the kick-off once, submitted, and never again', async () => {
+      const { workspace, prompts, seedOptions } = harness()
+      await workspace.startOrchestrator()
+      expect(
+        await workspace.kickOffRecoveredOrchestrator({ runName: 'Inferno', predecessorName: 'Virgilio' })
+      ).toBe(true)
+      expect(prompts.at(-1)).toContain('recovering the run "Inferno" of Virgilio')
+      expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
+      expect(workspace.goalText).toBeUndefined()
+      const seedsAfter = prompts.length
+      expect(await workspace.kickOffRecoveredOrchestrator({ runName: 'Inferno' })).toBe(false)
+      expect(prompts).toHaveLength(seedsAfter)
+    })
+  })
+
   describe('the packaged plan is only claimed to exist when the board came back', () => {
     /** The package always carries the plan; whether the BOARD has it varies. */
     const withPlan = buildHandoffPackage({

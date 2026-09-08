@@ -323,3 +323,45 @@ export function buildResumeBriefing(run: RunRecord, tasks?: TaskBoardState): str
     'Past runs are searchable with search_runs.'
   ].join('\n')
 }
+
+/**
+ * C6 / E3: what the resumed orchestrator's FIRST USER TURN is. The briefing
+ * (journal or frozen package) rides the system prompt; on providers whose
+ * system prompt is a launch flag or file, that alone leaves the CLI at an
+ * empty composer — the same gap a live succession closes with a kick-off.
+ *
+ * - `goal`: the old run recorded one (`meta.json`, else the package's current
+ *   / original goal) — re-seeded over the ordinary compiled-goal path, so the
+ *   card shows it and the orchestrator is told it.
+ * - `kickoff`: no goal anywhere, but the run WAS driven (a package exists, or
+ *   the journal shows an orchestrator) — a kick-off naming the run and, when
+ *   known, its dead orchestrator, typed without becoming the card's goal.
+ * - undefined: a run that never got going. Resuming it is a bare Play.
+ */
+export type ResumeFirstTurn =
+  | { kind: 'goal'; goal: string }
+  | { kind: 'kickoff'; runName: string; predecessorName?: string }
+
+export function resumeFirstTurn(
+  run: RunRecord,
+  succession: OrchestratorHandoffPackage | undefined
+): ResumeFirstTurn | undefined {
+  const goal =
+    run.meta?.goal?.trim() ||
+    succession?.goal?.current?.trim() ||
+    succession?.goal?.original?.trim()
+  if (goal) return { kind: 'goal', goal }
+  const runName = succession?.workspaceName ?? run.meta?.workspaceName ?? run.workspaceId
+  if (succession) {
+    return { kind: 'kickoff', runName, predecessorName: succession.predecessor.name }
+  }
+  // Only an orchestrator journals anything at all; its own events carry its
+  // name, the rest (agent_started, …) prove it existed without naming it.
+  const named = run.events
+    .filter((event) => event.type.startsWith('orchestrator_'))
+    .map((event) => ('name' in event && typeof event.name === 'string' ? event.name : undefined))
+    .filter((name): name is string => Boolean(name))
+    .at(-1)
+  if (!named && run.events.length === 0) return undefined
+  return { kind: 'kickoff', runName, ...(named ? { predecessorName: named } : {}) }
+}
