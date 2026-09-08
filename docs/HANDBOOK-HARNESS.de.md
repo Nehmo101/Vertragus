@@ -53,7 +53,7 @@ Remote-Server.
 | H2 `workspaces:start {goal}` | **umgesetzt** (Track 0) — Goal-Seed über den Assignment-Handshake (PTY-Prompt-Provider fügen System-Prompt + Ziel als einen ersten Turn ein); Back-compat ohne Goal; Nachtrag (`workspaces:goal`) gibt einem bar gestarteten Lauf sein Ziel später; `meta.json` schreibt ein Ziel nur, nachdem die CLI es angenommen hat |
 | C3 Snapshot-Commit / C4 Handoff-Paket | **umgesetzt** (Track 1) — `snapshotDone` committet dirty Worktrees beim Done; `start_agent{baseBranch}` trägt Handoff-Block |
 | C5 Orchestrator-Idle-Watchdog | **umgesetzt** (Track 2) — `orchestrator_idle` Event + Panel/Remote-Hinweis; Timeouts ≠ Idle (Touch bei Call-Start und -Ende) |
-| C6 Orchestrator-Succession (Context-Handoff) | **S1 im Code** — siehe [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
+| C6 Orchestrator-Succession (Context-Handoff) | **implementiert** (S1–S4) — `request_succession`, Panel-Button + C5-Notausgang, Successor-Kick-off, Crash-Recovery aus eingefrorenem Paket; siehe [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
 | C7 Modell/Provider-Reseat (Wechsel mitten im Lauf) | **nur Spec** — siehe [`MODEL-PROVIDER-SWITCH.md`](./MODEL-PROVIDER-SWITCH.md) |
 | D Mensch im Loop | **D1–D4 umgesetzt** (Track 3 + Follow-up) — Goal-UI, `user_message` weckt `await_events`, `ask_user` mit Ticket; D4 Stufen `yolo`/`ask-user`/`ask-orchestrator` (Store-Spiegel zu `yoloMaster`, Contract-Approval-Regel, Threat-Model im README) |
 | E integrate / briefing / eval | **Kern umgesetzt** (Track 6) — `integrate_branch` + Gate-Warnung + Promote-Klick, Briefing + `repoNotes`, Journal + Resume (E3, Briefing statt Re-Spawn), Budget-Wanduhr, Janitor/Explorer, Playbooks, Extra-MCP an Worker (E6), Loop-Eval (E5, `tests/integration/loopEval`) — Phase E vollständig |
@@ -313,10 +313,17 @@ Kick-off (`buildSuccessorKickoffPrompt`: Run-Ziel, Zeiger auf das Briefing,
 — Argv bei Providern mit `initialPromptDelivery` (Grok), in den
 PTY-System-Prompt-Paste eingefaltet bei `pty`-Providern (Cursor, Ollama),
 sonst nach MCP-Bereitschaft über den Assignment-Handshake getippt (Claude,
-Codex, Kimi), deren Successors zuvor vor einem leeren Composer saßen. Ein abgelehnter
-Kick-off lässt den Successor im Sitz, druckt eine gelbe Diagnose mit dem
-Cursor in sein Terminal und meldet den Fehler an den Aufrufer. User-Button,
-C5 und C3-SHA-Härtung sind später.
+Codex, Kimi), deren Successors zuvor vor einem leeren Composer saßen. Ein
+abgelehnter Kick-off lässt den Successor im Sitz, druckt eine gelbe Diagnose
+mit dem Cursor in sein Terminal und meldet den Fehler an den Aufrufer. Seitdem
+gelandet: der „Replace orchestrator“-Button des Panels
+(`workspaceCanReplaceOrchestrator` → `succeedOrchestrator` →
+`replaceOrchestratorFromHost`, Paket allein aus Host-Zustand gebaut), die
+C5-Idle-Karte, die ihn anbietet, C3s committete Worker-Wahrheit im Paket
+(`headSha`, `uncommitted`, `changedFiles` je Agent) und Crash-Recovery aus
+einer eingefrorenen `succession.json` (`readSuccessionPackage` → Resume seedet
+den Successor im `recovered`-Modus). Noch offen: derselbe Button im
+Remote-Client.
 
 ### C7 Modell/Provider-Reseat (Wechsel mitten im Lauf)
 

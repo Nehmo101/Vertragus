@@ -53,7 +53,7 @@ server.
 | H2 `workspaces:start {goal}` | **implemented** (Track 0) — goal seed over the assignment handshake (PTY-prompt providers paste system prompt + goal as one first turn); back-compat without a goal; refill (`workspaces:goal`) hands a bare-started run its goal later; `meta.json` records a goal only after the CLI accepted it |
 | C3 snapshot commit / C4 handoff package | **implemented** (Track 1) — `snapshotDone` commits dirty worktrees on done; `start_agent{baseBranch}` carries a handoff block |
 | C5 orchestrator idle watchdog | **implemented** (Track 2) — `orchestrator_idle` event + panel/remote hint; timeouts ≠ idle (touch at call start and end) |
-| C6 orchestrator succession (context handoff) | **S1 in the code** — see [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
+| C6 orchestrator succession (context handoff) | **implemented** (S1–S4) — `request_succession`, panel button + C5 escape hatch, successor kick-off, crash recovery from a frozen package; see [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
 | C7 model/provider reseat (switch mid-run) | **spec only** — see [`MODEL-PROVIDER-SWITCH.md`](./MODEL-PROVIDER-SWITCH.md) |
 | D human in the loop | **D1–D4 implemented** (Track 3 + follow-up) — goal UI, `user_message` wakes `await_events`, `ask_user` with ticket; D4 tiers `yolo`/`ask-user`/`ask-orchestrator` (store mirror to `yoloMaster`, contract approval rule, threat model in the README) |
 | E integrate / briefing / eval | **core implemented** (Track 6) — `integrate_branch` + gate warning + promote click, briefing + `repoNotes`, journal + resume (E3, briefing instead of re-spawn), budget wall clock, Janitor/Explorer, playbooks, extra MCP for workers (E6), loop eval (E5, `tests/integration/loopEval`) — Phase E complete |
@@ -309,10 +309,16 @@ successor's FIRST USER TURN is a short kick-off
 — argv for providers with `initialPromptDelivery` (Grok), folded into the PTY
 system-prompt paste for `pty` providers (Cursor, Ollama), otherwise typed
 through the assignment handshake once MCP is ready (Claude, Codex, Kimi),
-whose successors used to sit at an empty composer. A refused kick-off leaves the
-successor in the seat, prints a yellow diagnostic with the cursor into its
-terminal and reports the error to the caller. User button, C5 and C3 SHA
-hardening come later.
+whose successors used to sit at an empty composer. A refused kick-off leaves
+the successor in the seat, prints a yellow diagnostic with the cursor into its
+terminal and reports the error to the caller. Landed since: the panel's
+“Replace orchestrator” button (`workspaceCanReplaceOrchestrator` →
+`succeedOrchestrator` → `replaceOrchestratorFromHost`, package built from host
+state alone), the C5 idle card that offers it, C3's committed worker truth in
+the package (`headSha`, `uncommitted`, `changedFiles` per agent), and crash
+recovery from a frozen `succession.json` (`readSuccessionPackage` → resume
+seeds the successor in `recovered` mode). Still open: the same button in the
+Remote client.
 
 ### C7 model/provider reseat (switch mid-run)
 

@@ -5,9 +5,12 @@ English | [Deutsch](ORCHESTRATOR-SUCCESSION.de.md)
 Plan for replacing the **root** orchestrator mid-run when its LLM context is
 exhausted — fresh brain, same team, same workspace.
 
-**Status:** S1 vertical slice is in the runtime (`request_succession`, token
-rotation, host-enriched package, successor seed). User button, C5 idle
-escape hatch, C3 SHA alignment, and crash recovery from disk are later.
+**Status:** in the runtime — `request_succession`, token rotation,
+host-enriched package, successor briefing plus kick-off turn, the panel's
+“Replace orchestrator” button, the C5 idle escape hatch that offers it, C3's
+committed worker SHAs in the package, crash recovery from a frozen
+`succession.json`, and a live probe (`tests/live/succession.live.test.ts`).
+Still open: the same button in the Remote client.
 
 **Not this feature:**
 
@@ -96,8 +99,11 @@ the 60s MCP timeout on full spawn).
 ### 3.3 Optional later
 
 - Panel / Remote: `workspaces:succeed_orchestrator` with host-built minimal
-  package (roster + open questions + goal stub) when the orch cannot self-declare.
-- C5 idle card offers that button — C5 itself never spawns a successor.
+  package (roster + open questions + goal stub) when the orch cannot
+  self-declare. **In the code for the panel** (`succeedOrchestrator` IPC →
+  `replaceOrchestratorFromHost`); the Remote client has no such button yet.
+- C5 idle card offers that button — **in the code**
+  (`workspaceCanReplaceOrchestrator`); C5 itself never spawns a successor.
 
 ---
 
