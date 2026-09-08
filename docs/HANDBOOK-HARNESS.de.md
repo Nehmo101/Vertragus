@@ -292,7 +292,8 @@ Kurzentscheidungen (Details und State-Machine im eigenen Doc):
 - Trigger: Orchestrator-Tool `request_succession` (Self-Declare); User-
   Button als Escape; **kein** Host-Token-Zähler
 - Cutover: `orchToken` rotieren → Successor spawnen/seeden → alten PTY
-  killen; `subToken` und Worker-URLs unverändert
+  killen → Kick-off als ersten Turn des Successors zustellen; `subToken` und
+  Worker-URLs unverändert
 - Dieselbe `EventQueue` + `PendingQuestions`; Paket trägt `eventCursor`
 - `record_retro` ist Run-Ende, nicht Handoff — Host blockt Non-Active
 - C5 ist orthogonal (Stille ≠ Context-Full); C3 sollte vor/mit Harden
@@ -305,8 +306,17 @@ Vollständiger Plan: [`docs/ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSI
 mit `eventCursor` und offenen Fragen — das Paket wird einmal als Prosa
 gerendert (Roster, Fragen, Next Actions, Decisions, Risks, Note,
 Event-Schwanz), kein zusätzlicher JSON-Dump —, Fence `succession_in_progress` auf
-mutierenden Tools, `record_retro` währenddessen verboten. User-Button, C5
-und C3-SHA-Härtung sind später.
+mutierenden Tools, `record_retro` währenddessen verboten. Das Briefing fährt
+im System-Prompt mit; der ERSTE USER-TURN des Successors ist ein kurzer
+Kick-off (`buildSuccessorKickoffPrompt`: Run-Ziel, Zeiger auf das Briefing,
+`await_events` am Paket-Cursor fortsetzen), zugestellt wie ein Kaltstart-Ziel
+— Argv bei Providern mit `initialPromptDelivery` (Grok), in den
+PTY-System-Prompt-Paste eingefaltet bei `pty`-Providern (Cursor, Ollama),
+sonst nach MCP-Bereitschaft über den Assignment-Handshake getippt (Claude,
+Codex, Kimi), deren Successors zuvor vor einem leeren Composer saßen. Ein abgelehnter
+Kick-off lässt den Successor im Sitz, druckt eine gelbe Diagnose mit dem
+Cursor in sein Terminal und meldet den Fehler an den Aufrufer. User-Button,
+C5 und C3-SHA-Härtung sind später.
 
 ### C7 Modell/Provider-Reseat (Wechsel mitten im Lauf)
 

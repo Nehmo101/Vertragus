@@ -56,7 +56,7 @@ benannt hatte: **Kontext-Sättigung des Roots**.
 | `subToken` / Worker-MCP-URLs | **Unverändert** | Nicht jede Worker-Attach-Config neu schreiben müssen |
 | EventQueue | **Dieselbe Instanz**; Paket trägt `eventCursor` | Nicht schließen/neu erzeugen (unregister besitzt weiter die Lifetime) |
 | PendingQuestions | **Dieselbe Registry**; bei Succession nie leeren | Verwaiste MCP-Waiter sind schlimmer als Verzögerung |
-| Cutover-Reihenfolge | Alten Token invalidieren → Successor spawnen/seeden → alte PTY killen | Ein Zombie-Vorgänger kann nach der Invalidierung nichts mehr mutieren |
+| Cutover-Reihenfolge | Alten Token invalidieren → Successor spawnen/seeden → alte PTY killen → Kick-off-Turn | Ein Zombie-Vorgänger kann nach der Invalidierung nichts mehr mutieren; der Kick-off kommt zuletzt, weil ein CLI, das ihn ablehnt, trotzdem der sitzende Successor ist |
 | Überlappung | Höchstens ein **gültiger** Orch-Token; nur ein kurzes Spawn-Fenster | Alte Tool-Calls mit `succession_in_progress` fencen |
 | `record_retro` | Während Succession / von Nicht-Aktiven verboten | Handoff ≠ Lauf-Ende; der Host erzwingt die Generation |
 | C5 Idle | Orthogonal | Erkennt Stille; erfindet kein Paket und spawnt nicht auto |
@@ -90,8 +90,8 @@ Spawn nicht am 60s-MCP-Timeout blocken).
 | Event | Bedeutung |
 | --- | --- |
 | `orchestrator_handoff_started` | Cutover begonnen; Paket eingefroren |
-| `orchestrator_started` | Successor hat den Seed angenommen (spiegelt `agent_started`) |
-| `orchestrator_handoff_failed` | Spawn/Seed fehlgeschlagen; Recovery-Policy unten |
+| `orchestrator_started` | Successor hat den Sitz übernommen (spiegelt `agent_started`) — beim Cutover gepusht, bevor der Kick-off-Turn bestätigt ist |
+| `orchestrator_handoff_failed` | Spawn/Seed fehlgeschlagen; Recovery-Policy unten. **Nicht** ein abgelehnter Kick-off — dann sitzt der Successor bereits |
 | `orchestrator_exited` | Nur **ungeplanter** Tod — Succession darf nicht wie ein Crash aussehen |
 
 ### 3.3 Optional später
@@ -119,7 +119,8 @@ PACKAGE_READY      — dauerhaft auf Disk; nach Crash recoverbar
 SUCCESSOR_STARTING — orchToken rotieren; Successor spawnen + seeden
   │
   ▼
-CUTOVER            — Successor als orchestratorRecord binden; alte PTY killen
+CUTOVER            — Successor als orchestratorRecord binden; alte PTY killen;
+                     Kick-off als ersten User-Turn des Successors zustellen
   │
   ▼
 ACTIVE             — Successor await_events{cursor: package.eventCursor}
@@ -213,7 +214,8 @@ Pointer-Event auf der Queue.
 - Nach dem Aufruf: aufhören; weitere Tools können fehlschlagen
   (`succeeded` / `succession_in_progress`).
 
-**Successor** (Seed = System-Prompt + Paket-Block):
+**Successor** (Briefing = System-Prompt + Paket-Block; erster User-Turn =
+vom Host gebauter Kick-off mit Ziel und Cursor):
 
 - Du bist eine **Fortsetzung**, kein neuer Lauf.
 - Zuerst: Paket lesen → `list_agents` → offene Fragen abräumen →

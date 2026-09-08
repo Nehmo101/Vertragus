@@ -55,7 +55,7 @@ Long runs therefore hit a failure mode the handbook did not yet name:
 | `subToken` / worker MCP URLs | **Unchanged** | Must not rewrite every worker attach config |
 | EventQueue | **Same instance**; package carries `eventCursor` | Do not close/recreate (unregister still owns lifetime) |
 | PendingQuestions | **Same registry**; never clear on succession | Orphaned MCP waiters are worse than delay |
-| Cutover order | Invalidate old token → spawn/seed successor → kill old PTY | Zombie predecessor cannot mutate after invalidation |
+| Cutover order | Invalidate old token → spawn/seed successor → kill old PTY → kick-off turn | Zombie predecessor cannot mutate after invalidation; the kick-off comes last because a CLI that refuses it is still the seated successor |
 | Overlap | At most one **valid** orch token; brief spawn window only | Fence old tool calls with `succession_in_progress` |
 | `record_retro` | Forbidden during succession / from non-active orch | Handoff ≠ run end; host enforces generation |
 | C5 idle | Orthogonal | Detects silence; does not invent a package or auto-spawn |
@@ -89,8 +89,8 @@ the 60s MCP timeout on full spawn).
 | Event | Meaning |
 | --- | --- |
 | `orchestrator_handoff_started` | Cutover began; package frozen |
-| `orchestrator_started` | Successor accepted seed (mirrors `agent_started`) |
-| `orchestrator_handoff_failed` | Spawn/seed failed; recovery policy below |
+| `orchestrator_started` | Successor holds the seat (mirrors `agent_started`) — pushed at cutover, before the kick-off turn is confirmed |
+| `orchestrator_handoff_failed` | Spawn/seed failed; recovery policy below. **Not** a refused kick-off — the successor is already seated then |
 | `orchestrator_exited` | **Unplanned** death only — succession must not look like a crash |
 
 ### 3.3 Optional later
@@ -116,7 +116,8 @@ PACKAGE_READY      — durable on disk; recoverable after crash
 SUCCESSOR_STARTING — rotate orchToken; spawn + seed successor
   │
   ▼
-CUTOVER            — bind successor as orchestratorRecord; kill old PTY
+CUTOVER            — bind successor as orchestratorRecord; kill old PTY;
+                     deliver the kick-off as the successor's first user turn
   │
   ▼
 ACTIVE             — successor await_events{cursor: package.eventCursor}
@@ -209,7 +210,8 @@ the queue.
 - After calling it, stop; further tools may fail (`succeeded` /
   `succession_in_progress`).
 
-**Successor** (seed = system prompt + package block):
+**Successor** (briefing = system prompt + package block; first user turn =
+host-built kick-off naming goal and cursor):
 
 - You are a **continuation**, not a new run.
 - First: read package → `list_agents` → clear open questions →

@@ -288,8 +288,8 @@ Quick decisions (details and state machine in the dedicated doc):
 
 - Trigger: orchestrator tool `request_succession` (self-declare); user
   button as escape; **no** host token counter
-- Cutover: rotate `orchToken` → spawn/seed successor → kill old PTY;
-  `subToken` and worker URLs unchanged
+- Cutover: rotate `orchToken` → spawn/seed successor → kill old PTY → deliver
+  the successor's kick-off first turn; `subToken` and worker URLs unchanged
 - Same `EventQueue` + `PendingQuestions`; the package carries `eventCursor`
 - `record_retro` is run end, not handoff — the host blocks non-active
 - C5 is orthogonal (silence ≠ context-full); C3 should land before/with
@@ -302,8 +302,17 @@ package, `orchToken` rotation (old URL → 401, subagent URLs stay), successor
 seed with `eventCursor` and open questions — the package is rendered once as
 prose (roster, questions, next actions, decisions, risks, note, event tail),
 no additional JSON dump —, fence `succession_in_progress` on mutating tools,
-`record_retro` forbidden meanwhile. User button, C5 and C3 SHA hardening
-come later.
+`record_retro` forbidden meanwhile. The briefing rides the system prompt; the
+successor's FIRST USER TURN is a short kick-off
+(`buildSuccessorKickoffPrompt`: run goal, pointer to the briefing, resume
+`await_events` at the package cursor), delivered the way a cold-start goal is
+— argv for providers with `initialPromptDelivery` (Grok), folded into the PTY
+system-prompt paste for `pty` providers (Cursor, Ollama), otherwise typed
+through the assignment handshake once MCP is ready (Claude, Codex, Kimi),
+whose successors used to sit at an empty composer. A refused kick-off leaves the
+successor in the seat, prints a yellow diagnostic with the cursor into its
+terminal and reports the error to the caller. User button, C5 and C3 SHA
+hardening come later.
 
 ### C7 model/provider reseat (switch mid-run)
 
