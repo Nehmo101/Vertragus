@@ -427,6 +427,8 @@ interface AgentRecord {
    * the process exits — this flag still confirms the exit.
    */
   doneSinceAssignment: boolean
+  /** Monotonic even for repeated DONEs, so a pending seed cannot erase one. */
+  completionRevision: number
   unsubscribe: Unsubscribe[]
   /** PTY-only agents only: the pending silence watchdog. */
   idleTimer?: ReturnType<typeof setTimeout>
@@ -1180,8 +1182,12 @@ export class Workspace implements AgentHost {
       )
     }
     const reopen = record.doneSinceAssignment
+    const completionRevision = record.completionRevision
     const accepted = await this.seed(record, text, this.autoSubmitTasks)
     if (!accepted) throw new Error(`${record.name} did not accept the message.`)
+    // Completion during delivery is newer than this assignment, even if the
+    // agent was already done when delivery began. Keep its flag and cursor.
+    if (record.completionRevision !== completionRevision) return
     // A new assignment resets the "has it confirmed?" question — and the
     // sentinel dedup memory, so a legitimate identical DONE for a follow-up
     // still fires. Seed echoes were suppressed during the write; reset drops
@@ -1644,6 +1650,7 @@ export class Workspace implements AgentHost {
   noteAgentDone(agentId: string): void {
     const record = this.agents.get(agentId)
     if (!record || record.orchestrator) return
+    record.completionRevision += 1
     record.doneSinceAssignment = true
     this.deps.windows.close(agentId)
   }
@@ -2801,6 +2808,7 @@ export class Workspace implements AgentHost {
       startedAt: this.now(),
       assignmentCursor: this.events.cursor,
       doneSinceAssignment: false,
+      completionRevision: 0,
       unsubscribe: [],
       idleNotified: false,
       suppressSentinel: false
@@ -2860,6 +2868,7 @@ export class Workspace implements AgentHost {
     }
     switch (report.kind) {
       case 'done':
+        record.completionRevision += 1
         record.doneSinceAssignment = true
         void this.emitAgentDone(record, report.summary, report.status)
         return

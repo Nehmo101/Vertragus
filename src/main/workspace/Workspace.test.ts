@@ -3511,6 +3511,89 @@ describe('token usage', () => {
 
 
 describe('agent surface lifecycle', () => {
+  async function deferredFollowUp() {
+    let release!: (accepted: boolean) => void
+    let reject!: (error: Error) => void
+    const gate = new Promise<boolean>((resolve, fail) => {
+      release = resolve
+      reject = fail
+    })
+    const seed = vi.fn<NonNullable<WorkspaceDeps['seed']>>().mockResolvedValue(true)
+    const h = harness({ deps: { seed } })
+    const agent = await h.workspace.startAgent({ role: 'worker', task: 'Work.' })
+    h.workspace.noteAgentDone(agent.agentId)
+    seed.mockReturnValueOnce(gate)
+    const sending = h.workspace.sendToAgent(agent.agentId, 'Follow up.')
+    expect(seed).toHaveBeenLastCalledWith(
+      expect.any(Function), expect.any(Function), 'Follow up.', expect.any(Object)
+    )
+    expect(h.workspace.canShowAgentWindow(agent.agentId)).toBe(false)
+    return { ...h, agent, sending, release, reject }
+  }
+
+  it('keeps a newer completion closed when the follow-up seed finally resolves', async () => {
+    const { workspace, windows, spawns, agent, sending, release } = await deferredFollowUp()
+    // report_done publishes the event; WorkspaceManager forwards it to noteAgentDone.
+    workspace.events.push({
+      type: 'agent_done', agentId: agent.agentId, name: agent.name,
+      roleId: 'worker', summary: 'Follow-up done.', status: 'success'
+    })
+    workspace.noteAgentDone(agent.agentId)
+    const calls = [...windows.calls]
+    release(true)
+    await sending
+
+    expect(spawns[0]!.pty.isAlive).toBe(true)
+    expect(workspace.canShowAgentWindow(agent.agentId)).toBe(false)
+    expect(workspace.showAgentWindow(agent.agentId)).toBe(false)
+    expect(windows.calls).toEqual(calls)
+    spawns[0]!.pty.exit({ exitCode: 0 })
+    expect(workspace.events.all().find((event) => event.type === 'agent_exited')).toMatchObject({
+      confirmed: true
+    })
+  })
+
+  it('reopens a completed live agent only after the follow-up is accepted', async () => {
+    const { workspace, windows, spawns, agent, sending, release } = await deferredFollowUp()
+    expect(windows.calls.at(-1)).toEqual({ kind: 'close', agentId: agent.agentId })
+    release(true)
+    await sending
+    expect(workspace.canShowAgentWindow(agent.agentId)).toBe(true)
+    expect(windows.calls.at(-1)).toEqual({ kind: 'open', agentId: agent.agentId })
+    spawns[0]!.pty.exit({ exitCode: 1 })
+    expect(workspace.events.all().find((event) => event.type === 'agent_exited')).toMatchObject({
+      confirmed: false
+    })
+  })
+
+  it.each(['refused', 'rejected'] as const)('retains completion after a %s follow-up', async (failure) => {
+    const { workspace, windows, spawns, agent, sending, release, reject } = await deferredFollowUp()
+    const failed = expect(sending).rejects.toThrow(
+      failure === 'refused' ? /did not accept the message/ : /seed failed/
+    )
+    if (failure === 'refused') release(false)
+    else reject(new Error('seed failed'))
+    await failed
+    expect(workspace.canShowAgentWindow(agent.agentId)).toBe(false)
+    expect(windows.calls.at(-1)).toEqual({ kind: 'close', agentId: agent.agentId })
+    spawns[0]!.pty.exit({ exitCode: 0 })
+    expect(workspace.events.all().find((event) => event.type === 'agent_exited')).toMatchObject({
+      confirmed: true
+    })
+  })
+
+  it.each(['exit', 'stop', 'close'] as const)('keeps the surface closed after %s during follow-up delivery', async (end) => {
+    const { workspace, windows, spawns, agent, sending, release } = await deferredFollowUp()
+    if (end === 'exit') spawns[0]!.pty.exit({ exitCode: 0 })
+    else if (end === 'stop') await workspace.stopAgent(agent.agentId)
+    else await workspace.close()
+    const calls = [...windows.calls]
+    release(true)
+    await sending
+    expect(workspace.showAgentWindow(agent.agentId)).toBe(false)
+    expect(windows.calls).toEqual(calls)
+  })
+
   it('reopens an active manual close, closes a completed surface and retains output for follow-up', async () => {
     const { workspace, windows, registry, spawns } = harness()
     const agent = await workspace.startAgent({ role: 'worker', task: 'Work.' })
