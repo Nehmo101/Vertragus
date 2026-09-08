@@ -9,7 +9,9 @@ import {
   lastWorkspaceId,
   recordLastWorkspace,
   rememberWorkspace,
-  resetLastWorkspaceForTesting
+  resetLastWorkspaceForTesting,
+  selectWorkspace,
+  workspaceWindowVisibility
 } from './lastWorkspace'
 
 beforeEach(() => {
@@ -77,13 +79,32 @@ describe('the production store', () => {
 describe('production wiring', () => {
   it('records last workspace on focus, start, resume and stop', () => {
     const source = readFileSync(join(__dirname, '../index.ts'), 'utf8')
-    expect(source).toMatch(/recordLastWorkspace\(/)
-    expect(source).toMatch(/forgetLastWorkspace\(/)
+    const wiring = readFileSync(join(__dirname, '../devRun.ts'), 'utf8')
+    expect(wiring).toMatch(/onWorkspaceStarting:\s*recordLastWorkspace/)
+    expect(wiring).toMatch(/onWorkspaceRemoved:\s*forgetLastWorkspace/)
     expect(source).toMatch(/getLastWorkspaceId\(/)
     expect(source).toMatch(/setHideAllRestoreWorkspace/)
     const focusAt = source.indexOf('focusWorkspace(workspaceId)')
     expect(focusAt).toBeGreaterThanOrEqual(0)
     const focusBlock = source.slice(focusAt, source.indexOf('async readTimelineEvents'))
-    expect(focusBlock).toMatch(/recordLastWorkspace\(workspaceId\)/)
+    expect(focusBlock).toMatch(/selectWorkspace\(workspaceId\)/)
+  })
+})
+
+
+describe('workspace window visibility', () => {
+  it('keeps startup preferences until explicit selection; hide-all and background win', () => {
+    recordLastWorkspace('a')
+    expect(workspaceWindowVisibility('a', false)).toBe('default')
+    expect(workspaceWindowVisibility('b', false)).toBe('hidden')
+    selectWorkspace('a')
+    expect(workspaceWindowVisibility('a', false)).toBe('visible')
+    expect(workspaceWindowVisibility('a', true)).toBe('hidden')
+    recordLastWorkspace('b')
+    expect(workspaceWindowVisibility('a', false)).toBe('hidden')
+    expect(workspaceWindowVisibility('b', false)).toBe('default')
+    selectWorkspace('b')
+    forgetLastWorkspace('b', ['a'])
+    expect(workspaceWindowVisibility('a', false)).toBe('default')
   })
 })

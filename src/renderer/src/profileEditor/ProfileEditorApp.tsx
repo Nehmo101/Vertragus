@@ -129,79 +129,100 @@ export function ProfileEditorApp({
           </div>
         </Field>
 
-        <section className="pe-orchestrator">
-          <h2 className="pe-section-label">{t('profileEditor.orchestrator')}</h2>
-          <p className="pe-hint">{t('profileEditor.orchestratorHint')}</p>
-          <div className="pe-orchestrator-grid">
-            <Field label={t('profileEditor.provider')} error={editor.errors['orchestrator.providerId']}>
-              <ProviderSelect
-                value={draft.orchestrator.providerId}
-                providers={editor.providers}
-                loading={editor.providersLoading}
-                onChange={(providerId) =>
-                  editor.update((current) => ({
+        {(['orchestrator', 'lead'] as const).map((identity) => {
+          const config = draft[identity] ?? draft.orchestrator
+          return (
+            <section className="pe-orchestrator" key={identity}>
+              <h2 className="pe-section-label">
+                {identity === 'lead' ? t('profileEditor.lead') : t('profileEditor.orchestrator')}
+              </h2>
+              <p className="pe-hint">
+                {identity === 'lead' ? t('profileEditor.leadHint') : t('profileEditor.orchestratorHint')}
+              </p>
+              {identity === 'lead' ? (
+                <SwitchField
+                  label={t('profileEditor.leadInherit')}
+                  checked={!draft.lead}
+                  onChange={(inherit) => editor.update((current) => ({
                     ...current,
-                    orchestrator: {
-                      ...current.orchestrator,
-                      providerId,
-                      model: '',
-                      effort: coerceRowEffort(
-                        current.orchestrator.effort,
-                        '',
-                        providerId,
+                    lead: inherit ? undefined : { ...current.orchestrator }
+                  }))}
+                />
+              ) : null}
+              {identity === 'orchestrator' || draft.lead ? (
+                <div className="pe-orchestrator-grid">
+                  <Field label={t('profileEditor.provider')} error={editor.errors[`${identity}.providerId`]}>
+                    <ProviderSelect
+                      value={config.providerId}
+                      providers={editor.providers}
+                      loading={editor.providersLoading}
+                      onChange={(providerId) =>
+                        editor.update((current) => ({
+                          ...current,
+                          [identity]: {
+                            ...(current[identity] ?? current.orchestrator),
+                            providerId,
+                            model: '',
+                            effort: coerceRowEffort(
+                              (current[identity] ?? current.orchestrator).effort,
+                              '',
+                              providerId,
+                              editor.providers,
+                              editor.models,
+                              editor.modelsLoading
+                            )
+                          }
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label={t('profileEditor.model')} error={editor.errors[`${identity}.model`]}>
+                    <ModelCombo
+                      value={config.model}
+                      catalogue={editor.models[config.providerId]}
+                      loading={editor.modelsLoading[config.providerId] ?? false}
+                      onReload={() => editor.reloadModels(config.providerId)}
+                      onChange={(model) =>
+                        editor.update((current) => ({
+                          ...current,
+                          [identity]: {
+                            ...(current[identity] ?? current.orchestrator),
+                            model,
+                            effort: coerceRowEffort(
+                              (current[identity] ?? current.orchestrator).effort,
+                              model,
+                              (current[identity] ?? current.orchestrator).providerId,
+                              editor.providers,
+                              editor.models,
+                              editor.modelsLoading
+                            )
+                          }
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label={t('profileEditor.effort')}>
+                    <EffortSelect
+                      value={config.effort}
+                      options={rowEffortOptions(
+                        config.model,
+                        config.providerId,
                         editor.providers,
-                        editor.models,
-                        editor.modelsLoading
-                      )
-                    }
-                  }))
-                }
-              />
-            </Field>
-            <Field label={t('profileEditor.model')} error={editor.errors['orchestrator.model']}>
-              <ModelCombo
-                value={draft.orchestrator.model}
-                catalogue={editor.models[draft.orchestrator.providerId]}
-                loading={editor.modelsLoading[draft.orchestrator.providerId] ?? false}
-                onReload={() => editor.reloadModels(draft.orchestrator.providerId)}
-                onChange={(model) =>
-                  editor.update((current) => ({
-                    ...current,
-                    orchestrator: {
-                      ...current.orchestrator,
-                      model,
-                      effort: coerceRowEffort(
-                        current.orchestrator.effort,
-                        model,
-                        current.orchestrator.providerId,
-                        editor.providers,
-                        editor.models,
-                        editor.modelsLoading
-                      )
-                    }
-                  }))
-                }
-              />
-            </Field>
-            <Field label={t('profileEditor.effort')}>
-              <EffortSelect
-                value={draft.orchestrator.effort}
-                options={rowEffortOptions(
-                  draft.orchestrator.model,
-                  draft.orchestrator.providerId,
-                  editor.providers,
-                  editor.models[draft.orchestrator.providerId]
-                )}
-                onChange={(effort) =>
-                  editor.update((current) => ({
-                    ...current,
-                    orchestrator: { ...current.orchestrator, effort }
-                  }))
-                }
-              />
-            </Field>
-          </div>
-        </section>
+                        editor.models[config.providerId]
+                      )}
+                      onChange={(effort) =>
+                        editor.update((current) => ({
+                          ...current,
+                          [identity]: { ...(current[identity] ?? current.orchestrator), effort }
+                        }))
+                      }
+                    />
+                  </Field>
+                </div>
+              ) : null}
+            </section>
+          )
+        })}
 
         <section className="pe-slots">
           <h2 className="pe-section-label">{t('profileEditor.slots')}</h2>

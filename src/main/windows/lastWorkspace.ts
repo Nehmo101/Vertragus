@@ -43,12 +43,31 @@ export function forgetWorkspace(
 }
 
 let recency: string[] = []
+let selectedWorkspaceId: string | undefined
 
 export function recordLastWorkspace(workspaceId: string): void {
+  if (workspaceId !== getLastWorkspaceId()) selectedWorkspaceId = undefined
   recency = rememberWorkspace(recency, workspaceId)
 }
 
+/** An explicit reveal overrides startMinimized for this workspace's later agents. */
+export function selectWorkspace(workspaceId: string): void {
+  recordLastWorkspace(workspaceId)
+  selectedWorkspaceId = workspaceId
+}
+
+export function workspaceWindowVisibility(
+  workspaceId: string | undefined,
+  hidden: boolean
+): 'hidden' | 'visible' | 'default' {
+  if (hidden) return 'hidden'
+  if (!workspaceId) return 'default'
+  if (getLastWorkspaceId() && workspaceId !== getLastWorkspaceId()) return 'hidden'
+  return selectedWorkspaceId === workspaceId ? 'visible' : 'default'
+}
+
 export function forgetLastWorkspace(workspaceId: string, liveIds: readonly string[]): void {
+  if (selectedWorkspaceId === workspaceId) selectedWorkspaceId = undefined
   recency = forgetWorkspace(recency, workspaceId, liveIds)
 }
 
@@ -59,4 +78,5 @@ export function getLastWorkspaceId(): string | undefined {
 /** Test seam. */
 export function resetLastWorkspaceForTesting(): void {
   recency = []
+  selectedWorkspaceId = undefined
 }

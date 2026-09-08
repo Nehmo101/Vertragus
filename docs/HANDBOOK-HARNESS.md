@@ -416,9 +416,17 @@ answers take `postUserMessage` / `answerQuestion` — never a PTY write.
 The phone renders the PTY through a headless xterm parser into a native
 DOM scroller and never resizes the PTY. This is not a TUI parser. Hide-all
 (panel eye and the global hotkey) hides CLI, timeline and editor windows
-with `hide()` and never the panel. Restore opens the last selected workspace's agents in
-their zones; eye or hotkey with nothing visible does the same instead
-of recording an empty hide.
+with `hide()` and never the panel. Workspace selection and hide-all restore
+reveal all active agents of the last selected workspace in their zones,
+including minimized or manually closed surfaces. Explicit selection overrides
+`startMinimized`, including for later agents in that workspace. The window
+layer rechecks selection and hide-all at `ready-to-show`, so delayed windows
+cannot surface a background workspace. Tabs retain their selected tab and
+skip zone tiling. Completion (`agent_done`, including subtree queues) and
+process exit close only the corresponding surface; completed/disconnected
+agents are excluded from reveal. Records and output survive, and a follow-up
+to a live agent can reopen its surface. Eye or hotkey with nothing visible
+reveals the last workspace instead of recording an empty hide.
 
 ---
 
@@ -581,8 +589,15 @@ Added:
 
 A sub-orchestrator is **not** a slot `roleId: orchestrator`. It draws a
 guide name (`NameAllocator` kind `orchestrator`), the bronze colour (or a
-darker bronze), the same provider/model as the profile's `orchestrator`
-(overridable), and **no yolo**.
+darker bronze), the provider/model/effort from optional `profile.lead`, and
+**no yolo**. Without that field it inherits `profile.orchestrator`;
+`start_orchestrator{model}` still overrides the model. The profile editor
+shows Lead beside Orchestrator with an inheritance switch and the same
+provider/model/effort controls. Save and profile export/import preserve the
+optional configuration. Lead remains a reserved identity, never a worker
+slot; existing depth, global and subtree caps still apply. The zone palette
+always includes Lead, and scoped long-poll limits follow the caller's own
+provider.
 
 **Lead tools** (a union, deliberately):
 

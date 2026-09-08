@@ -54,12 +54,15 @@ import {
   layoutCliWindows,
   applyCliWindowZones,
   onCliWindowClosed,
-  workspaceUsesTabChrome
+  workspaceUsesTabChrome,
+  setCliWorkspaceVisibility,
+  prepareCliWindowShow
 } from './windows/cliWindow'
 import { cliFocusTargets, presentWorkspaceAgents } from './windows/focusWorkspace'
 import { focusTimelineWindow } from './windows/timelineWindow'
 import {
   forgetHideAll,
+  isEverythingHidden,
   hideAllHotkeyStatus,
   registerAppHideAllShortcut,
   setHideAllRestoreWorkspace,
@@ -67,9 +70,9 @@ import {
   unregisterHideAllShortcut
 } from './windows/hideAll'
 import {
-  forgetLastWorkspace,
   getLastWorkspaceId,
-  recordLastWorkspace
+  selectWorkspace,
+  workspaceWindowVisibility
 } from './windows/lastWorkspace'
 import { suppressMoveTracking } from './windows/placement'
 import { createPanelWindow, getPanelWindow, isPanelWindowSender } from './windows/panel'
@@ -178,13 +181,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
     const agentIds = [
       ...(workspace.orchestrator ? [workspace.orchestrator.agentId] : []),
       ...workspace.listAgents().map((agent) => agent.agentId)
-    ]
-    let startMinimized = false
-    try {
-      startMinimized = getSettings().ui.startMinimized === true
-    } catch {
-      startMinimized = false
-    }
+    ].filter((agentId) => workspace.canShowAgentWindow(agentId))
     let snapToZones = true
     try {
       snapToZones = getSettings().ui.snapToZones !== false
@@ -199,19 +196,23 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       windows: cliFocusTargets,
       beforeHide: suppressMoveTracking,
       beforeRestore: suppressMoveTracking,
-      beforeShow: suppressMoveTracking,
-      restoreMinimized: !startMinimized,
-      tile: !startMinimized && !workspaceUsesTabChrome(workspace.workspaceId) && snapToZones,
+      beforeShow: prepareCliWindowShow,
+      tile: !workspaceUsesTabChrome(workspace.workspaceId) && snapToZones,
       layout: layoutCliWindows
     })
   }
+
+  setCliWorkspaceVisibility((workspaceId) =>
+    workspaceWindowVisibility(workspaceId, isEverythingHidden())
+  )
 
   setHideAllRestoreWorkspace(() => {
     const workspaceId = getLastWorkspaceId()
     if (!workspaceId) return false
     const workspace = manager.get(workspaceId)
     if (!workspace) return false
-    if (!presentWorkspaceWindows(workspace)) return false
+    selectWorkspace(workspaceId)
+    presentWorkspaceWindows(workspace)
     focusTimelineWindow(workspaceId)
     return true
   })
@@ -330,7 +331,6 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           ...(goal ? { goal } : {}),
           ...(attachmentIds?.length ? { attachmentIds } : {})
         })
-        recordLastWorkspace(running.workspace.workspaceId)
         return running
       } catch (error) {
         throw localizedAttachmentError(error, locale)
@@ -394,16 +394,11 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         },
         ...(run.meta?.goal ? { goal: run.meta.goal } : {})
       })
-      recordLastWorkspace(running.workspace.workspaceId)
       if (succession) await markSuccessionConsumed(profile.repoPath, run.workspaceId)
       return running
     },
     async stop(workspaceId) {
       await manager.stopWorkspace(workspaceId)
-      forgetLastWorkspace(
-        workspaceId,
-        manager.list().map((workspace) => workspace.workspaceId)
-      )
     },
     // Panel-only, spoken: type a follow-up into the running orchestrator. The
     // refusals stay host codes like the neighbouring members — the voice layer
@@ -501,12 +496,13 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       }
     },
     focusAgent(agentId) {
+      const owner = manager.list().find((workspace) => workspace.canShowAgentWindow(agentId))
+      if (!owner) return
       if (getCliWindow(agentId)) {
         focusCliWindow(agentId)
         return
       }
-      // A closed window of a still-registered agent (finished, scrollback
-      // intact) reopens so the last task is not a tooltip-only memory.
+      // A manually closed window of an active agent can reopen.
       if (!getAgentRegistry().getAgent(agentId)) return
       for (const workspace of manager.list()) {
         if (workspace.showAgentWindow(agentId)) {
@@ -526,7 +522,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
     focusWorkspace(workspaceId) {
       const workspace = manager.get(workspaceId)
       if (!workspace) return
-      recordLastWorkspace(workspaceId)
+      selectWorkspace(workspaceId)
       // Workspace click replaced hide-all's snapshot: forget it so the next
       // toggle hides what is visible instead of restoring foreign windows.
       forgetHideAll()
@@ -910,7 +906,6 @@ app.whenReady().then(async () => {
       startServer: async () => mcp,
       createManager: () => manager
     })
-    if (devRun) recordLastWorkspace(devRun.workspace.workspaceId)
     // Owner verification of the real orchestrator boot: capture its CLI
     // window (real claude with MCP attach) and exit.
     if (devRun && process.env.VERTRAGUS_DEV_RUN_SCREENSHOT) {

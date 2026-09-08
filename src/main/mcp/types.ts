@@ -275,6 +275,8 @@ export interface AgentHost {
    * never carry this.
    */
   askTimeoutMsFor?(agentId: string): number | undefined
+  /** Scoped long polls follow the caller's provider, including independent Leads. */
+  awaitTimeoutFor?(agentId: string): { defaultSec: number; maxSec: number } | undefined
   /**
    * Read the agent's CLI-recorded usage now and cache it; undefined for a
    * provider without a usage source or when the read failed. Never throws.

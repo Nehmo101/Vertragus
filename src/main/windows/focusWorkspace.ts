@@ -1,7 +1,7 @@
 /**
  * Focus one workspace: hide every other agent's CLI window, bring this
  * workspace's windows forward. {@link presentWorkspaceAgents} also reopens
- * closed windows of still-registered agents and tiles via an injected
+ * manually closed windows of active agents and tiles via an injected
  * `layout` — this module stays Electron-free.
  *
  * Foreign windows are `hide()`d, never minimized: minimize/restore fires move
@@ -51,23 +51,21 @@ export interface FocusWorkspaceDeps {
    */
   beforeShow?(agentId: string): void
   /**
-   * When false, minimized wanted windows stay minimized (startMinimized:
-   * a workspace card must not restore every teammate). Default true.
+   * When false, minimized wanted windows stay minimized. Explicit workspace
+   * selection uses the default true, overriding the startup preference.
    */
   restoreMinimized?: boolean
 }
 
 /**
  * Hide foreign CLI windows and surface the ones whose agent ids are in
- * `agentIds`. Empty `agentIds` (unknown workspace) is a no-op — same quiet
- * shrug as {@link focusCliWindow} for a ghost agent.
+ * `agentIds`. An empty active list hides foreign windows without focusing
+ * anything; the caller validates the workspace before entering this path.
  */
 export function focusWorkspaceAgents(
   agentIds: readonly string[],
   deps: FocusWorkspaceDeps
 ): void {
-  if (agentIds.length === 0) return
-
   const wanted = new Set(agentIds)
   const targets = deps.windows().filter((target) => !target.window.isDestroyed())
   const restoreMinimized = deps.restoreMinimized !== false
@@ -114,7 +112,7 @@ export interface PresentWorkspaceAgentsDeps extends FocusWorkspaceDeps {
    */
   reopenClosedWindow(agentId: string): void
   /**
-   * When false, skip tiling (startMinimized, tab chrome, or snapToZones off).
+   * When false, skip tiling (tab chrome or snapToZones off).
    * Default true.
    */
   tile?: boolean
@@ -122,23 +120,22 @@ export interface PresentWorkspaceAgentsDeps extends FocusWorkspaceDeps {
 }
 
 /**
- * Reopen closed windows of still-registered agents, hide foreign CLI windows,
+ * Reopen manually closed windows of active agents, hide foreign CLI windows,
  * surface this workspace, and tile into zones when `tile` is not false.
  *
- * Returns false when there is nothing to present (`agentIds` empty — a
- * workspace recorded before its orchestrator exists). Callers fall back to
- * hide-all's snapshot instead of claiming a restore.
+ * Returns false when there are no active agents to present; foreign windows
+ * are still hidden so selecting a completed workspace cannot leave them up.
  */
 export function presentWorkspaceAgents(
   agentIds: readonly string[],
   deps: PresentWorkspaceAgentsDeps
 ): boolean {
-  if (agentIds.length === 0) return false
   for (const agentId of agentIds) {
     if (deps.hasLiveWindow(agentId)) continue
     deps.reopenClosedWindow(agentId)
   }
   focusWorkspaceAgents(agentIds, deps)
+  if (agentIds.length === 0) return false
   if (deps.tile !== false) deps.layout(agentIds)
   return true
 }

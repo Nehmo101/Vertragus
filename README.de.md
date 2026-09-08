@@ -189,6 +189,13 @@ Cursors an; der Ring behält die letzten 1000, das On-Disk-Journal alles.
 
 ## Skalierung und Ausdauer
 
+Der Profileditor bietet **Lead** neben Orchestrator: Provider, Modell und
+Aufwand separat wählen oder **Provider, Modell und Aufwand vom Orchestrator
+übernehmen** aktiviert lassen. Bestehende Profile erben diese Vorgaben.
+Lead-Prompts und Bildschirmzonen sind ebenfalls konfigurierbar. Leads starten
+weiterhin ausschließlich über `start_orchestrator`; sie sind keine
+Worker-Slots und starten nicht automatisch.
+
 - **Leads (Tiefe 1, opt-in):** Der Root kann Sub-Orchestratoren starten, die
   je einen Bereich mit eigenem Team und eigener Event-Queue besitzen. Fan-in
   ist der Punkt: Die Events eines Unterbaums fluten den Root nie, Enkel sind
@@ -257,22 +264,36 @@ unter **Einstellungen → Browser-Erweiterung**. How-to:
 
 Transluzente, theme-bewusste Fenster mit einstellbarem Glas; Fensterfarben je
 Rolle, passend zu den Status-Punkten des Panels; ein **Timeline**-Fenster je
-laufendem Workspace (Übersicht plus Journal). Die Einstellung **Im
-Background starten** (`ui.startMinimized`, standardmäßig aus) startet neue
-Agent-CLI-Fenster minimiert in der Taskleiste — das Panel bleibt
-sichtbar, ein Klick auf den Agenten holt das Fenster zurück, und ein
-Umschalten der Einstellung schreibt bereits offene Fenster nicht um. Die
-Einstellung **CLI-Ansicht** (`ui.cliWindowMode`) ist standardmäßig ein
-Fenster pro Agent, wo **Zonen** je Profil Rollen-Fenster an
-Bildschirmregionen pinnen; **Tabs** ist ein CLI-Fenster pro Workspace mit
-Orchestrator und Subagenten als Tabs — Zonen und Tiling je Agent greifen
-nicht. Die Änderung gilt beim nächsten Play. Ein globaler
-Alles-ausblenden-Hotkey blendet CLI-, Timeline- und Editor-Fenster aus
-(`hide()`, nie `minimize()`) und nie das Panel — Restore (Hotkey oder
-Panel-Auge) öffnet die Agenten des zuletzt gewählten Workspace in ihren
-Zonen, und Auge oder Hotkey ohne sichtbares Ziel macht dasselbe, statt
-nichts auszublenden; Autostart und ein Self-Updater mit
-Stable/Main-Kanalwahl; deutsche und englische UI.
+laufendem Workspace (Übersicht plus Journal). **Im Background starten**
+(`ui.startMinimized`, standardmäßig aus) startet die CLI-Fenster eines neuen
+Laufs minimiert in der Taskleiste. Ein Klick auf einen Workspace zeigt alle
+seine aktiven Agenten: minimierte Fenster werden wiederhergestellt, manuell
+geschlossene erneut geöffnet. Später gestartete Agenten dieses ausgewählten
+Workspace erscheinen sichtbar in ihren zugewiesenen Zonen, auch bei aktiver
+Starteinstellung. Agenten anderer Workspaces bleiben verborgen; **Alles
+ausblenden** unterdrückt auch neue Fenster, einschließlich solcher, die noch
+auf ihre erste Darstellung warten.
+
+Meldet ein Agent seine Aufgabe als erledigt oder endet sein Prozess, schließt
+sich seine CLI-Oberfläche. Workspace-Auswahl und Wiederherstellung überspringen
+fertige und getrennte Agenten. Datensätze, Journal und Ausgabe bleiben zur
+Prüfung erhalten; eine Folgeaufgabe an einen noch laufenden Agenten kann seine
+Oberfläche erneut öffnen.
+
+**CLI-Ansicht** (`ui.cliWindowMode`) zeigt standardmäßig ein Fenster pro Agent.
+**Zonen** je Profil ordnen Rollen-Fenster Bildschirmregionen zu, einschließlich
+**Lead**. **Tabs** behält ein CLI-Fenster pro Workspace: Die Workspace-Auswahl
+stellt dieses Fenster wieder her, neue Agenten erhalten Tabs ohne Wechsel des
+ausgewählten Tabs, und bei Fertigstellung schließt nur der jeweilige Tab.
+Zonen und Tiling je Agent gelten dort nicht. Modusänderungen greifen beim
+nächsten Play.
+
+Ein globaler Alles-ausblenden-Hotkey verbirgt CLI-, Timeline- und Editor-Fenster
+(`hide()`, nie `minimize()`), aber nie das Panel. Wiederherstellung (Hotkey oder
+Panel-Auge) zeigt die aktiven Agenten des letzten Workspace; ohne sichtbares
+Ziel tun Auge und Hotkey dasselbe, statt nichts auszublenden. Autostart,
+Self-Updater mit Stable/Main-Kanalwahl und deutsche sowie englische UI ergänzen
+die Desktop-Steuerung.
 
 ## Fernzugriff (Tailscale)
 

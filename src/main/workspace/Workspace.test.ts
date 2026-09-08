@@ -1431,9 +1431,9 @@ describe('replaceOrchestratorFromHost — S3', () => {
     expect(successor.agentId).not.toBe(predecessor.agentId)
     // The point of the button: the team survives its orchestrator.
     expect(workspace.listAgents().map((agent) => agent.agentId)).toContain(worker.agentId)
-    // A dead predecessor is not "terminated": its window and scrollback are
-    // the post-mortem the user was looking at when they pressed the button.
-    expect(windows.closed).not.toContain(predecessor.agentId)
+    // Exit closed the disconnected surface; the record remains inspectable.
+    expect(windows.closed).toContain(predecessor.agentId)
+    expect(workspace.showAgentWindow(predecessor.agentId)).toBe(false)
     expect(prompts.at(-1)).toContain('successor of')
     // Rotated all the same — the dead CLI must not come back onto the queue.
     expect(spawns.at(-1)!.input.mcpUrl).not.toBe(spawns[0]!.input.mcpUrl)
@@ -2702,6 +2702,25 @@ describe('slot/provider choice at start_agent — Track 4', () => {
 })
 
 describe('beginLead — F', () => {
+  it('uses independent Lead defaults on the reserved identity and keeps model overrides', async () => {
+    const { workspace, spawns, windows } = harness({
+      profile: testProfile({ lead: { providerId: 'codex', model: 'gpt-5.6', effort: 'high' } })
+    })
+    const lead = await workspace.startLead({ area: 'ui', task: 'Own the UI.' })
+    expect(spawns[0]!.input).toMatchObject({
+      kind: 'lead', provider: { id: 'codex' }, model: 'gpt-5.6', effort: 'high', yolo: false
+    })
+    expect(workspace.awaitTimeoutFor(lead.agentId)).toBeUndefined()
+    expect(workspace.mcpContext().awaitTimeout).toBeDefined()
+    expect(spawns[0]!.input.mcpUrl).toContain(`lead=${lead.agentId}`)
+    expect(windows.opened[0]!.placement?.roleId).toBe('lead')
+    await workspace.startLead({ area: 'core', task: 'Own core.', model: 'override' })
+    expect(spawns[1]!.input.model).toBe('override')
+    await expect(workspace.startAgent({ role: 'lead', task: 'wrong path' })).rejects.toThrow()
+    await workspace.startAgent({ role: 'worker', task: 'worker one' })
+    await workspace.startAgent({ role: 'worker', task: 'worker two' })
+  })
+
   it('spawns a lead: orchestrator provider, lead prompt, no yolo, lead URL, darker bronze', async () => {
     const { workspace, spawns, windows, prompts } = harness()
     await workspace.startOrchestrator()
@@ -2718,6 +2737,7 @@ describe('beginLead — F', () => {
     // The profile's orchestrator blueprint, not a slot.
     expect(launch.provider.id).toBe('claude')
     expect(launch.model).toBe('opus')
+    expect(workspace.awaitTimeoutFor(lead.agentId)).toEqual(workspace.mcpContext().awaitTimeout)
     expect(launch.yolo).toBe(false)
     expect(launch.mcpUrl).toContain(`lead=${lead.agentId}`)
     expect(launch.systemPrompt).toContain('LEAD orchestrator')
@@ -3486,5 +3506,37 @@ describe('token usage', () => {
       tokenUsage: usage
     })
     expect(workspace.lastTokenUsage(orch.agentId)).toEqual(usage)
+  })
+})
+
+
+describe('agent surface lifecycle', () => {
+  it('reopens an active manual close, closes a completed surface and retains output for follow-up', async () => {
+    const { workspace, windows, registry, spawns } = harness()
+    const agent = await workspace.startAgent({ role: 'worker', task: 'Work.' })
+    windows.close(agent.agentId)
+    expect(workspace.showAgentWindow(agent.agentId)).toBe(true)
+    spawns[0]!.pty.emit('saved output')
+    workspace.noteAgentDone(agent.agentId)
+    expect(windows.closed.at(-1)).toBe(agent.agentId)
+    expect(workspace.showAgentWindow(agent.agentId)).toBe(false)
+    expect(await workspace.readOutput(agent.agentId, 20)).toContain('saved output')
+    expect(registry.getAgent(agent.agentId)).toBeDefined()
+    expect(spawns[0]!.pty.killed).toBe(0)
+    await workspace.sendToAgent(agent.agentId, 'Follow up.')
+    expect(workspace.canShowAgentWindow(agent.agentId)).toBe(true)
+    expect(windows.calls.at(-1)).toEqual({ kind: 'open', agentId: agent.agentId })
+  })
+
+  it.each(['worker', 'lead', 'orchestrator'])('closes a disconnected %s and retains its record', async (role) => {
+    const { workspace, windows, spawns } = harness()
+    const agent = role === 'lead' ? await workspace.startLead({ area: 'ui', task: 'Work.' })
+      : role === 'orchestrator' ? await workspace.startOrchestrator()
+      : await workspace.startAgent({ role, task: 'Work.' })
+    spawns[0]!.pty.emit('last output')
+    spawns[0]!.pty.exit({ exitCode: 1 })
+    expect(windows.closed).toContain(agent.agentId)
+    expect(workspace.showAgentWindow(agent.agentId)).toBe(false)
+    expect(await workspace.readOutput(agent.agentId, 20)).toContain('last output')
   })
 })

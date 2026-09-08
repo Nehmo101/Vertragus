@@ -931,3 +931,32 @@ describe('layoutCliWindowsByWorkspace', () => {
     expect(win.bounds).toEqual({ x: 2720, y: 0, width: 800, height: 900 })
   })
 })
+
+
+it('keeps Lead and worker surfaces in their own zones through reopen and delayed paint', () => {
+  const zones = { zones: [
+    { roleId: 'lead', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 1 } },
+    { roleId: 'worker', displayId: 2, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }
+  ] }
+  const open = (id: string, roleId: string) => fake(cli.createCliWindow(id, {
+    ...WORKER, placement: { roleId, zones, workspaceId: 'selected' }
+  }))
+  const lead = open('lead', 'lead')
+  cli.closeCliWindow('lead')
+  const first = open('worker-1', 'worker')
+  const reopenedLead = open('lead', 'lead')
+  const second = open('worker-2', 'worker')
+  cli.layoutCliWindows(['lead', 'worker-1', 'worker-2'])
+  const expectedWorkers = [first.bounds, second.bounds].map((bounds) => ({ ...bounds }))
+  lead.emit('ready-to-show')
+  second.emit('ready-to-show')
+  reopenedLead.emit('ready-to-show')
+  first.emit('ready-to-show')
+  expect(reopenedLead.bounds).toEqual({ x: 0, y: 0, width: 960, height: 1040 })
+  expect([first.bounds, second.bounds]).toEqual(expectedWorkers)
+  for (const bounds of expectedWorkers) {
+    expect(bounds.x).toBeGreaterThanOrEqual(2720)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(3520)
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(900)
+  }
+})

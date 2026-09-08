@@ -842,8 +842,8 @@ export class Workspace implements AgentHost {
   /**
    * How long `await_events` may block, derived from the ORCHESTRATOR provider's
    * declared MCP tool timeout — it is that CLI that kills a tool call, and the
-   * orchestrator (plus every lead, which runs the same provider and shares this
-   * context) is the only caller of the long poll. Absent when the provider
+   * root owns this context's long poll. Scoped callers use awaitTimeoutFor.
+   * Absent when the provider
    * makes no claim: the tool then keeps its classic 50 s/55 s window under the
    * CLIs' 60 s default. Margins and guard live in {@link raisedWindow}.
    */
@@ -864,11 +864,15 @@ export class Workspace implements AgentHost {
    * trip is a model turn the run does not pay for.
    */
   askTimeoutMsFor(agentId: string): number | undefined {
+    const window = this.awaitTimeoutFor(agentId)
+    return window ? window.maxSec * 1_000 : undefined
+  }
+
+  awaitTimeoutFor(agentId: string): { defaultSec: number; maxSec: number } | undefined {
     const record = this.agents.get(agentId)
     if (!record) return undefined
     const provider = this.deps.providers.find((candidate) => candidate.id === record.providerId)
-    const window = raisedWindow(provider?.mcpToolTimeoutSec)
-    return window ? window.maxSec * 1_000 : undefined
+    return raisedWindow(provider?.mcpToolTimeoutSec)
   }
 
   /** The registration payload for `mcp/server.registerWorkspace`. */
@@ -964,17 +968,18 @@ export class Workspace implements AgentHost {
   /**
    * F: reserve and begin one LEAD start. Same reservation discipline as
    * {@link beginAgent}; no profile slot (the global cap is checked by the
-   * tool layer), the profile's orchestrator provider, an orchestrator-kind
+   * tool layer), the profile's Lead defaults (else orchestrator), an orchestrator-kind
    * name, never yolo, darker bronze, and a `lead=` MCP URL.
    */
   beginLead(input: StartLeadInput): StartingAgent {
     this.assertOpen()
     const urls = this.requireMcp()
-    const provider = this.requireProvider(this.profile.orchestrator.providerId)
+    const config = this.profile.lead ?? this.profile.orchestrator
+    const provider = this.requireProvider(config.providerId)
 
     const agentId = this.newId()
     const name = this.names.allocate('orchestrator')
-    const model = input.model?.trim() || this.profile.orchestrator.model
+    const model = input.model?.trim() || config.model
     const pending: PendingStart = {
       agentId,
       name,
@@ -1054,7 +1059,7 @@ export class Workspace implements AgentHost {
           kind: 'lead',
           provider,
           model: pending.model,
-          effort: this.profile.orchestrator.effort,
+          effort: (this.profile.lead ?? this.profile.orchestrator).effort,
           // Like the root: a lead has no yolo surface at all.
           yolo: false,
           cwd: worktree.path,
@@ -1174,6 +1179,7 @@ export class Workspace implements AgentHost {
         `${record.name} is still starting — wait for its agent_started event.`
       )
     }
+    const reopen = record.doneSinceAssignment
     const accepted = await this.seed(record, text, this.autoSubmitTasks)
     if (!accepted) throw new Error(`${record.name} did not accept the message.`)
     // A new assignment resets the "has it confirmed?" question — and the
@@ -1184,6 +1190,7 @@ export class Workspace implements AgentHost {
     record.assignmentCursor = this.queueFor(agentId).cursor
     record.doneSinceAssignment = false
     record.sentinel?.reset()
+    if (reopen) this.showAgentWindow(agentId)
   }
 
   async stopAgent(agentId: string): Promise<boolean> {
@@ -1633,16 +1640,25 @@ export class Workspace implements AgentHost {
     ]
   }
 
-  /**
-   * Re-open the CLI window of a still-listed agent — finished ones included.
-   *
-   * Closing a window is a view decision, not a process decision: the PTY and
-   * the record stay, so the user can come back to the scrollback of a worker
-   * that already reported done. Unknown or discarded agents return false.
-   */
+  /** Completion closes only the surface; records, PTYs and output survive. */
+  noteAgentDone(agentId: string): void {
+    const record = this.agents.get(agentId)
+    if (!record || record.orchestrator) return
+    record.doneSinceAssignment = true
+    this.deps.windows.close(agentId)
+  }
+
+  /** Starting and working agents can reopen; completed or disconnected ones cannot. */
+  canShowAgentWindow(agentId: string): boolean {
+    const record = this.agents.get(agentId)
+    return Boolean(record && !record.stopped && !record.exit &&
+      (!record.seeded || record.pty.isAlive) && !record.doneSinceAssignment)
+  }
+
+  /** Reopen a manually closed surface of a still-active agent. */
   showAgentWindow(agentId: string): boolean {
     const record = this.agents.get(agentId)
-    if (!record) return false
+    if (!record || !this.canShowAgentWindow(agentId)) return false
     this.openWindow(
       record,
       record.orchestrator ? ORCHESTRATOR_COLOR : record.lead ? LEAD_COLOR : this.colorFor(record.roleId)
@@ -2084,8 +2100,7 @@ export class Workspace implements AgentHost {
       // A live predecessor is killed here — the fence (rotated token) already
       // holds, and two CLIs believing they own the loop is the failure this
       // whole cutover order prevents. A DEAD one is left alone: its process is
-      // gone anyway, and its window plus scrollback are the post-mortem the
-      // user pressed the button in front of.
+      // gone anyway; its record and scrollback remain available for inspection.
       if (predecessor && predecessor !== record && pending.predecessorAlive) {
         this.terminate(predecessor)
       }
@@ -3094,6 +3109,7 @@ export class Workspace implements AgentHost {
    */
   private handleExit(record: AgentRecord, info: PtyExitInfo): void {
     record.exit = info
+    if (!record.stopping) this.deps.windows.close(record.agentId)
     record.endedAt = record.endedAt ?? this.now()
     // A dead process is not a silent one — its exit event says everything.
     this.clearIdleHint(record)

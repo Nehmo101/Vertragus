@@ -77,6 +77,10 @@ export interface WorkspaceManagerDeps
    * succeeded. Copy itself is {@link WorkspaceDeps.materializeAttachments}.
    */
   consumeAttachments?: (ids: readonly string[]) => Promise<void>
+  /** Desktop selection is recorded before asynchronous boot can paint windows. */
+  onWorkspaceStarting?: (workspaceId: string) => void
+  /** Stop or failed boot must not leave desktop selection pointing at a ghost. */
+  onWorkspaceRemoved?: (workspaceId: string, liveIds: readonly string[]) => void
 }
 
 export interface RunningWorkspace {
@@ -322,6 +326,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     // F: host events about a lead's child go to the lead's queue, not the root's.
     workspace.attachEventRouter((agentId) => queueForAgent(registered.runtime, agentId))
     workspaces.set(workspace.workspaceId, workspace)
+    deps.onWorkspaceStarting?.(workspace.workspaceId)
     // E3: the durable journal outlives the ring buffer. Never a blocker.
     const journal = ((): RunJournal | undefined => {
       try {
@@ -370,6 +375,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       workspace.events.onPush(() => notifyChange()),
       registered.runtime.questions.onMutate(() => notifyChange()),
       workspace.events.onPush((event) => {
+        if (event.type === 'agent_done') workspace.noteAgentDone(event.agentId)
         journal?.append(event)
         emitTimeline(workspace.workspaceId, event)
       })
@@ -383,6 +389,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
         .get(workspace.workspaceId)
         ?.push(
           lead.events.onPush((event) => {
+            if (event.type === 'agent_done') workspace.noteAgentDone(event.agentId)
             tap?.events.push(event)
             journal?.append(event)
             emitTimeline(workspace.workspaceId, event)
@@ -429,6 +436,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       // orchestrator with an undelivered goal stays up (see above).
       if (workspace.orchestratorAlive) throw error
       workspaces.delete(workspace.workspaceId)
+      deps.onWorkspaceRemoved?.(workspace.workspaceId, [...workspaces.keys()])
       runMetas.delete(workspace.workspaceId)
       timelineListeners.delete(workspace.workspaceId)
       dropTap(workspace.workspaceId)
@@ -477,6 +485,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     )
     const endReason = workspace.pendingRetroSummary ? 'retro' : crashed ? 'crash' : 'user_stop'
     workspaces.delete(workspaceId)
+    deps.onWorkspaceRemoved?.(workspaceId, [...workspaces.keys()])
     timelineListeners.delete(workspaceId)
     // A3: the user pressing Stop is the other "the work is done" — open the
     // pull request (if asked) then auto-promote the orchestrator branch.

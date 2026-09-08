@@ -13,8 +13,8 @@
  *   even though nobody could ask the predecessor to hand it over;
  * - the subagent, its worktree and its MCP session survive the cutover;
  * - the seat moves to the successor, while the dead predecessor's record is
- *   left alone — window not closed, no kill, no `orchestrator_exited` from the
- *   cutover: that corpse is the post-mortem the button was pressed in front of;
+ *   retained — its disconnected surface closed at exit, no kill and no second
+ *   `orchestrator_exited` from the cutover;
  * - C3: the `headSha` the package carries for an agent is the commit
  *   `snapshotDone` made at report time, not the pre-commit HEAD;
  * - the package is frozen in the RUN directory and renamed to
@@ -239,11 +239,10 @@ describe('S3 host-triggered replacement of a DEAD orchestrator', () => {
         expect(orchestratorSpawns).toHaveLength(2)
         expect(workspace.orchestrator?.agentId).toBe(successor.agentId)
 
-        // The dead-path invariants. A DEAD predecessor is not terminated: its
-        // window and scrollback are the post-mortem the user pressed the
-        // button in front of, and the cutover must not close them or announce
-        // a death the workspace already reported when the process exited.
-        expect(harness.windows.closed).not.toContain(predecessor.agentId)
+        // Exit closed the disconnected surface. Cutover retains the record
+        // and output without killing again or announcing a second death.
+        expect(harness.windows.closed.filter((id) => id === predecessor.agentId)).toHaveLength(1)
+        expect(workspace.showAgentWindow(predecessor.agentId)).toBe(false)
         expect(harness.spawnCalls[0]!.pty.killed).toBe(0)
         const cutoverEvents = workspace.events.all().slice(eventsBeforeCutover)
         expect(cutoverEvents.map((event) => event.type)).not.toContain('orchestrator_exited')

@@ -786,3 +786,19 @@ describe('repo notes — E2', () => {
     expect(warn).toHaveBeenCalled()
   })
 })
+
+
+describe('Lead defaults persistence', () => {
+  it('saves, reloads, edits and removes explicit Lead defaults through the strict store', () => {
+    const { store: settings, backend } = store()
+    const lead = { providerId: 'codex', model: 'gpt-5.6', effort: 'high' }
+    settings.saveProfile({ ...validProfile, lead })
+    const reloaded = createSettingsStore({ backend, warn })
+    expect(reloaded.getProfile('p1')?.lead).toEqual(lead)
+    reloaded.saveProfile({ ...reloaded.getProfile('p1'), name: 'Renamed' })
+    expect(reloaded.getProfile('p1')?.lead).toEqual(lead)
+    reloaded.saveProfile({ ...reloaded.getProfile('p1'), lead: undefined })
+    expect(reloaded.getProfile('p1')?.lead).toBeUndefined()
+    expect(() => reloaded.saveProfile({ ...validProfile, lead: { providerId: '' } })).toThrow()
+  })
+})

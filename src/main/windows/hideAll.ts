@@ -24,8 +24,9 @@
  * - Eye or hotkey with an empty snapshot and no visible target (CLI, timeline,
  *   editor, settings) calls `restoreWorkspace` instead of recording an empty
  *   hide. A visible timeline still hides first.
- * - Windows hidden (or minimized) by the user BEFORE the toggle stay that
- *   way afterwards — they were not ours to show.
+ * - Snapshot fallback leaves previously hidden/minimized windows alone.
+ *   Workspace restore explicitly reveals all active agents, including manual
+ *   closes and minimized windows; completed surfaces are never recreated.
  *
  * The controller is pure bookkeeping over injectable deps (fake windows in
  * the test). `restoreWorkspace` is registered from index.ts through a setter

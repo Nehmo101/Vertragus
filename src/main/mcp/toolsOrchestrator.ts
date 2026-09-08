@@ -271,8 +271,9 @@ export function registerOrchestratorTools(
   // CLI's MCP request timeout says so via `ctx.awaitTimeout`; without it the
   // classic sub-60 s constants stand. Longer windows mean fewer empty wake-ups,
   // and every empty wake-up costs a full model pass over the whole context.
-  const awaitDefault = ctx.awaitTimeout?.defaultSec ?? AWAIT_TIMEOUT_DEFAULT_SEC
-  const awaitMax = ctx.awaitTimeout?.maxSec ?? AWAIT_TIMEOUT_MAX_SEC
+  const awaitTimeout = leadId ? ctx.host.awaitTimeoutFor?.(leadId) : ctx.awaitTimeout
+  const awaitDefault = awaitTimeout?.defaultSec ?? AWAIT_TIMEOUT_DEFAULT_SEC
+  const awaitMax = awaitTimeout?.maxSec ?? AWAIT_TIMEOUT_MAX_SEC
 
   /**
    * C6: while a succession is pending, the ROOT's mutating tools refuse — the
@@ -1158,7 +1159,7 @@ export function registerOrchestratorTools(
         'Start a LEAD: a sub-orchestrator that owns one independent area with its own team and its ' +
         'own verification loop. Use it only when the goal has two or more independent workstreams ' +
         'that barely share files, or when a flat team would drown your await_events loop; stay flat ' +
-        'otherwise. The lead runs your orchestrator provider, gets its own worktree and branch, and ' +
+        'otherwise. The lead uses the profile’s Lead defaults (or inherits the orchestrator), gets its own worktree and branch, and ' +
         'reports upward to you like a subagent (report_done / ask_orchestrator). Its team’s events ' +
         'go to the lead, not to you — await_events only shows you the lead itself. Leads cannot ' +
         'start leads (depth is exactly 1).',
@@ -1183,7 +1184,7 @@ export function registerOrchestratorTools(
             'Subtree budget you hand down — how many agents the lead may run at once. The global ' +
               'workspace cap still counts leads and their agents together.'
           ),
-        model: z.string().min(1).max(200).optional().describe('Override the orchestrator model'),
+        model: z.string().min(1).max(200).optional().describe('Override the configured Lead model'),
         baseBranch: z
           .string()
           .min(1)

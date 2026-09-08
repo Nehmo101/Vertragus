@@ -727,7 +727,163 @@ describe('tabs fallback without WebContentsView', () => {
     expect(cli.isCliWindowSender(chrome.webContents.id)).toBeNull()
     expect(cli.isWorkspaceChromeSender(chrome.webContents.id)).toBe('ws-1')
   })
+  it('keeps fallback child surfaces hidden until their parent is visible and restored', () => {
+    const chrome = fake(cli.createCliWindow('orch', {
+      ...META, cliWindowMode: 'tabs', placement: { roleId: 'orchestrator', workspaceId: 'ws' }
+    }))
+    const child = FakeBrowserWindow.instances[1]!
+    expect(child.isVisible()).toBe(false)
+    chrome.emit('ready-to-show')
+    expect(child.isVisible()).toBe(true)
+    chrome.hide()
+    chrome.emit('hide')
+    expect(child.isVisible()).toBe(false)
+    chrome.showInactive()
+    chrome.emit('show')
+    expect(child.isVisible()).toBe(true)
+    chrome.minimize()
+    chrome.emit('minimize')
+    expect(child.isVisible()).toBe(false)
+    chrome.restore()
+    chrome.emit('restore')
+    expect(child.isVisible()).toBe(true)
+  })
 })
 
 // The sandbox/secureWindow posture of this window is pinned centrally by
 // base.securityContract.test.ts, which derives its file list from the directory.
+
+
+describe.each(['per-agent', 'tabs'] as const)('workspace visibility races (%s)', (mode) => {
+  async function desktop() {
+    const state = await import('./lastWorkspace')
+    const { presentWorkspaceAgents } = await import('./focusWorkspace')
+    state.resetLastWorkspaceForTesting()
+    let hidden = false
+    cli.setCliWorkspaceVisibility((id) => state.workspaceWindowVisibility(id, hidden))
+    const open = (agentId: string, workspaceId = 'selected') => fake(cli.createCliWindow(agentId, {
+      ...META, cliWindowMode: mode,
+      bounds: { x: 40, y: 60, width: 760, height: 480 },
+      placement: { roleId: 'worker', workspaceId }
+    }))
+    const reveal = (ids: string[]) => presentWorkspaceAgents(ids, {
+      hasLiveWindow: (id) => cli.getCliWindow(id) !== null,
+      reopenClosedWindow: (id) => { open(id) },
+      windows: () => cli.listCliWindows().map(({ agentId, window }) => ({ agentId, window: fake(window) })),
+      beforeShow: cli.prepareCliWindowShow,
+      tile: mode !== 'tabs',
+      layout: cli.layoutCliWindows
+    })
+    return { state, open, reveal, hide: () => { hidden = true } }
+  }
+
+  it('workspace reveal restores minimized and manually closed surfaces despite startMinimized', async () => {
+    const { state, open, reveal } = await desktop()
+    settingsUi.startMinimized = true
+    state.recordLastWorkspace('selected')
+    const first = open('first')
+    first.emit('ready-to-show')
+    expect(first.minimized).toBe(true)
+    const closed = open('closed')
+    cli.closeCliWindow('closed')
+    if (mode === 'per-agent') expect(closed.destroyed).toBe(true)
+    const foreign = open('foreign', 'background')
+    state.selectWorkspace('selected')
+    reveal(['first', 'closed'])
+    const reopened = fake(cli.getCliWindow('closed'))
+    reopened.emit('ready-to-show')
+    foreign.emit('ready-to-show')
+    expect(first.isVisible()).toBe(true)
+    expect(first.minimized).toBe(false)
+    expect(reopened.isVisible()).toBe(true)
+    expect(reopened.minimized).toBe(false)
+    expect(foreign.isVisible()).toBe(false)
+  })
+
+  it('shows new selected agents visibly and retains the current tab', async () => {
+    const { state, open } = await desktop()
+    settingsUi.startMinimized = true
+    state.selectWorkspace('selected')
+    const first = open('first')
+    first.emit('ready-to-show')
+    first.minimize()
+    const second = open('second')
+    second.emit('ready-to-show')
+    expect(second.isVisible()).toBe(true)
+    expect(second.minimized).toBe(false)
+    if (mode === 'tabs') {
+      expect(second).toBe(first)
+      expect(FakeWebContentsView.instances[0]!.visible).toBe(true)
+      expect(FakeWebContentsView.instances[1]!.visible).toBe(false)
+    }
+  })
+
+  it('rechecks selection after create and before ready-to-show', async () => {
+    const { state, open } = await desktop()
+    state.selectWorkspace('selected')
+    const pending = open('pending')
+    pending.hide()
+    pending.calls.length = 0
+    state.selectWorkspace('background')
+    pending.emit('ready-to-show')
+    expect(pending.isVisible()).toBe(false)
+    expect(pending.calls).toEqual([])
+  })
+
+  it('hide-all suppresses both pending and newly created surfaces', async () => {
+    const { state, open, hide } = await desktop()
+    state.selectWorkspace('selected')
+    const pending = open('pending')
+    hide()
+    pending.hide()
+    pending.emit('ready-to-show')
+    const next = open('next')
+    next.emit('ready-to-show')
+    expect(pending.isVisible()).toBe(false)
+    expect(next.isVisible()).toBe(false)
+  })
+
+  it('hide-all restore reveals active manual closes and skips completed surfaces', async () => {
+    const { state, open, reveal } = await desktop()
+    const { createHideAllController } = await import('./hideAll')
+    state.selectWorkspace('selected')
+    const first = open('first')
+    first.emit('ready-to-show')
+    open('finished').emit('ready-to-show')
+    open('manual').emit('ready-to-show')
+    const controller = createHideAllController({
+      targets: () => cli.listCliWindows().map(({ agentId, window }) => ({
+        key: `agent:${agentId}`, window: fake(window)
+      })),
+      restoreWorkspace: () => reveal(['first', 'manual'])
+    })
+    cli.setCliWorkspaceVisibility((id) => state.workspaceWindowVisibility(id, controller.isHidden()))
+    expect(controller.toggle()).toBe('hidden')
+    cli.closeCliWindow('finished')
+    cli.closeCliWindow('manual')
+    const delayed = open('delayed', 'background')
+    delayed.emit('ready-to-show')
+    expect(controller.toggle()).toBe('restored')
+    const manual = fake(cli.getCliWindow('manual'))
+    manual.emit('ready-to-show')
+    expect(manual.isVisible()).toBe(true)
+    expect(first.isVisible()).toBe(true)
+    expect(cli.getCliWindow('finished')).toBeNull()
+    delayed.emit('ready-to-show')
+    expect(delayed.isVisible()).toBe(false)
+  })
+
+  it('a surface closed before ready-to-show cannot show or corrupt its replacement', async () => {
+    const { state, open } = await desktop()
+    state.selectWorkspace('selected')
+    const old = open('agent')
+    cli.closeCliWindow('agent')
+    old.calls.length = 0
+    const next = open('agent')
+    old.emit('ready-to-show')
+    expect(old.calls).toEqual([])
+    expect(cli.getCliWindow('agent')).toBe(next)
+    next.emit('ready-to-show')
+    expect(next.isVisible()).toBe(true)
+  })
+})

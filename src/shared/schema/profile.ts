@@ -206,6 +206,8 @@ export const profileSchema = z
     /** Absolute path to the repository. Empty until the user picks a folder. */
     repoPath: z.string().max(500).default(''),
     orchestrator: orchestratorConfigSchema,
+    /** Track F: independent Lead defaults; absent inherits the orchestrator. */
+    lead: orchestratorConfigSchema.optional(),
     slots: z.array(slotSchema).max(MAX_SLOTS).default([]),
     /** Absent = the orchestrator decides freely (still bounded per slot). */
     maxSubagents: z.number().int().min(1).max(MAX_SUBAGENTS).optional(),

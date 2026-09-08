@@ -425,9 +425,18 @@ einen kopflosen xterm-Parser in einen nativen DOM-Scroller und ändert die
 PTY nie in der Größe. Das ist kein TUI-Parser. Hide-all (Panel-Auge und
 globaler Hotkey) blendet CLI-, Timeline- und Editor-Fenster mit `hide()`
 aus, nie das Panel.
-Restore öffnet die Agenten des zuletzt gewählten Workspace in ihren Zonen;
-Auge oder Hotkey ohne sichtbares Ziel macht dasselbe, statt einen leeren
-Hide-Zustand zu merken.
+Workspace-Auswahl und Hide-all-Restore zeigen alle aktiven Agenten des zuletzt
+gewählten Workspace in ihren Zonen, einschließlich minimierter und manuell
+geschlossener Oberflächen. Die explizite Auswahl übersteuert `startMinimized`,
+auch für spätere Agenten dieses Workspace. Die Fensterschicht prüft Auswahl und
+Hide-all bei `ready-to-show` erneut, damit verzögerte Fenster keinen
+Hintergrund-Workspace einblenden. Tabs behalten den ausgewählten Tab und
+überspringen Zonen-Tiling. Fertigstellung (`agent_done`, auch aus Unterbaum-
+Queues) und Prozessende schließen nur die jeweilige Oberfläche; fertige und
+getrennte Agenten sind von der Wiederherstellung ausgeschlossen. Datensätze und
+Ausgabe bleiben erhalten, eine Folgeaufgabe an einen lebenden Agenten kann
+seine Oberfläche wieder öffnen. Ohne sichtbares Ziel zeigen Auge und Hotkey
+den letzten Workspace, statt einen leeren Hide-Zustand zu merken.
 
 ---
 
@@ -590,8 +599,15 @@ Dazu:
 
 Ein Sub-Orchestrator ist **kein** Slot `roleId: orchestrator`. Er zieht
 den Guide-Namen (`NameAllocator` kind `orchestrator`), die Bronze-Farbe
-(oder ein dunkleres Bronze), denselben Provider/Model wie das Profil-
-`orchestrator` (überschreibbar), und **kein Yolo**.
+(oder ein dunkleres Bronze), Provider/Modell/Aufwand aus dem optionalen
+`profile.lead`, und **kein Yolo**. Ohne dieses Feld erbt er
+`profile.orchestrator`; `start_orchestrator{model}` überschreibt weiterhin das
+Modell. Der Profileditor zeigt Lead neben Orchestrator mit einem Schalter zur
+Übernahme und denselben Provider-/Modell-/Aufwand-Feldern. Speichern und
+Profilexport/-import erhalten die optionale Konfiguration. Lead bleibt eine
+reservierte Identität, kein Worker-Slot; Tiefe, globale und Unterbaum-Caps
+gelten unverändert. Die Zonenpalette enthält Lead immer; scoped Long-Poll-
+Grenzen folgen dem Provider des jeweiligen Aufrufers.
 
 **Lead-Tools** (Union, bewusst):
 

@@ -1993,3 +1993,16 @@ describe('task board — S4', () => {
     expect(plain.isError).toBe(false)
   })
 })
+
+
+describe('scoped provider long-poll defaults', () => {
+  it.each([undefined, { defaultSec: 120, maxSec: 150 }])('uses the Lead caller window %j instead of the root', (window) => {
+    const runtime = fakeRuntime({ awaitTimeout: { defaultSec: 300, maxSec: 570 } })
+    runtime.ctx.host.awaitTimeoutFor = vi.fn(() => window)
+    const tools = captureTools((server) => registerOrchestratorTools(server, runtime, { leadId: 'lead' }))
+    expect(runtime.ctx.host.awaitTimeoutFor).toHaveBeenCalledWith('lead')
+    const timeout = tools.get('await_events')!.inputSchema.timeoutSec
+    expect(timeout.description).toContain(`default ${window?.defaultSec ?? 50}`)
+    expect(timeout.description).toContain(`max ${window?.maxSec ?? 55}`)
+  })
+})

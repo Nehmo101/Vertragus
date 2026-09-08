@@ -46,6 +46,15 @@ function draft(overrides: Partial<ProfileDraft> = {}): ProfileDraft {
 }
 
 describe('draft ⇄ profile', () => {
+  it('round-trips independent Lead defaults and can return to inherited defaults', () => {
+    const saved = profileSchema.parse({ ...SAVED, lead: { providerId: 'codex', model: 'gpt-5.6', effort: 'high' } })
+    const loaded = draftFromProfile(saved)
+    expect(validateDraft(en, loaded)).toEqual({ ok: true, profile: saved })
+    expect(profileSchema.parse(toProfileInput({ ...loaded, lead: undefined })).lead).toBeUndefined()
+    expect(profileSchema.parse(toProfileInput(draftFromProfile(SAVED))).lead).toBeUndefined()
+    expect(validateDraft(en, { ...loaded, lead: { ...loaded.lead!, providerId: '' } }).ok).toBe(false)
+  })
+
   it('round-trips a saved profile without changing a single value', () => {
     const result = validateDraft(t, draftFromProfile(SAVED))
     expect(result.ok).toBe(true)
@@ -532,6 +541,15 @@ describe('effortSelectOptions', () => {
     const next = resetInvalidEfforts(current, [entry('grok')], {}, { grok: true })
     expect(next.orchestrator.effort).toBe('xhigh')
     expect(next).toBe(current)
+  })
+
+  it('keeps Lead effort during discovery and validates it against the Lead catalogue', () => {
+    const current = draft({ lead: { providerId: 'grok', model: 'grok-4.5', effort: 'xhigh' } })
+    expect(resetInvalidEfforts(current, [entry('grok')], {}, { grok: true })).toBe(current)
+    const next = resetInvalidEfforts(current, [entry('grok')], { grok: grokCatalogue }, {})
+    expect(next.lead?.effort).toBe('')
+    expect(next.orchestrator).toBe(current.orchestrator)
+    expect(next.slots).toEqual(current.slots)
   })
 
   it('resets orchestrator and slot efforts once the catalogue is in', () => {

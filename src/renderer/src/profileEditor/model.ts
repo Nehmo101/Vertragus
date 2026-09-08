@@ -48,6 +48,8 @@ export interface ProfileDraft {
     effort: EffortChoice
   }
   slots: SlotDraft[]
+  /** Absent keeps the Lead on the orchestrator's provider/model/effort. */
+  lead?: ProfileDraft['orchestrator']
   maxSubagents: string
   /** Press Enter for the agent after an assignment was typed in. */
   autoSubmitTasks: boolean
@@ -122,6 +124,13 @@ export function draftFromProfile(profile: Profile): ProfileDraft {
       effort: slot.effort ?? '',
       maxCount: slot.maxCount === undefined ? '' : String(slot.maxCount)
     })),
+    ...(profile.lead
+      ? { lead: {
+          providerId: profile.lead.providerId,
+          model: profile.lead.model ?? '',
+          effort: profile.lead.effort ?? ''
+        } }
+      : {}),
     maxSubagents: profile.maxSubagents === undefined ? '' : String(profile.maxSubagents),
     autoSubmitTasks: profile.autoSubmitTasks,
     questionMode: profile.questionMode,
@@ -191,6 +200,13 @@ export function toProfileInput(draft: ProfileDraft): unknown {
         ? {}
         : { maxCount: optionalNumber(slot.maxCount) })
     })),
+    ...(draft.lead
+      ? { lead: {
+          providerId: draft.lead.providerId,
+          ...(optionalText(draft.lead.model) ? { model: draft.lead.model.trim() } : {}),
+          ...(draft.lead.effort ? { effort: draft.lead.effort } : {})
+        } }
+      : {}),
     ...(optionalNumber(draft.maxSubagents) === undefined
       ? {}
       : { maxSubagents: optionalNumber(draft.maxSubagents) }),
@@ -474,6 +490,18 @@ export function resetInvalidEfforts(
     providersLoading
   )
   let changed = nextOrch !== draft.orchestrator.effort
+  const nextLead = draft.lead
+    ? coerceRowEffort(
+        draft.lead.effort,
+        draft.lead.model,
+        draft.lead.providerId,
+        providers,
+        catalogues,
+        loading,
+        providersLoading
+      )
+    : undefined
+  if (nextLead !== draft.lead?.effort) changed = true
   const slots = draft.slots.map((slot) => {
     const next = coerceRowEffort(
       slot.effort,
@@ -491,6 +519,7 @@ export function resetInvalidEfforts(
   if (!changed) return draft
   return {
     ...draft,
+    ...(draft.lead ? { lead: { ...draft.lead, effort: nextLead! } } : {}),
     orchestrator:
       nextOrch === draft.orchestrator.effort
         ? draft.orchestrator

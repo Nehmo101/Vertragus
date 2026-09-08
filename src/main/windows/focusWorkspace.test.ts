@@ -119,12 +119,12 @@ describe('focusWorkspaceAgents', () => {
     expect(log).toEqual(['hide:foreign', 'show:b', 'show:a', 'show:c', 'focus:b'])
   })
 
-  it('is a no-op for an empty agent id list (unknown workspace)', () => {
+  it('hides foreign windows when a selected workspace has no active agents', () => {
     const { log, targets } = harness(['a', 'b'])
 
     focusWorkspaceAgents([], { windows: () => targets })
 
-    expect(log).toEqual([])
+    expect(log).toEqual(['hide:a', 'hide:b'])
   })
 
   it('skips destroyed windows and shrugs at missing agent windows', () => {
@@ -276,7 +276,7 @@ describe('presentWorkspaceAgents', () => {
     expect(layout).not.toHaveBeenCalled()
   })
 
-  it('returns false for an empty agent list without touching windows', () => {
+  it('returns false for an empty active list and hides foreign windows', () => {
     const { log, targets } = harness(['foreign'])
     const layout = vi.fn()
     const reopen = vi.fn()
@@ -292,7 +292,7 @@ describe('presentWorkspaceAgents', () => {
 
     expect(reopen).not.toHaveBeenCalled()
     expect(layout).not.toHaveBeenCalled()
-    expect(log).toEqual([])
+    expect(log).toEqual(['hide:foreign'])
   })
 })
 
@@ -301,7 +301,7 @@ describe('production wiring', () => {
     const source = readFileSync(join(__dirname, '../index.ts'), 'utf8')
     expect(source).toMatch(/beforeHide:\s*suppressMoveTracking/)
     expect(source).toMatch(/beforeRestore:\s*suppressMoveTracking/)
-    expect(source).toMatch(/beforeShow:\s*suppressMoveTracking/)
+    expect(source).toMatch(/beforeShow:\s*prepareCliWindowShow/)
     expect(source).toMatch(/layout:\s*layoutCliWindows/)
   })
 

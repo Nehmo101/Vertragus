@@ -20,6 +20,7 @@ import { createStagingStore, stagingDirFor } from './attachments'
 import { getAgentRegistry } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { closeCliWindow, createCliWindow } from './windows/cliWindow'
+import { forgetLastWorkspace, recordLastWorkspace } from './windows/lastWorkspace'
 import { closeTimelineWindow } from './windows/timelineWindow'
 import { setReflowNeighborsGetter } from './windows/placement'
 import { enabledExtraMcpServers } from '@shared/schema/mcpServer'
@@ -78,6 +79,8 @@ export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManage
   setReflowNeighborsGetter(() => getSettings().ui.reflowNeighbors)
   const staging = createStagingStore({ dir: stagingDirFor(app.getPath('userData')) })
   const manager = createWorkspaceManager({
+    onWorkspaceStarting: recordLastWorkspace,
+    onWorkspaceRemoved: forgetLastWorkspace,
     materializeAttachments: (ids, dest) => staging.copyTo(ids, dest),
     consumeAttachments: (ids) => staging.consume(ids),
     mcp,

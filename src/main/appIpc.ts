@@ -49,6 +49,8 @@ import {
 } from '@shared/schema/zones'
 import {
   allRoleTemplates,
+  LEAD_ROLE_ID,
+  LEAD_COLOR,
   ORCHESTRATOR_COLOR,
   ORCHESTRATOR_ROLE_ID,
   roleColor
@@ -853,9 +855,8 @@ export interface ZoneEditorPayload {
 /**
  * The palette and the current rectangles of one display.
  *
- * The orchestrator is always offered even though it has no slot — it is the one
- * window every workspace opens, so "the orchestrator goes here" is the most
- * common zone of all.
+ * Orchestrator and Lead are always offered: both are reserved identities
+ * without worker slots, and both can have their own window zones.
  */
 export function zoneEditorPayload(
   profile: Profile,
@@ -865,13 +866,16 @@ export function zoneEditorPayload(
   selectingDisplay = false
 ): ZoneEditorPayload {
   const templates = allRoleTemplates(roleTemplates)
-  const roleIds = profileRoleIds(profile)
+  const roleIds = profileRoleIds(profile).filter(
+    (id) => id !== ORCHESTRATOR_ROLE_ID && id !== LEAD_ROLE_ID
+  )
   return {
     profileId: profile.id,
     profileName: profile.name,
     displayId,
     roles: [
       { roleId: ORCHESTRATOR_ROLE_ID, label: 'Orchestrator', color: ORCHESTRATOR_COLOR },
+      { roleId: LEAD_ROLE_ID, label: 'Lead', color: LEAD_COLOR },
       ...roleIds.map((roleId, index) => ({
         roleId,
         label: templates.find((template) => template.id === roleId)?.name ?? roleId,

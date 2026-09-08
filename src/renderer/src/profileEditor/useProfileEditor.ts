@@ -155,8 +155,8 @@ export function useProfileEditor(
     if (!draft) return [] as string[]
     return [
       ...new Set(
-        [draft.orchestrator.providerId, ...draft.slots.map((slot) => slot.providerId)].filter(
-          Boolean
+        [draft.orchestrator.providerId, draft.lead?.providerId, ...draft.slots.map((slot) => slot.providerId)].filter(
+          (id): id is string => Boolean(id)
         )
       )
     ]

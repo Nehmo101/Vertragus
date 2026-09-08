@@ -175,6 +175,12 @@ keeps the last 1000 and the on-disk journal keeps everything.
 
 ## Scale and endurance
 
+The profile editor offers **Lead** beside Orchestrator: choose an independent
+provider, model and effort, or keep **Use orchestrator provider, model and
+effort** enabled. Existing profiles inherit those defaults. Lead prompts and
+screen zones are configurable too. Leads still start only through
+`start_orchestrator`; they never become worker slots or start automatically.
+
 - **Leads (depth 1, opt-in):** the root can start sub-orchestrators that own
   one area each with their own team and event queue. Fan-in is the point: a
   subtree's events never flood the root, grandchildren are invisible to it,
@@ -238,19 +244,31 @@ skip. Load it from **Settings → Browser extension**. How-to:
 Translucent, theme-aware windows with adjustable glass; per-role window
 colours that match the panel's status dots; a **Timeline** window per
 running workspace (overview plus journal). Settings **Start in the
-background** (`ui.startMinimized`, off by default) starts new agent CLI
-windows OS-minimized in the taskbar — the panel stays visible, clicking an
-agent restores that window, and flipping the pref does not rewrite
-already-open windows. Settings **CLI view** (`ui.cliWindowMode`) defaults
-to one window per agent, where per-profile **zones** pin role windows to
-screen regions; **Tabs** is one CLI window per workspace with orchestrator
-and subagents as tabs — zones and per-agent tiling do not apply. That
-change takes effect on the next Play. A global hide-all hotkey hides CLI,
-Timeline and editor windows (`hide()`, never `minimize()`) and never the
-panel — restore (hotkey or panel eye) opens the last selected workspace's
-agents in their zones, and eye or hotkey with nothing visible does that
-instead of hiding nothing; autostart and a self-updater with a stable/main
-channel switch; German and English UI.
+background** (`ui.startMinimized`, off by default) starts a new run's CLI
+windows minimized in the taskbar. Clicking a workspace reveals all its
+active agents, restoring minimized windows and reopening manually closed
+ones. Later agents in that selected workspace appear visibly in their
+assigned zones, even with the startup preference enabled. Agents in other
+workspaces stay hidden; **hide-all** also suppresses newly opening windows,
+including windows still waiting for their first paint.
+
+When an agent reports done or its process exits, its CLI surface closes.
+Workspace selection and hide-all restore skip completed and disconnected
+agents. Their records, journal and output remain available for inspection;
+a follow-up assignment to a still-running agent can open its surface again.
+
+Settings **CLI view** (`ui.cliWindowMode`) defaults to one window per agent,
+where per-profile **zones** pin role windows to screen regions (including
+**Lead**). **Tabs** keeps one CLI window per workspace: revealing a workspace
+restores that window, new agents join it without switching the selected tab,
+and completion removes only the finished tab. Zones and per-agent tiling do
+not apply in Tabs. Mode changes take effect on the next Play.
+
+A global hide-all hotkey hides CLI, Timeline and editor windows (`hide()`,
+never `minimize()`) and never the panel. Restore (hotkey or panel eye) reveals
+the last workspace's active agents; eye or hotkey with nothing visible does
+that instead of hiding nothing. Autostart, a self-updater with a stable/main
+channel switch, and German and English UI round out the desktop controls.
 
 ## Remote access (Tailscale)
 

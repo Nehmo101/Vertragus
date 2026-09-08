@@ -1,3 +1,4 @@
+import { roleColor } from '@shared/prompts/roles'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -2824,8 +2825,8 @@ describe('zones', () => {
     expect(payload.profileId).toBe('p1')
     expect(payload.profileName).toBe('Vertragus')
     expect(payload.displayId).toBe(11)
-    // Orchestrator first, then the profile's slot roles.
-    expect(payload.roles.map((role) => role.roleId)).toEqual(['orchestrator', 'worker'])
+    // Reserved identities first, then the profile's slot roles.
+    expect(payload.roles.map((role) => role.roleId)).toEqual(['orchestrator', 'lead', 'worker'])
     // Only this display's zones — the other overlay owns display 22.
     expect(payload.zones).toEqual([
       { roleId: 'worker', displayId: 11, rect: rel(0.5, 0, 0.5, 1) }
@@ -2856,6 +2857,20 @@ describe('zones', () => {
     expect(h.directory.appliedZones).toEqual([{ profileId: 'p1', zones: saved.zones }])
     expect(h.zonesClosed).toBe(1)
     expect(h.broadcasts.at(-1)?.channel).toBe(APP_CHANNELS.eventProfiles)
+  })
+
+  it('offers and persists a Lead zone without requiring a worker slot', () => {
+    const payload = h.ipc.invoke(APP_CHANNELS.zonesLoad, OVERLAY_A_ID) as ZoneEditorPayload
+    expect(payload.roles.filter((role) => role.roleId === 'lead')).toEqual([
+      { roleId: 'lead', label: 'Lead', color: roleColor('lead') }
+    ])
+    h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_A_ID, {
+      profileId: 'p1', zones: [{ roleId: 'lead', rect: rel(0, 0, 0.5, 1) }]
+    })
+    expect(h.store.getProfiles().find((entry) => entry.id === 'p1')?.zones?.zones).toEqual([
+      { roleId: 'lead', displayId: 11, rect: rel(0, 0, 0.5, 1) }
+    ])
+    expect(h.directory.appliedZones).toHaveLength(1)
   })
 
   it('stamps the sender’s display id, whatever the payload claims', () => {
@@ -2985,7 +3000,7 @@ describe('zones', () => {
     expect(h.pickedDisplays).toEqual([22])
     expect(payload.displayId).toBe(22)
     expect(payload.selectingDisplay).toBe(false)
-    expect(payload.roles.map((role) => role.roleId)).toEqual(['orchestrator', 'worker'])
+    expect(payload.roles.map((role) => role.roleId)).toEqual(['orchestrator', 'lead', 'worker'])
     expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones?.targetDisplayId).toBe(
       22
     )

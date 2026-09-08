@@ -181,6 +181,23 @@ const tiledSinceCreate = new Set<string>()
 const focusRequested = new Set<string>()
 const focusRequestedChrome = new Set<string>()
 let tabIpcRegistered = false
+type WindowVisibility = 'hidden' | 'visible' | 'default'
+let readWorkspaceVisibility: (workspaceId: string | undefined) => WindowVisibility = () => 'default'
+
+/** Read current desktop intent at paint time, never capture it at spawn time. */
+export function setCliWorkspaceVisibility(
+  read: (workspaceId: string | undefined) => WindowVisibility
+): void {
+  readWorkspaceVisibility = read
+}
+
+/** Workspace reveal: cancel first-paint minimization without selecting/focusing a tab. */
+export function prepareCliWindowShow(agentId: string): void {
+  suppressMoveTracking(agentId)
+  const tab = liveTab(agentId)
+  if (tab) focusRequestedChrome.add(tab.workspaceId)
+  else focusRequested.add(agentId)
+}
 
 /** Subscribe to CLI windows disappearing — closed by the user or by stop. */
 export function onCliWindowClosed(listener: (agentId: string) => void): () => void {
@@ -572,6 +589,8 @@ function shouldKeepKeyboard(previous: BrowserWindow | null, otherCliCount: numbe
 }
 
 function restoreKeyboard(previous: BrowserWindow | null): void {
+  const agent = listCliWindows().find(({ window }) => window === previous)
+  if (agent && readWorkspaceVisibility(windowWorkspaceId(agent.agentId)) === 'hidden') return
   if (previous && !previous.isDestroyed()) previous.focus()
 }
 
@@ -682,6 +701,7 @@ function pulseFirstPaintLayout(agentId: string, win: BrowserWindow, target: Rect
 export function createCliWindow(agentId: string, options: CliWindowOptions): BrowserWindow {
   const existing = getCliWindow(agentId)
   if (existing) {
+    if (readWorkspaceVisibility(options.placement?.workspaceId) === 'hidden') return existing
     if (liveTab(agentId)) {
       selectCliTab(agentId)
       return existing
@@ -707,6 +727,7 @@ export function createCliWindow(agentId: string, options: CliWindowOptions): Bro
 }
 
 function createPerAgentWindow(agentId: string, options: CliWindowOptions): BrowserWindow {
+  focusRequested.delete(agentId)
   tiledSinceCreate.delete(agentId)
   const plan = options.bounds || !options.placement ? [] : planFor(agentId, options.placement)
   const placed = plan.find((entry) => entry.agentId === agentId)?.bounds
@@ -740,6 +761,10 @@ function createPerAgentWindow(agentId: string, options: CliWindowOptions): Brows
   loadRoute(win, `/agent/${encodeURIComponent(agentId)}`)
   awaitingFirstShow.add(agentId)
   win.on('ready-to-show', () => {
+    if (win.isDestroyed() || windows.get(agentId)?.window !== win) return
+    const visibility = readWorkspaceVisibility(options.placement?.workspaceId)
+    if (visibility === 'hidden') return
+    if (visibility === 'visible') prepareCliWindowShow(agentId)
     if (keepKeyboard) {
       win.showInactive()
       restoreKeyboard(previous)
@@ -772,6 +797,7 @@ function createPerAgentWindow(agentId: string, options: CliWindowOptions): Brows
   })
   win.on('closed', () => {
     const entry = windows.get(agentId)
+    if (entry && entry.window !== win) return
     if (entry?.window === win) windows.delete(agentId)
     awaitingFirstShow.delete(agentId)
     tiledSinceCreate.delete(agentId)
@@ -902,9 +928,8 @@ export function toggleCliWindowMaximized(agentId: string): boolean {
 
 /** Bring an agent's window to the front (panel click, M3). */
 export function focusCliWindow(agentId: string): void {
-  focusRequested.add(agentId)
+  prepareCliWindowShow(agentId)
   const tab = liveTab(agentId)
-  if (tab) focusRequestedChrome.add(tab.workspaceId)
   const win = getCliWindow(agentId)
   if (!win) return
   if (win.isMinimized()) {
@@ -995,7 +1020,7 @@ function layoutTabSurfaces(chrome: CliChromeEntry): void {
     }
     if (surface.child && !surface.child.isDestroyed()) {
       surface.child.setBounds(childRect)
-      if (selected) surface.child.showInactive()
+      if (selected && chrome.window.isVisible() && !chrome.window.isMinimized()) surface.child.showInactive()
       else surface.child.hide()
     }
   }
@@ -1166,6 +1191,10 @@ function createChromeWindow(workspaceId: string, options: CliWindowOptions): Cli
   }
   chromeWindows.set(workspaceId, chrome)
   win.on('ready-to-show', () => {
+    if (win.isDestroyed() || chromeWindows.get(workspaceId) !== chrome) return
+    const visibility = readWorkspaceVisibility(workspaceId)
+    if (visibility === 'hidden') return
+    if (visibility === 'visible') focusRequestedChrome.add(workspaceId)
     if (keepKeyboard) win.showInactive()
     else win.show()
     maybeMinimizeChromeAfterFirstShow(chrome)
@@ -1173,6 +1202,10 @@ function createChromeWindow(workspaceId: string, options: CliWindowOptions): Cli
   })
   win.on('resize', () => layoutTabSurfaces(chrome))
   win.on('move', () => layoutTabSurfaces(chrome))
+  win.on('show', () => layoutTabSurfaces(chrome))
+  win.on('hide', () => layoutTabSurfaces(chrome))
+  win.on('minimize', () => layoutTabSurfaces(chrome))
+  win.on('restore', () => layoutTabSurfaces(chrome))
   win.on('closed', () => {
     const entry = chromeWindows.get(workspaceId)
     if (entry?.window !== win) return
@@ -1205,6 +1238,12 @@ function ensureCliTab(
   else {
     layoutTabSurfaces(chrome)
     pushTabState(chrome)
+  }
+  if (readWorkspaceVisibility(workspaceId) === 'visible') {
+    prepareCliWindowShow(agentId)
+    if (chrome.window.isMinimized()) chrome.window.restore()
+    chrome.window.showInactive()
+    layoutTabSurfaces(chrome)
   }
   return chrome.window
 }

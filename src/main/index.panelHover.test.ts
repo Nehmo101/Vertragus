@@ -34,10 +34,18 @@ describe('panelDirectory hover mapping', () => {
 })
 
 describe('workspace focus CLI restore', () => {
-  it('skips teammate restore and tiling when startMinimized or tabs', () => {
-    expect(source).toMatch(/restoreMinimized:\s*!startMinimized/)
-    expect(source).toMatch(/workspaceUsesTabChrome\(workspace\.workspaceId\)/)
-    expect(source).toMatch(/suppressMoveTracking/)
+  it('reveals active teammates regardless of startup preference and skips tab tiling', () => {
+    const start = source.indexOf('const presentWorkspaceWindows')
+    const end = source.indexOf('setCliWorkspaceVisibility(', start)
+    expect(start).toBeGreaterThan(0)
+    expect(end).toBeGreaterThan(start)
+    const block = source.slice(start, end)
+    expect(block).toMatch(/filter\(\(agentId\) => workspace\.canShowAgentWindow\(agentId\)\)/)
+    expect(block).toContain('presentWorkspaceAgents')
+    expect(block).toMatch(/beforeShow:\s*prepareCliWindowShow/)
+    expect(block).not.toContain('startMinimized')
+    expect(block).not.toContain('restoreMinimized: false')
+    expect(block).toMatch(/tile:\s*!workspaceUsesTabChrome\(workspace\.workspaceId\) && snapToZones/)
   })
 })
 

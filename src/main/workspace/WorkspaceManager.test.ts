@@ -6,7 +6,7 @@ import { buildAgentArgv } from '@main/agents/spawn'
 import { GROK_SESSION_ID_FLAG } from '@main/mcp/attach'
 import type { McpServerHandle, RegisteredWorkspace } from '@main/mcp/server'
 import type { BrowserBridge } from '@main/mcp/browserBridge'
-import type { WorkspaceMcpContext } from '@main/mcp/types'
+import { ensureNest, type WorkspaceMcpContext } from '@main/mcp/types'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
 import { memoryTaskBoard } from '@main/mcp/testing'
 import { buildHandoffPackage } from '@shared/schema/handoff'
@@ -1072,4 +1072,58 @@ describe('noteOrchestratorGoal — CLI capture without clobbering start-with-goa
     expect(running.workspace.orchestratorTaskText).toBe('User goal')
     expect(mcp.workspaceTask(running.workspace.workspaceId)).toBe('handed to a worker')
   })
+})
+
+
+describe('completion surface lifecycle across event queues', () => {
+  it.each(['root', 'nest'] as const)('closes done surfaces from the %s queue, retaining output and follow-ups', async (scope) => {
+    const windows = { open: vi.fn(), close: vi.fn() }
+    const { manager, mcp, spawns } = harness({ windows })
+    const { workspace, orchestrator } = await manager.startWorkspace(testProfile())
+    const agent = await workspace.startAgent({ role: 'worker', task: 'Work.' })
+    const runtime = mcp.lastRuntime!
+    const queue = scope === 'nest' ? ensureNest(runtime, 'parent').events : workspace.events
+    if (scope === 'nest') runtime.parentOf.set(agent.agentId, 'parent')
+    spawns[1]!.pty.emit('history survives')
+    queue.push({ type: 'agent_done', agentId: agent.agentId, name: agent.name,
+      roleId: 'worker', status: 'success', summary: 'Done.' })
+    expect(windows.close).toHaveBeenCalledWith(agent.agentId)
+    expect(windows.close).not.toHaveBeenCalledWith(orchestrator.agentId)
+    expect(workspace.canShowAgentWindow(agent.agentId)).toBe(false)
+    expect(workspace.showAgentWindow(agent.agentId)).toBe(false)
+    expect(await workspace.readOutput(agent.agentId, 20)).toContain('history survives')
+    await workspace.sendToAgent(agent.agentId, 'Another task.')
+    expect(workspace.canShowAgentWindow(agent.agentId)).toBe(true)
+    expect(windows.open).toHaveBeenLastCalledWith(agent.agentId, expect.anything())
+    await manager.stopAll()
+  })
+
+  it('records a workspace before opening its first asynchronous window', async () => {
+    const order: string[] = []
+    const { manager } = harness({
+      onWorkspaceStarting: (id) => order.push(`select:${id}`),
+      windows: { open: () => order.push('open'), close: () => undefined }
+    })
+    const { workspace } = await manager.startWorkspace(testProfile())
+    expect(order.slice(0, 2)).toEqual([`select:${workspace.workspaceId}`, 'open'])
+    await manager.stopAll()
+  })
+})
+
+
+it('forgets a failed boot and a stopped workspace through the same removal seam', async () => {
+  const removed = vi.fn()
+  const failed = harness({
+    onWorkspaceRemoved: removed,
+    spawn: async () => { throw new Error('spawn refused') }
+  })
+  await expect(failed.manager.startWorkspace(testProfile())).rejects.toThrow('spawn refused')
+  expect(removed).toHaveBeenCalledWith(expect.any(String), [])
+  removed.mockClear()
+  const running = harness({ onWorkspaceRemoved: removed })
+  const first = await running.manager.startWorkspace(testProfile())
+  const second = await running.manager.startWorkspace(testProfile())
+  await running.manager.stopWorkspace(second.workspace.workspaceId)
+  expect(removed).toHaveBeenCalledWith(second.workspace.workspaceId, [first.workspace.workspaceId])
+  await running.manager.stopAll()
 })

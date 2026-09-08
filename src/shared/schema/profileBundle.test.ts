@@ -226,3 +226,19 @@ describe('suggestedProfileFilename / ensureJsonExtension', () => {
     expect(ensureJsonExtension('C:/tmp/UWE.JSON')).toBe('C:/tmp/UWE.JSON')
   })
 })
+
+
+describe('Lead configuration export/import', () => {
+  it.each([undefined, { providerId: 'codex', model: 'gpt-5.6', effort: 'high' }])(
+    'preserves explicit defaults or their absence: %j', (lead) => {
+      const source = baseProfile({ lead })
+      const parsed = parseProfileBundleText(serializeProfileBundle(packProfileBundle(source)))
+      expect(parsed.ok).toBe(true)
+      if (!parsed.ok) throw new Error('bundle rejected')
+      const imported = importProfileFromBundle(parsed.bundle, [], [])
+      expect(imported.profile.lead).toEqual(lead)
+      expect(imported.profile.slots.map((slot) => slot.roleId)).toEqual(['worker'])
+      expect(imported.roleTemplates).toEqual([])
+    }
+  )
+})
