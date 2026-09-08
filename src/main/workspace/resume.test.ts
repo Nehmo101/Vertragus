@@ -11,6 +11,7 @@ import {
   readRunEvents,
   readRunTasks,
   readSuccessionPackage,
+  resumeFirstTurn,
   successionSuperseded,
   type ResumeDeps
 } from './resume'
@@ -390,5 +391,93 @@ describe('successionSuperseded — C6', () => {
     expect(successionSuperseded(pkg, [started(43)])).toBe(true)
     // At or before it: the boot the package itself was frozen after.
     expect(successionSuperseded(pkg, [started(42)])).toBe(false)
+  })
+})
+
+describe('resumeFirstTurn — the recovered orchestrator’s first user turn (C6 / E3)', () => {
+  const orchestratorExited = (name: string, seq: number): AgentEvent =>
+    ({
+      type: 'orchestrator_exited',
+      agentId: 'orch-1',
+      name,
+      roleId: 'orchestrator',
+      exitCode: 1,
+      seq,
+      ts: seq
+    }) as AgentEvent
+  const agentStarted = (seq: number): AgentEvent =>
+    ({
+      type: 'agent_started',
+      agentId: 'a1',
+      name: 'Caronte',
+      roleId: 'worker',
+      branch: 'vertragus/x/a1',
+      seq,
+      ts: seq
+    }) as AgentEvent
+  const withMeta = (goal?: string) => ({
+    workspaceId: 'ws-1',
+    meta: {
+      workspaceId: 'ws-1',
+      profileId: 'p1',
+      workspaceName: 'Paradiso',
+      startedAt: 1,
+      ...(goal ? { goal } : {})
+    },
+    events: [agentStarted(1)]
+  })
+
+  it('(d) a recorded meta goal wins — over the package too', () => {
+    const pkg = orchestratorHandoffPackageSchema.parse(
+      successionPackage({ goal: { original: 'Fix the login bug', current: 'Harden the session store' } })
+    )
+    expect(resumeFirstTurn(withMeta('continue the parser work'), pkg)).toEqual({
+      kind: 'goal',
+      goal: 'continue the parser work'
+    })
+    expect(resumeFirstTurn(withMeta('continue the parser work'), undefined)).toEqual({
+      kind: 'goal',
+      goal: 'continue the parser work'
+    })
+  })
+
+  it('(a) falls back to the package goal — current before original — when meta has none', () => {
+    const both = orchestratorHandoffPackageSchema.parse(
+      successionPackage({ goal: { original: 'Fix the login bug', current: 'Harden the session store' } })
+    )
+    expect(resumeFirstTurn(withMeta(), both)).toEqual({ kind: 'goal', goal: 'Harden the session store' })
+    const originalOnly = orchestratorHandoffPackageSchema.parse(
+      successionPackage({ goal: { original: 'Fix the login bug' } })
+    )
+    expect(resumeFirstTurn(withMeta(), originalOnly)).toEqual({ kind: 'goal', goal: 'Fix the login bug' })
+  })
+
+  it('(b) kicks off from the package when no goal exists anywhere — run and predecessor named', () => {
+    const pkg = orchestratorHandoffPackageSchema.parse(successionPackage())
+    expect(resumeFirstTurn({ workspaceId: 'ws-1', events: [] }, pkg)).toEqual({
+      kind: 'kickoff',
+      runName: 'Paradiso',
+      predecessorName: 'Virgilio'
+    })
+  })
+
+  it('(b) kicks off from the journal without a package — named by its orchestrator events, else unnamed', () => {
+    expect(
+      resumeFirstTurn(
+        { ...withMeta(), events: [agentStarted(1), orchestratorExited('Virgilio', 2)] },
+        undefined
+      )
+    ).toEqual({ kind: 'kickoff', runName: 'Paradiso', predecessorName: 'Virgilio' })
+    // Only subagent events: the run was driven, but nothing recorded the driver's name.
+    expect(resumeFirstTurn(withMeta(), undefined)).toEqual({ kind: 'kickoff', runName: 'Paradiso' })
+    // No meta either: the workspace id is the only name left.
+    expect(resumeFirstTurn({ workspaceId: 'ws-9', events: [agentStarted(1)] }, undefined)).toEqual({
+      kind: 'kickoff',
+      runName: 'ws-9'
+    })
+  })
+
+  it('a run that never got going is resumed as a bare Play — no kick-off', () => {
+    expect(resumeFirstTurn({ ...withMeta(), events: [] }, undefined)).toBeUndefined()
   })
 })

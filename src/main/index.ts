@@ -105,6 +105,7 @@ import {
   readRunEvents,
   readRunTasks,
   readSuccessionPackage,
+  resumeFirstTurn,
   successionSuperseded
 } from './workspace/resume'
 import { revealRunFolder } from './workspace/revealRunFolder'
@@ -385,14 +386,29 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       const stale = frozen !== undefined && successionSuperseded(frozen, run.events)
       if (stale) await markSuccessionConsumed(profile.repoPath, run.workspaceId, {}, 'failed')
       const succession = stale ? undefined : frozen
+      // The recovered orchestrator's first user turn: the old goal (meta, else
+      // the package's) over the ordinary goal path, or — when that run never
+      // recorded one — a kick-off, so a provider whose system prompt is a
+      // launch flag does not sit at an empty composer with the briefing.
+      const firstTurn = resumeFirstTurn(run, succession)
       const running = await manager.startWorkspace(profile, {
         resume: {
           briefing: buildResumeBriefing(run, tasks),
           fromWorkspaceId: run.workspaceId,
           ...(tasks ? { tasks } : {}),
-          ...(succession ? { succession } : {})
+          ...(succession ? { succession } : {}),
+          ...(firstTurn?.kind === 'kickoff'
+            ? {
+                kickoff: {
+                  runName: firstTurn.runName,
+                  ...(firstTurn.predecessorName
+                    ? { predecessorName: firstTurn.predecessorName }
+                    : {})
+                }
+              }
+            : {})
         },
-        ...(run.meta?.goal ? { goal: run.meta.goal } : {})
+        ...(firstTurn?.kind === 'goal' ? { goal: firstTurn.goal } : {})
       })
       recordLastWorkspace(running.workspace.workspaceId)
       if (succession) await markSuccessionConsumed(profile.repoPath, run.workspaceId)

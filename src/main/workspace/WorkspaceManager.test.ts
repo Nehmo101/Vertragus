@@ -277,6 +277,135 @@ describe('startWorkspace', () => {
     expect(prompt).not.toContain('--- resumed run ---')
   })
 
+  describe('C6 / E3: the recovered orchestrator’s first turn when the old run recorded no goal', () => {
+    const recoveryPackage = () =>
+      buildHandoffPackage({
+        workspaceId: 'ws-old',
+        workspaceName: 'Inferno',
+        profileId: testProfile().id,
+        createdAt: 1,
+        reason: 'context_full',
+        predecessor: { agentId: 'o1', name: 'Virgilio', providerId: 'claude' },
+        successorAgentId: 'o2',
+        eventCursor: 12,
+        agents: [],
+        openQuestions: [],
+        recentEvents: []
+      })
+
+    it('(b) types ONE kick-off over the handshake into an arg-delivery (claude) orchestrator — not a goal', async () => {
+      const seeder = fakeSeed()
+      const metas: unknown[] = []
+      const { manager, spawns } = harness({
+        seed: seeder.seed as unknown as WorkspaceDeps['seed'],
+        journal: () => ({
+          path: '/repo/.vertragus/runs/x/events.jsonl',
+          append: () => undefined,
+          writeMeta: (meta) => metas.push(meta)
+        })
+      })
+
+      const running = await manager.startWorkspace(testProfile(), {
+        resume: {
+          briefing: 'old run',
+          fromWorkspaceId: 'ws-old',
+          succession: recoveryPackage(),
+          kickoff: { runName: 'Inferno', predecessorName: 'Virgilio' }
+        }
+      })
+
+      // Claude takes its system prompt as a launch flag: nothing else is typed.
+      expect(seeder.prompts).toHaveLength(1)
+      expect(seeder.prompts[0]).toContain('recovering the run "Inferno" of Virgilio')
+      expect(seeder.prompts[0]).toContain('Run goal: not recorded')
+      expect(seeder.prompts[0]).toContain('await_events at cursor 0')
+      expect(seeder.options[0]?.autoSubmit).toBe(true)
+      const pty = spawns[0]!.pty
+      expect(pty.written).toContain(seeder.prompts[0])
+      expect(pty.written.at(-1)).toBe('\r')
+      // Host plumbing, not a goal: the card says "no goal" and meta.json has none.
+      expect(running.workspace.goalText).toBeUndefined()
+      expect(running.workspace.orchestratorTaskText).toBeUndefined()
+      expect(metas).toHaveLength(1)
+      expect(metas[0]).not.toHaveProperty('goal')
+      expect(spawns[0]!.input.initialPrompt).toBeUndefined()
+    })
+
+    it('(c) leaves a pty-delivery (cursor) orchestrator alone — its submitted prompt paste is the first turn', async () => {
+      const seeder = fakeSeed()
+      const { manager, spawns } = harness({
+        ptySystemPrompt: true,
+        seed: seeder.seed as unknown as WorkspaceDeps['seed']
+      })
+
+      const running = await manager.startWorkspace(
+        testProfile({ orchestrator: { providerId: 'cursor' } }),
+        {
+          resume: {
+            briefing: 'old run',
+            fromWorkspaceId: 'ws-old',
+            succession: recoveryPackage(),
+            kickoff: { runName: 'Inferno', predecessorName: 'Virgilio' }
+          }
+        }
+      )
+
+      // Exactly one submit: the recovery prompt paste. No second Enter.
+      expect(seeder.prompts).toHaveLength(1)
+      expect(seeder.prompts[0]).toContain('recovering the run of Virgilio')
+      expect(seeder.prompts[0]).not.toContain('processes are gone')
+      expect(spawns[0]!.pty.written.filter((chunk) => chunk === '\r')).toHaveLength(1)
+      expect(running.workspace.goalText).toBeUndefined()
+    })
+
+    it('(d) a recorded goal takes the goal path unchanged — the kick-off is never typed beside it', async () => {
+      const seeder = fakeSeed()
+      const metas: unknown[] = []
+      const { manager } = harness({
+        seed: seeder.seed as unknown as WorkspaceDeps['seed'],
+        journal: () => ({
+          path: '/repo/.vertragus/runs/x/events.jsonl',
+          append: () => undefined,
+          writeMeta: (meta) => metas.push(meta)
+        })
+      })
+
+      const running = await manager.startWorkspace(testProfile(), {
+        goal: 'continue the parser work',
+        resume: {
+          briefing: 'old run',
+          fromWorkspaceId: 'ws-old',
+          kickoff: { runName: 'Inferno', predecessorName: 'Virgilio' }
+        }
+      })
+
+      expect(seeder.prompts).toHaveLength(1)
+      expect(seeder.prompts[0]).toBe('continue the parser work')
+      expect(running.workspace.goalText).toBe('continue the parser work')
+      expect(metas.at(-1)).toMatchObject({ goal: 'continue the parser work' })
+    })
+
+    it('a refused kick-off travels to the caller and leaves the workspace running, goal-less', async () => {
+      const { manager } = harness({
+        seed: (async () => false) as unknown as WorkspaceDeps['seed']
+      })
+
+      await expect(
+        manager.startWorkspace(testProfile(), {
+          resume: {
+            briefing: 'old run',
+            fromWorkspaceId: 'ws-old',
+            kickoff: { runName: 'Inferno' }
+          }
+        })
+      ).rejects.toThrow(/did not accept the kick-off/)
+
+      const [workspace] = manager.list()
+      expect(workspace?.orchestratorAlive).toBe(true)
+      expect(workspace?.goalText).toBeUndefined()
+    })
+  })
+
   it('S4: installs the task board on the MCP runtime and seeds it on resume', async () => {
     const board = memoryTaskBoard()
     const factory = vi.fn(() => board)

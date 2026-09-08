@@ -602,6 +602,14 @@ export class Workspace implements AgentHost {
   private orchestratorIdleTimer: ReturnType<typeof setTimeout> | undefined
   /** True while the current silence phase has been reported — one event, not a drip. */
   private orchestratorIdleNotified = false
+  /**
+   * True once the orchestrator's CLI received a submitted first user turn
+   * from the host at boot (argv goal, a goal folded into the PTY prompt
+   * paste, or that paste alone) or later ({@link assignGoal}, a recovery
+   * kick-off). What {@link kickOffRecoveredOrchestrator} consults so a CLI
+   * that is already generating never gets a second Enter.
+   */
+  private orchestratorFirstTurnSent = false
 
   constructor(init: WorkspaceInit, deps: WorkspaceDeps) {
     this.currentProfile = init.profile
@@ -1812,14 +1820,16 @@ export class Workspace implements AgentHost {
     const agentId = this.newId()
     const name = this.names.allocate('orchestrator')
     const initialPrompt = options?.initialPrompt?.trim()
-    const { record, initialPromptDelivered } = await this.spawnOrchestratorRecord({
-      agentId,
-      name,
-      mcpUrl: this.requireMcp().orchestratorUrl,
-      ...(initialPrompt ? { initialPrompt } : {}),
-      ...(options?.attachmentIds?.length ? { attachmentIds: options.attachmentIds } : {})
-    })
+    const { record, initialPromptDelivered, firstTurnSubmitted } =
+      await this.spawnOrchestratorRecord({
+        agentId,
+        name,
+        mcpUrl: this.requireMcp().orchestratorUrl,
+        ...(initialPrompt ? { initialPrompt } : {}),
+        ...(options?.attachmentIds?.length ? { attachmentIds: options.attachmentIds } : {})
+      })
     this.orchestratorRecord = record
+    this.orchestratorFirstTurnSent = firstTurnSubmitted
     // C5: the idle clock starts at boot — an orchestrator that never makes
     // its first tool call is exactly as idle as one that stopped mid-run.
     this.noteOrchestratorActivity()
@@ -1830,6 +1840,41 @@ export class Workspace implements AgentHost {
       this.recordDeliveredGoal(options?.displayGoal?.trim() || initialPrompt)
     }
     return this.startedOf(record)
+  }
+
+  /**
+   * C6 / E3: the first user turn of a RECOVERED orchestrator that has no goal
+   * to be given — the dead run never recorded one, and its frozen package
+   * (or the journal briefing) is all the new orchestrator has. On providers
+   * whose system prompt is a launch flag / file that briefing alone leaves
+   * the CLI at an empty composer, exactly the succession gap
+   * {@link finishSuccession} closes; this is the same kick-off through the
+   * same handshake, sent by the manager after boot when no goal is.
+   *
+   * A no-op (false) when the CLI already has a first turn: a delivered goal,
+   * or a PTY provider whose submitted system-prompt paste IS its first turn —
+   * a second Enter into a generating CLI is the extra-follow-up the seed
+   * handshake exists to prevent. Never recorded as {@link goalText}: a
+   * "not recorded" sentence must not become the card's goal. Fail-soft like
+   * {@link assignGoal}: a refused kick-off throws and the workspace stays up.
+   */
+  async kickOffRecoveredOrchestrator(recovery: {
+    runName: string
+    predecessorName?: string
+  }): Promise<boolean> {
+    this.assertOpen()
+    const record = this.orchestratorRecord
+    if (!record) throw new Error(`Workspace ${this.name} has no orchestrator to kick off.`)
+    if (this.goal || this.orchestratorFirstTurnSent) return false
+    const kickoff = buildSuccessorKickoffPrompt({
+      // The recovered queue starts empty — cursor 0 is the truth here.
+      eventCursor: 0,
+      recovery: { runName: recovery.runName },
+      ...(recovery.predecessorName ? { predecessorName: recovery.predecessorName } : {})
+    })
+    await this.seedSuccessorKickoff(record, kickoff, 0)
+    this.orchestratorFirstTurnSent = true
+    return true
   }
 
   /**
@@ -1997,7 +2042,12 @@ export class Workspace implements AgentHost {
     attachmentIds?: readonly string[]
     /** Pre-built prompt (succession). Cold start collects it after the window opens. */
     systemPrompt?: string
-  }): Promise<{ record: AgentRecord; initialPromptDelivered: boolean }> {
+  }): Promise<{
+    record: AgentRecord
+    initialPromptDelivered: boolean
+    /** A submitted first user turn of any kind — `initialPromptDelivered`, or the PTY prompt paste alone. */
+    firstTurnSubmitted: boolean
+  }> {
     const provider = this.requireProvider(this.profile.orchestrator.providerId)
     const pty = this.newPty()
     const record = this.track({
@@ -2060,9 +2110,13 @@ export class Workspace implements AgentHost {
         spawned.pty
       )
       record.assignmentCursor = this.events.cursor
+      const initialPromptDelivered = Boolean(argvInitialPrompt) || Boolean(promptSeed && ptyGoal)
       return {
         record,
-        initialPromptDelivered: Boolean(argvInitialPrompt) || Boolean(promptSeed && ptyGoal)
+        initialPromptDelivered,
+        // A submitted system-prompt paste is a first turn even without a
+        // goal in it — the CLI is generating, not waiting.
+        firstTurnSubmitted: initialPromptDelivered || Boolean(promptSeed)
       }
     } catch (error) {
       this.discard(input.agentId, input.name, spawned?.pty ?? pty)
@@ -2443,6 +2497,7 @@ export class Workspace implements AgentHost {
    * run is {@link postUserMessage}'s job.
    */
   async assignGoal(goal: string, options?: { displayGoal?: string }): Promise<void> {
+    this.orchestratorFirstTurnSent = true
     this.assertOpen()
     if (this.goal) throw new Error('goal_already_set')
     const record = this.orchestratorRecord

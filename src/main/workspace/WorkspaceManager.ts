@@ -134,6 +134,17 @@ export interface StartWorkspaceOptions {
      * accounts of one run would only compete for the successor's attention.
      */
     succession?: OrchestratorHandoffPackage
+    /**
+     * C6 / E3: the resumed run recorded no goal, so nothing will be typed over
+     * the assignment handshake — but it WAS driven, and on providers whose
+     * system prompt is a launch flag or file the briefing alone leaves the new
+     * orchestrator at an empty composer. This kick-off (see
+     * `resume.resumeFirstTurn`) is its first user turn instead; it names the
+     * run and, when known, its dead orchestrator, and never becomes
+     * `goalText`. Ignored when `goal` is set. PTY providers, whose submitted
+     * prompt paste already is a first turn, are left alone.
+     */
+    kickoff?: { runName: string; predecessorName?: string }
   }
 }
 
@@ -421,6 +432,10 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       if (compiled && !workspace.goalText) {
         await workspace.assignGoal(compiled.seed, { displayGoal: compiled.display })
         notifyChange()
+      } else if (!compiled && options?.resume?.kickoff) {
+        // C6 / E3 without a goal: the recovered orchestrator still needs a first
+        // turn — same fail-soft policy as the goal above, never `goalText`.
+        if (await workspace.kickOffRecoveredOrchestrator(options.resume.kickoff)) notifyChange()
       }
       if (workspace.goalText) rememberDeliveredGoal(workspace.workspaceId, workspace.goalText)
       return { workspace, orchestrator, urls: registered }

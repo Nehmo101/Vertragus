@@ -217,23 +217,52 @@ export function buildSuccessorOrchestratorSystemPrompt(
  * goal and the cursor, and points back at the briefing for everything else.
  * Rendering the package here a second time would pay for it twice.
  */
-export interface SuccessorKickoffInput {
+export type SuccessorKickoffInput = {
   /** The run goal as the host / package knows it; absent = never recorded. */
   goal?: string
   /** `pkg.eventCursor` — the first await_events must resume here, not at 0. */
   eventCursor: number
-  predecessorName: string
-}
+} & (
+  | { predecessorName: string; recovery?: undefined }
+  | {
+      /**
+       * C6 / E3: the resumed run's orchestrator, when the package or the journal
+       * named it. Absent = the journal shows a run but never its driver's name.
+       */
+      predecessorName?: string
+      /**
+       * The predecessor is DEAD and so is everything it started: the briefing
+       * in the system prompt is a recovery briefing, the old questions are
+       * void, and the recovered event queue starts empty — so there is nobody
+       * to answer first, and cursor 0 is the truth rather than a mistake.
+       */
+      recovery: { runName: string }
+    }
+)
 
 export function buildSuccessorKickoffPrompt(input: SuccessorKickoffInput): string {
   const goal = input.goal?.trim()
+  const goalLine = goal
+    ? `Run goal: ${goal}`
+    : 'Run goal: not recorded — the briefing and task_list say what is in flight; ' +
+      'ask the user with ask_user only if it is still unclear.'
+  if (input.recovery) {
+    const whose = input.predecessorName ? ` of ${input.predecessorName}` : ''
+    return [
+      `You are recovering the run "${input.recovery.runName}"${whose}, whose processes are ` +
+        'gone. Your system prompt carries the briefing of that run: what it was, its team and ' +
+        'their branches, open tasks, decisions and next actions.',
+      goalLine,
+      'Continue that run now; do not restart it from scratch. Nothing from it is alive and its ' +
+        'questions are void, so start the loop with await_events at cursor 0, re-create the ' +
+        'agents the plan still needs on the branches the briefing lists, then drive the goal ' +
+        'to completion.'
+    ].join('\n')
+  }
   return [
     `You are taking over the run from ${input.predecessorName}. Your system prompt carries ` +
       'the full handoff briefing: team, open questions, task board, decisions and next actions.',
-    goal
-      ? `Run goal: ${goal}`
-      : 'Run goal: not recorded — the briefing and task_list say what is in flight; ' +
-        'ask the user with ask_user only if it is still unclear.',
+    goalLine,
     'Continue that run now; do not restart it. Resume the loop with await_events at cursor ' +
       `${input.eventCursor}${input.eventCursor > 0 ? ' (the package cursor, not 0)' : ''}, ` +
       'answer any open agent questions first, then drive the goal to completion.'
