@@ -225,6 +225,23 @@ host-built kick-off naming goal and cursor):
 - Trust host facts over prose; verify with `inspect_agent`.
 - `record_retro` only at true goal completion.
 
+That seed is the system prompt alone, so the successor also gets a short
+**kick-off as its first user turn** (`buildSuccessorKickoffPrompt`: goal,
+`package.eventCursor`, "continue, do not restart") — a provider whose system
+prompt is a launch flag or file would otherwise sit at an empty composer with a
+briefing nobody asked it to act on.
+
+**Recovery (C6 via E3 Resume)** takes the same path with cursor 0: the dead
+run's goal (`meta.json`, else the package's `goal.current`, else
+`goal.original`) is re-seeded over the ordinary goal path so the card shows it,
+and when no goal was recorded anywhere but the run was driven (a package
+exists, or the journal carries an `orchestrator_*` event) the kick-off names
+the run and the dead orchestrator and says: start `await_events` at cursor 0,
+re-create the agents on the listed branches — typed once, never recorded as the
+card's goal. A run with no package and an empty journal resumes as a bare Play,
+PTY providers keep exactly one submit, and a refused kick-off leaves the
+workspace up with the error travelling to the caller.
+
 ---
 
 ## 7. Code touch list (when implementing)

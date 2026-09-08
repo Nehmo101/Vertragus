@@ -320,6 +320,21 @@ recovery from a frozen `succession.json` (`readSuccessionPackage` → resume
 seeds the successor in `recovered` mode). Still open: the same button in the
 Remote client.
 
+**First user turn:** the briefing only rides the system prompt, so the
+successor is additionally handed a short kick-off typed into its CLI (goal,
+`package.eventCursor`, "continue, do not restart") — without it a provider
+whose system prompt is a launch flag or file sits at an empty composer. Resume
+delivers one too: the old run's goal (`meta.json`, else the frozen package's
+current goal, else its original) is re-seeded over the ordinary goal path so
+the card shows it, and a run that recorded no goal anywhere but *was* driven (a
+frozen package, or an `orchestrator_*` event in the journal) gets a recovery
+kick-off instead — run name, dead orchestrator's name, "start `await_events` at
+cursor 0, re-create agents on the listed branches" — typed once and never
+recorded as the card's goal. A run with no package and an empty journal resumes
+as a bare Play; PTY providers, whose submitted system-prompt paste already is a
+first turn, keep exactly one submit; a refused kick-off leaves the workspace up
+and the error travels to the caller.
+
 ### C7 model/provider reseat (switch mid-run)
 
 Provider and model are launch-time argv — a live PTY cannot be re-pointed.

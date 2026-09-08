@@ -325,6 +325,23 @@ einer eingefrorenen `succession.json` (`readSuccessionPackage` → Resume seedet
 den Successor im `recovered`-Modus). Noch offen: derselbe Button im
 Remote-Client.
 
+**Erster User-Turn:** das Briefing reist nur im System-Prompt, deshalb bekommt
+der Successor zusätzlich einen kurzen Kick-off in seine CLI getippt (Ziel,
+`package.eventCursor`, „fortsetzen, nicht neu starten“) — ohne ihn sitzt ein
+Provider, dessen System-Prompt ein Launch-Flag oder eine Datei ist, vor einem
+leeren Composer. Resume liefert ebenfalls einen: das Ziel des alten Laufs
+(`meta.json`, sonst das aktuelle Ziel des eingefrorenen Pakets, sonst dessen
+ursprüngliches) wird über den normalen Ziel-Pfad neu geseedet, damit die Karte
+es zeigt, und ein Lauf, der nirgends ein Ziel aufgeschrieben hat, aber
+*getrieben* wurde (eingefrorenes Paket oder ein `orchestrator_*`-Event im
+Journal), bekommt stattdessen einen Recovery-Kick-off — Laufname, Name des
+toten Orchestrators, „`await_events` bei Cursor 0 starten, Agenten auf den
+gelisteten Branches neu anlegen“ — einmal getippt und nie als Ziel der Karte
+aufgezeichnet. Ein Lauf ohne Paket und mit leerem Journal wird zum blanken
+Play; PTY-Provider, deren abgeschickte System-Prompt-Paste schon ein erster
+Turn ist, behalten genau ein Submit; ein abgelehnter Kick-off lässt den
+Workspace stehen, der Fehler geht an den Aufrufer.
+
 ### C7 Modell/Provider-Reseat (Wechsel mitten im Lauf)
 
 Provider und Modell sind Launch-Zeit-argv — ein lebendes PTY lässt sich nicht
