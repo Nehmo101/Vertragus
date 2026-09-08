@@ -608,6 +608,11 @@ export class Workspace implements AgentHost {
    * paste, or that paste alone) or later ({@link assignGoal}, a recovery
    * kick-off). What {@link kickOffRecoveredOrchestrator} consults so a CLI
    * that is already generating never gets a second Enter.
+   *
+   * Set at the START of {@link assignGoal}, on purpose: a refused goal may
+   * already sit in the composer (the seed can fail after the paste), and a
+   * kick-off typed under it would be exactly the second text this flag exists
+   * to prevent. "Attempted" is the safe reading here, not "confirmed".
    */
   private orchestratorFirstTurnSent = false
 
