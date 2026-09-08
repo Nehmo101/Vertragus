@@ -385,6 +385,56 @@ describe('startWorkspace', () => {
       expect(metas.at(-1)).toMatchObject({ goal: 'continue the parser work' })
     })
 
+    it('(b) grok without a goal: the kick-off rides the PTY once and never the argv', async () => {
+      const seeder = fakeSeed()
+      const { manager, spawns } = harness({
+        seed: seeder.seed as unknown as WorkspaceDeps['seed']
+      })
+
+      const running = await manager.startWorkspace(
+        testProfile({ orchestrator: { providerId: 'grok' } }),
+        {
+          resume: {
+            briefing: 'old run',
+            fromWorkspaceId: 'ws-old',
+            kickoff: { runName: 'Inferno', predecessorName: 'Virgilio' }
+          }
+        }
+      )
+
+      // No goal, so grok's positional first-turn surface stays empty…
+      expect(spawns[0]!.input.initialPrompt).toBeUndefined()
+      // …and the kick-off is typed exactly once, submitted, and is not a goal.
+      expect(seeder.prompts).toHaveLength(1)
+      expect(seeder.prompts[0]).toContain('recovering the run "Inferno" of Virgilio')
+      expect(spawns[0]!.pty.written.filter((chunk) => chunk === '\r')).toHaveLength(1)
+      expect(running.workspace.goalText).toBeUndefined()
+    })
+
+    it('(d) grok with a recorded goal: the argv carries it and nothing is typed — no kick-off beside it', async () => {
+      const seeder = fakeSeed()
+      const { manager, spawns } = harness({
+        seed: seeder.seed as unknown as WorkspaceDeps['seed']
+      })
+
+      const running = await manager.startWorkspace(
+        testProfile({ orchestrator: { providerId: 'grok' } }),
+        {
+          goal: 'continue the parser work',
+          resume: {
+            briefing: 'old run',
+            fromWorkspaceId: 'ws-old',
+            kickoff: { runName: 'Inferno', predecessorName: 'Virgilio' }
+          }
+        }
+      )
+
+      expect(spawns[0]!.input.initialPrompt).toBe('continue the parser work')
+      expect(seeder.prompts).toHaveLength(0)
+      expect(spawns[0]!.pty.written).toEqual([])
+      expect(running.workspace.goalText).toBe('continue the parser work')
+    })
+
     it('a refused kick-off travels to the caller and leaves the workspace running, goal-less', async () => {
       const { manager } = harness({
         seed: (async () => false) as unknown as WorkspaceDeps['seed']
