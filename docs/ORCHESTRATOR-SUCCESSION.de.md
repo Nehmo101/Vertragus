@@ -221,6 +221,25 @@ Pointer-Event auf der Queue.
 - Host-Fakten vor Prosa vertrauen; mit `inspect_agent` verifizieren.
 - `record_retro` nur bei echter Zielerreichung.
 
+Dieser Seed ist allein der System-Prompt, deshalb bekommt der Successor
+zusätzlich einen kurzen **Kick-off als ersten User-Turn**
+(`buildSuccessorKickoffPrompt`: Ziel, `package.eventCursor`, „fortsetzen, nicht
+neu starten“) — ein Provider, dessen System-Prompt ein Launch-Flag oder eine
+Datei ist, säße sonst vor einem leeren Composer mit einem Briefing, auf das
+ihn niemand handeln heißt.
+
+**Recovery (C6 über E3-Resume)** geht denselben Weg mit Cursor 0: das Ziel des
+toten Laufs (`meta.json`, sonst `goal.current` des Pakets, sonst
+`goal.original`) wird über den normalen Ziel-Pfad neu geseedet, damit die Karte
+es zeigt, und wenn nirgends ein Ziel aufgeschrieben wurde, der Lauf aber
+getrieben war (es gibt ein Paket, oder das Journal trägt ein
+`orchestrator_*`-Event), nennt der Kick-off den Lauf und den toten Orchestrator
+und sagt: `await_events` bei Cursor 0 starten, die Agenten auf den gelisteten
+Branches neu anlegen — einmal getippt, nie als Ziel der Karte aufgezeichnet.
+Ein Lauf ohne Paket und mit leerem Journal wird zum blanken Play, PTY-Provider
+behalten genau ein Submit, und ein abgelehnter Kick-off lässt den Workspace
+stehen, während der Fehler an den Aufrufer geht.
+
 ---
 
 ## 7. Code-Touch-Liste (bei der Umsetzung)
