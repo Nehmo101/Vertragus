@@ -206,3 +206,36 @@ export function buildSuccessorOrchestratorSystemPrompt(
 ): string {
   return `${buildOrchestratorSystemPrompt(input)}\n\n${formatHandoffSeed(pkg, options)}`
 }
+
+/**
+ * The successor's FIRST USER TURN. The briefing above rides the system
+ * prompt; on providers that take the system prompt as a launch flag (Claude,
+ * Grok), a config file (Codex) or an agent file (Kimi) nothing is ever typed
+ * into the CLI, so a successor booted with the briefing alone sits at an
+ * empty composer until a human presses Enter. This is the kick-off that
+ * turns the briefing into a running loop — short on purpose: it names the
+ * goal and the cursor, and points back at the briefing for everything else.
+ * Rendering the package here a second time would pay for it twice.
+ */
+export interface SuccessorKickoffInput {
+  /** The run goal as the host / package knows it; absent = never recorded. */
+  goal?: string
+  /** `pkg.eventCursor` — the first await_events must resume here, not at 0. */
+  eventCursor: number
+  predecessorName: string
+}
+
+export function buildSuccessorKickoffPrompt(input: SuccessorKickoffInput): string {
+  const goal = input.goal?.trim()
+  return [
+    `You are taking over the run from ${input.predecessorName}. Your system prompt carries ` +
+      'the full handoff briefing: team, open questions, task board, decisions and next actions.',
+    goal
+      ? `Run goal: ${goal}`
+      : 'Run goal: not recorded — the briefing and task_list say what is in flight; ' +
+        'ask the user with ask_user only if it is still unclear.',
+    'Continue that run now; do not restart it. Resume the loop with await_events at cursor ' +
+      `${input.eventCursor}${input.eventCursor > 0 ? ' (the package cursor, not 0)' : ''}, ` +
+      'answer any open agent questions first, then drive the goal to completion.'
+  ].join('\n')
+}

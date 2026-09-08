@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildHandoffPackage } from '../schema/handoff'
 import {
+  buildSuccessorKickoffPrompt,
   buildSuccessorOrchestratorSystemPrompt,
   formatHandoffSeed
 } from './orchestratorHandoff'
@@ -223,5 +224,49 @@ describe('buildSuccessorOrchestratorSystemPrompt', () => {
     expect(prompt).toContain('You are the orchestrator of the Vertragus workspace')
     expect(prompt).toContain('request_succession')
     expect(prompt).toContain('cursor 42')
+  })
+})
+
+describe('buildSuccessorKickoffPrompt — the successor’s first user turn', () => {
+  it('names the predecessor, the goal and the package cursor, and points at the briefing', () => {
+    const kickoff = buildSuccessorKickoffPrompt({
+      goal: '  Fix the login bug  ',
+      eventCursor: 42,
+      predecessorName: 'Virgilio'
+    })
+    expect(kickoff).toContain('taking over the run from Virgilio')
+    expect(kickoff).toContain('Run goal: Fix the login bug')
+    expect(kickoff).toContain('await_events at cursor 42 (the package cursor, not 0)')
+    expect(kickoff).toContain('system prompt carries the full handoff briefing')
+    expect(kickoff).toContain('do not restart it')
+  })
+
+  it('says the goal is not recorded instead of inventing one', () => {
+    const kickoff = buildSuccessorKickoffPrompt({ eventCursor: 7, predecessorName: 'Virgilio' })
+    expect(kickoff).toContain('Run goal: not recorded')
+    expect(kickoff).toContain('task_list')
+    expect(kickoff).not.toContain('Run goal: undefined')
+    expect(buildSuccessorKickoffPrompt({ goal: '   ', eventCursor: 7, predecessorName: 'V' })).toContain(
+      'Run goal: not recorded'
+    )
+  })
+
+  it('does not warn about cursor 0 when the package cursor IS 0', () => {
+    const kickoff = buildSuccessorKickoffPrompt({ eventCursor: 0, predecessorName: 'Virgilio' })
+    expect(kickoff).toContain('await_events at cursor 0,')
+    expect(kickoff).not.toContain('not 0')
+  })
+
+  it('stays a kick-off, not a second copy of the package', () => {
+    const kickoff = buildSuccessorKickoffPrompt({
+      goal: 'Fix the login bug',
+      eventCursor: 42,
+      predecessorName: 'Virgilio'
+    })
+    const briefing = formatHandoffSeed(pkg)
+    expect(kickoff.length).toBeLessThan(briefing.length)
+    expect(kickoff).not.toContain('Caronte')
+    expect(kickoff).not.toContain('merge which branch?')
+    expect(kickoff.split('\n')).toHaveLength(3)
   })
 })

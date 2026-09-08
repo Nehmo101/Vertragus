@@ -1706,6 +1706,14 @@ export function registerOrchestratorTools(
         }
         try {
           const started = ctx.host.requestSuccession(parsed)
+          // The cutover finishes in the background and this tool call has
+          // answered by then — the caller is the predecessor, which is told
+          // to stop. Nobody else awaits `ready`: an unobserved rejection here
+          // would surface as an unhandled rejection in the main process. The
+          // failure itself is not lost — the host journals
+          // `orchestrator_handoff_failed` (cutover refused) or leaves the
+          // diagnosis in the successor's scrollback (kick-off not accepted).
+          started.ready.catch(() => undefined)
           return toolJson({
             successorAgentId: started.successorAgentId,
             successorName: started.successorName,

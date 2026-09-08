@@ -109,7 +109,10 @@ import {
   type OrchestratorPromptInput,
   type RoleWithLimit
 } from '@shared/prompts/orchestrator'
-import { buildSuccessorOrchestratorSystemPrompt } from '@shared/prompts/orchestratorHandoff'
+import {
+  buildSuccessorKickoffPrompt,
+  buildSuccessorOrchestratorSystemPrompt
+} from '@shared/prompts/orchestratorHandoff'
 import { appendUserRolePrompt } from '@shared/prompts/rolePrompt'
 import {
   buildHandoffPackage,
@@ -1809,7 +1812,7 @@ export class Workspace implements AgentHost {
     const agentId = this.newId()
     const name = this.names.allocate('orchestrator')
     const initialPrompt = options?.initialPrompt?.trim()
-    const record = await this.spawnOrchestratorRecord({
+    const { record, initialPromptDelivered } = await this.spawnOrchestratorRecord({
       agentId,
       name,
       mcpUrl: this.requireMcp().orchestratorUrl,
@@ -1820,11 +1823,11 @@ export class Workspace implements AgentHost {
     // C5: the idle clock starts at boot — an orchestrator that never makes
     // its first tool call is exactly as idle as one that stopped mid-run.
     this.noteOrchestratorActivity()
-      if (initialPrompt) {
-      const provider = this.requireProvider(this.profile.orchestrator.providerId)
-      if (buildInitialPromptArgs(provider, initialPrompt).length > 0) {
-        this.recordDeliveredGoal(options?.displayGoal?.trim() || initialPrompt)
-      }
+    // Argv or folded into the system-prompt paste: the goal reached the CLI
+    // as its first turn. Everyone else leaves goalText unset so the manager
+    // runs the assignment handshake ({@link assignGoal}).
+    if (initialPrompt && initialPromptDelivered) {
+      this.recordDeliveredGoal(options?.displayGoal?.trim() || initialPrompt)
     }
     return this.startedOf(record)
   }
@@ -1978,6 +1981,13 @@ export class Workspace implements AgentHost {
    * then briefing, worktree, PTY, MCP wait, seed. Does NOT bind
    * {@link orchestratorRecord} — the caller decides when the seat changes, so
    * a failing successor never steals the predecessor's seat.
+   *
+   * `initialPromptDelivered` says whether `input.initialPrompt` reached the
+   * CLI as its first user turn here — on the argv (positional providers) or
+   * folded into the PTY system-prompt paste. False means the caller still
+   * owes the CLI a first turn over the assignment handshake; what that turn
+   * MEANS (the workspace goal at cold start, the kick-off after a handoff)
+   * is the caller's business, which is why nothing is recorded here.
    */
   private async spawnOrchestratorRecord(input: {
     agentId: string
@@ -1987,7 +1997,7 @@ export class Workspace implements AgentHost {
     attachmentIds?: readonly string[]
     /** Pre-built prompt (succession). Cold start collects it after the window opens. */
     systemPrompt?: string
-  }): Promise<AgentRecord> {
+  }): Promise<{ record: AgentRecord; initialPromptDelivered: boolean }> {
     const provider = this.requireProvider(this.profile.orchestrator.providerId)
     const pty = this.newPty()
     const record = this.track({
@@ -2049,34 +2059,63 @@ export class Workspace implements AgentHost {
         'orchestrator-prompt',
         spawned.pty
       )
-      if (promptSeed && ptyGoal) this.recordDeliveredGoal(ptyGoal)
       record.assignmentCursor = this.events.cursor
-      return record
+      return {
+        record,
+        initialPromptDelivered: Boolean(argvInitialPrompt) || Boolean(promptSeed && ptyGoal)
+      }
     } catch (error) {
       this.discard(input.agentId, input.name, spawned?.pty ?? pty)
       throw error
     }
   }
 
+  /**
+   * The cutover, then the successor's first user turn.
+   *
+   * The briefing rides the system prompt; the KICK-OFF is what makes the
+   * successor act on it. It takes the same road the workspace goal takes at
+   * cold start: the argv when the provider declares `initialPromptDelivery`,
+   * folded into the system-prompt paste when that paste is the delivery,
+   * and otherwise the assignment handshake once MCP is up — a successor on
+   * Claude / Codex / Kimi used to get the briefing and nothing else, and sat
+   * at an empty composer until a human pressed Enter.
+   *
+   * The handshake runs AFTER the seat change and outside its try/catch on
+   * purpose: a kick-off the CLI did not accept is not a failed cutover (the
+   * fence holds, the successor is running, the user can type into it), so it
+   * must neither restore the predecessor nor journal `orchestrator_handoff_failed`.
+   * It is still an error to the caller — the host button shows it, like a
+   * cold-start goal the CLI refused — and the diagnosis lands in the
+   * successor's own scrollback, where someone debugging a silent CLI looks.
+   */
   private async finishSuccession(): Promise<StartedAgent> {
     const pending = this.succession
     if (!pending) throw new Error('No succession in progress.')
     const predecessor = this.agents.get(pending.predecessorId)
+    const kickoff = buildSuccessorKickoffPrompt({
+      goal: pending.pkg.goal?.current ?? pending.pkg.goal?.original ?? this.goal,
+      eventCursor: pending.pkg.eventCursor,
+      predecessorName: pending.pkg.predecessor.name
+    })
+    let cutover: { record: AgentRecord; initialPromptDelivered: boolean }
 
     try {
       const rotated = this.rotateOrchToken()
       pending.previousToken = rotated.previousToken
       pending.previousUrl = rotated.previousUrl
 
-      const record = await this.spawnOrchestratorRecord({
+      cutover = await this.spawnOrchestratorRecord({
         agentId: pending.successorAgentId,
         name: pending.successorName,
         systemPrompt: this.systemPromptFor(
           ORCHESTRATOR_ROLE_ID,
           buildSuccessorOrchestratorSystemPrompt(this.orchestratorPromptInput(), pending.pkg)
         ),
-        mcpUrl: this.requireMcp().orchestratorUrl
+        mcpUrl: this.requireMcp().orchestratorUrl,
+        initialPrompt: kickoff
       })
+      const { record } = cutover
 
       this.orchestratorRecord = record
       // C5: the successor starts with a fresh idle clock, like any boot.
@@ -2099,7 +2138,6 @@ export class Workspace implements AgentHost {
         predecessorAgentId: pending.predecessorId,
         eventCursor: pending.pkg.eventCursor
       })
-      return this.startedOf(record)
     } catch (error) {
       this.restoreOrchToken(pending.previousToken, pending.previousUrl)
       // The cutover did not happen, so nothing crashed and nothing is waiting
@@ -2124,6 +2162,43 @@ export class Workspace implements AgentHost {
       this.succession = undefined
       throw error
     }
+
+    if (!cutover.initialPromptDelivered) {
+      await this.seedSuccessorKickoff(cutover.record, kickoff, pending.pkg.eventCursor)
+    }
+    return this.startedOf(cutover.record)
+  }
+
+  /**
+   * Type the kick-off into a successor whose provider has no spawn-time
+   * first-turn surface — the {@link assignGoal} handshake, minus the goal
+   * bookkeeping: the kick-off is host plumbing, not a new goal, so goalText
+   * and the task line must not change. Always submitted, like a goal.
+   */
+  private async seedSuccessorKickoff(
+    record: AgentRecord,
+    kickoff: string,
+    eventCursor: number
+  ): Promise<void> {
+    if (!record.pty.isAlive) {
+      throw new Error(
+        `${record.name} took over the run but its process ended before it could be kicked off.`
+      )
+    }
+    const accepted = await this.seed(record, kickoff, true)
+    if (accepted) return
+    // Visible where the user is already looking: the successor's window is
+    // open with the boot overlay gone and an empty composer. Says what to
+    // type so the run can be continued by hand.
+    record.pty.push(
+      `\r\n\x1b[33mVertragus: ${record.name} did not accept the kick-off after the handoff — ` +
+        'it is running; tell it in its terminal to continue the run and resume ' +
+        `await_events at cursor ${eventCursor}.\x1b[0m\r\n`
+    )
+    throw new Error(
+      `${record.name} took over the run but did not accept the kick-off — ` +
+        'type into its terminal to continue the run.'
+    )
   }
 
   private rotateOrchToken(): { previousToken: string; previousUrl: string; orchToken: string } {

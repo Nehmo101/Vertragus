@@ -1249,28 +1249,148 @@ describe('requestSuccession', () => {
     expect(prompts.at(-1)).toContain('Current goal: Login fixed; hardening the session store')
   })
 
-  it('does not pass the original start-goal as a positional argv to a grok successor', async () => {
-    const { workspace, spawns } = harness({
+  it('kicks off a positional-delivery (grok) successor on the argv — not the bare start-goal, and not the PTY', async () => {
+    const { workspace, spawns, prompts } = harness({
       profile: testProfile({ orchestrator: { providerId: 'grok' } })
     })
     await workspace.startOrchestrator({ initialPrompt: 'Fix the login bug' })
     expect(spawns[0]!.input.initialPrompt).toBe('Fix the login bug')
+    const seedsBefore = prompts.length
 
-    await workspace.requestSuccession({ reason: 'context_full' }).ready
+    const begun = workspace.requestSuccession({ reason: 'context_full' })
+    await begun.ready
 
     const successor = spawns[1]!
     expect(successor.input.kind).toBe('orchestrator')
-    expect(successor.input.initialPrompt).toBeUndefined()
+    // The first turn is the kick-off: it NAMES the goal but is not a second
+    // copy of it — a re-typed start-goal would read as a new assignment.
+    expect(successor.input.initialPrompt).toContain('Run goal: Fix the login bug')
+    expect(successor.input.initialPrompt).toContain(`cursor ${begun.eventCursor}`)
+    expect(successor.input.initialPrompt).not.toBe('Fix the login bug')
+    // Argv-delivered means nothing rides the handshake as well.
+    expect(prompts).toHaveLength(seedsBefore)
+    expect(workspace.goalText).toBe('Fix the login bug')
 
     const cwd = mkdtempSync(join(tmpdir(), 'vertragus-ws-grok-succ-'))
     try {
       const { argv } = buildAgentArgv({ ...successor.input, cwd })
-      expect(argv.at(-1)).not.toBe('Fix the login bug')
+      expect(argv.at(-1)).toBe(successor.input.initialPrompt)
       expect(argv).not.toContain('Fix the login bug')
       expect(argv.indexOf(GROK_SESSION_ID_FLAG)).toBeGreaterThanOrEqual(0)
     } finally {
       rmSync(cwd, { recursive: true, force: true })
     }
+  })
+
+  it('kicks off an arg-delivery (claude) successor over the assignment handshake, submitted', async () => {
+    const { workspace, spawns, prompts, seedOptions } = harness()
+    await workspace.startOrchestrator()
+    await workspace.assignGoal('Fix the login bug')
+    const seedsBefore = prompts.length
+
+    const begun = workspace.requestSuccession({ reason: 'context_full' })
+    const successor = await begun.ready
+
+    // The system prompt is a launch flag for Claude — nothing pasted for it —
+    // so the ONLY thing typed into the successor is the kick-off.
+    expect(prompts).toHaveLength(seedsBefore + 1)
+    const kickoff = prompts.at(-1)!
+    expect(kickoff).toContain('taking over the run from')
+    expect(kickoff).toContain('Run goal: Fix the login bug')
+    expect(kickoff).toContain(`await_events at cursor ${begun.eventCursor}`)
+    expect(kickoff).not.toContain('Your team right now')
+    expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
+    const successorPty = spawns.find((call) => call.input.sessionId === successor.agentId)!.pty
+    expect(successorPty.written).toContain(kickoff)
+    expect(successorPty.written.at(-1)).toBe('\r')
+    // Host plumbing, not a new goal: the card keeps what the user typed.
+    expect(workspace.goalText).toBe('Fix the login bug')
+    expect(workspace.orchestratorTaskText).toBe('Fix the login bug')
+    expect(spawns.at(-1)!.input.initialPrompt).toBeUndefined()
+  })
+
+  it('kicks off with the package goal over the host goal, and says so when neither exists', async () => {
+    const { workspace, prompts } = harness()
+    await workspace.startOrchestrator()
+    await workspace.requestSuccession({ reason: 'context_full' }).ready
+    expect(prompts.at(-1)).toContain('Run goal: not recorded')
+
+    await workspace.requestSuccession({
+      reason: 'context_full',
+      goal: { original: 'Fix the login bug', current: 'Hardening the session store' }
+    }).ready
+    expect(prompts.at(-1)).toContain('Run goal: Hardening the session store')
+  })
+
+  it('folds the kick-off into a pty-delivery (cursor) successor’s prompt paste — never a second Enter', async () => {
+    const { workspace, prompts, seedOptions } = harness({
+      profile: testProfile({ orchestrator: { providerId: 'cursor' } }),
+      ptySystemPrompt: true
+    })
+    await workspace.startOrchestrator({ initialPrompt: 'Fix the login bug' })
+    const seedsBefore = prompts.length
+
+    const begun = workspace.requestSuccession({ reason: 'context_full' })
+    await begun.ready
+
+    expect(prompts).toHaveLength(seedsBefore + 1)
+    const paste = prompts.at(-1)!
+    expect(paste).toContain('successor of')
+    expect(paste).toMatch(/\n\nYou are taking over the run from/)
+    expect(paste).toContain(`await_events at cursor ${begun.eventCursor}`)
+    expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
+    expect(workspace.goalText).toBe('Fix the login bug')
+  })
+
+  it('keeps the successor in the seat when the kick-off is refused — visibly, without a failed handoff', async () => {
+    const seedOk = { value: true }
+    const { workspace, spawns } = harness({
+      deps: {
+        seed: (async (write: (text: string) => void, _s: unknown, prompt: string) => {
+          if (seedOk.value) write(prompt)
+          return seedOk.value
+        }) as unknown as WorkspaceDeps['seed']
+      }
+    })
+    const predecessor = await workspace.startOrchestrator()
+    seedOk.value = false
+
+    const begun = workspace.requestSuccession({ reason: 'context_full' })
+    await expect(begun.ready).rejects.toThrow(/did not accept the kick-off/)
+
+    expect(workspace.orchestrator?.agentId).toBe(begun.successorAgentId)
+    expect(workspace.orchestrator?.agentId).not.toBe(predecessor.agentId)
+    expect(workspace.orchestratorAlive).toBe(true)
+    expect(workspace.successionInProgress()).toBe(false)
+    const types = workspace.events.all().map((event) => event.type)
+    expect(types).toContain('orchestrator_started')
+    expect(types).not.toContain('orchestrator_handoff_failed')
+    // The diagnosis sits in the successor's own scrollback, next to the
+    // empty composer the user is looking at.
+    const successorPty = spawns.at(-1)!.pty
+    expect(successorPty.snapshot()).toContain('did not accept the kick-off')
+    expect(successorPty.snapshot()).toContain(`cursor ${begun.eventCursor}`)
+  })
+
+  it('does not type a kick-off into a successor whose process died during the cutover', async () => {
+    const inner = fakeSpawn()
+    const { workspace, prompts } = harness({
+      deps: {
+        spawn: (async (input, spawnDeps) => {
+          const spawned = await inner.spawn(input, spawnDeps)
+          if (input.kind === 'orchestrator' && inner.calls.length > 1) {
+            ;(spawned.pty as FakePty).exit({ exitCode: 1 })
+          }
+          return spawned
+        }) as WorkspaceDeps['spawn']
+      }
+    })
+    await workspace.startOrchestrator()
+    const seedsBefore = prompts.length
+    const begun = workspace.requestSuccession({ reason: 'context_full' })
+    await expect(begun.ready).rejects.toThrow(/process ended before it could be kicked off/)
+    expect(prompts).toHaveLength(seedsBefore)
+    expect(workspace.successionInProgress()).toBe(false)
   })
 
   it('seeds the successor with the team roster in prose', async () => {
@@ -1454,6 +1574,43 @@ describe('replaceOrchestratorFromHost — S3', () => {
   it('refuses when the workspace never had an orchestrator', async () => {
     const { workspace } = harness()
     await expect(workspace.replaceOrchestratorFromHost()).rejects.toThrow(/no_orchestrator/)
+  })
+
+  it('kicks off the replacement over the handshake on an arg-delivery provider — dead predecessor included', async () => {
+    const { workspace, spawns, prompts, seedOptions } = harness()
+    await workspace.startOrchestrator()
+    await workspace.assignGoal('Fix the login bug')
+    spawns[0]!.pty.exit({ exitCode: 1 })
+    const seedsBefore = prompts.length
+
+    const successor = await workspace.replaceOrchestratorFromHost()
+
+    // A dead predecessor wrote no package goal — the host goal carries.
+    expect(prompts).toHaveLength(seedsBefore + 1)
+    expect(prompts.at(-1)).toContain('taking over the run from')
+    expect(prompts.at(-1)).toContain('Run goal: Fix the login bug')
+    expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
+    const successorPty = spawns.find((call) => call.input.sessionId === successor.agentId)!.pty
+    expect(successorPty.written).toContain(prompts.at(-1))
+    expect(workspace.goalText).toBe('Fix the login bug')
+  })
+
+  it('surfaces a refused kick-off to the button without losing the replacement', async () => {
+    const seedOk = { value: true }
+    const { workspace } = harness({
+      deps: {
+        seed: (async (write: (text: string) => void, _s: unknown, prompt: string) => {
+          if (seedOk.value) write(prompt)
+          return seedOk.value
+        }) as unknown as WorkspaceDeps['seed']
+      }
+    })
+    const predecessor = await workspace.startOrchestrator()
+    seedOk.value = false
+    await expect(workspace.replaceOrchestratorFromHost()).rejects.toThrow(/did not accept the kick-off/)
+    expect(workspace.orchestratorAlive).toBe(true)
+    expect(workspace.orchestrator?.agentId).not.toBe(predecessor.agentId)
+    expect(workspace.successionInProgress()).toBe(false)
   })
 })
 
